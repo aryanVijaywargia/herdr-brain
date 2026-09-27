@@ -204,3 +204,78 @@ func TestWriteRollsBackOnError(t *testing.T) {
 		t.Errorf("rows after a failed Write = %d, want 0", got)
 	}
 }
+
+func TestFailedCommitLeavesStoreUsable(t *testing.T) {
+	s := openTest(t, t.TempDir(), fstest.MapFS{
+		"migrations/0001_a.sql": {Data: []byte(`CREATE TABLE parent (id INTEGER PRIMARY KEY);
+CREATE TABLE child (parent INTEGER REFERENCES parent (id) DEFERRABLE INITIALLY DEFERRED);`)},
+	})
+	defer closeTest(t, s)
+	ctx := context.Background()
+	exec := func(query string) func(tx *sql.Tx) error {
+		return func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, query)
+			return err
+		}
+	}
+
+	if err := s.Write(ctx, exec("INSERT INTO child VALUES (7)")); err == nil {
+		t.Fatal("Write(child with no parent) = nil error, want a failed commit")
+	}
+	if err := s.Write(ctx, exec("INSERT INTO parent VALUES (1)")); err != nil {
+		t.Fatalf("Write() after a failed commit = %v", err)
+	}
+	if got := queryInt(t, s, "SELECT count(*) FROM child"); got != 0 {
+		t.Errorf("child rows = %d, want 0", got)
+	}
+	if got := queryInt(t, s, "SELECT count(*) FROM parent"); got != 1 {
+		t.Errorf("parent rows = %d, want 1", got)
+	}
+}
+
+// TestMigrateRefusesNewerAfterLock covers a newer binary that migrates the store after the
+// first version check and before this binary takes the lock.
+func TestMigrateRefusesNewerAfterLock(t *testing.T) {
+	fsys := fstest.MapFS{"migrations/0001_a.sql": {Data: []byte("CREATE TABLE a (n INTEGER);")}}
+	s := openTest(t, t.TempDir(), fsys)
+	defer closeTest(t, s)
+	if _, err := s.db.Exec("PRAGMA user_version = 2"); err != nil {
+		t.Fatal(err)
+	}
+	ms, err := loadMigrations(fsys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrate(context.Background(), s.db, testTimeout, ms[0], len(ms)); !errors.Is(err, ErrNewer) {
+		t.Errorf("migrate(store at version 2, binary at 1) = %v, want ErrNewer", err)
+	}
+}
+
+func TestWriteBusyEndsAtContextDeadline(t *testing.T) {
+	dir := t.TempDir()
+	fsys := fstest.MapFS{"migrations/0001_a.sql": {Data: []byte("CREATE TABLE a (n INTEGER);")}}
+	holder := openTest(t, dir, fsys)
+	defer closeTest(t, holder)
+	waiter := openTest(t, dir, fsys)
+	defer closeTest(t, waiter)
+
+	var waitErr error
+	var waited time.Duration
+	err := holder.Write(context.Background(), func(*sql.Tx) error {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond) // [NEW]
+		defer cancel()
+		start := time.Now()
+		waitErr = waiter.Write(ctx, func(*sql.Tx) error { return nil })
+		waited = time.Since(start)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("holder Write() = %v", err)
+	}
+	if !errors.Is(waitErr, ErrBusy) || !errors.Is(waitErr, context.DeadlineExceeded) {
+		t.Errorf("Write() with a 50 ms deadline = %v, want ErrBusy and DeadlineExceeded", waitErr)
+	}
+	if waited >= testTimeout/2 {
+		t.Errorf("Write() with a 50 ms deadline waited %s, want less than %s", waited, testTimeout/2)
+	}
+}
