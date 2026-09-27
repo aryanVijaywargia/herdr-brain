@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -29,7 +30,11 @@ func startScratchServer(t *testing.T) (bin, home string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(home) })
+	t.Cleanup(func() {
+		if err := os.RemoveAll(home); err != nil {
+			t.Errorf("remove scratch HOME: %v", err)
+		}
+	})
 
 	cmd := exec.Command(bin, "--session", liveSession, "server")
 	cmd.Env = []string{"HOME=" + home, "PATH=/usr/bin:/bin"}
@@ -93,7 +98,7 @@ func TestLiveTarget(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			env := append(base[:len(base):len(base)], "HERDR_SOCKET_PATH="+tt.socket)
+			env := slices.Concat(base, []string{"HERDR_SOCKET_PATH=" + tt.socket})
 			if tt.session != "" {
 				env = append(env, "HERDR_SESSION="+tt.session)
 			}
@@ -107,7 +112,7 @@ func TestLiveTarget(t *testing.T) {
 		})
 	}
 
-	parent := append(base[:len(base):len(base)], "HERDR_SESSION=other", "HERDR_SOCKET_PATH="+bogus, "HERDR_BIN_PATH="+bin)
+	parent := slices.Concat(base, []string{"HERDR_SESSION=other", "HERDR_SOCKET_PATH=" + bogus, "HERDR_BIN_PATH=" + bin})
 	c, err := New(parent, Target{Session: liveSession, Socket: socket})
 	if err != nil {
 		t.Fatal(err)

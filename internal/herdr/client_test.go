@@ -67,8 +67,12 @@ func fakeHerdr(dir string) int {
 	if r.Hang {
 		time.Sleep(time.Hour) // a herdr that does not answer; the caller's deadline kills it
 	}
-	os.Stdout.WriteString(r.Stdout)
-	os.Stderr.WriteString(r.Stderr)
+	if _, err := os.Stdout.WriteString(r.Stdout); err != nil {
+		return 96
+	}
+	if _, err := os.Stderr.WriteString(r.Stderr); err != nil {
+		return 96
+	}
 	return r.Code
 }
 
@@ -106,7 +110,7 @@ func calls(t *testing.T, dir string) []call {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck // read-only: Close cannot lose data
 	var cs []call
 	s := bufio.NewScanner(f)
 	for s.Scan() {
