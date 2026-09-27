@@ -4,6 +4,8 @@ package scripts
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,23 +60,46 @@ func newRepo(t *testing.T, tagArgs ...string) string {
 	t.Helper()
 	dir := t.TempDir()
 	for _, f := range strings.Split(gitOut(t, "..", "ls-files", "-z"), "\x00") {
-		if f == "" {
-			continue
+		if f != "" {
+			copyTracked(t, filepath.Join("..", f), filepath.Join(dir, f))
 		}
-		b, err := os.ReadFile(filepath.Join("..", f))
-		if os.IsNotExist(err) {
-			continue // deleted in the working copy
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		writeFile(t, filepath.Join(dir, f), string(b))
 	}
 	git(t, dir, "init", "-q")
 	git(t, dir, "add", ".")
 	git(t, dir, "commit", "-q", "-m", "release")
 	git(t, dir, append(append([]string{"tag"}, tagArgs...), "v"+manifestVersion(t))...)
 	return dir
+}
+
+// copyTracked copies one tracked path into the test repo. A symlink, such as
+// .agents/skills/go-quality, stays a symlink.
+func copyTracked(t *testing.T, src, dst string) {
+	t.Helper()
+	fi, err := os.Lstat(src)
+	if errors.Is(err, fs.ErrNotExist) {
+		return // deleted in the working copy
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&fs.ModeSymlink == 0 {
+		b, err := os.ReadFile(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, dst, string(b))
+		return
+	}
+	target, err := os.Readlink(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, dst); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // herdrCheckout makes a checkout of ref from src the way `herdr plugin install` does:
