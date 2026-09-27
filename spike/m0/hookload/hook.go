@@ -64,13 +64,15 @@ func hook(stdin io.Reader, stdout io.Writer, getenv func(string) string) {
 	ctx, cancel := context.WithTimeout(context.Background(), totalCap)
 	defer cancel()
 
-	step := time.Now()
-	session := sessionID(stdin)
-	rec.MsRead = since(step)
 	if getenv("HERDR_ENV") != "1" {
 		rec.Result = "skipped"
 		return
 	}
+	// The probe does not bound this read or the file reads: the cap stops only the lookup and
+	// the receipt. E7-S2 enforces the whole cap.
+	step := time.Now()
+	session := sessionID(stdin)
+	rec.MsRead = since(step)
 
 	step = time.Now()
 	err := checkPane(ctx, getenv)

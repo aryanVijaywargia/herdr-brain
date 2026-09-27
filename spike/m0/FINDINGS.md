@@ -97,7 +97,7 @@
 
 - Date: 2026-09-28. herdr 0.9.1, Claude Code 2.1.283, Go 1.23. Probe: `hookload/` (its own module). Raw records: `data/e7s4-raw.txt`. Stats: `data/e7s4-summary.txt`.
 - **Setup.** Headless scratch server, session `brain-spike-e7s4`, scratch HOME `/tmp/e7s4/home`. The main session was not touched. The probe pane was `w1:p1`. The load panes were 32 shells in 4 other workspaces (8 panes each).
-- **Hook probe.** `hookload hook` does the HLD §8.3 steps in order and times each one: read stdin, `herdr --session <s> pane get <id>` (as `internal/herdr` does) with a workspace check, read the pointer, read the manifest, read both parts and check their size and SHA-256, print the JSON, then open the SQLite store (WAL, `internal/store` DSN) and insert one `deliveries` row. It does not read the workspace map (E2-S4 is not built). Any check failure withholds; `main_test.go` tests each case.
+- **Hook probe.** `hookload hook` does the HLD §8.3 steps in order and times each one: read stdin, `herdr --session <s> pane get <id>` (as `internal/herdr` does) with a workspace check, read the pointer, read the manifest, read both parts and check their size and SHA-256, print the JSON, then open the SQLite store (WAL, `internal/store` DSN) and insert one `deliveries` row. It does not read the workspace map (E2-S4 is not built). Any check failure withholds. `main_test.go` tests the pointer, manifest and part cases and the outside-herdr case; the `pane get` checks and the receipt failure have no test in the probe.
 - **Assumed E6 shape** (E6 is not built; names and JSON form are [NEW]; the folder, pointer and manifest come from HLD §7.5):
   - `out/current` holds `gen-<n>\n`, replaced by a rename.
   - `out/gen-<n>/manifest.json`: `{"generation":n,"files":[{"path","bytes","sha256"}]}`.
@@ -116,7 +116,7 @@
 | Claude idle (20) | 5.1 / 6.8 / 7.3 | 6.3 / 8.1 / 8.5 | not measurable |
 | Claude flood (20) | 6.3 / 7.6 / 21.1 | 7.6 / 25.5 / 31.6 | not measurable |
 
-Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to exit" adds the process start (Go runtime and the SQLite driver) and exit: 6-9 ms p50, 58 ms max under flood.
+Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to exit" adds the time outside the recorded interval: process start (Go runtime and the SQLite driver), the timing-log write and exit: 6-9 ms p50, 58 ms max under flood.
 
 - **Manifest check cost.** Pointer + manifest + both parts with SHA-256, over all 341 runs: p95 ≤ 0.21 ms, max 0.56 ms. It is not a factor for the deadline.
 - **Other steps.** Print ≤ 0.2 ms. Receipt (store open + insert): p95 ≤ 1.5 ms, max 5.9 ms (the first run, cold). Stdin read: ≤ 0.3 ms from the driver, but up to 18.4 ms from Claude under flood (the read waits until Claude has written the input).
@@ -126,7 +126,8 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
   - It is about 2 times the slowest `pane get` seen (79.2 ms) at the heaviest load.
   - It leaves 150 ms of the 300 ms cap for the steps after the lookup, which took at most about 7 ms (check, print, receipt).
   - Count it from the hook's start (`main`), not from the call, so a late stdin read shortens the lookup and never the cap.
-  - The process start before `main` (up to 58 ms under flood) is outside the hook's clock. The CLI sees at most about 360 ms, far below the CLI hook timeout.
+  - The process start before `main` (up to 58 ms seen under flood) is outside the hook's clock. That is an observed value, not a bound.
+- **The probe does not enforce the whole 300 ms cap.** Its deadline stops only the lookup and the receipt. The stdin read, the file reads and the print have no deadline: with stdin held open, the probe waited 462 ms (Astra review). So these numbers give no upper bound on the hook time. E7-S2 (#34) must enforce the whole cap and test it: stdin held open, a stalled lookup and a stalled output, then a bounded exit and no late print.
 - **Limits.**
   - The Claude account hit its weekly limit, so the model gave no answer. The hook ran in the real Claude hook environment and emitted all 41 times; M0 item 1 already showed that the text reaches the model.
   - Codex is at a usage limit and was skipped. The M0 Codex hook times matched Claude.
