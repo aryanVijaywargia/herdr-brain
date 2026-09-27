@@ -1100,8 +1100,6 @@ The M column says the first milestone that needs the table. M1 builds only the M
 | `proposals` | M1 | id, candidate id, item id, base revision, text, scope, target, diff, expected benefit, permission warning, conflicts with (item ids, M2), trigger prompts (hashes), change request, status, surface (cli/popup/pane), created, decided, review seconds |
 | `outputs` | M1 | generation, folder, manifest hash, built at, current (a copy; the pointer file is the authority, §7.5), holds forgotten text (yes/no). A newer generation wins. |
 | `applied_edits` | M1 | id, proposal id, file, generation, before, after, content hash, applied, rolled back |
-| `file_snapshots` | M1 | file, original bytes, taken (recovery only) |
-| `adapters` | M1 | harness kind, profile file, profile hash, hook entry hash (`entry_sha256`), event map, output form, shim, state (detected/configured/verified/retest), tested CLI version, last delivery, last error |
 | `deliveries` | M1 | id, profile, pane id, agent session id, workspace key, brief hash, output generation, item revisions, CLI version, result (emitted/withheld/unmapped), withheld reason, at |
 | `review_panes` | M1 | binding (herdr session and its continuity identity), pane id, beside pane id, proposal id, opened, closed. Brain closes or targets only a pane whose full identity (binding and pane id) is in this table, and only after herdr shows that the pane still runs `brain review`. On herdr 0.9.1 the review pane is a plugin pane (§4.2), and `herdr plugin pane close` refuses a pane that is not a plugin pane (`plugin_pane_not_found`) `[M0]`. A loss of continuity makes old rows invalid. [ASTRA7] 2 |
 | `tombstones` | M1 | claim id, source keys, forgotten at. No text. |
@@ -1121,6 +1119,8 @@ The M column says the first milestone that needs the table. M1 builds only the M
 | `tool_calls` | M4 | tool id, session key, origin (agent/automation), at, exit code, duration |
 | `automations` | M4 | id, workspace key, folder, trigger condition, CLI kind, tool id, contract hash, approved at, enabled, last result, last run |
 | `automation_runs` | M4 | automation id + event key (unique), claimed at, finished at, result (ok/failed/skipped/cancelled/unknown) |
+
+File snapshots and adapter states are not store tables. They live in `<data home>/install.json` (E8), because the CLI files are shared by all bindings.
 
 **Workspace identity:**
 - Brain gives each workspace its own key. The key links to the herdr session, the herdr id, the label and the root folder. Two herdr sessions can use the same workspace id.

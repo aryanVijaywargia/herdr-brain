@@ -243,6 +243,51 @@ func isConstraint(err error, code int) bool {
 	return errors.As(err, &se) && se.Code() == code
 }
 
+// A global item has no workspace key, and a workspace item has one.
+func TestScopeMatchesWorkspaceKey(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct {
+		name   string
+		scope  Scope
+		key    *string
+		wantOK bool
+	}{
+		{"global with a key", ScopeGlobal, ptr("k1"), false},
+		{"workspace with no key", ScopeWorkspace, nil, false},
+		{"global with no key", ScopeGlobal, nil, true},
+		{"workspace with a key", ScopeWorkspace, ptr("k1"), true},
+	} {
+		for _, table := range []struct {
+			name   string
+			insert func(tx *sql.Tx, f fixture) error
+		}{
+			{"items", func(tx *sql.Tx, f fixture) error {
+				it := f.item
+				it.Scope, it.WorkspaceKey = c.scope, c.key
+				_, err := InsertItem(ctx, tx, it)
+				return err
+			}},
+			{"item_revisions", func(tx *sql.Tx, f fixture) error {
+				r := revision(f)
+				r.Scope, r.WorkspaceKey = c.scope, c.key
+				return InsertItemRevision(ctx, tx, r)
+			}},
+		} {
+			t.Run(table.name+"/"+c.name, func(t *testing.T) {
+				s := openM1(t)
+				f := addFixture(t, s)
+				err := s.Write(ctx, func(tx *sql.Tx) error { return table.insert(tx, f) })
+				if c.wantOK && err != nil {
+					t.Errorf("insert = %v, want nil", err)
+				}
+				if !c.wantOK && !isConstraint(err, sqlite3.SQLITE_CONSTRAINT_CHECK) {
+					t.Errorf("insert = %v, want a CHECK constraint error", err)
+				}
+			})
+		}
+	}
+}
+
 func TestExceptionLinkNeedsBothFields(t *testing.T) {
 	s := openM1(t)
 	f := addFixture(t, s)

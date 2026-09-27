@@ -52,7 +52,7 @@ func (l jsonList[T]) Value() (driver.Value, error) {
 	return string(b), nil
 }
 
-// listDest scans a list column into p.
+// listDest scans a list column into p. An empty list reads back as an empty, non-nil slice.
 type listDest[T any] struct{ p *[]T }
 
 func (d listDest[T]) Scan(v any) error {

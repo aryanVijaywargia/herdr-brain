@@ -78,10 +78,11 @@ type ProposalStatus string
 
 // The proposal statuses.
 const (
-	ProposalPending  ProposalStatus = "pending"
-	ProposalApproved ProposalStatus = "approved"
-	ProposalRejected ProposalStatus = "rejected"
-	ProposalChanged  ProposalStatus = "changed"
+	ProposalPending    ProposalStatus = "pending"
+	ProposalApproved   ProposalStatus = "approved"
+	ProposalRejected   ProposalStatus = "rejected"
+	ProposalChanged    ProposalStatus = "changed"
+	ProposalSuperseded ProposalStatus = "superseded"
 )
 
 // Surface is where you decided a proposal.

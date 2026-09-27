@@ -28,12 +28,14 @@ CREATE TABLE items (
 	state            TEXT NOT NULL CHECK (state IN ('draft', 'active', 'disputed', 'retired')),
 	pinned           INTEGER NOT NULL CHECK (pinned IN (0, 1)),
 	anchors          TEXT NOT NULL CHECK (json_type(anchors) = 'array'),
-	created          TEXT NOT NULL
+	created          TEXT NOT NULL,
+	CHECK ((scope = 'global') = (workspace_key IS NULL))
 ) STRICT;
 
 -- M1 has no status values for a proposal in §11. The [NEW] set: pending until you decide,
--- then approved, rejected, or changed (you asked for a change, §7.4). "Later" only mutes a
--- proposal for one session (§5.5), so it stays pending.
+-- then approved, rejected, or changed (you asked for a change, §7.4). superseded is a proposal
+-- that Brain replaced after its base revision went stale (§7.4, S26). "Later" only mutes a
+-- proposal for one session (§5.1, §5.5), so it stays pending.
 CREATE TABLE proposals (
 	id                 INTEGER PRIMARY KEY,
 	candidate_id       INTEGER,
@@ -47,7 +49,7 @@ CREATE TABLE proposals (
 	permission_warning INTEGER NOT NULL CHECK (permission_warning IN (0, 1)),
 	trigger_prompts    TEXT NOT NULL CHECK (json_type(trigger_prompts) = 'array'),
 	change_request     TEXT,
-	status             TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'changed')),
+	status             TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'changed', 'superseded')),
 	surface            TEXT CHECK (surface IN ('cli', 'popup', 'pane')),
 	created            TEXT NOT NULL,
 	decided            TEXT,
@@ -71,6 +73,7 @@ CREATE TABLE item_revisions (
 	conflicts_with        TEXT NOT NULL CHECK (json_type(conflicts_with) = 'array'),
 	created               TEXT NOT NULL,
 	PRIMARY KEY (item_id, revision),
+	CHECK ((scope = 'global') = (workspace_key IS NULL)),
 	-- The exception link is a global item and its revision (§7.4): both or neither.
 	CHECK ((exception_to_item IS NULL) = (exception_to_revision IS NULL))
 ) STRICT;
