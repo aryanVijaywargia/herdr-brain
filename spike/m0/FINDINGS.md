@@ -50,6 +50,47 @@
 - The key uses the position of the hook, and the hash covers the command. A changed command needs trust again.
 - **Cleanup:** remove this entry at the end of M0, or keep it for more spike runs.
 
+### E8-S3: trust check
+
+- Date: 2026-09-28. codex-cli 0.154.0. Source: tag `rust-v0.154.0`, read only. Raw notes: `data/e8s3-trust-hash.txt`. Probe: `trusthash/`. No Codex session ran for this spike.
+- **Key format:** `<key source>:<event label>:<group index>:<handler index>` (`hook_key` in `hooks/src/lib.rs`).
+  - For `hooks.json`, the key source is the file path as Codex builds it: `<codex home>/hooks.json`. The codex home is `$HOME/.codex` when `CODEX_HOME` is not set (not resolved for symlinks). When `CODEX_HOME` is set, it is the canonical path of `CODEX_HOME`.
+  - Example: `[hooks.state."/Users/<user>/.codex/hooks.json:session_start:0:0"]`.
+  - The event label is snake case: `session_start`, `user_prompt_submit`, `post_tool_use` and so on.
+  - The group index is the position of the matcher group in the event's array. The handler index is the position in that group's `hooks` array. Both start at 0.
+  - For `-c hooks.*` flags, the key source is `/<session-flags>/config.toml` (the M0 key).
+- **Hash input and algorithm** (`hook_hash` in `hooks/src/engine/discovery.rs`, `version_for_toml` in `config/src/fingerprint.rs`):
+  - The input is the normalized identity of one handler: `{"event_name": <label>, "matcher": <matcher>, "hooks": [<handler>]}`.
+  - The handler has `type`, `command`, `timeout`, `async`, and `statusMessage` only when set. `additionalContextLimit` is in it only when set and not 2,500. `commandWindows` is never in it.
+  - `timeout` is always in it: the set value (at least 1), else 600. SessionEnd and Interrupt use 1 to 3, default 1.
+  - `matcher` is in it only when set, and never for UserPromptSubmit, Stop or Interrupt.
+  - Codex writes this as JSON with sorted keys and no spaces, and takes SHA-256. The value is `sha256:<64 lowercase hex>`.
+  - So the hash covers the command, the timeout, the matcher and the event. It does not cover the file path or the position; the key covers those.
+- **Status rule** (`hook_trust_status`): trusted when the stored `trusted_hash` equals the current hash, "modified" when it differs, "untrusted" when there is none. Codex runs the hook only when it is trusted and `enabled` is not `false`. Codex reads `hooks.state` only from the user `config.toml` and `-c` flags.
+- **Proof:** the probe computed the hash of the hooks and compared it with the stored values. All 3 stored entries match:
+  - M0 inline hook (`.../spike/m0/hook/brainspike codex`, timeout 5): `sha256:e13f3a03...` = stored. With timeout 10 or 600 the hash differs.
+  - `~/.codex/hooks.json:session_start:0:0` (no matcher, timeout 10): `sha256:9b6563c1...` = stored.
+  - `~/.codex/hooks.json:subagent_start:0:0` (matcher, no timeout): `sha256:a7e36c07...` = stored.
+  - `trusthash/main_test.go` keeps these 3 values as a golden test.
+- **Side result:** 3 other entries in the user's `~/.codex/hooks.json` have no state, so Codex skips them: `session_start:1:0`, `post_tool_use:0:0` and `user_prompt_submit:0:0` (the herdr-projects hooks). This spike did not change them.
+- **Chosen `brain doctor` check (stable, no Codex run):**
+  1. Read `<codex home>/hooks.json` and find the Brain entry: its event, group index and handler index.
+  2. Build the key and compute the hash as above.
+  3. Read only the `hooks.state` table of `<codex home>/config.toml`, and get `trusted_hash` and `enabled` for the key.
+  4. Trusted: the hashes are equal and `enabled` is not `false`. Else print "Codex hook not trusted" with the trust steps.
+  - The key uses the position. If another tool adds a group before the Brain group, the key changes and Codex asks for trust again. The check then says "not trusted", which is correct.
+  - A Codex update can change the hash rule. The doctor check then says "not trusted" for a trusted hook. The receipt fallback below catches this case.
+- **Fallback (kept as the second signal):** a Codex pane with no Brain receipt after its first prompt shows "Codex hook not trusted or not firing" with the fix.
+- **Trust steps for the user** (for the `brain setup` guide, E9; the guide does not exist yet):
+  1. Start `codex` in a terminal after `brain setup` adds the hook. Codex shows **Hooks need review** and "1 hook is new or changed."
+  2. Choose **Review hooks**. Find the SessionStart hook with the Brain command, from source `~/.codex/hooks.json`.
+  3. Press `t` to trust it. Press `t` on the event list to trust all hooks that need review.
+  4. Or choose **Trust all and continue** on the first screen. This trusts every new or changed hook, not only Brain's.
+  5. Do not choose **Continue without trusting (hooks won't run)**. Brain then gets no context.
+  6. Later, type `/hooks` in Codex to see the trust state or to trust the hook.
+  7. Trust again after a Brain update that changes the hook command or timeout. Run `brain doctor` to check.
+  - `codex exec` does not show the review screen. It skips an untrusted hook with no warning [M0].
+
 ## herdr 0.9.1 plugin system (new since 0.8.2)
 
 - The plugin manifest `herdr-plugin.toml` has: `id`, `name`, `version`, `min_herdr_version`, `description`, `platforms`, `[[actions]]`, `[[panes]]`, `[[events]]`, `startup`, `build` and `[[link_handlers]]`.
