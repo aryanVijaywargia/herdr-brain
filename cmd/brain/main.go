@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -29,34 +30,43 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprint(stderr, usage)
 		return 2
 	}
+	in := bufio.NewReader(stdin)
+	var err error
 	switch args[0] {
 	case "version", "--version":
 		fmt.Fprintf(stdout, "brain %s\n", version)
-		return 0
 	case "status":
-		return status(stdout, stderr)
+		err = status(stdout)
 	case "setup":
-		return setup(stdin, stdout, stderr)
+		err = setup(in, stdout)
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
-		return 0
 	default:
 		fmt.Fprintf(stderr, "brain: unknown command %q\n\n%s", args[0], usage)
 		return 2
 	}
+	code := 0
+	if err != nil {
+		fmt.Fprintf(stderr, "brain %s: %v\n", args[0], err)
+		code = 1
+	}
+	// A popup pane closes when its command exits, so wait until the user has read the output.
+	if args[0] == "setup" && os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID") != "" {
+		fmt.Fprint(stdout, "Press Enter to close.")
+		in.ReadString('\n')
+	}
+	return code
 }
 
-func status(stdout, stderr io.Writer) int {
+func status(stdout io.Writer) error {
 	bin, err := paths.BinaryPath()
 	if err != nil {
-		fmt.Fprintf(stderr, "brain: binary path: %v\n", err)
-		return 1
+		return fmt.Errorf("binary path: %w", err)
 	}
 	data, err := paths.DataHome()
 	if err != nil {
-		fmt.Fprintf(stderr, "brain: data home: %v\n", err)
-		return 1
+		return fmt.Errorf("data home: %w", err)
 	}
 	fmt.Fprintf(stdout, "brain %s: not set up yet\nbinary: %s\ndata: %s\n", version, bin, data)
-	return 0
+	return nil
 }

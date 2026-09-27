@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,63 +15,65 @@ import (
 // setup is the first command a new user runs, from the herdr `setup` action or by its path.
 // This is the E1-S2 stub: it shows the binary path and offers the ~/.local/bin/brain link.
 // Bindings and hook entries come with E9. It never edits a shell config file.
-func setup(stdin io.Reader, stdout, stderr io.Writer) int {
+func setup(in *bufio.Reader, stdout io.Writer) error {
 	bin, err := paths.BinaryPath()
 	if err != nil {
-		fmt.Fprintf(stderr, "brain setup: binary path: %v\n", err)
-		return 1
+		return fmt.Errorf("binary path: %w", err)
 	}
 	link, err := paths.LinkPath()
 	if err != nil {
-		fmt.Fprintf(stderr, "brain setup: link path: %v\n", err)
-		return 1
+		return fmt.Errorf("link path: %w", err)
 	}
-	in := bufio.NewReader(stdin)
-	code := offerLink(bin, link, in, stdout, stderr)
+	if err := offerLink(bin, link, in, stdout); err != nil {
+		return err
+	}
 	fmt.Fprintln(stdout, "Bindings and agent hooks are not built yet (E9).")
-	// A popup pane closes when its command exits, so wait until the user has read the output.
-	if os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID") != "" {
-		fmt.Fprint(stdout, "Press Enter to close.")
-		in.ReadString('\n')
-	}
-	return code
+	return nil
 }
 
 // offerLink shows the binary path and asks before it makes link -> bin.
 // It never replaces a file that it did not make.
-func offerLink(bin, link string, in *bufio.Reader, stdout, stderr io.Writer) int {
+func offerLink(bin, link string, in *bufio.Reader, stdout io.Writer) error {
 	fmt.Fprintf(stdout, "Brain binary: %s\n", bin)
-	if target, err := filepath.EvalSymlinks(link); err == nil {
-		if target == bin {
-			fmt.Fprintf(stdout, "%s already points to it.\n", link)
-			return 0
-		}
+	target, err := filepath.EvalSymlinks(link)
+	switch {
+	case err == nil && target == bin:
+		fmt.Fprintf(stdout, "%s already points to it.\n", link)
+		return nil
+	case err == nil:
 		fmt.Fprintf(stdout, "%s exists and points elsewhere. Brain did not change it.\nRun Brain with: %s\n", link, bin)
-		return 0
-	} else if _, lerr := os.Lstat(link); lerr == nil {
+		return nil
+	case !errors.Is(err, os.ErrNotExist):
+		return fmt.Errorf("check link %s: %w", link, err)
+	}
+	if _, err := os.Lstat(link); err == nil {
 		fmt.Fprintf(stdout, "%s exists but is broken. Brain did not change it.\nRun Brain with: %s\n", link, bin)
-		return 0
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("check link %s: %w", link, err)
 	}
 
 	fmt.Fprintf(stdout, "Make the symlink %s -> %s? [y/N] ", link, bin)
-	answer, _ := in.ReadString('\n')
+	// EOF with no answer means "no".
+	answer, err := in.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("read answer: %w", err)
+	}
 	if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
 		fmt.Fprintf(stdout, "\nNo link made. Run Brain with: %s\n", bin)
-		return 0
+		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-		fmt.Fprintf(stderr, "brain setup: %v\n", err)
-		return 1
+		return fmt.Errorf("create link dir: %w", err)
 	}
 	if err := os.Symlink(bin, link); err != nil {
-		fmt.Fprintf(stderr, "brain setup: %v\n", err)
-		return 1
+		return fmt.Errorf("create link: %w", err)
 	}
 	fmt.Fprintf(stdout, "\nLinked %s.\n", link)
 	if !onPath(filepath.Dir(link)) {
 		fmt.Fprintf(stdout, "%s is not on your PATH. Add it yourself, or run Brain with: %s\n", filepath.Dir(link), bin)
 	}
-	return 0
+	return nil
 }
 
 func onPath(dir string) bool {
