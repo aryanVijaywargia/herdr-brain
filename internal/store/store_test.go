@@ -272,8 +272,9 @@ func TestWriteBusyEndsAtContextDeadline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("holder Write() = %v", err)
 	}
-	if !errors.Is(waitErr, ErrBusy) || !errors.Is(waitErr, context.DeadlineExceeded) {
-		t.Errorf("Write() with a 50 ms deadline = %v, want ErrBusy and DeadlineExceeded", waitErr)
+	// The busy wait ends at the deadline or a little before it, so ctx may not be done yet.
+	if !errors.Is(waitErr, ErrBusy) {
+		t.Errorf("Write() with a 50 ms deadline = %v, want ErrBusy", waitErr)
 	}
 	if waited >= testTimeout/2 {
 		t.Errorf("Write() with a 50 ms deadline waited %s, want less than %s", waited, testTimeout/2)

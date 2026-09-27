@@ -152,12 +152,17 @@ func (s *Store) Write(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	return busy(inTx(ctx, s.db, s.busyTimeout, fn))
 }
 
-func inTx(ctx context.Context, db *sql.DB, busyTimeout time.Duration, fn func(tx *sql.Tx) error) error {
+func inTx(ctx context.Context, db *sql.DB, busyTimeout time.Duration, fn func(tx *sql.Tx) error) (err error) {
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("get connection: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		// After discard the connection is closed already, and Close says ErrConnDone.
+		if cerr := conn.Close(); !errors.Is(cerr, sql.ErrConnDone) {
+			err = errors.Join(err, cerr)
+		}
+	}()
 	// SQLite's busy wait does not see ctx, so the wait ends at the deadline of ctx when that
 	// comes before the busy timeout.
 	if err := setBusyTimeout(ctx, conn, busyTimeout); err != nil {
