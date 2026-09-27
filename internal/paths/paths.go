@@ -20,6 +20,16 @@ func DataHome() (string, error) {
 	return filepath.Join(home, ".local", "share", "brain"), nil
 }
 
+// BindingsFile returns ~/.local/share/brain/bindings.json, the session bindings file (HLD §8.3).
+// It sits in the data home but outside every store folder.
+func BindingsFile() (string, error) {
+	dir, err := DataHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "bindings.json"), nil
+}
+
 // LinkPath returns ~/.local/bin/brain, the symlink that `brain setup` offers to make.
 func LinkPath() (string, error) {
 	home, err := homeDir()

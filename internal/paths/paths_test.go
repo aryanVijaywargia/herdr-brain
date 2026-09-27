@@ -39,6 +39,18 @@ func TestDataHomeNeedsAbsoluteHome(t *testing.T) {
 	}
 }
 
+func TestBindingsFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got, err := BindingsFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".local", "share", "brain", "bindings.json"); got != want {
+		t.Errorf("BindingsFile = %q, want %q", got, want)
+	}
+}
+
 func TestLinkPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
