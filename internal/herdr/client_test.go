@@ -37,8 +37,8 @@ type call struct {
 	Socket  string
 }
 
-// fakeHerdr answers from dir/replies.json, keyed by the arguments after --session <name>,
-// and appends each call to dir/calls.jsonl.
+// fakeHerdr answers from dir/replies.json, keyed by its arguments, and appends each call to
+// dir/calls.jsonl.
 func fakeHerdr(dir string) int {
 	args := os.Args[1:]
 	f, err := os.OpenFile(filepath.Join(dir, "calls.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
@@ -57,10 +57,7 @@ func fakeHerdr(dir string) int {
 	if err := json.Unmarshal(data, &replies); err != nil {
 		return 98
 	}
-	if len(args) < 2 || args[0] != "--session" {
-		return 99
-	}
-	r, ok := replies[strings.Join(args[2:], " ")]
+	r, ok := replies[strings.Join(args, " ")]
 	if !ok {
 		return 99
 	}
@@ -85,6 +82,18 @@ const (
 // entries go into the parent environment.
 func fakeClient(t *testing.T, replies map[string]reply, environ ...string) (*Client, string) {
 	t.Helper()
+	env, dir := fakeEnv(t, replies, environ...)
+	c, err := New(env, Target{Session: testSession, Socket: testSocket})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c, dir
+}
+
+// fakeEnv writes the replies of the fake herdr and returns a parent environment whose herdr
+// is the fake, and the fake's folder.
+func fakeEnv(t *testing.T, replies map[string]reply, environ ...string) ([]string, string) {
+	t.Helper()
 	dir := t.TempDir()
 	data, err := json.Marshal(replies)
 	if err != nil {
@@ -93,12 +102,7 @@ func fakeClient(t *testing.T, replies map[string]reply, environ ...string) (*Cli
 	if err := os.WriteFile(filepath.Join(dir, "replies.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	env := append([]string{"BRAIN_FAKE_HERDR=" + dir, "HERDR_BIN_PATH=" + os.Args[0]}, environ...)
-	c, err := New(env, Target{Session: testSession, Socket: testSocket})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return c, dir
+	return append([]string{"BRAIN_FAKE_HERDR=" + dir, "HERDR_BIN_PATH=" + os.Args[0]}, environ...), dir
 }
 
 func calls(t *testing.T, dir string) []call {
@@ -213,9 +217,14 @@ func TestPane(t *testing.T) {
 		{name: "no result", reply: reply{Stdout: `{"id":"cli:pane:get"}`}, field: "result.type"},
 		{name: "not JSON", reply: reply{Stdout: "pane w1:p1\n"}, field: ""},
 		{
+			name:  "moved to another workspace",
+			reply: reply{Stdout: fixture(t, "pane-moved.json")},
+			want:  Pane{ID: "w2:p2", WorkspaceID: "w2", TabID: "w2:t1", Cwd: ptr("/private/tmp/brain-mv")},
+		},
+		{
 			name:  "pane not found",
 			reply: reply{Stderr: fixture(t, "error-pane-not-found.json"), Code: 1},
-			err:   "herdr pane get: pane bogus not found (pane_not_found)",
+			err:   "herdr pane get: pane bogus not found: pane not found",
 		},
 	}
 	for _, tt := range tests {
@@ -224,8 +233,8 @@ func TestPane(t *testing.T) {
 			got, err := c.Pane(deadline(t), "w1:p1")
 			switch {
 			case tt.err != "":
-				if err == nil || err.Error() != tt.err {
-					t.Fatalf("Pane() err = %v, want %q", err, tt.err)
+				if err == nil || err.Error() != tt.err || !errors.Is(err, ErrPaneNotFound) {
+					t.Fatalf("Pane() err = %v, want %q wrapping ErrPaneNotFound", err, tt.err)
 				}
 			case tt.want == Pane{}:
 				wantShape(t, err, tt.field)
@@ -235,7 +244,7 @@ func TestPane(t *testing.T) {
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Pane() = %+v, want %+v", got, tt.want)
 			}
-			wantArgs := []string{"--session", testSession, "pane", "get", "w1:p1"}
+			wantArgs := []string{"pane", "get", "w1:p1"}
 			if cs := calls(t, dir); len(cs) != 1 || !slices.Equal(cs[0].Args, wantArgs) {
 				t.Errorf("herdr calls = %+v, want one call with %q", cs, wantArgs)
 			}
@@ -257,6 +266,7 @@ func TestServerVersion(t *testing.T) {
 		{name: "no protocol", out: strings.Replace(snap, `"protocol":22,`, "", 1), field: "snapshot.protocol"},
 		{name: "no snapshot", out: `{"result":{"type":"session_snapshot"}}`, field: "snapshot"},
 		{name: "version of wrong type", out: strings.Replace(snap, `"version":"0.9.1"`, `"version":91`, 1), field: ""},
+		{name: "malformed version", out: strings.Replace(snap, `"version":"0.9.1"`, `"version":"nine"`, 1), field: "snapshot.version"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -326,18 +336,26 @@ func TestSessions(t *testing.T) {
 		{Name: "brain-t0005", Running: true, Dir: "/tmp/brain-t0005-hF23/home/.config/herdr/sessions/brain-t0005",
 			Socket: "/tmp/brain-t0005-hF23/home/.config/herdr/sessions/brain-t0005/herdr.sock"},
 	}
-	c, _ := fakeClient(t, map[string]reply{"session list --json": {Stdout: list}})
-	got, err := c.Sessions(deadline(t))
+	env, dir := fakeEnv(t, map[string]reply{"session list --json": {Stdout: list}}, "HERDR_SESSION=main")
+	got, err := Sessions(deadline(t), env)
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("Sessions() = %+v, %v, want %+v, nil", got, err, want)
 	}
+	if cs := calls(t, dir); len(cs) != 1 || cs[0].Session != "main" {
+		t.Errorf("herdr calls = %+v, want one call with the parent environment", cs)
+	}
 
-	bad := strings.Replace(list, `"running":true,`, "", 1)
-	c, _ = fakeClient(t, map[string]reply{"session list --json": {Stdout: bad}})
-	got, err = c.Sessions(deadline(t))
-	wantShape(t, err, "sessions[1].running")
-	if got != nil {
-		t.Errorf("Sessions() = %+v, want nil", got)
+	for field, out := range map[string]string{
+		"sessions[1].running":     strings.Replace(list, `"running":true,`, "", 1),
+		"sessions[1].name":        strings.Replace(list, `"name":"brain-t0005"`, `"name":""`, 1),
+		"sessions[0].socket_path": strings.Replace(list, `"socket_path":"/tmp/brain-t0005-hF23/home/.config/herdr/herdr.sock"`, `"socket_path":"herdr.sock"`, 1),
+	} {
+		env, _ := fakeEnv(t, map[string]reply{"session list --json": {Stdout: out}})
+		got, err := Sessions(deadline(t), env)
+		wantShape(t, err, field)
+		if got != nil {
+			t.Errorf("Sessions() = %+v, want nil", got)
+		}
 	}
 }
 
@@ -387,15 +405,15 @@ func TestClosePluginPane(t *testing.T) {
 }
 
 // TestTarget shows that the client's target wins over inherited HERDR_SESSION and
-// HERDR_SOCKET_PATH of another session: the child gets --session and both variables set to
-// the one target, so they never disagree. TestLiveTarget shows herdr's own order.
+// HERDR_SOCKET_PATH of another session: the child gets no --session flag and both variables
+// set to the one target, so they never disagree. TestLiveTarget shows herdr's own order.
 func TestTarget(t *testing.T) {
 	c, dir := fakeClient(t, map[string]reply{"workspace list": {Stdout: fixture(t, "workspace-list.json")}},
 		"HERDR_SESSION=main", "HERDR_SOCKET_PATH=/home/me/.config/herdr/herdr.sock")
 	if _, err := c.Workspaces(deadline(t)); err != nil {
 		t.Fatal(err)
 	}
-	want := call{Args: []string{"--session", testSession, "workspace", "list"}, Session: testSession, Socket: testSocket}
+	want := call{Args: []string{"workspace", "list"}, Session: testSession, Socket: testSocket}
 	if cs := calls(t, dir); len(cs) != 1 || !reflect.DeepEqual(cs[0], want) {
 		t.Errorf("herdr calls = %+v, want [%+v]", cs, want)
 	}
@@ -415,6 +433,14 @@ func TestChildEnv(t *testing.T) {
 
 func TestNew(t *testing.T) {
 	bin := []string{"HERDR_BIN_PATH=/usr/local/bin/herdr"}
+	empty, onPath := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(onPath, "herdr"), nil, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	relative, err := filepath.Rel(mustWd(t), onPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name    string
 		environ []string
@@ -424,9 +450,12 @@ func TestNew(t *testing.T) {
 		{name: "HERDR_BIN_PATH", environ: bin, target: Target{Session: "default", Socket: testSocket}, wantBin: "/usr/local/bin/herdr"},
 		{name: "no session", environ: bin, target: Target{Socket: testSocket}},
 		{name: "relative socket", environ: bin, target: Target{Session: testSession, Socket: "herdr.sock"}},
-		{name: "no herdr", target: Target{Session: testSession, Socket: testSocket}},
+		{name: "no herdr", environ: []string{"PATH=" + empty}, target: Target{Session: testSession, Socket: testSocket}},
+		{name: "herdr on PATH", environ: []string{"PATH=relative:" + empty + ":" + onPath}, target: Target{Session: testSession, Socket: testSocket}, wantBin: filepath.Join(onPath, "herdr")},
+		{name: "herdr only in a relative PATH entry", environ: []string{"PATH=" + relative}, target: Target{Session: testSession, Socket: testSocket}},
 	}
-	t.Setenv("PATH", t.TempDir()) // no herdr on PATH
+	// The process PATH has herdr; New must look only at environ.
+	t.Setenv("PATH", onPath)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c, err := New(tt.environ, tt.target)
@@ -483,6 +512,15 @@ func TestTargetArgs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func mustWd(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return wd
 }
 
 func TestDeadline(t *testing.T) {

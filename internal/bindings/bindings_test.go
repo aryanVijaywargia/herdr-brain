@@ -1,6 +1,7 @@
 package bindings
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -43,7 +44,7 @@ func TestRoundTrip(t *testing.T) {
 	if err := Write(path, want); err != nil {
 		t.Fatal(err)
 	}
-	got, err := Read(path)
+	got, _, err := Read(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,14 +57,14 @@ func TestRoundTrip(t *testing.T) {
 	if err := Write(path, want); err != nil {
 		t.Fatal(err)
 	}
-	if got, err = Read(path); err != nil || !reflect.DeepEqual(got, want) {
+	if got, _, err = Read(path); err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("Read after second Write = %+v, %v, want %+v", got, err, want)
 	}
 }
 
 func TestReadMissingFileHasNoBindings(t *testing.T) {
-	got, err := Read(filepath.Join(t.TempDir(), "bindings.json"))
-	if err != nil || got != nil {
+	got, dropped, err := Read(filepath.Join(t.TempDir(), "bindings.json"))
+	if err != nil || got != nil || dropped != nil {
 		t.Errorf("Read(missing) = %v, %v, want nil, nil", got, err)
 	}
 }
@@ -128,7 +129,7 @@ func TestReadRejectsBadFile(t *testing.T) {
 			if err := os.WriteFile(path, []byte(tt.content), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if got, err := Read(path); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+			if got, _, err := Read(path); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("Read(%s) = %+v, %v, want an error with %q", tt.content, got, err, tt.wantErr)
 			}
 		})
@@ -241,7 +242,7 @@ func TestBindingOfGoneSessionStays(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	bs, err := Read(path)
+	bs, _, err := Read(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,11 +250,197 @@ func TestBindingOfGoneSessionStays(t *testing.T) {
 	if err := Write(path, bs); err != nil {
 		t.Fatal(err)
 	}
-	got, err := Read(path)
+	got, _, err := Read(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 2 || got[0] != work {
 		t.Errorf("Read = %+v, want the gone session %+v first", got, work)
+	}
+}
+
+func TestBySocket(t *testing.T) {
+	dir := t.TempDir()
+	main := mkdir(t, filepath.Join(dir, "main"))
+	sockets := mkdir(t, filepath.Join(dir, "sockets"))
+	sock := filepath.Join(sockets, "herdr.sock")
+	if err := os.WriteFile(sock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := symlink(t, sockets, filepath.Join(dir, "link"))
+	bs := []Binding{
+		binding("default", sock, main, KindMain),
+		binding("brain-eval", filepath.Join(dir, "eval.sock"), filepath.Join(dir, "eval-store"), KindTest),
+	}
+	tests := []struct {
+		name   string
+		socket string
+		want   string // session; empty: no binding
+	}{
+		{name: "stored path", socket: sock, want: "default"},
+		{name: "path through a link", socket: filepath.Join(link, "herdr.sock"), want: "default"},
+		{name: "socket that does not exist yet", socket: filepath.Join(dir, "eval.sock"), want: "brain-eval"},
+		{name: "unbound socket", socket: filepath.Join(dir, "other.sock")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b, ok, err := BySocket(bs, tt.socket)
+			if err != nil || ok != (tt.want != "") || b.Session != tt.want {
+				t.Errorf("BySocket(%s) = %q, %v, %v, want %q", tt.socket, b.Session, ok, err, tt.want)
+			}
+		})
+	}
+
+	broken := symlink(t, filepath.Join(dir, "gone"), filepath.Join(dir, "broken.sock"))
+	if _, ok, err := BySocket(bs, broken); err == nil || ok {
+		t.Errorf("BySocket(link to a missing target) = %v, %v, want an error", ok, err)
+	}
+}
+
+// writeFile writes bs as a bindings file without the checks of Write.
+func writeFile(t *testing.T, path string, bs []Binding) {
+	t.Helper()
+	data, err := json.Marshal(file{Bindings: bs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A bad test binding drops only itself; the other sessions keep their bindings.
+func TestReadDropsBadTestBinding(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bindings.json")
+	main := mkdir(t, filepath.Join(dir, "main"))
+	dangling := symlink(t, filepath.Join(dir, "gone"), filepath.Join(dir, "dangling"))
+	def := binding("default", filepath.Join(dir, "default.sock"), main, KindMain)
+	work := binding("work", filepath.Join(dir, "work.sock"), main, KindMain)
+	eval := binding("eval", filepath.Join(dir, "eval.sock"), filepath.Join(dir, "eval-store"), KindTest)
+	test := func(session, socket, store string) Binding {
+		return binding(session, filepath.Join(dir, socket), store, KindTest)
+	}
+	tests := []struct {
+		name        string
+		bs          []Binding
+		wantKept    []Binding
+		wantDropped []string // sessions
+		wantErr     string
+	}{
+		{
+			name:        "dangling link as test store",
+			bs:          []Binding{def, test("t1", "t1.sock", filepath.Join(dangling, "store")), eval},
+			wantKept:    []Binding{def, eval},
+			wantDropped: []string{"t1"},
+			wantErr:     "link to a missing target",
+		},
+		{
+			name:        "dangling link as test socket",
+			bs:          []Binding{def, binding("t1", dangling, filepath.Join(dir, "t1-store"), KindTest)},
+			wantKept:    []Binding{def},
+			wantDropped: []string{"t1"},
+			wantErr:     "link to a missing target",
+		},
+		{
+			name:        "relative test store",
+			bs:          []Binding{def, test("t1", "t1.sock", "store")},
+			wantKept:    []Binding{def},
+			wantDropped: []string{"t1"},
+			wantErr:     "not absolute",
+		},
+		{
+			name:        "test store holds the bindings folder",
+			bs:          []Binding{def, test("t1", "t1.sock", dir)},
+			wantKept:    []Binding{def},
+			wantDropped: []string{"t1"},
+			wantErr:     "holds the bindings folder",
+		},
+		{
+			name:        "test store is the main store",
+			bs:          []Binding{def, test("t1", "t1.sock", main), work},
+			wantKept:    []Binding{def, work},
+			wantDropped: []string{"t1"},
+			wantErr:     "is the main store",
+		},
+		{
+			name:        "test binding before the main binding it conflicts with",
+			bs:          []Binding{test("default", "t1.sock", filepath.Join(dir, "t1-store")), def},
+			wantKept:    []Binding{def},
+			wantDropped: []string{"default"},
+			wantErr:     "already bound",
+		},
+		{
+			name:        "two test bindings share a store",
+			bs:          []Binding{def, test("t1", "t1.sock", filepath.Join(dir, "shared")), test("t2", "t2.sock", filepath.Join(dir, "shared")), eval},
+			wantKept:    []Binding{def, eval},
+			wantDropped: []string{"t1", "t2"},
+			wantErr:     "also the test store",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			writeFile(t, path, tt.bs)
+			kept, dropped, err := Read(path)
+			if err != nil {
+				t.Fatalf("Read: %v", err)
+			}
+			if !reflect.DeepEqual(kept, tt.wantKept) {
+				t.Errorf("kept = %+v, want %+v", kept, tt.wantKept)
+			}
+			var sessions []string
+			for _, d := range dropped {
+				sessions = append(sessions, d.Binding.Session)
+				if d.Err == nil || !strings.Contains(d.Err.Error(), tt.wantErr) {
+					t.Errorf("dropped %q: err = %v, want one with %q", d.Binding.Session, d.Err, tt.wantErr)
+				}
+			}
+			if !reflect.DeepEqual(sessions, tt.wantDropped) {
+				t.Errorf("dropped sessions = %v, want %v", sessions, tt.wantDropped)
+			}
+		})
+	}
+}
+
+// A bad main binding, or main bindings that disagree, stop every session.
+func TestReadFailsOnBadMainBinding(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bindings.json")
+	main := mkdir(t, filepath.Join(dir, "main"))
+	dangling := symlink(t, filepath.Join(dir, "gone"), filepath.Join(dir, "dangling"))
+	def := binding("default", filepath.Join(dir, "default.sock"), main, KindMain)
+	eval := binding("eval", filepath.Join(dir, "eval.sock"), filepath.Join(dir, "eval-store"), KindTest)
+	tests := []struct {
+		name    string
+		bs      []Binding
+		wantErr string
+	}{
+		{"relative main store", []Binding{eval, binding("work", filepath.Join(dir, "w.sock"), "main", KindMain)}, "not absolute"},
+		{"dangling link as main socket", []Binding{eval, binding("work", dangling, main, KindMain)}, "link to a missing target"},
+		{"main store holds the bindings folder", []Binding{eval, binding("work", filepath.Join(dir, "w.sock"), dir, KindMain)}, "holds the bindings folder"},
+		{"main bindings disagree", []Binding{def, eval, binding("work", filepath.Join(dir, "w.sock"), filepath.Join(dir, "other"), KindMain)}, "is not the main store"},
+		{"unknown kind", []Binding{def, binding("x", filepath.Join(dir, "x.sock"), filepath.Join(dir, "x"), "prod")}, `kind "prod"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			writeFile(t, path, tt.bs)
+			kept, dropped, err := Read(path)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("Read = %+v, %+v, %v, want an error with %q", kept, dropped, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// Write stays strict: setup runs with the user present, so it refuses a bad test binding.
+func TestWriteRefusesBadTestBinding(t *testing.T) {
+	dir := t.TempDir()
+	main := mkdir(t, filepath.Join(dir, "main"))
+	bs := []Binding{
+		binding("default", filepath.Join(dir, "default.sock"), main, KindMain),
+		binding("eval", filepath.Join(dir, "eval.sock"), main, KindTest),
+	}
+	if err := Write(filepath.Join(dir, "bindings.json"), bs); err == nil || !strings.Contains(err.Error(), "is the main store") {
+		t.Errorf("Write = %v, want an error with %q", err, "is the main store")
 	}
 }

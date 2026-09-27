@@ -124,7 +124,7 @@ func TestLiveTarget(t *testing.T) {
 	if _, _, err := c.CheckServer(deadline(t)); err != nil {
 		t.Errorf("CheckServer() = %v", err)
 	}
-	ss, err := c.Sessions(deadline(t))
+	ss, err := Sessions(deadline(t), parent)
 	if err != nil {
 		t.Fatal(err)
 	}
