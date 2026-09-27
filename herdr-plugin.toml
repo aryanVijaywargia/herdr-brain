@@ -1,0 +1,18 @@
+# Herdr Brain plugin manifest. Docs: https://herdr.dev/docs/plugins/
+# Later epics add their own [[actions]] and [[panes]] (review pane: E5).
+id = "brain"
+name = "Herdr Brain"
+version = "0.0.1"
+min_herdr_version = "0.9.1"
+description = "Cross-harness memory for coding agents in herdr (temporary name)"
+platforms = ["linux", "macos"]
+
+# Runs only on `herdr plugin install`. `herdr plugin link` skips it: run scripts/build.sh first.
+[[build]]
+command = ["sh", "scripts/build.sh"]
+
+[[actions]]
+id = "status"
+title = "Brain: status"
+contexts = ["workspace", "pane"]
+command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" status"]
