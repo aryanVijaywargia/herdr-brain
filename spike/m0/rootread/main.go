@@ -36,18 +36,27 @@ func readRoot(path, workspaceID string) (string, error) {
 	if f.Version == nil || *f.Version != knownVersion {
 		return "", fmt.Errorf("%w: unknown version", errWithheld)
 	}
+	// Check every entry first, so the result does not depend on entry order.
+	root, found := "", false
 	for _, w := range f.Workspaces {
 		if w.ID == nil || w.IdentityCwd == nil {
 			return "", fmt.Errorf("%w: missing field", errWithheld)
 		}
-		if *w.ID == workspaceID {
-			if !filepath.IsAbs(*w.IdentityCwd) {
-				return "", fmt.Errorf("%w: relative root", errWithheld)
-			}
-			return *w.IdentityCwd, nil
+		if *w.ID != workspaceID {
+			continue
 		}
+		if found {
+			return "", fmt.Errorf("%w: duplicate workspace id", errWithheld)
+		}
+		root, found = *w.IdentityCwd, true
 	}
-	return "", fmt.Errorf("%w: workspace not in file", errWithheld)
+	if !found {
+		return "", fmt.Errorf("%w: workspace not in file", errWithheld)
+	}
+	if !filepath.IsAbs(root) {
+		return "", fmt.Errorf("%w: relative root", errWithheld)
+	}
+	return root, nil
 }
 
 func main() {
