@@ -2,9 +2,12 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -15,29 +18,55 @@ const usage = `usage: brain <command>
 commands:
   version   print the Brain version
   status    show Brain status
+  setup     show the binary path and offer a ~/.local/bin/brain link
 `
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
-func run(args []string, stdout, stderr io.Writer) int {
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return 2
 	}
+	in := bufio.NewReader(stdin)
+	var err error
 	switch args[0] {
 	case "version", "--version":
 		fmt.Fprintf(stdout, "brain %s\n", version)
-		return 0
 	case "status":
-		fmt.Fprintf(stdout, "brain %s: not set up yet\n", version)
-		return 0
+		err = status(stdout)
+	case "setup":
+		err = setup(in, stdout)
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
-		return 0
 	default:
 		fmt.Fprintf(stderr, "brain: unknown command %q\n\n%s", args[0], usage)
 		return 2
 	}
+	code := 0
+	if err != nil {
+		fmt.Fprintf(stderr, "brain %s: %v\n", args[0], err)
+		code = 1
+	}
+	// A popup pane closes when its command exits, so wait until the user has read the output.
+	if args[0] == "setup" && os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID") != "" {
+		fmt.Fprint(stdout, "Press Enter to close.")
+		in.ReadString('\n')
+	}
+	return code
+}
+
+func status(stdout io.Writer) error {
+	bin, err := paths.BinaryPath()
+	if err != nil {
+		return fmt.Errorf("binary path: %w", err)
+	}
+	data, err := paths.DataHome()
+	if err != nil {
+		return fmt.Errorf("data home: %w", err)
+	}
+	fmt.Fprintf(stdout, "brain %s: not set up yet\nbinary: %s\ndata: %s\n", version, bin, data)
+	return nil
 }
