@@ -16,3 +16,18 @@ id = "status"
 title = "Brain: status"
 contexts = ["workspace", "pane"]
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" status"]
+
+# First run (E1-S2): opens the setup pane, so a new user needs no `brain` on PATH.
+# Also: `herdr plugin action invoke brain.setup`.
+[[actions]]
+id = "setup"
+title = "Brain: setup"
+contexts = ["global", "workspace", "pane"]
+command = ["sh", "-c", "exec \"$HERDR_BIN_PATH\" plugin pane open --plugin brain --entrypoint setup"]
+
+# Placement: popup is the simpler choice until E5 decides popup or split [NEW].
+[[panes]]
+id = "setup"
+title = "Brain setup"
+placement = "popup"
+command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" setup"]
