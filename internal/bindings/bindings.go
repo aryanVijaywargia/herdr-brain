@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -53,10 +55,10 @@ func Read(path string) ([]Binding, error) {
 	if err := dec.Decode(&f); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	if dec.More() {
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("parse %s: data after the bindings object", path)
 	}
-	if err := validate(f.Bindings); err != nil {
+	if err := validate(f.Bindings, filepath.Dir(path)); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return f.Bindings, nil
@@ -65,7 +67,7 @@ func Read(path string) ([]Binding, error) {
 // Write validates bs and replaces the bindings file atomically: it writes a temp file in the
 // same folder and renames it over the old file.
 func Write(path string, bs []Binding) error {
-	if err := validate(bs); err != nil {
+	if err := validate(bs, filepath.Dir(path)); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(file{Bindings: bs}, "", "  ")
@@ -107,11 +109,15 @@ func writeAndRename(tmp *os.File, path string, data []byte) error {
 
 // validate checks each binding and the rules between them: one binding per session name and
 // per socket, one main store for all real sessions, and each test store apart from the main
-// store and from every other test store. Paths compare after links and aliases.
-func validate(bs []Binding) error {
+// store and from every other test store. No store may hold dir, the bindings folder, because
+// the file must stay outside every store (§8.3). Paths compare after links and aliases.
+func validate(bs []Binding, dir string) error {
 	for _, b := range bs {
 		if err := b.check(); err != nil {
 			return err
+		}
+		if err := holdsNot(b.Store, dir); err != nil {
+			return fmt.Errorf("session %q: %w", b.Session, err)
 		}
 	}
 	for i, b := range bs {
@@ -132,6 +138,12 @@ func (b Binding) check() error {
 		return fmt.Errorf("session %q: socket path %q is not absolute", b.Session, b.Socket)
 	case !filepath.IsAbs(b.Store):
 		return fmt.Errorf("session %q: store folder %q is not absolute", b.Session, b.Store)
+	// The kernel follows a link before it applies "..", but filepath.Clean drops "link/.."
+	// as text. So a path that Clean changes could name another folder than the check sees.
+	case b.Socket != filepath.Clean(b.Socket):
+		return fmt.Errorf("session %q: socket path %q is not a clean path", b.Session, b.Socket)
+	case b.Store != filepath.Clean(b.Store):
+		return fmt.Errorf("session %q: store folder %q is not a clean path", b.Session, b.Store)
 	case b.Kind != KindMain && b.Kind != KindTest:
 		return fmt.Errorf("session %q: kind %q is not %q or %q", b.Session, b.Kind, KindMain, KindTest)
 	case b.Created.IsZero():
@@ -156,12 +168,21 @@ func conflict(prev, b Binding) error {
 	if err != nil {
 		return err
 	}
+	// A test store is reset before each eval case (§12.1), so it must not hold another store,
+	// nor sit inside one.
+	nested, err := nested(prev.Store, b.Store)
+	if err != nil {
+		return err
+	}
 	bothMain := prev.Kind == KindMain && b.Kind == KindMain
 	switch {
 	case bothMain && !same:
 		return fmt.Errorf("session %q: store %s is not the main store %s", b.Session, b.Store, prev.Store)
-	case bothMain || !same:
+	case bothMain || !same && !nested:
 		return nil
+	case !same:
+		return fmt.Errorf("session %q: store %s and the store %s of session %q are inside one another",
+			b.Session, b.Store, prev.Store, prev.Session)
 	case b.Kind == KindMain:
 		return fmt.Errorf("session %q: a real session cannot use the test store %s of session %q", b.Session, b.Store, prev.Session)
 	case prev.Kind == KindMain:
@@ -202,6 +223,41 @@ func samePath(a, b string) (bool, error) {
 		return false, err
 	}
 	return os.SameFile(fa, fb), nil
+}
+
+// nested reports whether one of a and b is inside the other, after links.
+func nested(a, b string) (bool, error) {
+	ca, err := canonical(a)
+	if err != nil {
+		return false, err
+	}
+	cb, err := canonical(b)
+	if err != nil {
+		return false, err
+	}
+	return inside(ca, cb) || inside(cb, ca), nil
+}
+
+// holdsNot returns an error when store is dir or holds dir, after links.
+func holdsNot(store, dir string) error {
+	cs, err := canonical(store)
+	if err != nil {
+		return err
+	}
+	cd, err := canonical(dir)
+	if err != nil {
+		return err
+	}
+	if cs == cd || inside(cs, cd) {
+		return fmt.Errorf("store %s holds the bindings folder %s", store, dir)
+	}
+	return nil
+}
+
+// inside reports whether the clean path child is below parent.
+func inside(parent, child string) bool {
+	rel, err := filepath.Rel(parent, child)
+	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // canonical resolves the links in p. A store folder or a socket may not exist (yet), so it

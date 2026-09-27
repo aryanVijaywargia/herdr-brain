@@ -112,14 +112,15 @@ func TestWriteIsAtomic(t *testing.T) {
 func TestReadRejectsBadFile(t *testing.T) {
 	valid := `{"session":"default","socket":"/tmp/d.sock","store":"/tmp/main","kind":"main","created":"2026-09-28T10:00:00Z"}`
 	tests := []struct {
-		name, content string
+		name, content, wantErr string
 	}{
-		{"not json", "bindings = []"},
-		{"unknown field", `{"bindings":[],"extra":1}`},
-		{"unknown binding field", `{"bindings":[{"session":"a","color":"red"}]}`},
-		{"data after object", `{"bindings":[]} {}`},
-		{"duplicate session", `{"bindings":[` + valid + `,` + strings.Replace(valid, "d.sock", "e.sock", 1) + `]}`},
-		{"bad kind", `{"bindings":[` + strings.Replace(valid, `"main"`, `"prod"`, 1) + `]}`},
+		{"not json", "bindings = []", "invalid character"},
+		{"unknown field", `{"bindings":[],"extra":1}`, `unknown field "extra"`},
+		{"unknown binding field", `{"bindings":[` + strings.Replace(valid, `{`, `{"color":"red",`, 1) + `]}`, `unknown field "color"`},
+		{"object after object", `{"bindings":[]} {}`, "data after the bindings object"},
+		{"brace after object", `{"bindings":[]} }`, "data after the bindings object"},
+		{"duplicate session", `{"bindings":[` + valid + `,` + strings.Replace(valid, "d.sock", "e.sock", 1) + `]}`, "already bound"},
+		{"bad kind", `{"bindings":[` + strings.Replace(valid, `"main"`, `"prod"`, 1) + `]}`, `kind "prod"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -127,8 +128,8 @@ func TestReadRejectsBadFile(t *testing.T) {
 			if err := os.WriteFile(path, []byte(tt.content), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if got, err := Read(path); err == nil {
-				t.Errorf("Read(%s) = %+v, nil, want an error", tt.content, got)
+			if got, err := Read(path); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("Read(%s) = %+v, %v, want an error with %q", tt.content, got, err, tt.wantErr)
 			}
 		})
 	}
@@ -137,7 +138,8 @@ func TestReadRejectsBadFile(t *testing.T) {
 // Each case is a valid first binding plus a second one that must be refused.
 func TestWriteRefuses(t *testing.T) {
 	dir := t.TempDir()
-	main := mkdir(t, filepath.Join(dir, "main"))
+	path := filepath.Join(dir, "data", "bindings.json")
+	main := mkdir(t, filepath.Join(dir, "stores", "main"))
 	evalStore := mkdir(t, filepath.Join(dir, "eval"))
 	sock := filepath.Join(dir, "default.sock")
 	if err := os.WriteFile(sock, nil, 0o600); err != nil {
@@ -146,6 +148,7 @@ func TestWriteRefuses(t *testing.T) {
 	sockLink := symlink(t, sock, filepath.Join(dir, "sock-link"))
 	mainLink := symlink(t, main, filepath.Join(dir, "main-link"))
 	evalLink := symlink(t, evalStore, filepath.Join(dir, "eval-link"))
+	subLink := symlink(t, mkdir(t, filepath.Join(dir, "stores", "sub")), filepath.Join(dir, "sub-link"))
 	dangling := symlink(t, filepath.Join(dir, "not-yet"), filepath.Join(dir, "dangling"))
 	otherSock := filepath.Join(dir, "other.sock")
 
@@ -154,30 +157,50 @@ func TestWriteRefuses(t *testing.T) {
 	tests := []struct {
 		name          string
 		first, second Binding
+		wantErr       string
 	}{
-		{"same session name", first, binding("default", otherSock, main, KindMain)},
-		{"same socket", first, binding("work", sock, main, KindMain)},
-		{"same socket through a link", first, binding("work", sockLink, main, KindMain)},
-		{"same socket through dot-dot", first, binding("work", filepath.Join(dir, "x", "..", "default.sock"), main, KindMain)},
-		{"S76: test store is the main store through a link", first, binding("brain-eval", otherSock, mainLink, KindTest)},
-		{"test store is the main store", first, binding("brain-eval", otherSock, main, KindTest)},
-		{"test store is another test store through a link", firstTest, binding("eval-2", otherSock, evalLink, KindTest)},
-		{"real session uses a test store", firstTest, binding("work", otherSock, evalStore, KindMain)},
-		{"second main store", first, binding("work", otherSock, evalStore, KindMain)},
-		{"store is a dangling link", first, binding("brain-eval", otherSock, dangling, KindTest)},
-		{"relative socket", first, binding("work", "work.sock", main, KindMain)},
-		{"relative store", first, binding("work", otherSock, "main", KindMain)},
-		{"no session name", first, binding("", otherSock, main, KindMain)},
-		{"no created time", first, Binding{Session: "work", Socket: otherSock, Store: main, Kind: KindMain}},
+		{"same session name", first, binding("default", otherSock, main, KindMain), "already bound"},
+		{"same socket", first, binding("work", sock, main, KindMain), "already bound to session"},
+		{"same socket through a link", first, binding("work", sockLink, main, KindMain), "already bound to session"},
+		// Raw strings: filepath.Join would clean the "..".
+		{"socket with dot-dot", first, binding("work", dir+"/x/../default.sock", main, KindMain), "not a clean path"},
+		{"test store through a link and dot-dot", first, binding("brain-eval", otherSock, subLink+"/../main", KindTest), "not a clean path"},
+		{"S76: test store is the main store through a link", first, binding("brain-eval", otherSock, mainLink, KindTest), "is the main store"},
+		{"test store is the main store", first, binding("brain-eval", otherSock, main, KindTest), "is the main store"},
+		{"test store holds the main store", first, binding("brain-eval", otherSock, filepath.Join(dir, "stores"), KindTest), "inside one another"},
+		{"test store inside the main store", first, binding("brain-eval", otherSock, filepath.Join(mainLink, "eval"), KindTest), "inside one another"},
+		{"test store inside another test store", firstTest, binding("eval-2", otherSock, filepath.Join(evalLink, "2"), KindTest), "inside one another"},
+		{"test store is the data home", first, binding("brain-eval", otherSock, filepath.Join(dir, "data"), KindTest), "holds the bindings folder"},
+		{"test store is another test store through a link", firstTest, binding("eval-2", otherSock, evalLink, KindTest), "also the test store"},
+		{"real session uses a test store", firstTest, binding("work", otherSock, evalStore, KindMain), "cannot use the test store"},
+		{"second main store", first, binding("work", otherSock, evalStore, KindMain), "not the main store"},
+		{"store is a dangling link", first, binding("brain-eval", otherSock, dangling, KindTest), "missing target"},
+		{"relative socket", first, binding("work", "work.sock", main, KindMain), "not absolute"},
+		{"relative store", first, binding("work", otherSock, "main", KindMain), "not absolute"},
+		{"no session name", first, binding("", otherSock, main, KindMain), "no session name"},
+		{"no created time", first, Binding{Session: "work", Socket: otherSock, Store: main, Kind: KindMain}, "no created time"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "bindings.json")
 			if err := Write(path, []Binding{tt.first}); err != nil {
 				t.Fatalf("Write(first) = %v, want nil", err)
 			}
-			if err := Write(path, []Binding{tt.first, tt.second}); err == nil {
-				t.Errorf("Write(%+v) = nil, want an error", tt.second)
+			if err := Write(path, []Binding{tt.first, tt.second}); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("Write(%+v) = %v, want an error with %q", tt.second, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// §8.3: the bindings file stays outside every store, the main store too.
+func TestWriteRefusesStoreThatHoldsBindings(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "data", "bindings.json")
+	for _, store := range []string{filepath.Join(dir, "data"), dir} {
+		t.Run(store, func(t *testing.T) {
+			b := binding("default", filepath.Join(dir, "d.sock"), store, KindMain)
+			if err := Write(path, []Binding{b}); err == nil || !strings.Contains(err.Error(), "holds the bindings folder") {
+				t.Errorf("Write(store %s) = %v, want an error with %q", store, err, "holds the bindings folder")
 			}
 		})
 	}
