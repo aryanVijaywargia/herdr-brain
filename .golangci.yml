@@ -1,0 +1,38 @@
+# golangci-lint v2. The rules behind this config: .claude/skills/go-quality/SKILL.md.
+# The thresholds are [NEW]: they have no source in the HLD or a story.
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - errorlint
+    - nilerr
+    - staticcheck
+    - unused
+    - unparam
+    - dupl
+    - revive
+    - gocritic
+    - nestif
+    - funlen
+    - forcetypeassert
+  settings:
+    funlen:
+      lines: -1 # count statements, not lines, so long test tables pass
+      statements: 40 # [NEW] rule 10: short functions
+    dupl:
+      threshold: 150 # [NEW] tokens; only large copies, rule 9: extract at the third copy
+    nestif:
+      min-complexity: 5 # [NEW] rule 10: flat functions
+  exclusions:
+    rules:
+      # cmd/ prints to the user's terminal, and a failed write there has no one to report to.
+      # fmt.Fprint* in other packages, and every Close, stay checked.
+      - path: ^cmd/
+        linters: [errcheck]
+        text: "Error return value of `fmt\\.Fprint(f|ln)?` is not checked"
+
+issues:
+  # Show every finding in one run, not the first 50 per linter or 3 per message.
+  max-issues-per-linter: 0
+  max-same-issues: 0
