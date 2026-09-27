@@ -7,6 +7,16 @@ Status: planning and scaffold. Design: [`docs/design/HLD.md`](docs/design/HLD.md
 
 Needs herdr 0.9.1 or later, Linux or macOS.
 
+## Install
+
+```sh
+herdr plugin install aryanVijaywargia/herdr-brain
+herdr plugin action invoke brain.setup   # or run the "Brain: setup" action in herdr
+```
+
+herdr does not put the plugin on your `PATH`. `brain setup` shows the binary path and offers a `~/.local/bin/brain` link.
+It never edits your shell config.
+
 ## Develop
 
 ```sh
@@ -23,5 +33,6 @@ herdr plugin unlink brain
 | `herdr-plugin.toml` | Plugin manifest |
 | `cmd/brain/` | The one `brain` binary |
 | `scripts/build.sh` | Build step that `herdr plugin install` runs |
-| `docs/design/` | HLD and owner questions |
+| `internal/paths/` | Binary path and data home for every entry point |
+| `docs/design/` | HLD, decisions and owner questions |
 | `spike/m0/` | M0 spike code and findings |
