@@ -189,6 +189,9 @@ func (r rawSession) parse(c *check, field string) Session {
 	if s.Name == "" {
 		c.fail(field+".name", "empty")
 	}
+	if !filepath.IsAbs(s.Dir) {
+		c.fail(field+".session_dir", fmt.Sprintf("%q is not absolute", s.Dir))
+	}
 	if !filepath.IsAbs(s.Socket) {
 		c.fail(field+".socket_path", fmt.Sprintf("%q is not absolute", s.Socket))
 	}

@@ -348,6 +348,7 @@ func TestSessions(t *testing.T) {
 	for field, out := range map[string]string{
 		"sessions[1].running":     strings.Replace(list, `"running":true,`, "", 1),
 		"sessions[1].name":        strings.Replace(list, `"name":"brain-t0005"`, `"name":""`, 1),
+		"sessions[0].session_dir": strings.Replace(list, `"session_dir":"/tmp/brain-t0005-hF23/home/.config/herdr"`, `"session_dir":""`, 1),
 		"sessions[0].socket_path": strings.Replace(list, `"socket_path":"/tmp/brain-t0005-hF23/home/.config/herdr/herdr.sock"`, `"socket_path":"herdr.sock"`, 1),
 	} {
 		env, _ := fakeEnv(t, map[string]reply{"session list --json": {Stdout: out}})

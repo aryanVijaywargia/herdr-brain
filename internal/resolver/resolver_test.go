@@ -19,8 +19,8 @@ import (
 
 // record is one (pane, agent session id) record of the fake store.
 type record struct {
-	paneID, agentSession string
-	check                AgentCheck
+	session, paneID, agentSession string
+	check                         AgentCheck
 }
 
 // fakeData is what the fake stores of one test keep, per store folder, across opens.
@@ -47,27 +47,29 @@ func (s *fakeStore) WriteWithheld(_ context.Context, w Withheld) error {
 	return nil
 }
 
-func (s *fakeStore) RecordAgentSession(_ context.Context, paneID, agentSession string) error {
+func (s *fakeStore) RecordAgentSession(_ context.Context, session, paneID, agentSession string) error {
 	s.d.calls = append(s.d.calls, "RecordAgentSession")
-	s.d.records[s.dir] = append(s.d.records[s.dir], record{paneID, agentSession, AgentUnknown})
+	s.d.records[s.dir] = append(s.d.records[s.dir], record{session, paneID, agentSession, AgentUnknown})
 	return nil
 }
 
-func (s *fakeStore) UncheckedAgentSessions(_ context.Context, paneID string) ([]string, error) {
+func (s *fakeStore) UncheckedAgentSessions(_ context.Context, session, paneID string) ([]string, error) {
 	s.d.calls = append(s.d.calls, "UncheckedAgentSessions")
 	var ids []string
 	for _, r := range s.d.records[s.dir] {
-		if r.paneID == paneID && r.check == AgentUnknown {
+		if r.session == session && r.paneID == paneID && r.check == AgentUnknown {
 			ids = append(ids, r.agentSession)
 		}
 	}
 	return ids, nil
 }
 
-func (s *fakeStore) SetAgentCheck(_ context.Context, paneID, agentSession string, c AgentCheck) error {
+func (s *fakeStore) SetAgentCheck(_ context.Context, session, paneID, agentSession string, c AgentCheck) error {
 	s.d.calls = append(s.d.calls, "SetAgentCheck")
 	rs := s.d.records[s.dir]
-	i := slices.IndexFunc(rs, func(r record) bool { return r.paneID == paneID && r.agentSession == agentSession })
+	i := slices.IndexFunc(rs, func(r record) bool {
+		return r.session == session && r.paneID == paneID && r.agentSession == agentSession
+	})
 	if i < 0 {
 		return fmt.Errorf("no record for %s %s", paneID, agentSession)
 	}
@@ -125,8 +127,10 @@ func newFixture(t *testing.T) *fixture {
 		testStore: filepath.Join(dir, "eval"),
 		data:      &fakeData{records: map[string][]record{}},
 	}
-	if err := os.MkdirAll(filepath.Dir(f.mainSock), 0o700); err != nil {
-		t.Fatal(err)
+	for _, d := range []string{filepath.Dir(f.mainSock), f.mainStore, f.testStore} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	link := filepath.Join(dir, "link")
 	if err := os.Symlink(filepath.Dir(f.mainSock), link); err != nil {
@@ -151,7 +155,10 @@ func newFixture(t *testing.T) *fixture {
 			"w1:p3": {err: fmt.Errorf("herdr pane get: %w", context.DeadlineExceeded)},
 			"w1:p4": {err: &herdr.ShapeError{Field: "pane.tab_id", Reason: "missing"}},
 		},
-		f.workSock: {"w3:p1": {pane: herdr.Pane{ID: "w3:p1", WorkspaceID: "w3", TabID: "w3:t1"}}},
+		f.workSock: {
+			"w3:p1": {pane: herdr.Pane{ID: "w3:p1", WorkspaceID: "w3", TabID: "w3:t1"}},
+			"w1:p1": w1p1,
+		},
 		f.testSock: {"w1:p1": w1p1},
 	}}
 	f.resolver = New(f.file, f.data.open, f.herdr.pane)
@@ -209,6 +216,8 @@ func TestNoStore(t *testing.T) {
 		{name: "HERDR_ENV=0", environ: append(environ(f.mainSock, "", "w1:p1", "w1"), "HERDR_ENV=0"), want: NotInHerdr},
 		{name: "no socket", environ: environ("", "", "w1:p1", "w1"), want: NotInHerdr},
 		{name: "relative socket", environ: environ("herdr.sock", "", "w1:p1", "w1"), want: NotInHerdr},
+		// Astra, CODE_E2-S3_REVIEW finding 1: Clean would make it the main socket.
+		{name: "socket with dot-dot", environ: environ(filepath.Join(f.dir, "link")+"/../herdr/herdr.sock", "", "w1:p1", "w1"), want: NotInHerdr},
 		{name: "no pane id", environ: environ(f.mainSock, "", "", "w1"), want: NotInHerdr},
 		{name: "no workspace id", environ: environ(f.mainSock, "", "w1:p1", ""), want: NotInHerdr},
 		{name: "unbound socket (S64)", environ: environ(filepath.Join(f.dir, "other.sock"), "other", "w1:p1", "w1"), want: Unbound},
@@ -465,8 +474,8 @@ func TestAgentCheck(t *testing.T) {
 	resolve("")
 
 	want := []record{
-		{"w1:p1", parent, AgentMatch},
-		{"w1:p1", nested, NotThisPanesAgent},
+		{"default", "w1:p1", parent, AgentMatch},
+		{"default", "w1:p1", nested, NotThisPanesAgent},
 	}
 	if got := f.data.records[f.mainStore]; !slices.Equal(got, want) {
 		t.Errorf("records = %+v, want %+v", got, want)
@@ -482,7 +491,7 @@ func TestAgentCheckUnknownWithoutAgent(t *testing.T) {
 			t.Fatalf("Resolve() = %#v, %v, want Resolved", res, err)
 		}
 	}
-	want := []record{{"w1:p1", "agent-1", AgentUnknown}}
+	want := []record{{"default", "w1:p1", "agent-1", AgentUnknown}}
 	if got := f.data.records[f.mainStore]; !slices.Equal(got, want) {
 		t.Errorf("records = %+v, want %+v", got, want)
 	}
@@ -574,5 +583,32 @@ func TestDroppedBinding(t *testing.T) {
 	}
 	if err := r.Store.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Astra, CODE_E2-S3_REVIEW finding 2: two real sessions share the main store and both have
+// pane w1:p1. A check in one session must not touch the records of the other.
+func TestAgentCheckStaysInItsSession(t *testing.T) {
+	f := newFixture(t)
+	resolve := func(socket, session, agentSession string) {
+		t.Helper()
+		res, err := f.resolver.Resolve(deadline(t), environ(socket, session, "w1:p1", "w1"), agentSession)
+		r, ok := res.(*Resolved)
+		if err != nil || !ok {
+			t.Fatalf("Resolve(%s) = %#v, %v, want Resolved", session, res, err)
+		}
+		if err := r.Store.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resolve(f.mainSock, "", "default-agent")
+	a := f.herdr.panes[f.workSock]["w1:p1"]
+	a.pane.AgentSession = &herdr.AgentSession{Agent: "claude", Source: "herdr:claude", Kind: "id", Value: "work-agent"}
+	f.herdr.panes[f.workSock]["w1:p1"] = a
+	resolve(f.workSock, "work", "")
+
+	want := []record{{"default", "w1:p1", "default-agent", AgentUnknown}}
+	if got := f.data.records[f.mainStore]; !slices.Equal(got, want) {
+		t.Errorf("records = %+v, want %+v", got, want)
 	}
 }

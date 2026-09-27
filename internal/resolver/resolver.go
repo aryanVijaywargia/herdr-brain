@@ -61,13 +61,16 @@ type Withheld struct {
 
 // Store is the part of a store that the resolver uses. The store tables for receipts and
 // agent records come with a later story; until then only test fakes implement it.
+//
+// All real herdr sessions share the main store, and two sessions can have the same pane id.
+// So an agent record belongs to a herdr session and a pane id.
 type Store interface {
 	WriteWithheld(ctx context.Context, w Withheld) error
-	RecordAgentSession(ctx context.Context, paneID, agentSession string) error
-	// UncheckedAgentSessions returns the agent session ids recorded for paneID whose check is
-	// still AgentUnknown.
-	UncheckedAgentSessions(ctx context.Context, paneID string) ([]string, error)
-	SetAgentCheck(ctx context.Context, paneID, agentSession string, c AgentCheck) error
+	RecordAgentSession(ctx context.Context, session, paneID, agentSession string) error
+	// UncheckedAgentSessions returns the agent session ids recorded for paneID of session
+	// whose check is still AgentUnknown.
+	UncheckedAgentSessions(ctx context.Context, session, paneID string) ([]string, error)
+	SetAgentCheck(ctx context.Context, session, paneID, agentSession string, c AgentCheck) error
 	Close() error
 }
 
@@ -173,6 +176,10 @@ func parseEnv(environ []string) (env, *NoStore) {
 	switch {
 	case !filepath.IsAbs(e.socket):
 		return env{}, &NoStore{Reason: NotInHerdr, Err: fmt.Errorf("HERDR_SOCKET_PATH %q is not absolute", e.socket)}
+	// Clean drops "link/.." as text, but the kernel follows the link first: a cleaned path
+	// could select another binding than the socket the pane uses.
+	case e.socket != filepath.Clean(e.socket):
+		return env{}, &NoStore{Reason: NotInHerdr, Err: fmt.Errorf("HERDR_SOCKET_PATH %q is not a clean path", e.socket)}
 	case e.paneID == "":
 		return env{}, &NoStore{Reason: NotInHerdr, Err: errors.New("HERDR_PANE_ID is not set")}
 	case e.workspaceID == "":
@@ -236,7 +243,7 @@ func (r *Resolver) Resolve(ctx context.Context, environ []string, agentSession s
 	if err != nil {
 		return nil, err
 	}
-	if err := checkAgents(ctx, st, p, agentSession); err != nil {
+	if err := checkAgents(ctx, st, b.Session, p, agentSession); err != nil {
 		return nil, errors.Join(err, st.Close())
 	}
 	return &Resolved{Binding: b, PaneID: p.ID, WorkspaceID: p.WorkspaceID, Store: st}, nil
@@ -257,12 +264,12 @@ func (r *Resolver) denied(b bindings.Binding, e env, agentSession string, reason
 	return &Denied{Binding: b, PaneID: e.paneID, WorkspaceID: e.workspaceID, AgentSession: agentSession, Reason: reason, open: r.open}
 }
 
-// checkAgents checks the earlier (pane, agent session id) records of pane p against the
-// agent session that herdr shows now, then records agentSession. At hook time herdr does not
-// show the new agent yet, so a record is checked on the next call (§17 item 29).
-func checkAgents(ctx context.Context, st Store, p herdr.Pane, agentSession string) error {
+// checkAgents checks the earlier (pane, agent session id) records of pane p of session
+// against the agent session that herdr shows now, then records agentSession. At hook time
+// herdr does not show the new agent yet, so a record is checked on the next call (§17 item 29).
+func checkAgents(ctx context.Context, st Store, session string, p herdr.Pane, agentSession string) error {
 	if p.AgentSession != nil {
-		ids, err := st.UncheckedAgentSessions(ctx, p.ID)
+		ids, err := st.UncheckedAgentSessions(ctx, session, p.ID)
 		if err != nil {
 			return err
 		}
@@ -271,7 +278,7 @@ func checkAgents(ctx context.Context, st Store, p herdr.Pane, agentSession strin
 			if id == p.AgentSession.Value {
 				c = AgentMatch
 			}
-			if err := st.SetAgentCheck(ctx, p.ID, id, c); err != nil {
+			if err := st.SetAgentCheck(ctx, session, p.ID, id, c); err != nil {
 				return err
 			}
 		}
@@ -279,5 +286,5 @@ func checkAgents(ctx context.Context, st Store, p herdr.Pane, agentSession strin
 	if agentSession == "" {
 		return nil
 	}
-	return st.RecordAgentSession(ctx, p.ID, agentSession)
+	return st.RecordAgentSession(ctx, session, p.ID, agentSession)
 }
