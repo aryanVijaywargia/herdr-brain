@@ -1,0 +1,55 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh scripts/check-tag.sh "$GITHUB_REF_NAME"
+
+  build:
+    needs: check
+    strategy:
+      matrix:
+        goos: [darwin, linux]
+        goarch: [amd64, arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build brain_${{ matrix.goos }}_${{ matrix.goarch }}
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' herdr-plugin.toml)
+          go build -trimpath -ldflags "-s -w -X main.version=${version}" -o "dist/brain_${GOOS}_${GOARCH}" ./cmd/brain
+      - uses: actions/upload-artifact@v4
+        with:
+          name: brain_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: dist/brain_${{ matrix.goos }}_${{ matrix.goarch }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: checksums.txt
+        working-directory: dist
+        run: sha256sum brain_* > checksums.txt && cat checksums.txt
+      - name: upload the assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --verify-tag
