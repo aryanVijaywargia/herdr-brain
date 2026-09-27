@@ -1,0 +1,6 @@
+# build output
+/bin/
+/dist/
+spike/m0/hook/brainspike
+spike/m0/.spike_pane
+.DS_Store
