@@ -41,23 +41,54 @@ func git(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// newRepo copies the files that the build needs into a new git repo,
-// commits them and tags the commit v<manifest version>.
-func newRepo(t *testing.T) string {
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return string(out)
+}
+
+// newRepo copies the tracked tree of this checkout (as it is on disk) into a new git repo,
+// commits it and tags the commit v<manifest version>. tagArgs are extra `git tag` flags.
+func newRepo(t *testing.T, tagArgs ...string) string {
 	t.Helper()
 	dir := t.TempDir()
-	for _, f := range []string{"herdr-plugin.toml", "go.mod", "cmd/brain/main.go", "scripts/build.sh", "scripts/check-tag.sh"} {
+	for _, f := range strings.Split(gitOut(t, "..", "ls-files", "-z"), "\x00") {
+		if f == "" {
+			continue
+		}
 		b, err := os.ReadFile(filepath.Join("..", f))
+		if os.IsNotExist(err) {
+			continue // deleted in the working copy
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
 		writeFile(t, filepath.Join(dir, f), string(b))
 	}
-	writeFile(t, filepath.Join(dir, ".gitignore"), "/bin/\n")
 	git(t, dir, "init", "-q")
 	git(t, dir, "add", ".")
 	git(t, dir, "commit", "-q", "-m", "release")
-	git(t, dir, "tag", "v"+manifestVersion(t))
+	git(t, dir, append(append([]string{"tag"}, tagArgs...), "v"+manifestVersion(t))...)
+	return dir
+}
+
+// herdrCheckout makes a checkout of ref from src the way `herdr plugin install` does:
+// a shallow fetch, detached at FETCH_HEAD, with no local refs or tags.
+func herdrCheckout(t *testing.T, src, ref string) string {
+	t.Helper()
+	dir := t.TempDir()
+	git(t, dir, "init", "-q")
+	git(t, dir, "remote", "add", "origin", "file://"+src)
+	git(t, dir, "fetch", "-q", "--depth", "1", "origin", ref)
+	git(t, dir, "checkout", "-q", "FETCH_HEAD")
+	if tags := gitOut(t, dir, "tag", "-l"); tags != "" {
+		t.Fatalf("herdr-like checkout has local tags %q, want none", tags)
+	}
 	return dir
 }
 
@@ -196,6 +227,42 @@ func TestBuildWithoutGoDirtyNeedsGo(t *testing.T) {
 		t.Fatalf("build.sh = %v\n%s\nwant the needs-Go error", err, out)
 	}
 	assertNoBinary(t, dir)
+}
+
+// C1: a herdr managed checkout has no tags, so build.sh asks origin for the tag commit.
+func TestBuildWithoutGoHerdrCheckout(t *testing.T) {
+	tag := "v" + manifestVersion(t)
+	for _, c := range []struct {
+		name    string
+		tagArgs []string
+	}{
+		{"lightweight tag", nil},
+		{"annotated tag", []string{"-a", "-m", "release"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			src := newRepo(t, c.tagArgs...)
+			dir := herdrCheckout(t, src, tag)
+			out, err := buildNoGo(t, dir, fakeRelease(t, ""))
+			if err != nil {
+				t.Fatalf("build.sh: %v\n%s", err, out)
+			}
+			if got, _ := os.ReadFile(filepath.Join(dir, "bin/brain")); string(got) != fakeAsset {
+				t.Errorf("bin/brain = %q, want the release asset", got)
+			}
+		})
+	}
+	t.Run("ref after the tag", func(t *testing.T) {
+		src := newRepo(t)
+		writeFile(t, filepath.Join(src, "NEXT"), "after the tag\n")
+		git(t, src, "add", ".")
+		git(t, src, "commit", "-q", "-m", "after the tag")
+		dir := herdrCheckout(t, src, "HEAD")
+		out, err := buildNoGo(t, dir, fakeRelease(t, ""))
+		if err == nil || !strings.Contains(out, "this ref needs Go 1.23 or later") {
+			t.Fatalf("build.sh = %v\n%s\nwant the needs-Go error", err, out)
+		}
+		assertNoBinary(t, dir)
+	})
 }
 
 // AC: a changed checksum stops the build with a clear error.

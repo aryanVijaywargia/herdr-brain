@@ -30,7 +30,15 @@ needs_go() {
 command -v git >/dev/null 2>&1 || needs_go "git is not installed, so the release tag cannot be checked"
 [ -z "$(git status --porcelain 2>/dev/null || echo dirty)" ] || needs_go "the checkout has local changes"
 head=$(git rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null) || needs_go "no git HEAD"
-tagged=$(git rev-parse -q --verify "refs/tags/${tag}^{commit}" 2>/dev/null) || needs_go "tag ${tag} is not in this checkout"
+
+# The commit of the release tag. A herdr managed checkout is a shallow fetch at FETCH_HEAD
+# with no tags, so when the local lookup finds nothing, ask origin. For an annotated tag
+# the peeled "^{}" line is the commit; a lightweight tag has only the plain line.
+tagged=$(git rev-parse -q --verify "refs/tags/${tag}^{commit}" 2>/dev/null) || {
+	refs=$(GIT_TERMINAL_PROMPT=0 git ls-remote origin "refs/tags/${tag}" "refs/tags/${tag}^{}" 2>/dev/null) || refs=""
+	tagged=$(printf '%s\n' "$refs" | awk -v r="refs/tags/${tag}" '$2 == r "^{}" { p = $1 } $2 == r { l = $1 } END { print (p != "" ? p : l) }')
+	[ -n "$tagged" ] || needs_go "tag ${tag} is not in this checkout or on origin"
+}
 [ "$head" = "$tagged" ] || needs_go "HEAD is not the commit of tag ${tag}"
 
 case "$(uname -s)" in
