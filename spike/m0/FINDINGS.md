@@ -14,7 +14,7 @@
 | 2 | Claude `additionalContext` size limit | PASS, limit found | 10,000 characters reach the model inline. At 10,001 characters Claude writes the text to `~/.claude/projects/<proj>/<sid>/tool-results/hook-...-additionalContext.txt` and gives the model only the path. |
 | 2 | Codex size limit | PASS, no limit seen | `codex exec` returned both markers at 10,500, 30,000 and 100,000 characters. |
 | 4 | Workspace root | ANSWERED (E2-S5), owner decision open | The API has no root. `workspace_cwd` is the focused pane's live folder. `identity_cwd` is the root pane's folder at the last save. Both follow `cd`. See "Workspace root folder source". |
-| 10 | Hook timing | PARTIAL | Stdin read 0.4 ms. `herdr pane get` from the hook: 4.5-10.2 ms. Whole hook: 5.4-10.7 ms (Claude and Codex). Open: busy load, manifest check. |
+| 10 | Hook timing | PASS (E7-S4) | Normal load (M0): whole hook 5.4-10.7 ms. E7-S4, with the manifest check and a SQLite receipt, 100 runs per level: whole hook p95 7.6 ms idle, 8.1 ms with output bursts, 16.5 ms with a flood (max 80.9 ms, from one slow `pane get`). Manifest check ≤ 0.6 ms. Proposed lookup deadline: 150 ms from hook start [NEW]. See "Hook under load and manifest check (E7-S4)". |
 | 11 | Pane split with no focus, then close | PASS | `pane split --no-focus` kept focus. A plugin `split` pane with `--no-focus --env BRAIN_REVIEW=1` kept focus and got the env. `plugin pane close` closed it. `plugin pane close` on a normal pane returned `plugin_pane_not_found` and left it open. Open: `popup` placement. |
 | 21 | Conformance test | OPEN | |
 | 25 | No `brain` on PATH | PASS | `command -v brain` finds nothing. |
@@ -134,15 +134,58 @@
 - **Owner decision needed (HLD §11 and §17 item 4):** the HLD treats `identity_cwd` as the fixed root folder. It is not. With the E2-S4 rule "same id + new root = new key", a `cd` in the root pane followed by a save gives a new key. The old items then wait for a relink. This fails closed (never a wrong delivery), but it also loses delivery after a normal `cd`. The owner chooses the rule. This spike does not change the HLD.
 - **Side result for E2-S6:** a plugin `[[events]]` command for `workspace.renamed` ran. It got `HERDR_PLUGIN_EVENT_JSON` with `workspace_id` and `label`, and a `HERDR_PLUGIN_CONTEXT_JSON`.
 
+## Hook under load and manifest check (E7-S4, item 10)
+
+- Date: 2026-09-28. herdr 0.9.1, Claude Code 2.1.283, Go 1.23. Probe: `hookload/` (its own module). Raw records: `data/e7s4-raw.txt`. Stats: `data/e7s4-summary.txt`.
+- **Setup.** Headless scratch server, session `brain-spike-e7s4`, scratch HOME `/tmp/e7s4/home`. The main session was not touched. The probe pane was `w1:p1`. The load panes were 32 shells in 4 other workspaces (8 panes each).
+- **Hook probe.** `hookload hook` does the HLD §8.3 steps in order and times each one: read stdin, `herdr --session <s> pane get <id>` (as `internal/herdr` does) with a workspace check, read the pointer, read the manifest, read both parts and check their size and SHA-256, print the JSON, then open the SQLite store (WAL, `internal/store` DSN) and insert one `deliveries` row. It does not read the workspace map (E2-S4 is not built). Any check failure withholds. `main_test.go` tests the pointer, manifest and part cases and the outside-herdr case; the `pane get` checks and the receipt failure have no test in the probe.
+- **Assumed E6 shape** (E6 is not built; names and JSON form are [NEW]; the folder, pointer and manifest come from HLD §7.5):
+  - `out/current` holds `gen-<n>\n`, replaced by a rename.
+  - `out/gen-<n>/manifest.json`: `{"generation":n,"files":[{"path","bytes","sha256"}]}`.
+  - `out/gen-<n>/global.md` (3,800 characters) and `out/gen-<n>/workspaces/<key>.md` (5,612 characters). With the markers and the two scope labels, the brief is exactly 9,500 characters, the HLD §8.1 maximum.
+- **Load levels.**
+  - idle: only the probe pane runs.
+  - bursts: 16 panes run `while :; do seq 1 20000; sleep 0.5; done`. herdr CPU 51-156 %.
+  - flood: bursts plus 8 panes that run `yes '<60-character line>'`. herdr CPU 565-743 %, load average up to 12.7 (the machine was also running other threads).
+- **Runs.** The Claude settings file and run script are `hookload/claude-settings.json` and `hookload/claude-runs.sh`. `hookload drive` started the hook 100 times per level as a child process from the probe pane (50 ms pause between runs [NEW]). Then the official `claude -p --settings <file> --setting-sources project` ran 20 times at idle and 20 times under flood in the same pane, with only the probe as its SessionStart hook. All 341 runs emitted the full brief, and 341 receipts are in the store.
+
+| Level (runs) | `pane get` p50 / p95 / max | Whole hook in process p50 / p95 / max | Fork to exit p50 / p95 / max |
+|---|---|---|---|
+| idle (100) | 5.5 / 6.0 / 6.3 | 7.0 / 7.6 / 7.7 | 15.1 / 16.3 / 16.7 |
+| bursts (100) | 4.5 / 6.3 / 8.2 | 5.7 / 8.1 / 10.3 | 11.9 / 15.1 / 19.0 |
+| flood (100) | 5.9 / 15.0 / 79.2 | 7.4 / 16.5 / 80.9 | 14.3 / 47.4 / 88.6 |
+| Claude idle (20) | 5.1 / 6.8 / 7.3 | 6.3 / 8.1 / 8.5 | not measurable |
+| Claude flood (20) | 6.3 / 7.6 / 21.1 | 7.6 / 25.5 / 31.6 | not measurable |
+
+Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to exit" adds the time outside the recorded interval: process start (Go runtime and the SQLite driver), the timing-log write and exit: 6-9 ms p50, 58 ms max under flood.
+
+- **Manifest check cost.** Pointer + manifest + both parts with SHA-256, over all 341 runs: p95 ≤ 0.21 ms, max 0.56 ms. It is not a factor for the deadline.
+- **Other steps.** Print ≤ 0.2 ms. Receipt (store open + insert): p95 ≤ 1.5 ms, max 5.9 ms (the first run, cold). Stdin read: ≤ 0.3 ms from the driver, but up to 18.4 ms from Claude under flood (the read waits until Claude has written the input).
+- **Tail.** Only the flood level had slow lookups: 3 of 100 over 20 ms (20.4, 20.9, 21.7), then 49.1 and 79.2 ms. Every other step stayed small, so a slow `pane get` is what can push the hook toward the cap.
+- **Target.** The < 100 ms performance target held in every run, also fork to exit (max 88.6 ms).
+- **Proposed lookup deadline: 150 ms, counted from the hook's start** [NEW] (no source gives it).
+  - It is about 2 times the slowest `pane get` seen (79.2 ms) at the heaviest load.
+  - It leaves 150 ms of the 300 ms cap for the steps after the lookup, which took at most about 7 ms (check, print, receipt).
+  - Count it from the hook's start (`main`), not from the call, so a late stdin read shortens the lookup and never the cap.
+  - The process start before `main` (up to 58 ms seen under flood) is outside the hook's clock. That is an observed value, not a bound.
+- **The probe does not enforce the whole 300 ms cap.** Its deadline stops only the lookup and the receipt. The stdin read, the file reads and the print have no deadline: with stdin held open, the probe waited 462 ms (Astra review). So these numbers give no upper bound on the hook time. E7-S2 (#34) must enforce the whole cap and test it: stdin held open, a stalled lookup and a stalled output, then a bounded exit and no late print.
+- **Limits.**
+  - The Claude account hit its weekly limit, so the model gave no answer. The hook ran in the real Claude hook environment and emitted all 41 times; M0 item 1 already showed that the text reaches the model.
+  - Codex is at a usage limit and was skipped. The M0 Codex hook times matched Claude.
+  - The receipt uses a cut-down `deliveries` table, not the E3 schema and migrations. The workspace map read (E2-S4) is not in the probe.
+  - One machine, one short run per level.
+- **Side result (test setup).** Claude ran with the real HOME (for its login) inside the scratch session. The hook's `herdr --session brain-spike-e7s4 pane get` then failed: herdr resolves `--session` from HOME and uses it before `HERDR_SOCKET_PATH`. The hook withheld, which is correct. The fix for the test was `HOME=<scratch>` in the hook command. A binding test with a scratch HOME must give the hook the server's HOME.
+
 ## Cleanup done
 
 - E2-S5: the scratch session `brain-spike-e2s5` is stopped and deleted. Its plugin link lived only in the scratch HOME. The main session was not touched.
+- E7-S4: the scratch session `brain-spike-e7s4` is stopped and deleted. Its 33 panes and their load loops ended with it. No hook was installed in `~/.claude` or `~/.codex`.
 - Test panes `w14:p2P`, `w14:p2Q`, `w14:p2R` and `w14:p2S` are closed. The spike plugin is unlinked. The `brain-eval` session is stopped and deleted.
 
 ## Open items
 
 - Item 4: answered by E2-S5 (see above). The root matching rule waits for an owner decision.
-- Item 10: busy load and the manifest check.
+- Item 10: answered by E7-S4. The lookup deadline (150 ms, [NEW]) waits for the owner to accept it in the HLD.
 - Item 11: the plugin `popup` placement.
 - Item 21: the conformance test (built in M1).
 - Item 28: Codex long reply.

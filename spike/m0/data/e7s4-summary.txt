@@ -1,0 +1,81 @@
+E7-S4 stats (herdr 0.9.1, Claude Code 2.1.283, macOS Darwin 27.0.0, 2026-09-28).
+Produced by: hookload stats <file>. Percentiles: nearest rank. Times in ms.
+ms_total is measured inside the hook, from the start of main. ms_wall (driver only) is fork to exit.
+The claude-* s_claude values are seconds for a whole 'claude -p' run (weekly limit hit: no model answer).
+
+## idle-hook.jsonl
+ms_check     n=100  p50=   0.13 p95=   0.15 max=   0.23
+ms_manifest  n=100  p50=   0.04 p95=   0.05 max=   0.08
+ms_pane      n=100  p50=   5.53 p95=   5.99 max=   6.27
+ms_parts     n=100  p50=   0.05 p95=   0.06 max=   0.08
+ms_pointer   n=100  p50=   0.03 p95=   0.03 max=   0.06
+ms_print     n=100  p50=   0.05 p95=   0.06 max=   0.20
+ms_read      n=100  p50=   0.02 p95=   0.03 max=   0.03
+ms_receipt   n=100  p50=   1.24 p95=   1.36 max=   1.49
+ms_total     n=100  p50=   6.99 p95=   7.55 max=   7.69
+## bursts-hook.jsonl
+ms_check     n=100  p50=   0.11 p95=   0.21 max=   0.56
+ms_manifest  n=100  p50=   0.04 p95=   0.07 max=   0.18
+ms_pane      n=100  p50=   4.45 p95=   6.34 max=   8.23
+ms_parts     n=100  p50=   0.04 p95=   0.06 max=   0.27
+ms_pointer   n=100  p50=   0.03 p95=   0.05 max=   0.18
+ms_print     n=100  p50=   0.04 p95=   0.06 max=   0.14
+ms_read      n=100  p50=   0.02 p95=   0.02 max=   0.24
+ms_receipt   n=100  p50=   1.08 p95=   1.34 max=   3.43
+ms_total     n=100  p50=   5.70 p95=   8.05 max=  10.28
+## flood-hook.jsonl
+ms_check     n=100  p50=   0.12 p95=   0.17 max=   0.55
+ms_manifest  n=100  p50=   0.04 p95=   0.05 max=   0.11
+ms_pane      n=100  p50=   5.88 p95=  14.98 max=  79.23
+ms_parts     n=100  p50=   0.05 p95=   0.06 max=   0.23
+ms_pointer   n=100  p50=   0.03 p95=   0.05 max=   0.21
+ms_print     n=100  p50=   0.04 p95=   0.06 max=   0.09
+ms_read      n=100  p50=   0.02 p95=   0.03 max=   0.27
+ms_receipt   n=100  p50=   1.13 p95=   1.46 max=   3.46
+ms_total     n=100  p50=   7.37 p95=  16.49 max=  80.94
+## claude-idle-hook.jsonl
+ms_check     n=20   p50=   0.14 p95=   0.15 max=   0.21
+ms_manifest  n=20   p50=   0.04 p95=   0.05 max=   0.05
+ms_pane      n=20   p50=   5.09 p95=   6.81 max=   7.30
+ms_parts     n=20   p50=   0.05 p95=   0.06 max=   0.12
+ms_pointer   n=20   p50=   0.04 p95=   0.04 max=   0.04
+ms_print     n=20   p50=   0.04 p95=   0.06 max=   0.08
+ms_read      n=20   p50=   0.02 p95=   0.03 max=   0.03
+ms_receipt   n=20   p50=   0.91 p95=   0.99 max=   1.19
+ms_total     n=20   p50=   6.32 p95=   8.07 max=   8.50
+## claude-flood-hook.jsonl
+ms_check     n=20   p50=   0.16 p95=   0.21 max=   0.23
+ms_manifest  n=20   p50=   0.05 p95=   0.06 max=   0.11
+ms_pane      n=20   p50=   6.26 p95=   7.59 max=  21.10
+ms_parts     n=20   p50=   0.06 p95=   0.08 max=   0.11
+ms_pointer   n=20   p50=   0.04 p95=   0.07 max=   0.07
+ms_print     n=20   p50=   0.05 p95=   0.06 max=   0.07
+ms_read      n=20   p50=   0.03 p95=   9.20 max=  18.40
+ms_receipt   n=20   p50=   1.00 p95=   1.29 max=   1.31
+ms_total     n=20   p50=   7.58 p95=  25.54 max=  31.59
+## idle-wall.jsonl
+ms_wall      n=100  p50=  15.13 p95=  16.27 max=  16.67
+## bursts-wall.jsonl
+ms_wall      n=100  p50=  11.88 p95=  15.12 max=  18.97
+## flood-wall.jsonl
+ms_wall      n=100  p50=  14.25 p95=  47.41 max=  88.64
+
+## top values of ms_pane / ms_total
+idle          pane top5: 5.992 6.026 6.082 6.082 6.267 | total top3: 7.634 7.637 7.691 
+bursts        pane top5: 6.448 6.476 6.653 7.005 8.228 | total top3: 8.634 8.715 10.283 
+flood         pane top5: 20.419 20.926 21.664 49.129 79.233 | total top3: 23.108 50.813 80.943 
+claude-idle   pane top5: 6.104 6.115 6.677 6.809 7.296 | total top3: 7.782 8.072 8.497 
+claude-flood  pane top5: 7.091 7.219 7.357 7.594 21.101 | total top3: 8.972 25.542 31.59 
+
+## results
+ 341 "result":"emitted"
+deliveries rows in brain.db: 341 emitted (300 driver + 41 claude runs, incl. 1 trial run)
+
+## process start and exit overhead: ms_wall - ms_total per run (nearest rank)
+idle    n=100 p50=8.13 p95=8.86 max=9.28
+bursts  n=100 p50=6.08 p95=7.32 max=11.25
+flood   n=100 p50=7.03 p95=32.61 max=58.05
+
+## claude -p run length in seconds (sorted)
+claude-idle   2.213 4.017 4.046 4.068 4.090 4.123 4.140 4.144 4.160 4.169 4.180 4.196 4.212 4.227 4.228 4.229 4.331 4.351 4.353 4.374 
+claude-flood  2.145 2.172 2.442 4.023 4.099 4.144 4.165 4.166 4.168 4.168 4.172 4.185 4.194 4.215 4.219 4.393 4.449 4.541 4.575 4.622 
