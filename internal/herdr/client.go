@@ -27,8 +27,8 @@ const waitDelay = 50 * time.Millisecond
 // Target is the one herdr session that every call of a Client goes to. The resolver gives
 // it. The client never uses the UI-focused session and never lets a child call pick its own.
 // The socket decides: the client runs herdr with HERDR_SOCKET_PATH and no --session flag,
-// because with --session herdr derives the socket from the name and its own config folder,
-// and Socket would have no effect (TestLiveTarget).
+// because with --session herdr derives the socket from the name and the config folder under
+// HOME, and Socket would have no effect (TestLiveTarget). So HOME does not change the target.
 type Target struct {
 	Session string // session name; "default" for the default session; goes to HERDR_SESSION
 	Socket  string // API socket path of that session, from the binding
