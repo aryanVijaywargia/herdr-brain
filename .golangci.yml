@@ -1,0 +1,39 @@
+# golangci-lint v2. The rules behind this config: .claude/skills/go-quality/SKILL.md.
+# The thresholds are [NEW]: they have no source in the HLD or a story.
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - errorlint
+    - nilerr
+    - staticcheck
+    - unused
+    - unparam
+    - dupl
+    - revive
+    - gocritic
+    - nestif
+    - funlen
+    - forcetypeassert
+  settings:
+    errcheck:
+      # A failed write to the terminal has no one to report to, and Close cannot lose data
+      # on a file that was only read. Close on a written file: go-quality rule 4.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (*os.File).Close
+    funlen:
+      lines: -1 # count statements, not lines, so long test tables pass
+      statements: 40 # [NEW] rule 10: short functions
+    dupl:
+      threshold: 150 # [NEW] tokens; only large copies, rule 9: extract at the third copy
+    nestif:
+      min-complexity: 5 # [NEW] rule 10: flat functions
+
+issues:
+  # Show every finding in one run, not the first 50 per linter or 3 per message.
+  max-issues-per-linter: 0
+  max-same-issues: 0
