@@ -1,0 +1,863 @@
+E7-S4 raw records. One JSONL line per hook run (hook.go record) or driver run (drive.go).
+herdr server CPU (ps %cpu, a decaying average) and load average, sampled each second.
+
+## idle-hook.jsonl
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.462,"ms_pointer":0.032,"ms_manifest":0.042,"ms_parts":0.064,"ms_check":0.144,"ms_print":0.039,"ms_receipt":0.938,"ms_total":5.663,"at":"2026-09-28T01:58:40.199788+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":4.665,"ms_pointer":0.027,"ms_manifest":0.036,"ms_parts":0.051,"ms_check":0.12,"ms_print":0.045,"ms_receipt":1.128,"ms_total":6.03,"at":"2026-09-28T01:58:40.262435+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.052,"ms_pointer":0.025,"ms_manifest":0.037,"ms_parts":0.047,"ms_check":0.114,"ms_print":0.043,"ms_receipt":1.255,"ms_total":6.553,"at":"2026-09-28T01:58:40.32775+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.031,"ms_pane":5.312,"ms_pointer":0.026,"ms_manifest":0.043,"ms_parts":0.05,"ms_check":0.125,"ms_print":0.04,"ms_receipt":1.197,"ms_total":6.763,"at":"2026-09-28T01:58:40.394111+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.026,"ms_pane":5.484,"ms_pointer":0.03,"ms_manifest":0.04,"ms_parts":0.048,"ms_check":0.125,"ms_print":0.047,"ms_receipt":1.286,"ms_total":7.031,"at":"2026-09-28T01:58:40.461171+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.032,"ms_pane":5.646,"ms_pointer":0.026,"ms_manifest":0.044,"ms_parts":0.049,"ms_check":0.123,"ms_print":0.037,"ms_receipt":0.935,"ms_total":6.847,"at":"2026-09-28T01:58:40.5285+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.772,"ms_pointer":0.028,"ms_manifest":0.039,"ms_parts":0.047,"ms_check":0.12,"ms_print":0.041,"ms_receipt":1.132,"ms_total":7.151,"at":"2026-09-28T01:58:40.596183+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.694,"ms_pointer":0.031,"ms_manifest":0.046,"ms_parts":0.057,"ms_check":0.141,"ms_print":0.047,"ms_receipt":1.013,"ms_total":6.987,"at":"2026-09-28T01:58:40.664059+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.621,"ms_pointer":0.028,"ms_manifest":0.042,"ms_parts":0.052,"ms_check":0.129,"ms_print":0.044,"ms_receipt":1.312,"ms_total":7.187,"at":"2026-09-28T01:58:40.731679+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.903,"ms_pointer":0.039,"ms_manifest":0.052,"ms_parts":0.054,"ms_check":0.154,"ms_print":0.053,"ms_receipt":1.093,"ms_total":7.295,"at":"2026-09-28T01:58:40.79946+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":4.149,"ms_pointer":0.023,"ms_manifest":0.032,"ms_parts":0.041,"ms_check":0.101,"ms_print":0.033,"ms_receipt":1.011,"ms_total":5.367,"at":"2026-09-28T01:58:40.862964+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.832,"ms_pointer":0.03,"ms_manifest":0.046,"ms_parts":0.053,"ms_check":0.136,"ms_print":0.058,"ms_receipt":1.142,"ms_total":7.246,"at":"2026-09-28T01:58:40.928853+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.814,"ms_pointer":0.032,"ms_manifest":0.045,"ms_parts":0.057,"ms_check":0.14,"ms_print":0.043,"ms_receipt":1.343,"ms_total":7.427,"at":"2026-09-28T01:58:40.997349+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.984,"ms_pointer":0.03,"ms_manifest":0.047,"ms_parts":0.063,"ms_check":0.147,"ms_print":0.052,"ms_receipt":1.409,"ms_total":7.691,"at":"2026-09-28T01:58:41.065583+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.818,"ms_pointer":0.034,"ms_manifest":0.047,"ms_parts":0.058,"ms_check":0.144,"ms_print":0.044,"ms_receipt":1.362,"ms_total":7.463,"at":"2026-09-28T01:58:41.133533+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.028,"ms_pane":5.953,"ms_pointer":0.028,"ms_manifest":0.045,"ms_parts":0.054,"ms_check":0.133,"ms_print":0.048,"ms_receipt":1.242,"ms_total":7.469,"at":"2026-09-28T01:58:41.201514+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.028,"ms_pane":5.532,"ms_pointer":0.031,"ms_manifest":0.047,"ms_parts":0.051,"ms_check":0.135,"ms_print":0.049,"ms_receipt":1.341,"ms_total":7.15,"at":"2026-09-28T01:58:41.267998+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.03,"ms_pane":5.311,"ms_pointer":0.028,"ms_manifest":0.041,"ms_parts":0.049,"ms_check":0.124,"ms_print":0.049,"ms_receipt":1.209,"ms_total":6.783,"at":"2026-09-28T01:58:41.335007+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.734,"ms_pointer":0.029,"ms_manifest":0.042,"ms_parts":0.053,"ms_check":0.129,"ms_print":0.048,"ms_receipt":0.938,"ms_total":6.934,"at":"2026-09-28T01:58:41.400189+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.617,"ms_pointer":0.028,"ms_manifest":0.043,"ms_parts":0.058,"ms_check":0.134,"ms_print":0.044,"ms_receipt":0.956,"ms_total":6.843,"at":"2026-09-28T01:58:41.466074+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.627,"ms_pointer":0.027,"ms_manifest":0.044,"ms_parts":0.054,"ms_check":0.13,"ms_print":0.057,"ms_receipt":1.328,"ms_total":7.228,"at":"2026-09-28T01:58:41.533354+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.832,"ms_pointer":0.029,"ms_manifest":0.053,"ms_parts":0.067,"ms_check":0.155,"ms_print":0.052,"ms_receipt":1.338,"ms_total":7.458,"at":"2026-09-28T01:58:41.601457+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":6.026,"ms_pointer":0.033,"ms_manifest":0.049,"ms_parts":0.062,"ms_check":0.152,"ms_print":0.057,"ms_receipt":1.058,"ms_total":7.396,"at":"2026-09-28T01:58:41.670152+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":5.966,"ms_pointer":0.059,"ms_manifest":0.081,"ms_parts":0.08,"ms_check":0.229,"ms_print":0.044,"ms_receipt":1.279,"ms_total":7.602,"at":"2026-09-28T01:58:41.738239+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.643,"ms_pointer":0.025,"ms_manifest":0.041,"ms_parts":0.069,"ms_check":0.142,"ms_print":0.195,"ms_receipt":1.412,"ms_total":7.491,"at":"2026-09-28T01:58:41.80477+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.477,"ms_pointer":0.029,"ms_manifest":0.042,"ms_parts":0.052,"ms_check":0.129,"ms_print":0.051,"ms_receipt":1.251,"ms_total":6.988,"at":"2026-09-28T01:58:41.871253+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.031,"ms_pane":5.795,"ms_pointer":0.027,"ms_manifest":0.046,"ms_parts":0.058,"ms_check":0.135,"ms_print":0.048,"ms_receipt":1.317,"ms_total":7.388,"at":"2026-09-28T01:58:41.937507+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.714,"ms_pointer":0.032,"ms_manifest":0.047,"ms_parts":0.052,"ms_check":0.136,"ms_print":0.051,"ms_receipt":1.285,"ms_total":7.282,"at":"2026-09-28T01:58:42.004485+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":6.082,"ms_pointer":0.028,"ms_manifest":0.043,"ms_parts":0.058,"ms_check":0.133,"ms_print":0.052,"ms_receipt":1.28,"ms_total":7.634,"at":"2026-09-28T01:58:42.070647+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.649,"ms_pointer":0.029,"ms_manifest":0.044,"ms_parts":0.05,"ms_check":0.128,"ms_print":0.05,"ms_receipt":0.992,"ms_total":6.904,"at":"2026-09-28T01:58:42.138563+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.571,"ms_pointer":0.026,"ms_manifest":0.045,"ms_parts":0.053,"ms_check":0.129,"ms_print":0.045,"ms_receipt":1.251,"ms_total":7.082,"at":"2026-09-28T01:58:42.205847+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.026,"ms_pane":5.513,"ms_pointer":0.031,"ms_manifest":0.046,"ms_parts":0.058,"ms_check":0.14,"ms_print":0.044,"ms_receipt":1.319,"ms_total":7.101,"at":"2026-09-28T01:58:42.2737+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.627,"ms_pointer":0.03,"ms_manifest":0.043,"ms_parts":0.064,"ms_check":0.148,"ms_print":0.052,"ms_receipt":1.33,"ms_total":7.244,"at":"2026-09-28T01:58:42.341347+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":5.848,"ms_pointer":0.03,"ms_manifest":0.042,"ms_parts":0.051,"ms_check":0.13,"ms_print":0.046,"ms_receipt":1.23,"ms_total":7.34,"at":"2026-09-28T01:58:42.407257+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.644,"ms_pointer":0.033,"ms_manifest":0.044,"ms_parts":0.056,"ms_check":0.141,"ms_print":0.051,"ms_receipt":1.23,"ms_total":7.164,"at":"2026-09-28T01:58:42.474895+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.245,"ms_pointer":0.029,"ms_manifest":0.042,"ms_parts":0.05,"ms_check":0.127,"ms_print":0.049,"ms_receipt":1.345,"ms_total":6.851,"at":"2026-09-28T01:58:42.541978+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":5.802,"ms_pointer":0.03,"ms_manifest":0.042,"ms_parts":0.049,"ms_check":0.127,"ms_print":0.039,"ms_receipt":0.929,"ms_total":6.982,"at":"2026-09-28T01:58:42.608814+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":5.424,"ms_pointer":0.03,"ms_manifest":0.044,"ms_parts":0.065,"ms_check":0.146,"ms_print":0.055,"ms_receipt":1.338,"ms_total":7.042,"at":"2026-09-28T01:58:42.676033+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.027,"ms_pane":5.469,"ms_pointer":0.027,"ms_manifest":0.046,"ms_parts":0.05,"ms_check":0.128,"ms_print":0.049,"ms_receipt":1.234,"ms_total":6.964,"at":"2026-09-28T01:58:42.742099+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":4.731,"ms_pointer":0.026,"ms_manifest":0.04,"ms_parts":0.049,"ms_check":0.121,"ms_print":0.042,"ms_receipt":0.925,"ms_total":5.898,"at":"2026-09-28T01:58:42.80689+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":5.136,"ms_pointer":0.027,"ms_manifest":0.035,"ms_parts":0.039,"ms_check":0.106,"ms_print":0.032,"ms_receipt":0.807,"ms_total":6.155,"at":"2026-09-28T01:58:42.871017+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.12,"ms_pointer":0.033,"ms_manifest":0.043,"ms_parts":0.053,"ms_check":0.136,"ms_print":0.044,"ms_receipt":0.914,"ms_total":6.296,"at":"2026-09-28T01:58:42.935923+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":4.828,"ms_pointer":0.025,"ms_manifest":0.038,"ms_parts":0.044,"ms_check":0.112,"ms_print":0.043,"ms_receipt":1.229,"ms_total":6.294,"at":"2026-09-28T01:58:43.000604+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.267,"ms_pointer":0.025,"ms_manifest":0.047,"ms_parts":0.046,"ms_check":0.123,"ms_print":0.038,"ms_receipt":1.218,"ms_total":6.726,"at":"2026-09-28T01:58:43.066064+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":4.236,"ms_pointer":0.024,"ms_manifest":0.034,"ms_parts":0.04,"ms_check":0.104,"ms_print":0.032,"ms_receipt":1.15,"ms_total":5.596,"at":"2026-09-28T01:58:43.130579+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.026,"ms_pointer":0.024,"ms_manifest":0.037,"ms_parts":0.046,"ms_check":0.113,"ms_print":0.034,"ms_receipt":1.042,"ms_total":6.295,"at":"2026-09-28T01:58:43.192932+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.288,"ms_pointer":0.027,"ms_manifest":0.038,"ms_parts":0.048,"ms_check":0.122,"ms_print":0.035,"ms_receipt":1.234,"ms_total":6.77,"at":"2026-09-28T01:58:43.258619+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":4.907,"ms_pointer":0.023,"ms_manifest":0.04,"ms_parts":0.045,"ms_check":0.111,"ms_print":0.035,"ms_receipt":1.244,"ms_total":6.376,"at":"2026-09-28T01:58:43.322444+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.265,"ms_pointer":0.03,"ms_manifest":0.039,"ms_parts":0.054,"ms_check":0.13,"ms_print":0.042,"ms_receipt":1.371,"ms_total":6.877,"at":"2026-09-28T01:58:43.388088+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.026,"ms_pane":5.392,"ms_pointer":0.026,"ms_manifest":0.041,"ms_parts":0.052,"ms_check":0.125,"ms_print":0.044,"ms_receipt":1.284,"ms_total":6.939,"at":"2026-09-28T01:58:43.455389+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":4.664,"ms_pointer":0.028,"ms_manifest":0.038,"ms_parts":0.043,"ms_check":0.116,"ms_print":0.043,"ms_receipt":0.846,"ms_total":5.747,"at":"2026-09-28T01:58:43.520398+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":4.947,"ms_pointer":0.023,"ms_manifest":0.039,"ms_parts":0.045,"ms_check":0.111,"ms_print":0.035,"ms_receipt":1.161,"ms_total":6.335,"at":"2026-09-28T01:58:43.583571+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":4.731,"ms_pointer":0.03,"ms_manifest":0.034,"ms_parts":0.049,"ms_check":0.119,"ms_print":0.039,"ms_receipt":1.089,"ms_total":6.057,"at":"2026-09-28T01:58:43.648477+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.925,"ms_pointer":0.022,"ms_manifest":0.038,"ms_parts":0.045,"ms_check":0.111,"ms_print":0.038,"ms_receipt":1.106,"ms_total":6.257,"at":"2026-09-28T01:58:43.713806+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.217,"ms_pointer":0.023,"ms_manifest":0.039,"ms_parts":0.046,"ms_check":0.114,"ms_print":0.037,"ms_receipt":1.207,"ms_total":6.648,"at":"2026-09-28T01:58:43.778147+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":5.335,"ms_pointer":0.028,"ms_manifest":0.041,"ms_parts":0.054,"ms_check":0.13,"ms_print":0.052,"ms_receipt":1.044,"ms_total":6.644,"at":"2026-09-28T01:58:43.844534+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.335,"ms_pointer":0.029,"ms_manifest":0.048,"ms_parts":0.059,"ms_check":0.144,"ms_print":0.049,"ms_receipt":1.332,"ms_total":6.939,"at":"2026-09-28T01:58:43.910967+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.237,"ms_pointer":0.032,"ms_manifest":0.044,"ms_parts":0.049,"ms_check":0.132,"ms_print":0.041,"ms_receipt":1.333,"ms_total":6.829,"at":"2026-09-28T01:58:43.976748+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.608,"ms_pointer":0.028,"ms_manifest":0.061,"ms_parts":0.054,"ms_check":0.15,"ms_print":0.057,"ms_receipt":1.234,"ms_total":7.141,"at":"2026-09-28T01:58:44.043635+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.508,"ms_pointer":0.031,"ms_manifest":0.047,"ms_parts":0.06,"ms_check":0.143,"ms_print":0.05,"ms_receipt":1.28,"ms_total":7.071,"at":"2026-09-28T01:58:44.111174+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.027,"ms_pane":5.678,"ms_pointer":0.033,"ms_manifest":0.043,"ms_parts":0.049,"ms_check":0.132,"ms_print":0.044,"ms_receipt":1.054,"ms_total":7.026,"at":"2026-09-28T01:58:44.178517+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.546,"ms_pointer":0.028,"ms_manifest":0.042,"ms_parts":0.048,"ms_check":0.123,"ms_print":0.042,"ms_receipt":1.187,"ms_total":6.994,"at":"2026-09-28T01:58:44.244238+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.485,"ms_pointer":0.032,"ms_manifest":0.044,"ms_parts":0.056,"ms_check":0.137,"ms_print":0.042,"ms_receipt":1.226,"ms_total":6.977,"at":"2026-09-28T01:58:44.311236+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.026,"ms_pane":5.17,"ms_pointer":0.023,"ms_manifest":0.043,"ms_parts":0.05,"ms_check":0.121,"ms_print":0.043,"ms_receipt":1.266,"ms_total":6.681,"at":"2026-09-28T01:58:44.377604+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.167,"ms_pointer":0.024,"ms_manifest":0.04,"ms_parts":0.048,"ms_check":0.117,"ms_print":0.037,"ms_receipt":1.216,"ms_total":6.614,"at":"2026-09-28T01:58:44.444352+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.402,"ms_pointer":0.026,"ms_manifest":0.04,"ms_parts":0.051,"ms_check":0.124,"ms_print":0.042,"ms_receipt":1.239,"ms_total":6.9,"at":"2026-09-28T01:58:44.510825+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":5.281,"ms_pointer":0.027,"ms_manifest":0.041,"ms_parts":0.05,"ms_check":0.125,"ms_print":0.053,"ms_receipt":1.258,"ms_total":6.793,"at":"2026-09-28T01:58:44.576021+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.222,"ms_pointer":0.028,"ms_manifest":0.038,"ms_parts":0.047,"ms_check":0.12,"ms_print":0.035,"ms_receipt":1.195,"ms_total":6.653,"at":"2026-09-28T01:58:44.643011+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.709,"ms_pointer":0.032,"ms_manifest":0.047,"ms_parts":0.054,"ms_check":0.14,"ms_print":0.054,"ms_receipt":1.295,"ms_total":7.286,"at":"2026-09-28T01:58:44.709443+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.028,"ms_pane":6.082,"ms_pointer":0.029,"ms_manifest":0.044,"ms_parts":0.063,"ms_check":0.143,"ms_print":0.05,"ms_receipt":1.115,"ms_total":7.507,"at":"2026-09-28T01:58:44.777411+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.848,"ms_pointer":0.028,"ms_manifest":0.042,"ms_parts":0.05,"ms_check":0.127,"ms_print":0.044,"ms_receipt":1.203,"ms_total":7.311,"at":"2026-09-28T01:58:44.845531+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.699,"ms_pointer":0.028,"ms_manifest":0.046,"ms_parts":0.056,"ms_check":0.136,"ms_print":0.051,"ms_receipt":1.353,"ms_total":7.329,"at":"2026-09-28T01:58:44.911969+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.704,"ms_pointer":0.025,"ms_manifest":0.045,"ms_parts":0.055,"ms_check":0.13,"ms_print":0.053,"ms_receipt":1.488,"ms_total":7.464,"at":"2026-09-28T01:58:44.978809+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.992,"ms_pointer":0.033,"ms_manifest":0.047,"ms_parts":0.052,"ms_check":0.139,"ms_print":0.045,"ms_receipt":1.369,"ms_total":7.637,"at":"2026-09-28T01:58:45.044941+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.427,"ms_pointer":0.035,"ms_manifest":0.044,"ms_parts":0.049,"ms_check":0.136,"ms_print":0.046,"ms_receipt":1.303,"ms_total":6.999,"at":"2026-09-28T01:58:45.112442+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.029,"ms_pane":5.426,"ms_pointer":0.024,"ms_manifest":0.044,"ms_parts":0.05,"ms_check":0.124,"ms_print":0.043,"ms_receipt":1.237,"ms_total":6.945,"at":"2026-09-28T01:58:45.179566+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.125,"ms_pointer":0.026,"ms_manifest":0.041,"ms_parts":0.057,"ms_check":0.131,"ms_print":0.046,"ms_receipt":1.238,"ms_total":6.618,"at":"2026-09-28T01:58:45.245012+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.485,"ms_pointer":0.028,"ms_manifest":0.041,"ms_parts":0.048,"ms_check":0.128,"ms_print":0.047,"ms_receipt":1.177,"ms_total":6.923,"at":"2026-09-28T01:58:45.311755+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.988,"ms_pointer":0.033,"ms_manifest":0.05,"ms_parts":0.058,"ms_check":0.149,"ms_print":0.054,"ms_receipt":1.319,"ms_total":7.605,"at":"2026-09-28T01:58:45.378922+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.642,"ms_pointer":0.024,"ms_manifest":0.041,"ms_parts":0.051,"ms_check":0.122,"ms_print":0.041,"ms_receipt":1.259,"ms_total":7.15,"at":"2026-09-28T01:58:45.446682+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.031,"ms_pane":5.671,"ms_pointer":0.024,"ms_manifest":0.043,"ms_parts":0.048,"ms_check":0.12,"ms_print":0.039,"ms_receipt":1.25,"ms_total":7.17,"at":"2026-09-28T01:58:45.513488+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.793,"ms_pointer":0.026,"ms_manifest":0.05,"ms_parts":0.054,"ms_check":0.138,"ms_print":0.053,"ms_receipt":1.265,"ms_total":7.331,"at":"2026-09-28T01:58:45.581034+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.728,"ms_pointer":0.024,"ms_manifest":0.041,"ms_parts":0.05,"ms_check":0.121,"ms_print":0.051,"ms_receipt":1.244,"ms_total":7.235,"at":"2026-09-28T01:58:45.648879+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":6.267,"ms_pointer":0.027,"ms_manifest":0.046,"ms_parts":0.061,"ms_check":0.142,"ms_print":0.06,"ms_receipt":1,"ms_total":7.553,"at":"2026-09-28T01:58:45.715743+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.722,"ms_pointer":0.028,"ms_manifest":0.049,"ms_parts":0.06,"ms_check":0.142,"ms_print":0.056,"ms_receipt":1.211,"ms_total":7.222,"at":"2026-09-28T01:58:45.783657+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.64,"ms_pointer":0.024,"ms_manifest":0.045,"ms_parts":0.055,"ms_check":0.13,"ms_print":0.077,"ms_receipt":1.287,"ms_total":7.23,"at":"2026-09-28T01:58:45.851365+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.871,"ms_pointer":0.026,"ms_manifest":0.044,"ms_parts":0.055,"ms_check":0.132,"ms_print":0.045,"ms_receipt":1.35,"ms_total":7.494,"at":"2026-09-28T01:58:45.919423+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.029,"ms_pane":5.889,"ms_pointer":0.029,"ms_manifest":0.046,"ms_parts":0.054,"ms_check":0.135,"ms_print":0.041,"ms_receipt":1.306,"ms_total":7.46,"at":"2026-09-28T01:58:45.987383+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.027,"ms_pane":5.438,"ms_pointer":0.031,"ms_manifest":0.046,"ms_parts":0.051,"ms_check":0.133,"ms_print":0.046,"ms_receipt":1.246,"ms_total":6.948,"at":"2026-09-28T01:58:46.05502+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.751,"ms_pointer":0.028,"ms_manifest":0.05,"ms_parts":0.058,"ms_check":0.141,"ms_print":0.059,"ms_receipt":1.222,"ms_total":7.256,"at":"2026-09-28T01:58:46.122273+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.451,"ms_pointer":0.029,"ms_manifest":0.043,"ms_parts":0.049,"ms_check":0.127,"ms_print":0.043,"ms_receipt":1.252,"ms_total":6.958,"at":"2026-09-28T01:58:46.189757+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.313,"ms_pointer":0.027,"ms_manifest":0.04,"ms_parts":0.055,"ms_check":0.129,"ms_print":0.047,"ms_receipt":1.245,"ms_total":6.813,"at":"2026-09-28T01:58:46.256721+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.378,"ms_pointer":0.025,"ms_manifest":0.04,"ms_parts":0.047,"ms_check":0.118,"ms_print":0.042,"ms_receipt":1.153,"ms_total":6.773,"at":"2026-09-28T01:58:46.323535+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.639,"ms_pointer":0.026,"ms_manifest":0.045,"ms_parts":0.049,"ms_check":0.125,"ms_print":0.053,"ms_receipt":1.316,"ms_total":7.214,"at":"2026-09-28T01:58:46.388931+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.319,"ms_pointer":0.03,"ms_manifest":0.045,"ms_parts":0.049,"ms_check":0.13,"ms_print":0.048,"ms_receipt":1.209,"ms_total":6.787,"at":"2026-09-28T01:58:46.455637+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.284,"ms_pointer":0.028,"ms_manifest":0.041,"ms_parts":0.049,"ms_check":0.124,"ms_print":0.046,"ms_receipt":1.282,"ms_total":6.815,"at":"2026-09-28T01:58:46.522442+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.617,"ms_pointer":0.028,"ms_manifest":0.046,"ms_parts":0.055,"ms_check":0.136,"ms_print":0.046,"ms_receipt":1.353,"ms_total":7.229,"at":"2026-09-28T01:58:46.589644+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.67,"ms_pointer":0.026,"ms_manifest":0.043,"ms_parts":0.049,"ms_check":0.124,"ms_print":0.058,"ms_receipt":1.267,"ms_total":7.204,"at":"2026-09-28T01:58:46.657197+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":5.42,"ms_pointer":0.029,"ms_manifest":0.039,"ms_parts":0.048,"ms_check":0.121,"ms_print":0.042,"ms_receipt":1.188,"ms_total":6.853,"at":"2026-09-28T01:58:46.72406+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.589,"ms_pointer":0.027,"ms_manifest":0.044,"ms_parts":0.055,"ms_check":0.132,"ms_print":0.047,"ms_receipt":0.988,"ms_total":6.844,"at":"2026-09-28T01:58:46.791093+05:30"}
+
+## bursts-hook.jsonl
+{"result":"emitted","brief_chars":9500,"ms_read":0.243,"ms_pane":4.298,"ms_pointer":0.184,"ms_manifest":0.106,"ms_parts":0.266,"ms_check":0.563,"ms_print":0.038,"ms_receipt":3.434,"ms_total":8.634,"at":"2026-09-28T01:59:19.522478+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.199,"ms_pointer":0.022,"ms_manifest":0.037,"ms_parts":0.041,"ms_check":0.106,"ms_print":0.037,"ms_receipt":1.054,"ms_total":5.466,"at":"2026-09-28T01:59:19.587712+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.211,"ms_pointer":0.022,"ms_manifest":0.034,"ms_parts":0.042,"ms_check":0.104,"ms_print":0.038,"ms_receipt":1.01,"ms_total":5.435,"at":"2026-09-28T01:59:19.64981+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.018,"ms_pane":4.177,"ms_pointer":0.023,"ms_manifest":0.033,"ms_parts":0.043,"ms_check":0.105,"ms_print":0.041,"ms_receipt":1.078,"ms_total":5.469,"at":"2026-09-28T01:59:19.71174+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":4.489,"ms_pointer":0.028,"ms_manifest":0.037,"ms_parts":0.042,"ms_check":0.111,"ms_print":0.04,"ms_receipt":1.053,"ms_total":5.771,"at":"2026-09-28T01:59:19.773821+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.31,"ms_pointer":0.024,"ms_manifest":0.035,"ms_parts":0.039,"ms_check":0.102,"ms_print":0.059,"ms_receipt":1.132,"ms_total":5.672,"at":"2026-09-28T01:59:19.836396+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":4.609,"ms_pointer":0.023,"ms_manifest":0.035,"ms_parts":0.04,"ms_check":0.104,"ms_print":0.038,"ms_receipt":1.107,"ms_total":5.933,"at":"2026-09-28T01:59:19.899556+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.964,"ms_pointer":0.043,"ms_manifest":0.046,"ms_parts":0.057,"ms_check":0.157,"ms_print":0.056,"ms_receipt":0.942,"ms_total":7.228,"at":"2026-09-28T01:59:19.964028+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":4.643,"ms_pointer":0.029,"ms_manifest":0.037,"ms_parts":0.046,"ms_check":0.117,"ms_print":0.048,"ms_receipt":0.901,"ms_total":5.787,"at":"2026-09-28T01:59:20.031373+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":4.304,"ms_pointer":0.024,"ms_manifest":0.032,"ms_parts":0.044,"ms_check":0.105,"ms_print":0.036,"ms_receipt":1.036,"ms_total":5.549,"at":"2026-09-28T01:59:20.094073+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.018,"ms_pane":4.476,"ms_pointer":0.021,"ms_manifest":0.033,"ms_parts":0.044,"ms_check":0.103,"ms_print":0.04,"ms_receipt":1.043,"ms_total":5.73,"at":"2026-09-28T01:59:20.156413+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.225,"ms_pointer":0.022,"ms_manifest":0.032,"ms_parts":0.037,"ms_check":0.097,"ms_print":0.045,"ms_receipt":1.056,"ms_total":5.487,"at":"2026-09-28T01:59:20.217854+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":4.326,"ms_pointer":0.021,"ms_manifest":0.034,"ms_parts":0.04,"ms_check":0.1,"ms_print":0.035,"ms_receipt":1.116,"ms_total":5.648,"at":"2026-09-28T01:59:20.280496+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.173,"ms_pointer":0.021,"ms_manifest":0.041,"ms_parts":0.037,"ms_check":0.105,"ms_print":0.029,"ms_receipt":1.088,"ms_total":5.462,"at":"2026-09-28T01:59:20.342715+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":4.419,"ms_pointer":0.024,"ms_manifest":0.041,"ms_parts":0.043,"ms_check":0.113,"ms_print":0.041,"ms_receipt":1.209,"ms_total":5.86,"at":"2026-09-28T01:59:20.405173+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":4.866,"ms_pointer":0.026,"ms_manifest":0.037,"ms_parts":0.049,"ms_check":0.119,"ms_print":0.043,"ms_receipt":0.895,"ms_total":5.995,"at":"2026-09-28T01:59:20.468835+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":8.228,"ms_pointer":0.028,"ms_manifest":0.042,"ms_parts":0.055,"ms_check":0.131,"ms_print":0.086,"ms_receipt":1.726,"ms_total":10.283,"at":"2026-09-28T01:59:20.53266+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":6.337,"ms_pointer":0.04,"ms_manifest":0.048,"ms_parts":0.053,"ms_check":0.148,"ms_print":0.045,"ms_receipt":1.069,"ms_total":7.68,"at":"2026-09-28T01:59:20.605474+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.285,"ms_pointer":0.044,"ms_manifest":0.044,"ms_parts":0.052,"ms_check":0.147,"ms_print":0.045,"ms_receipt":1.339,"ms_total":6.886,"at":"2026-09-28T01:59:20.671072+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.424,"ms_pointer":0.027,"ms_manifest":0.038,"ms_parts":0.05,"ms_check":0.122,"ms_print":0.043,"ms_receipt":1.059,"ms_total":5.715,"at":"2026-09-28T01:59:20.734125+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":4.249,"ms_pointer":0.024,"ms_manifest":0.032,"ms_parts":0.044,"ms_check":0.105,"ms_print":0.042,"ms_receipt":1.154,"ms_total":5.622,"at":"2026-09-28T01:59:20.796308+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.331,"ms_pointer":0.029,"ms_manifest":0.036,"ms_parts":0.039,"ms_check":0.111,"ms_print":0.037,"ms_receipt":1.062,"ms_total":5.612,"at":"2026-09-28T01:59:20.859272+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.026,"ms_pane":4.282,"ms_pointer":0.025,"ms_manifest":0.038,"ms_parts":0.041,"ms_check":0.11,"ms_print":0.069,"ms_receipt":1.098,"ms_total":5.634,"at":"2026-09-28T01:59:20.921497+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":4.211,"ms_pointer":0.025,"ms_manifest":0.032,"ms_parts":0.039,"ms_check":0.101,"ms_print":0.04,"ms_receipt":1.048,"ms_total":5.473,"at":"2026-09-28T01:59:20.983902+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":4.565,"ms_pointer":0.025,"ms_manifest":0.034,"ms_parts":0.04,"ms_check":0.104,"ms_print":0.04,"ms_receipt":1.079,"ms_total":5.858,"at":"2026-09-28T01:59:21.046263+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":4.402,"ms_pointer":0.021,"ms_manifest":0.038,"ms_parts":0.039,"ms_check":0.104,"ms_print":0.048,"ms_receipt":1.016,"ms_total":5.646,"at":"2026-09-28T01:59:21.108468+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.975,"ms_pointer":0.028,"ms_manifest":0.045,"ms_parts":0.038,"ms_check":0.118,"ms_print":0.041,"ms_receipt":1.084,"ms_total":6.298,"at":"2026-09-28T01:59:21.172586+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":6.476,"ms_pointer":0.053,"ms_manifest":0.045,"ms_parts":0.051,"ms_check":0.156,"ms_print":0.054,"ms_receipt":1.301,"ms_total":8.098,"at":"2026-09-28T01:59:21.236328+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":6.179,"ms_pointer":0.044,"ms_manifest":0.067,"ms_parts":0.087,"ms_check":0.204,"ms_print":0.047,"ms_receipt":1.282,"ms_total":7.812,"at":"2026-09-28T01:59:21.302463+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.414,"ms_pointer":0.025,"ms_manifest":0.037,"ms_parts":0.042,"ms_check":0.11,"ms_print":0.036,"ms_receipt":1.045,"ms_total":5.675,"at":"2026-09-28T01:59:21.367324+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.282,"ms_pointer":0.025,"ms_manifest":0.032,"ms_parts":0.036,"ms_check":0.098,"ms_print":0.036,"ms_receipt":1.112,"ms_total":5.591,"at":"2026-09-28T01:59:21.4301+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.823,"ms_pointer":0.026,"ms_manifest":0.036,"ms_parts":0.043,"ms_check":0.112,"ms_print":0.04,"ms_receipt":1.112,"ms_total":6.155,"at":"2026-09-28T01:59:21.493454+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.915,"ms_pointer":0.029,"ms_manifest":0.039,"ms_parts":0.044,"ms_check":0.118,"ms_print":0.038,"ms_receipt":1.268,"ms_total":6.411,"at":"2026-09-28T01:59:21.556948+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.031,"ms_pointer":0.025,"ms_manifest":0.038,"ms_parts":0.044,"ms_check":0.112,"ms_print":0.039,"ms_receipt":1.203,"ms_total":6.459,"at":"2026-09-28T01:59:21.621081+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.562,"ms_pointer":0.024,"ms_manifest":0.037,"ms_parts":0.043,"ms_check":0.109,"ms_print":0.037,"ms_receipt":0.856,"ms_total":5.636,"at":"2026-09-28T01:59:21.685031+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.459,"ms_pointer":0.024,"ms_manifest":0.034,"ms_parts":0.04,"ms_check":0.104,"ms_print":0.038,"ms_receipt":0.823,"ms_total":5.495,"at":"2026-09-28T01:59:21.747212+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.018,"ms_pane":4.566,"ms_pointer":0.025,"ms_manifest":0.039,"ms_parts":0.04,"ms_check":0.111,"ms_print":0.045,"ms_receipt":1.089,"ms_total":5.88,"at":"2026-09-28T01:59:21.810838+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.001,"ms_pointer":0.027,"ms_manifest":0.037,"ms_parts":0.048,"ms_check":0.116,"ms_print":0.037,"ms_receipt":1.046,"ms_total":6.3,"at":"2026-09-28T01:59:21.874262+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.281,"ms_pointer":0.025,"ms_manifest":0.033,"ms_parts":0.039,"ms_check":0.102,"ms_print":0.042,"ms_receipt":1.038,"ms_total":5.531,"at":"2026-09-28T01:59:21.937544+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":4.576,"ms_pointer":0.022,"ms_manifest":0.034,"ms_parts":0.05,"ms_check":0.111,"ms_print":0.041,"ms_receipt":1.09,"ms_total":5.894,"at":"2026-09-28T01:59:22.00026+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.672,"ms_pointer":0.025,"ms_manifest":0.036,"ms_parts":0.042,"ms_check":0.109,"ms_print":0.04,"ms_receipt":1.097,"ms_total":5.982,"at":"2026-09-28T01:59:22.063762+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.076,"ms_pointer":0.032,"ms_manifest":0.041,"ms_parts":0.044,"ms_check":0.123,"ms_print":0.039,"ms_receipt":1.223,"ms_total":6.538,"at":"2026-09-28T01:59:22.127874+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.017,"ms_pane":4.178,"ms_pointer":0.02,"ms_manifest":0.035,"ms_parts":0.039,"ms_check":0.097,"ms_print":0.037,"ms_receipt":1.013,"ms_total":5.387,"at":"2026-09-28T01:59:22.191167+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.372,"ms_pointer":0.027,"ms_manifest":0.035,"ms_parts":0.063,"ms_check":0.132,"ms_print":0.037,"ms_receipt":0.939,"ms_total":5.551,"at":"2026-09-28T01:59:22.25402+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.329,"ms_pointer":0.025,"ms_manifest":0.038,"ms_parts":0.044,"ms_check":0.112,"ms_print":0.032,"ms_receipt":1.012,"ms_total":5.552,"at":"2026-09-28T01:59:22.316294+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.167,"ms_pointer":0.025,"ms_manifest":0.035,"ms_parts":0.045,"ms_check":0.112,"ms_print":0.041,"ms_receipt":1.052,"ms_total":5.441,"at":"2026-09-28T01:59:22.378807+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.463,"ms_pointer":0.023,"ms_manifest":0.034,"ms_parts":0.042,"ms_check":0.105,"ms_print":0.031,"ms_receipt":1.06,"ms_total":5.733,"at":"2026-09-28T01:59:22.44108+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":4.367,"ms_pointer":0.026,"ms_manifest":0.034,"ms_parts":0.043,"ms_check":0.108,"ms_print":0.041,"ms_receipt":1.035,"ms_total":5.638,"at":"2026-09-28T01:59:22.503706+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":4.498,"ms_pointer":0.026,"ms_manifest":0.031,"ms_parts":0.037,"ms_check":0.1,"ms_print":0.035,"ms_receipt":0.767,"ms_total":5.47,"at":"2026-09-28T01:59:22.566037+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.325,"ms_pointer":0.023,"ms_manifest":0.032,"ms_parts":0.036,"ms_check":0.096,"ms_print":0.034,"ms_receipt":0.999,"ms_total":5.523,"at":"2026-09-28T01:59:22.628568+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":4.962,"ms_pointer":0.027,"ms_manifest":0.038,"ms_parts":0.043,"ms_check":0.114,"ms_print":0.041,"ms_receipt":1.115,"ms_total":6.307,"at":"2026-09-28T01:59:22.691486+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.502,"ms_pointer":0.028,"ms_manifest":0.179,"ms_parts":0.039,"ms_check":0.253,"ms_print":0.033,"ms_receipt":1.097,"ms_total":5.957,"at":"2026-09-28T01:59:22.755305+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.018,"ms_pane":4.35,"ms_pointer":0.025,"ms_manifest":0.034,"ms_parts":0.047,"ms_check":0.111,"ms_print":0.046,"ms_receipt":1.007,"ms_total":5.589,"at":"2026-09-28T01:59:22.817891+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.307,"ms_pointer":0.023,"ms_manifest":0.038,"ms_parts":0.042,"ms_check":0.109,"ms_print":0.035,"ms_receipt":0.845,"ms_total":5.366,"at":"2026-09-28T01:59:22.88026+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.479,"ms_pointer":0.04,"ms_manifest":0.045,"ms_parts":0.054,"ms_check":0.146,"ms_print":0.046,"ms_receipt":1.166,"ms_total":6.91,"at":"2026-09-28T01:59:22.942643+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":6.653,"ms_pointer":0.048,"ms_manifest":0.046,"ms_parts":0.051,"ms_check":0.153,"ms_print":0.051,"ms_receipt":1.413,"ms_total":8.371,"at":"2026-09-28T01:59:23.008953+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.307,"ms_pointer":0.026,"ms_manifest":0.032,"ms_parts":0.038,"ms_check":0.101,"ms_print":0.035,"ms_receipt":1.105,"ms_total":5.615,"at":"2026-09-28T01:59:23.074345+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.017,"ms_pane":4.672,"ms_pointer":0.024,"ms_manifest":0.038,"ms_parts":0.046,"ms_check":0.113,"ms_print":0.044,"ms_receipt":1.079,"ms_total":5.973,"at":"2026-09-28T01:59:23.137493+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.395,"ms_pointer":0.03,"ms_manifest":0.041,"ms_parts":0.051,"ms_check":0.128,"ms_print":0.054,"ms_receipt":1.139,"ms_total":6.805,"at":"2026-09-28T01:59:23.201391+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.345,"ms_pointer":0.024,"ms_manifest":0.038,"ms_parts":0.04,"ms_check":0.108,"ms_print":0.035,"ms_receipt":1.135,"ms_total":5.696,"at":"2026-09-28T01:59:23.264936+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":5.246,"ms_pointer":0.027,"ms_manifest":0.038,"ms_parts":0.042,"ms_check":0.113,"ms_print":0.036,"ms_receipt":1.08,"ms_total":6.547,"at":"2026-09-28T01:59:23.32812+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.017,"ms_pane":4.182,"ms_pointer":0.025,"ms_manifest":0.034,"ms_parts":0.042,"ms_check":0.107,"ms_print":0.033,"ms_receipt":1.095,"ms_total":5.481,"at":"2026-09-28T01:59:23.391243+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.131,"ms_pointer":0.026,"ms_manifest":0.036,"ms_parts":0.038,"ms_check":0.105,"ms_print":0.136,"ms_receipt":1.017,"ms_total":5.455,"at":"2026-09-28T01:59:23.453385+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":4.751,"ms_pointer":0.025,"ms_manifest":0.036,"ms_parts":0.045,"ms_check":0.112,"ms_print":0.043,"ms_receipt":1.061,"ms_total":6.046,"at":"2026-09-28T01:59:23.516138+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":6.298,"ms_pointer":0.045,"ms_manifest":0.043,"ms_parts":0.051,"ms_check":0.145,"ms_print":0.035,"ms_receipt":1.279,"ms_total":7.84,"at":"2026-09-28T01:59:23.580466+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":4.211,"ms_pointer":0.024,"ms_manifest":0.032,"ms_parts":0.037,"ms_check":0.099,"ms_print":0.043,"ms_receipt":0.795,"ms_total":5.229,"at":"2026-09-28T01:59:23.64917+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":4.659,"ms_pointer":0.024,"ms_manifest":0.04,"ms_parts":0.042,"ms_check":0.111,"ms_print":0.031,"ms_receipt":1.278,"ms_total":6.153,"at":"2026-09-28T01:59:23.712197+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.018,"ms_pane":4.39,"ms_pointer":0.026,"ms_manifest":0.037,"ms_parts":0.037,"ms_check":0.106,"ms_print":0.034,"ms_receipt":1.04,"ms_total":5.633,"at":"2026-09-28T01:59:23.774892+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.804,"ms_pointer":0.023,"ms_manifest":0.037,"ms_parts":0.042,"ms_check":0.106,"ms_print":0.041,"ms_receipt":0.843,"ms_total":5.867,"at":"2026-09-28T01:59:23.838291+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.393,"ms_pointer":0.026,"ms_manifest":0.036,"ms_parts":0.039,"ms_check":0.108,"ms_print":0.037,"ms_receipt":0.998,"ms_total":5.606,"at":"2026-09-28T01:59:23.902241+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.278,"ms_pointer":0.027,"ms_manifest":0.032,"ms_parts":0.041,"ms_check":0.106,"ms_print":0.035,"ms_receipt":1.011,"ms_total":5.499,"at":"2026-09-28T01:59:23.964346+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":4.521,"ms_pointer":0.029,"ms_manifest":0.036,"ms_parts":0.041,"ms_check":0.111,"ms_print":0.051,"ms_receipt":1.217,"ms_total":5.975,"at":"2026-09-28T01:59:24.027151+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.596,"ms_pointer":0.024,"ms_manifest":0.037,"ms_parts":0.042,"ms_check":0.107,"ms_print":0.051,"ms_receipt":1.05,"ms_total":5.873,"at":"2026-09-28T01:59:24.090227+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":7.005,"ms_pointer":0.122,"ms_manifest":0.074,"ms_parts":0.052,"ms_check":0.26,"ms_print":0.04,"ms_receipt":1.307,"ms_total":8.715,"at":"2026-09-28T01:59:24.153791+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.17,"ms_pointer":0.024,"ms_manifest":0.034,"ms_parts":0.04,"ms_check":0.103,"ms_print":0.037,"ms_receipt":1.152,"ms_total":5.53,"at":"2026-09-28T01:59:24.219247+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.018,"ms_pane":4.339,"ms_pointer":0.023,"ms_manifest":0.161,"ms_parts":0.036,"ms_check":0.226,"ms_print":0.043,"ms_receipt":0.85,"ms_total":5.525,"at":"2026-09-28T01:59:24.28093+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.364,"ms_pointer":0.026,"ms_manifest":0.035,"ms_parts":0.038,"ms_check":0.104,"ms_print":0.038,"ms_receipt":0.846,"ms_total":5.422,"at":"2026-09-28T01:59:24.343318+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":4.555,"ms_pointer":0.025,"ms_manifest":0.033,"ms_parts":0.04,"ms_check":0.105,"ms_print":0.044,"ms_receipt":0.905,"ms_total":5.688,"at":"2026-09-28T01:59:24.405325+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.26,"ms_pointer":0.028,"ms_manifest":0.04,"ms_parts":0.049,"ms_check":0.122,"ms_print":0.033,"ms_receipt":2.002,"ms_total":6.482,"at":"2026-09-28T01:59:24.46702+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.166,"ms_pointer":0.021,"ms_manifest":0.031,"ms_parts":0.036,"ms_check":0.093,"ms_print":0.033,"ms_receipt":1.114,"ms_total":5.477,"at":"2026-09-28T01:59:24.530346+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":4.698,"ms_pointer":0.024,"ms_manifest":0.038,"ms_parts":0.048,"ms_check":0.115,"ms_print":0.04,"ms_receipt":1.147,"ms_total":6.074,"at":"2026-09-28T01:59:24.593173+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.153,"ms_pointer":0.026,"ms_manifest":0.037,"ms_parts":0.044,"ms_check":0.112,"ms_print":0.035,"ms_receipt":1.18,"ms_total":5.548,"at":"2026-09-28T01:59:24.655864+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":6.098,"ms_pointer":0.042,"ms_manifest":0.047,"ms_parts":0.055,"ms_check":0.154,"ms_print":0.06,"ms_receipt":1.294,"ms_total":7.695,"at":"2026-09-28T01:59:24.719499+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":4.344,"ms_pointer":0.022,"ms_manifest":0.036,"ms_parts":0.038,"ms_check":0.1,"ms_print":0.043,"ms_receipt":1.098,"ms_total":5.658,"at":"2026-09-28T01:59:24.784142+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.247,"ms_pointer":0.023,"ms_manifest":0.03,"ms_parts":0.041,"ms_check":0.099,"ms_print":0.037,"ms_receipt":1.077,"ms_total":5.534,"at":"2026-09-28T01:59:24.846495+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":4.383,"ms_pointer":0.025,"ms_manifest":0.035,"ms_parts":0.039,"ms_check":0.104,"ms_print":0.037,"ms_receipt":1.078,"ms_total":5.681,"at":"2026-09-28T01:59:24.908973+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":6.243,"ms_pointer":0.116,"ms_manifest":0.083,"ms_parts":0.052,"ms_check":0.267,"ms_print":0.052,"ms_receipt":1.395,"ms_total":8.053,"at":"2026-09-28T01:59:24.972809+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.243,"ms_pointer":0.026,"ms_manifest":0.033,"ms_parts":0.039,"ms_check":0.102,"ms_print":0.032,"ms_receipt":1.17,"ms_total":5.614,"at":"2026-09-28T01:59:25.037677+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.844,"ms_pointer":0.026,"ms_manifest":0.035,"ms_parts":0.042,"ms_check":0.109,"ms_print":0.046,"ms_receipt":1.135,"ms_total":6.214,"at":"2026-09-28T01:59:25.100795+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.713,"ms_pointer":0.022,"ms_manifest":0.034,"ms_parts":0.042,"ms_check":0.104,"ms_print":0.039,"ms_receipt":1.242,"ms_total":6.165,"at":"2026-09-28T01:59:25.164676+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":4.696,"ms_pointer":0.022,"ms_manifest":0.036,"ms_parts":0.046,"ms_check":0.108,"ms_print":0.036,"ms_receipt":1.186,"ms_total":6.097,"at":"2026-09-28T01:59:25.228402+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":6.314,"ms_pointer":0.036,"ms_manifest":0.043,"ms_parts":0.056,"ms_check":0.141,"ms_print":0.045,"ms_receipt":1.282,"ms_total":7.896,"at":"2026-09-28T01:59:25.291687+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.699,"ms_pointer":0.048,"ms_manifest":0.082,"ms_parts":0.071,"ms_check":0.207,"ms_print":0.053,"ms_receipt":0.891,"ms_total":5.923,"at":"2026-09-28T01:59:25.357111+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":4.325,"ms_pointer":0.027,"ms_manifest":0.037,"ms_parts":0.04,"ms_check":0.109,"ms_print":0.041,"ms_receipt":0.88,"ms_total":5.434,"at":"2026-09-28T01:59:25.420164+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.264,"ms_pointer":0.028,"ms_manifest":0.038,"ms_parts":0.042,"ms_check":0.114,"ms_print":0.034,"ms_receipt":0.802,"ms_total":5.289,"at":"2026-09-28T01:59:25.48173+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":6.448,"ms_pointer":0.03,"ms_manifest":0.037,"ms_parts":0.043,"ms_check":0.117,"ms_print":0.038,"ms_receipt":1.201,"ms_total":7.899,"at":"2026-09-28T01:59:25.545102+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.249,"ms_pointer":0.023,"ms_manifest":0.032,"ms_parts":0.041,"ms_check":0.1,"ms_print":0.037,"ms_receipt":1.046,"ms_total":5.505,"at":"2026-09-28T01:59:25.609709+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":4.445,"ms_pointer":0.076,"ms_manifest":0.048,"ms_parts":0.044,"ms_check":0.174,"ms_print":0.038,"ms_receipt":0.908,"ms_total":5.635,"at":"2026-09-28T01:59:25.671735+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.04,"ms_pointer":0.02,"ms_manifest":0.033,"ms_parts":0.04,"ms_check":0.097,"ms_print":0.041,"ms_receipt":0.818,"ms_total":5.062,"at":"2026-09-28T01:59:25.733801+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":4.922,"ms_pointer":0.023,"ms_manifest":0.035,"ms_parts":0.049,"ms_check":0.111,"ms_print":0.039,"ms_receipt":1.139,"ms_total":6.288,"at":"2026-09-28T01:59:25.796646+05:30"}
+
+## flood-hook.jsonl
+{"result":"emitted","brief_chars":9500,"ms_read":0.268,"ms_pane":5.625,"ms_pointer":0.213,"ms_manifest":0.106,"ms_parts":0.227,"ms_check":0.554,"ms_print":0.036,"ms_receipt":3.455,"ms_total":10.037,"at":"2026-09-28T02:00:00.213108+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":5.732,"ms_pointer":0.028,"ms_manifest":0.039,"ms_parts":0.04,"ms_check":0.114,"ms_print":0.039,"ms_receipt":1.071,"ms_total":7.034,"at":"2026-09-28T02:00:00.281315+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.026,"ms_pane":4.817,"ms_pointer":0.028,"ms_manifest":0.037,"ms_parts":0.042,"ms_check":0.113,"ms_print":0.035,"ms_receipt":1.083,"ms_total":6.165,"at":"2026-09-28T02:00:00.345846+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":8.063,"ms_pointer":0.041,"ms_manifest":0.044,"ms_parts":0.053,"ms_check":0.148,"ms_print":0.059,"ms_receipt":1.086,"ms_total":9.448,"at":"2026-09-28T02:00:00.41403+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":7.127,"ms_pointer":0.04,"ms_manifest":0.041,"ms_parts":0.049,"ms_check":0.136,"ms_print":0.038,"ms_receipt":1.414,"ms_total":8.821,"at":"2026-09-28T02:00:00.513159+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.794,"ms_pointer":0.037,"ms_manifest":0.05,"ms_parts":0.052,"ms_check":0.145,"ms_print":0.053,"ms_receipt":1.29,"ms_total":7.353,"at":"2026-09-28T02:00:00.601737+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":6.061,"ms_pointer":0.028,"ms_manifest":0.035,"ms_parts":0.04,"ms_check":0.107,"ms_print":0.032,"ms_receipt":1.188,"ms_total":7.456,"at":"2026-09-28T02:00:00.668732+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":6.66,"ms_pointer":0.031,"ms_manifest":0.041,"ms_parts":0.047,"ms_check":0.127,"ms_print":0.045,"ms_receipt":1.274,"ms_total":8.206,"at":"2026-09-28T02:00:00.734054+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":5.568,"ms_pointer":0.028,"ms_manifest":0.038,"ms_parts":0.047,"ms_check":0.119,"ms_print":0.046,"ms_receipt":1.208,"ms_total":7.015,"at":"2026-09-28T02:00:00.800303+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":6.363,"ms_pointer":0.023,"ms_manifest":0.037,"ms_parts":0.042,"ms_check":0.109,"ms_print":0.04,"ms_receipt":1.072,"ms_total":7.662,"at":"2026-09-28T02:00:00.864783+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":6.421,"ms_pointer":0.045,"ms_manifest":0.046,"ms_parts":0.051,"ms_check":0.146,"ms_print":0.041,"ms_receipt":1.368,"ms_total":8.048,"at":"2026-09-28T02:00:00.929573+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":5.852,"ms_pointer":0.041,"ms_manifest":0.046,"ms_parts":0.05,"ms_check":0.145,"ms_print":0.039,"ms_receipt":1.258,"ms_total":7.374,"at":"2026-09-28T02:00:00.995874+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":5.202,"ms_pointer":0.031,"ms_manifest":0.047,"ms_parts":0.054,"ms_check":0.141,"ms_print":0.06,"ms_receipt":3.174,"ms_total":8.648,"at":"2026-09-28T02:00:01.060999+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.983,"ms_pointer":0.026,"ms_manifest":0.035,"ms_parts":0.047,"ms_check":0.113,"ms_print":0.039,"ms_receipt":0.841,"ms_total":6.042,"at":"2026-09-28T02:00:01.12722+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":5.291,"ms_pointer":0.026,"ms_manifest":0.037,"ms_parts":0.042,"ms_check":0.112,"ms_print":0.039,"ms_receipt":1.132,"ms_total":6.648,"at":"2026-09-28T02:00:01.191194+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":5.501,"ms_pointer":0.024,"ms_manifest":0.034,"ms_parts":0.04,"ms_check":0.105,"ms_print":0.039,"ms_receipt":1.026,"ms_total":6.741,"at":"2026-09-28T02:00:01.255081+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.203,"ms_pointer":0.023,"ms_manifest":0.036,"ms_parts":0.044,"ms_check":0.11,"ms_print":0.086,"ms_receipt":1.045,"ms_total":6.52,"at":"2026-09-28T02:00:01.319475+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":6.331,"ms_pointer":0.054,"ms_manifest":0.051,"ms_parts":0.056,"ms_check":0.166,"ms_print":0.063,"ms_receipt":1.424,"ms_total":8.093,"at":"2026-09-28T02:00:01.383786+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.026,"ms_pane":20.419,"ms_pointer":0.051,"ms_manifest":0.046,"ms_parts":0.051,"ms_check":0.154,"ms_print":0.039,"ms_receipt":1.595,"ms_total":22.307,"at":"2026-09-28T02:00:01.451847+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":49.129,"ms_pointer":0.042,"ms_manifest":0.046,"ms_parts":0.051,"ms_check":0.147,"ms_print":0.049,"ms_receipt":1.385,"ms_total":50.813,"at":"2026-09-28T02:00:01.562283+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":11.01,"ms_pointer":0.041,"ms_manifest":0.044,"ms_parts":0.053,"ms_check":0.143,"ms_print":0.044,"ms_receipt":3.157,"ms_total":14.428,"at":"2026-09-28T02:00:01.673915+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":7.204,"ms_pointer":0.04,"ms_manifest":0.045,"ms_parts":0.057,"ms_check":0.149,"ms_print":0.045,"ms_receipt":1.34,"ms_total":8.841,"at":"2026-09-28T02:00:01.746564+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":6.28,"ms_pointer":0.046,"ms_manifest":0.042,"ms_parts":0.05,"ms_check":0.145,"ms_print":0.049,"ms_receipt":1.267,"ms_total":7.814,"at":"2026-09-28T02:00:01.814072+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.984,"ms_pointer":0.048,"ms_manifest":0.049,"ms_parts":0.052,"ms_check":0.156,"ms_print":0.055,"ms_receipt":1.087,"ms_total":7.352,"at":"2026-09-28T02:00:01.879359+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":6.26,"ms_pointer":0.031,"ms_manifest":0.039,"ms_parts":0.04,"ms_check":0.117,"ms_print":0.04,"ms_receipt":1.053,"ms_total":7.566,"at":"2026-09-28T02:00:01.944689+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":6.331,"ms_pointer":0.026,"ms_manifest":0.037,"ms_parts":0.046,"ms_check":0.115,"ms_print":0.033,"ms_receipt":1.059,"ms_total":7.643,"at":"2026-09-28T02:00:02.010536+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":5.54,"ms_pointer":0.026,"ms_manifest":0.038,"ms_parts":0.042,"ms_check":0.111,"ms_print":0.033,"ms_receipt":1.075,"ms_total":6.845,"at":"2026-09-28T02:00:02.076222+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":5.469,"ms_pointer":0.025,"ms_manifest":0.036,"ms_parts":0.045,"ms_check":0.111,"ms_print":0.045,"ms_receipt":1.02,"ms_total":6.715,"at":"2026-09-28T02:00:02.14056+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":5.707,"ms_pointer":0.039,"ms_manifest":0.047,"ms_parts":0.05,"ms_check":0.144,"ms_print":0.045,"ms_receipt":1.329,"ms_total":7.325,"at":"2026-09-28T02:00:02.205071+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":5.172,"ms_pointer":0.026,"ms_manifest":0.034,"ms_parts":0.039,"ms_check":0.105,"ms_print":0.038,"ms_receipt":0.858,"ms_total":6.244,"at":"2026-09-28T02:00:02.270542+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":5.256,"ms_pointer":0.026,"ms_manifest":0.036,"ms_parts":0.043,"ms_check":0.111,"ms_print":0.036,"ms_receipt":0.87,"ms_total":6.343,"at":"2026-09-28T02:00:02.334604+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":7.063,"ms_pointer":0.042,"ms_manifest":0.048,"ms_parts":0.052,"ms_check":0.15,"ms_print":0.052,"ms_receipt":1.463,"ms_total":8.835,"at":"2026-09-28T02:00:02.405374+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.059,"ms_pane":7.279,"ms_pointer":0.056,"ms_manifest":0.047,"ms_parts":0.054,"ms_check":0.163,"ms_print":0.04,"ms_receipt":1.428,"ms_total":9.043,"at":"2026-09-28T02:00:02.476981+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.028,"ms_pane":79.233,"ms_pointer":0.064,"ms_manifest":0.048,"ms_parts":0.053,"ms_check":0.172,"ms_print":0.047,"ms_receipt":1.384,"ms_total":80.943,"at":"2026-09-28T02:00:02.544704+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":6.432,"ms_pointer":0.041,"ms_manifest":0.043,"ms_parts":0.058,"ms_check":0.15,"ms_print":0.042,"ms_receipt":1.426,"ms_total":8.146,"at":"2026-09-28T02:00:02.691048+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":6.747,"ms_pointer":0.03,"ms_manifest":0.044,"ms_parts":0.041,"ms_check":0.122,"ms_print":0.048,"ms_receipt":1.237,"ms_total":8.265,"at":"2026-09-28T02:00:02.756559+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.018,"ms_pane":6.165,"ms_pointer":0.022,"ms_manifest":0.034,"ms_parts":0.043,"ms_check":0.108,"ms_print":0.045,"ms_receipt":1.07,"ms_total":7.455,"at":"2026-09-28T02:00:02.822471+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":6.059,"ms_pointer":0.028,"ms_manifest":0.035,"ms_parts":0.043,"ms_check":0.113,"ms_print":0.046,"ms_receipt":1.116,"ms_total":7.445,"at":"2026-09-28T02:00:02.888117+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":5.117,"ms_pointer":0.029,"ms_manifest":0.036,"ms_parts":0.042,"ms_check":0.115,"ms_print":0.048,"ms_receipt":1.116,"ms_total":6.468,"at":"2026-09-28T02:00:02.953908+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":5.176,"ms_pointer":0.025,"ms_manifest":0.037,"ms_parts":0.039,"ms_check":0.109,"ms_print":0.038,"ms_receipt":1.044,"ms_total":6.432,"at":"2026-09-28T02:00:03.017893+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.983,"ms_pointer":0.044,"ms_manifest":0.052,"ms_parts":0.056,"ms_check":0.162,"ms_print":0.044,"ms_receipt":1.062,"ms_total":7.33,"at":"2026-09-28T02:00:03.082862+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":6.126,"ms_pointer":0.053,"ms_manifest":0.048,"ms_parts":0.054,"ms_check":0.162,"ms_print":0.068,"ms_receipt":1.133,"ms_total":7.568,"at":"2026-09-28T02:00:03.148599+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":5.261,"ms_pointer":0.026,"ms_manifest":0.038,"ms_parts":0.046,"ms_check":0.117,"ms_print":0.063,"ms_receipt":1.101,"ms_total":6.614,"at":"2026-09-28T02:00:03.214186+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":5.622,"ms_pointer":0.031,"ms_manifest":0.036,"ms_parts":0.045,"ms_check":0.12,"ms_print":0.044,"ms_receipt":0.857,"ms_total":6.712,"at":"2026-09-28T02:00:03.278955+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.677,"ms_pointer":0.044,"ms_manifest":0.043,"ms_parts":0.051,"ms_check":0.146,"ms_print":0.052,"ms_receipt":1.343,"ms_total":7.328,"at":"2026-09-28T02:00:03.344483+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":14.979,"ms_pointer":0.043,"ms_manifest":0.046,"ms_parts":0.049,"ms_check":0.147,"ms_print":0.048,"ms_receipt":1.236,"ms_total":16.489,"at":"2026-09-28T02:00:03.418272+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":14.499,"ms_pointer":0.024,"ms_manifest":0.036,"ms_parts":0.048,"ms_check":0.114,"ms_print":0.042,"ms_receipt":0.918,"ms_total":15.665,"at":"2026-09-28T02:00:03.493386+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":5.915,"ms_pointer":0.032,"ms_manifest":0.038,"ms_parts":0.046,"ms_check":0.124,"ms_print":0.044,"ms_receipt":1.145,"ms_total":7.326,"at":"2026-09-28T02:00:03.592989+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":6.547,"ms_pointer":0.034,"ms_manifest":0.037,"ms_parts":0.042,"ms_check":0.119,"ms_print":0.032,"ms_receipt":1.219,"ms_total":7.987,"at":"2026-09-28T02:00:03.672345+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.255,"ms_pointer":0.025,"ms_manifest":0.038,"ms_parts":0.043,"ms_check":0.111,"ms_print":0.038,"ms_receipt":1.343,"ms_total":6.825,"at":"2026-09-28T02:00:03.738578+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.682,"ms_pointer":0.039,"ms_manifest":0.044,"ms_parts":0.051,"ms_check":0.141,"ms_print":0.044,"ms_receipt":1.403,"ms_total":7.375,"at":"2026-09-28T02:00:03.803395+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":5.088,"ms_pointer":0.034,"ms_manifest":0.037,"ms_parts":0.041,"ms_check":0.119,"ms_print":0.036,"ms_receipt":1.155,"ms_total":6.467,"at":"2026-09-28T02:00:03.868733+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.026,"ms_pane":5.409,"ms_pointer":0.026,"ms_manifest":0.037,"ms_parts":0.042,"ms_check":0.111,"ms_print":0.038,"ms_receipt":1.084,"ms_total":6.757,"at":"2026-09-28T02:00:03.933775+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":5.084,"ms_pointer":0.023,"ms_manifest":0.036,"ms_parts":0.041,"ms_check":0.105,"ms_print":0.034,"ms_receipt":1.088,"ms_total":6.384,"at":"2026-09-28T02:00:03.998896+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.548,"ms_pointer":0.025,"ms_manifest":0.041,"ms_parts":0.042,"ms_check":0.113,"ms_print":0.044,"ms_receipt":1.107,"ms_total":6.922,"at":"2026-09-28T02:00:04.063246+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.289,"ms_pointer":0.046,"ms_manifest":0.05,"ms_parts":0.054,"ms_check":0.156,"ms_print":0.049,"ms_receipt":1.282,"ms_total":6.848,"at":"2026-09-28T02:00:04.127918+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":5.874,"ms_pointer":0.043,"ms_manifest":0.053,"ms_parts":0.067,"ms_check":0.168,"ms_print":0.052,"ms_receipt":1.37,"ms_total":7.539,"at":"2026-09-28T02:00:04.192409+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":6.406,"ms_pointer":0.039,"ms_manifest":0.043,"ms_parts":0.051,"ms_check":0.139,"ms_print":0.046,"ms_receipt":1.343,"ms_total":8.03,"at":"2026-09-28T02:00:04.258545+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":7.948,"ms_pointer":0.043,"ms_manifest":0.051,"ms_parts":0.065,"ms_check":0.165,"ms_print":0.066,"ms_receipt":1.587,"ms_total":9.876,"at":"2026-09-28T02:00:04.329074+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":20.926,"ms_pointer":0.037,"ms_manifest":0.043,"ms_parts":0.051,"ms_check":0.141,"ms_print":0.062,"ms_receipt":1.339,"ms_total":22.539,"at":"2026-09-28T02:00:04.440643+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.198,"ms_pointer":0.029,"ms_manifest":0.033,"ms_parts":0.042,"ms_check":0.112,"ms_print":0.044,"ms_receipt":0.959,"ms_total":6.417,"at":"2026-09-28T02:00:04.555763+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":6.141,"ms_pointer":0.026,"ms_manifest":0.036,"ms_parts":0.045,"ms_check":0.114,"ms_print":0.039,"ms_receipt":1.091,"ms_total":7.458,"at":"2026-09-28T02:00:04.622719+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":5.557,"ms_pointer":0.024,"ms_manifest":0.036,"ms_parts":0.04,"ms_check":0.106,"ms_print":0.035,"ms_receipt":0.891,"ms_total":6.662,"at":"2026-09-28T02:00:04.687449+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":6.155,"ms_pointer":0.028,"ms_manifest":0.041,"ms_parts":0.046,"ms_check":0.122,"ms_print":0.042,"ms_receipt":1.128,"ms_total":7.548,"at":"2026-09-28T02:00:04.750918+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.957,"ms_pointer":0.047,"ms_manifest":0.047,"ms_parts":0.059,"ms_check":0.162,"ms_print":0.058,"ms_receipt":1.331,"ms_total":7.583,"at":"2026-09-28T02:00:04.815894+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":4.944,"ms_pointer":0.033,"ms_manifest":0.037,"ms_parts":0.043,"ms_check":0.121,"ms_print":0.044,"ms_receipt":1.077,"ms_total":6.261,"at":"2026-09-28T02:00:04.881411+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.381,"ms_pointer":0.052,"ms_manifest":0.066,"ms_parts":0.072,"ms_check":0.197,"ms_print":0.042,"ms_receipt":1.27,"ms_total":6.961,"at":"2026-09-28T02:00:04.945192+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.423,"ms_pointer":0.028,"ms_manifest":0.038,"ms_parts":0.042,"ms_check":0.115,"ms_print":0.034,"ms_receipt":0.884,"ms_total":6.533,"at":"2026-09-28T02:00:05.010072+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":5.966,"ms_pointer":0.052,"ms_manifest":0.046,"ms_parts":0.059,"ms_check":0.166,"ms_print":0.053,"ms_receipt":1.095,"ms_total":7.385,"at":"2026-09-28T02:00:05.07434+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":6.227,"ms_pointer":0.057,"ms_manifest":0.053,"ms_parts":0.054,"ms_check":0.174,"ms_print":0.05,"ms_receipt":1.375,"ms_total":7.921,"at":"2026-09-28T02:00:05.139561+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":6.355,"ms_pointer":0.029,"ms_manifest":0.037,"ms_parts":0.041,"ms_check":0.112,"ms_print":0.044,"ms_receipt":1.235,"ms_total":7.848,"at":"2026-09-28T02:00:05.20512+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.986,"ms_pointer":0.023,"ms_manifest":0.036,"ms_parts":0.04,"ms_check":0.105,"ms_print":0.032,"ms_receipt":1.191,"ms_total":7.404,"at":"2026-09-28T02:00:05.271622+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.663,"ms_pointer":0.037,"ms_manifest":0.045,"ms_parts":0.053,"ms_check":0.142,"ms_print":0.044,"ms_receipt":1.362,"ms_total":7.311,"at":"2026-09-28T02:00:05.346596+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":10.376,"ms_pointer":0.027,"ms_manifest":0.04,"ms_parts":0.042,"ms_check":0.115,"ms_print":0.042,"ms_receipt":1.183,"ms_total":11.822,"at":"2026-09-28T02:00:05.432666+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":8.957,"ms_pointer":0.027,"ms_manifest":0.038,"ms_parts":0.042,"ms_check":0.113,"ms_print":0.038,"ms_receipt":1.114,"ms_total":10.292,"at":"2026-09-28T02:00:05.502136+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":6.028,"ms_pointer":0.025,"ms_manifest":0.033,"ms_parts":0.042,"ms_check":0.106,"ms_print":0.043,"ms_receipt":1.165,"ms_total":7.439,"at":"2026-09-28T02:00:05.570272+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":5.031,"ms_pointer":0.042,"ms_manifest":0.047,"ms_parts":0.054,"ms_check":0.153,"ms_print":0.047,"ms_receipt":1.077,"ms_total":6.381,"at":"2026-09-28T02:00:05.63702+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":5.526,"ms_pointer":0.024,"ms_manifest":0.035,"ms_parts":0.045,"ms_check":0.11,"ms_print":0.04,"ms_receipt":0.896,"ms_total":6.647,"at":"2026-09-28T02:00:05.701551+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.055,"ms_pointer":0.028,"ms_manifest":0.038,"ms_parts":0.043,"ms_check":0.115,"ms_print":0.042,"ms_receipt":1.121,"ms_total":6.429,"at":"2026-09-28T02:00:05.765474+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":5.876,"ms_pointer":0.041,"ms_manifest":0.052,"ms_parts":0.056,"ms_check":0.156,"ms_print":0.053,"ms_receipt":0.976,"ms_total":7.136,"at":"2026-09-28T02:00:05.829283+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.666,"ms_pointer":0.026,"ms_manifest":0.036,"ms_parts":0.042,"ms_check":0.111,"ms_print":0.031,"ms_receipt":0.866,"ms_total":6.777,"at":"2026-09-28T02:00:05.894351+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":6.392,"ms_pointer":0.041,"ms_manifest":0.046,"ms_parts":0.05,"ms_check":0.143,"ms_print":0.041,"ms_receipt":1.171,"ms_total":7.824,"at":"2026-09-28T02:00:05.959039+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":5.788,"ms_pointer":0.026,"ms_manifest":0.036,"ms_parts":0.04,"ms_check":0.108,"ms_print":0.036,"ms_receipt":0.86,"ms_total":6.866,"at":"2026-09-28T02:00:06.023539+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.696,"ms_pointer":0.023,"ms_manifest":0.034,"ms_parts":0.04,"ms_check":0.102,"ms_print":0.036,"ms_receipt":0.873,"ms_total":6.786,"at":"2026-09-28T02:00:06.088403+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":4.935,"ms_pointer":0.052,"ms_manifest":0.047,"ms_parts":0.053,"ms_check":0.159,"ms_print":0.043,"ms_receipt":1.133,"ms_total":6.342,"at":"2026-09-28T02:00:06.153168+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":5.646,"ms_pointer":0.027,"ms_manifest":0.042,"ms_parts":0.041,"ms_check":0.116,"ms_print":0.041,"ms_receipt":1.103,"ms_total":6.99,"at":"2026-09-28T02:00:06.217518+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":7.863,"ms_pointer":0.025,"ms_manifest":0.035,"ms_parts":0.04,"ms_check":0.106,"ms_print":0.08,"ms_receipt":1.158,"ms_total":9.31,"at":"2026-09-28T02:00:06.283762+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.019,"ms_pane":11.029,"ms_pointer":0.029,"ms_manifest":0.039,"ms_parts":0.043,"ms_check":0.117,"ms_print":0.038,"ms_receipt":1.203,"ms_total":12.462,"at":"2026-09-28T02:00:06.402179+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":21.664,"ms_pointer":0.029,"ms_manifest":0.036,"ms_parts":0.046,"ms_check":0.117,"ms_print":0.029,"ms_receipt":1.225,"ms_total":23.108,"at":"2026-09-28T02:00:06.473998+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":5.93,"ms_pointer":0.026,"ms_manifest":0.035,"ms_parts":0.067,"ms_check":0.134,"ms_print":0.036,"ms_receipt":0.993,"ms_total":7.166,"at":"2026-09-28T02:00:06.555045+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":5.762,"ms_pointer":0.047,"ms_manifest":0.044,"ms_parts":0.049,"ms_check":0.146,"ms_print":0.053,"ms_receipt":1.304,"ms_total":7.367,"at":"2026-09-28T02:00:06.619857+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":6.143,"ms_pointer":0.035,"ms_manifest":0.046,"ms_parts":0.049,"ms_check":0.138,"ms_print":0.055,"ms_receipt":1.144,"ms_total":7.576,"at":"2026-09-28T02:00:06.685404+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":6.146,"ms_pointer":0.035,"ms_manifest":0.046,"ms_parts":0.055,"ms_check":0.145,"ms_print":0.041,"ms_receipt":1.27,"ms_total":7.674,"at":"2026-09-28T02:00:06.750538+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.038,"ms_pane":5.141,"ms_pointer":0.032,"ms_manifest":0.039,"ms_parts":0.04,"ms_check":0.117,"ms_print":0.035,"ms_receipt":0.872,"ms_total":6.275,"at":"2026-09-28T02:00:06.815797+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":5.214,"ms_pointer":0.048,"ms_manifest":0.047,"ms_parts":0.055,"ms_check":0.157,"ms_print":0.047,"ms_receipt":1.114,"ms_total":6.607,"at":"2026-09-28T02:00:06.879373+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.543,"ms_pointer":0.024,"ms_manifest":0.036,"ms_parts":0.039,"ms_check":0.105,"ms_print":0.038,"ms_receipt":1.064,"ms_total":6.827,"at":"2026-09-28T02:00:06.944328+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.028,"ms_pane":5.84,"ms_pointer":0.049,"ms_manifest":0.044,"ms_parts":0.053,"ms_check":0.153,"ms_print":0.048,"ms_receipt":1.201,"ms_total":7.358,"at":"2026-09-28T02:00:07.008691+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.026,"ms_pane":6.586,"ms_pointer":0.029,"ms_manifest":0.04,"ms_parts":0.041,"ms_check":0.158,"ms_print":0.035,"ms_receipt":1.192,"ms_total":8.076,"at":"2026-09-28T02:00:07.074574+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.125,"ms_pointer":0.026,"ms_manifest":0.038,"ms_parts":0.044,"ms_check":0.115,"ms_print":0.043,"ms_receipt":1.121,"ms_total":6.506,"at":"2026-09-28T02:00:07.140513+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.02,"ms_pane":6.185,"ms_pointer":0.032,"ms_manifest":0.042,"ms_parts":0.043,"ms_check":0.126,"ms_print":0.047,"ms_receipt":0.896,"ms_total":7.333,"at":"2026-09-28T02:00:07.204979+05:30"}
+
+## claude-try-hook.jsonl
+{"result":"emitted","brief_chars":9500,"ms_read":0.452,"ms_pane":5.001,"ms_pointer":0.186,"ms_manifest":0.114,"ms_parts":0.193,"ms_check":0.499,"ms_print":0.043,"ms_receipt":5.938,"ms_total":12.231,"at":"2026-09-28T02:01:11.558796+05:30"}
+
+## claude-idle-hook.jsonl
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":6.809,"ms_pointer":0.044,"ms_manifest":0.043,"ms_parts":0.116,"ms_check":0.212,"ms_print":0.051,"ms_receipt":0.927,"ms_total":8.072,"at":"2026-09-28T02:01:28.108304+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.028,"ms_pane":6.115,"ms_pointer":0.043,"ms_manifest":0.045,"ms_parts":0.052,"ms_check":0.146,"ms_print":0.051,"ms_receipt":0.893,"ms_total":7.304,"at":"2026-09-28T02:01:32.218289+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":4.904,"ms_pointer":0.033,"ms_manifest":0.045,"ms_parts":0.05,"ms_check":0.135,"ms_print":0.037,"ms_receipt":0.979,"ms_total":6.15,"at":"2026-09-28T02:01:34.44565+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.203,"ms_pointer":0.038,"ms_manifest":0.049,"ms_parts":0.055,"ms_check":0.147,"ms_print":0.041,"ms_receipt":1.192,"ms_total":6.667,"at":"2026-09-28T02:01:38.492645+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.026,"ms_pane":4.726,"ms_pointer":0.037,"ms_manifest":0.047,"ms_parts":0.056,"ms_check":0.146,"ms_print":0.04,"ms_receipt":0.936,"ms_total":5.946,"at":"2026-09-28T02:01:42.888676+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":6.677,"ms_pointer":0.034,"ms_manifest":0.041,"ms_parts":0.054,"ms_check":0.136,"ms_print":0.029,"ms_receipt":0.85,"ms_total":7.782,"at":"2026-09-28T02:01:47.243825+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.001,"ms_pointer":0.036,"ms_manifest":0.046,"ms_parts":0.056,"ms_check":0.144,"ms_print":0.047,"ms_receipt":0.848,"ms_total":6.137,"at":"2026-09-28T02:01:51.435778+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":4.91,"ms_pointer":0.036,"ms_manifest":0.042,"ms_parts":0.051,"ms_check":0.135,"ms_print":0.033,"ms_receipt":0.852,"ms_total":6.025,"at":"2026-09-28T02:01:55.65231+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":5.013,"ms_pointer":0.041,"ms_manifest":0.042,"ms_parts":0.052,"ms_check":0.142,"ms_print":0.039,"ms_receipt":0.896,"ms_total":6.167,"at":"2026-09-28T02:01:59.971408+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.026,"ms_pane":5.074,"ms_pointer":0.035,"ms_manifest":0.042,"ms_parts":0.049,"ms_check":0.132,"ms_print":0.036,"ms_receipt":0.95,"ms_total":6.28,"at":"2026-09-28T02:02:04.017103+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":4.928,"ms_pointer":0.032,"ms_manifest":0.042,"ms_parts":0.05,"ms_check":0.131,"ms_print":0.033,"ms_receipt":0.843,"ms_total":6.025,"at":"2026-09-28T02:02:08.38036+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":5.188,"ms_pointer":0.038,"ms_manifest":0.042,"ms_parts":0.054,"ms_check":0.141,"ms_print":0.078,"ms_receipt":0.888,"ms_total":6.395,"at":"2026-09-28T02:02:12.460898+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.102,"ms_pointer":0.034,"ms_manifest":0.047,"ms_parts":0.058,"ms_check":0.146,"ms_print":0.043,"ms_receipt":0.946,"ms_total":6.34,"at":"2026-09-28T02:02:16.589731+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.798,"ms_pointer":0.041,"ms_manifest":0.043,"ms_parts":0.06,"ms_check":0.149,"ms_print":0.045,"ms_receipt":0.937,"ms_total":7.014,"at":"2026-09-28T02:02:20.806888+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":4.948,"ms_pointer":0.036,"ms_manifest":0.04,"ms_parts":0.058,"ms_check":0.139,"ms_print":0.055,"ms_receipt":0.877,"ms_total":6.123,"at":"2026-09-28T02:02:24.957875+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":6.104,"ms_pointer":0.045,"ms_manifest":0.042,"ms_parts":0.05,"ms_check":0.143,"ms_print":0.049,"ms_receipt":0.912,"ms_total":7.285,"at":"2026-09-28T02:02:29.113671+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.027,"ms_pane":5.458,"ms_pointer":0.033,"ms_manifest":0.045,"ms_parts":0.052,"ms_check":0.135,"ms_print":0.046,"ms_receipt":0.978,"ms_total":6.731,"at":"2026-09-28T02:02:33.362012+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.088,"ms_pointer":0.036,"ms_manifest":0.042,"ms_parts":0.052,"ms_check":0.136,"ms_print":0.035,"ms_receipt":0.886,"ms_total":6.225,"at":"2026-09-28T02:02:37.599517+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.022,"ms_pane":7.296,"ms_pointer":0.034,"ms_manifest":0.043,"ms_parts":0.054,"ms_check":0.139,"ms_print":0.046,"ms_receipt":0.935,"ms_total":8.497,"at":"2026-09-28T02:02:41.778958+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.056,"ms_pointer":0.039,"ms_manifest":0.045,"ms_parts":0.053,"ms_check":0.145,"ms_print":0.036,"ms_receipt":0.99,"ms_total":6.319,"at":"2026-09-28T02:02:45.961651+05:30"}
+
+## claude-flood-hook.jsonl
+{"result":"emitted","brief_chars":9500,"ms_read":0.027,"ms_pane":7.594,"ms_pointer":0.043,"ms_manifest":0.046,"ms_parts":0.054,"ms_check":0.15,"ms_print":0.045,"ms_receipt":1.063,"ms_total":8.972,"at":"2026-09-28T02:02:54.15711+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.023,"ms_pane":5.815,"ms_pointer":0.034,"ms_manifest":0.047,"ms_parts":0.054,"ms_check":0.14,"ms_print":0.037,"ms_receipt":0.926,"ms_total":6.995,"at":"2026-09-28T02:02:58.222523+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.024,"ms_pane":5.947,"ms_pointer":0.042,"ms_manifest":0.054,"ms_parts":0.068,"ms_check":0.174,"ms_print":0.054,"ms_receipt":1.035,"ms_total":7.29,"at":"2026-09-28T02:03:02.65474+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.029,"ms_pane":5.887,"ms_pointer":0.053,"ms_manifest":0.057,"ms_parts":0.079,"ms_check":0.202,"ms_print":0.073,"ms_receipt":0.998,"ms_total":7.28,"at":"2026-09-28T02:03:07.277228+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.03,"ms_pane":6.453,"ms_pointer":0.044,"ms_manifest":0.045,"ms_parts":0.053,"ms_check":0.147,"ms_print":0.041,"ms_receipt":0.927,"ms_total":7.695,"at":"2026-09-28T02:03:11.867347+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.026,"ms_pane":6.26,"ms_pointer":0.043,"ms_manifest":0.044,"ms_parts":0.06,"ms_check":0.157,"ms_print":0.048,"ms_receipt":0.966,"ms_total":7.549,"at":"2026-09-28T02:03:16.036689+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":7.219,"ms_pointer":0.038,"ms_manifest":0.047,"ms_parts":0.062,"ms_check":0.152,"ms_print":0.034,"ms_receipt":1.123,"ms_total":8.627,"at":"2026-09-28T02:03:20.37653+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.027,"ms_pane":6.134,"ms_pointer":0.072,"ms_manifest":0.059,"ms_parts":0.072,"ms_check":0.212,"ms_print":0.045,"ms_receipt":1.261,"ms_total":7.767,"at":"2026-09-28T02:03:24.676192+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":9.196,"ms_pane":21.101,"ms_pointer":0.04,"ms_manifest":0.05,"ms_parts":0.06,"ms_check":0.156,"ms_print":0.048,"ms_receipt":1.019,"ms_total":31.59,"at":"2026-09-28T02:03:26.897309+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.028,"ms_pane":6.309,"ms_pointer":0.044,"ms_manifest":0.048,"ms_parts":0.056,"ms_check":0.153,"ms_print":0.05,"ms_receipt":0.922,"ms_total":7.557,"at":"2026-09-28T02:03:31.055913+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.026,"ms_pane":5.824,"ms_pointer":0.033,"ms_manifest":0.041,"ms_parts":0.052,"ms_check":0.132,"ms_print":0.037,"ms_receipt":0.893,"ms_total":6.979,"at":"2026-09-28T02:03:33.196785+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":18.404,"ms_pane":5.882,"ms_pointer":0.037,"ms_manifest":0.106,"ms_parts":0.058,"ms_check":0.209,"ms_print":0.049,"ms_receipt":0.93,"ms_total":25.542,"at":"2026-09-28T02:03:37.420937+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.027,"ms_pane":6.092,"ms_pointer":0.056,"ms_manifest":0.055,"ms_parts":0.106,"ms_check":0.229,"ms_print":0.056,"ms_receipt":1.006,"ms_total":7.497,"at":"2026-09-28T02:03:41.537053+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.029,"ms_pane":6.633,"ms_pointer":0.042,"ms_manifest":0.044,"ms_parts":0.059,"ms_check":0.15,"ms_print":0.042,"ms_receipt":1,"ms_total":7.93,"at":"2026-09-28T02:03:45.800335+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.027,"ms_pane":7.091,"ms_pointer":0.044,"ms_manifest":0.052,"ms_parts":0.059,"ms_check":0.162,"ms_print":0.042,"ms_receipt":1.109,"ms_total":8.505,"at":"2026-09-28T02:03:49.947305+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.021,"ms_pane":5.586,"ms_pointer":0.065,"ms_manifest":0.059,"ms_parts":0.078,"ms_check":0.209,"ms_print":0.057,"ms_receipt":1.312,"ms_total":7.237,"at":"2026-09-28T02:03:54.17546+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.025,"ms_pane":6.504,"ms_pointer":0.053,"ms_manifest":0.05,"ms_parts":0.066,"ms_check":0.177,"ms_print":0.052,"ms_receipt":1.295,"ms_total":8.149,"at":"2026-09-28T02:03:58.303367+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.029,"ms_pane":6.272,"ms_pointer":0.039,"ms_manifest":0.048,"ms_parts":0.054,"ms_check":0.148,"ms_print":0.038,"ms_receipt":0.996,"ms_total":7.575,"at":"2026-09-28T02:04:02.486211+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.026,"ms_pane":7.357,"ms_pointer":0.042,"ms_manifest":0.046,"ms_parts":0.056,"ms_check":0.152,"ms_print":0.053,"ms_receipt":1.034,"ms_total":8.716,"at":"2026-09-28T02:04:07.061737+05:30"}
+{"result":"emitted","brief_chars":9500,"ms_read":0.04,"ms_pane":5.254,"ms_pointer":0.07,"ms_manifest":0.053,"ms_parts":0.068,"ms_check":0.198,"ms_print":0.048,"ms_receipt":0.975,"ms_total":6.597,"at":"2026-09-28T02:04:09.536897+05:30"}
+
+## idle-wall.jsonl
+{"ms_wall":11.523,"out_bytes":9706,"run":0}
+{"ms_wall":12.479,"out_bytes":9706,"run":1}
+{"ms_wall":13.982,"out_bytes":9706,"run":2}
+{"ms_wall":14.444,"out_bytes":9706,"run":3}
+{"ms_wall":15.276,"out_bytes":9706,"run":4}
+{"ms_wall":15.085,"out_bytes":9706,"run":5}
+{"ms_wall":15.791,"out_bytes":9706,"run":6}
+{"ms_wall":15.62,"out_bytes":9706,"run":7}
+{"ms_wall":15.795,"out_bytes":9706,"run":8}
+{"ms_wall":15.969,"out_bytes":9706,"run":9}
+{"ms_wall":11.349,"out_bytes":9706,"run":10}
+{"ms_wall":15.75,"out_bytes":9706,"run":11}
+{"ms_wall":16.547,"out_bytes":9706,"run":12}
+{"ms_wall":16.558,"out_bytes":9706,"run":13}
+{"ms_wall":16.267,"out_bytes":9706,"run":14}
+{"ms_wall":16.009,"out_bytes":9706,"run":15}
+{"ms_wall":14.966,"out_bytes":9706,"run":16}
+{"ms_wall":14.553,"out_bytes":9706,"run":17}
+{"ms_wall":15.131,"out_bytes":9706,"run":18}
+{"ms_wall":15.145,"out_bytes":9706,"run":19}
+{"ms_wall":15.617,"out_bytes":9706,"run":20}
+{"ms_wall":16.187,"out_bytes":9706,"run":21}
+{"ms_wall":16.672,"out_bytes":9706,"run":22}
+{"ms_wall":16.107,"out_bytes":9706,"run":23}
+{"ms_wall":15.402,"out_bytes":9706,"run":24}
+{"ms_wall":15.382,"out_bytes":9706,"run":25}
+{"ms_wall":15.399,"out_bytes":9706,"run":26}
+{"ms_wall":15.482,"out_bytes":9706,"run":27}
+{"ms_wall":16.491,"out_bytes":9706,"run":28}
+{"ms_wall":14.949,"out_bytes":9706,"run":29}
+{"ms_wall":15.808,"out_bytes":9706,"run":30}
+{"ms_wall":15.672,"out_bytes":9706,"run":31}
+{"ms_wall":15.741,"out_bytes":9706,"run":32}
+{"ms_wall":15.744,"out_bytes":9706,"run":33}
+{"ms_wall":15.326,"out_bytes":9706,"run":34}
+{"ms_wall":14.677,"out_bytes":9706,"run":35}
+{"ms_wall":15.126,"out_bytes":9706,"run":36}
+{"ms_wall":15.173,"out_bytes":9706,"run":37}
+{"ms_wall":14.746,"out_bytes":9706,"run":38}
+{"ms_wall":12.605,"out_bytes":9706,"run":39}
+{"ms_wall":12.249,"out_bytes":9706,"run":40}
+{"ms_wall":12.942,"out_bytes":9706,"run":41}
+{"ms_wall":13.514,"out_bytes":9706,"run":42}
+{"ms_wall":13.694,"out_bytes":9706,"run":43}
+{"ms_wall":11.253,"out_bytes":9706,"run":44}
+{"ms_wall":12.89,"out_bytes":9706,"run":45}
+{"ms_wall":13.947,"out_bytes":9706,"run":46}
+{"ms_wall":13.196,"out_bytes":9706,"run":47}
+{"ms_wall":14.237,"out_bytes":9706,"run":48}
+{"ms_wall":15.152,"out_bytes":9706,"run":49}
+{"ms_wall":11.801,"out_bytes":9706,"run":50}
+{"ms_wall":13.289,"out_bytes":9706,"run":51}
+{"ms_wall":12.99,"out_bytes":9706,"run":52}
+{"ms_wall":13.593,"out_bytes":9706,"run":53}
+{"ms_wall":14.183,"out_bytes":9706,"run":54}
+{"ms_wall":14.345,"out_bytes":9706,"run":55}
+{"ms_wall":14.689,"out_bytes":9706,"run":56}
+{"ms_wall":14.493,"out_bytes":9706,"run":57}
+{"ms_wall":15.288,"out_bytes":9706,"run":58}
+{"ms_wall":15.519,"out_bytes":9706,"run":59}
+{"ms_wall":15.418,"out_bytes":9706,"run":60}
+{"ms_wall":15.143,"out_bytes":9706,"run":61}
+{"ms_wall":14.783,"out_bytes":9706,"run":62}
+{"ms_wall":14.028,"out_bytes":9706,"run":63}
+{"ms_wall":14.628,"out_bytes":9706,"run":64}
+{"ms_wall":14.685,"out_bytes":9706,"run":65}
+{"ms_wall":14.299,"out_bytes":9706,"run":66}
+{"ms_wall":14.645,"out_bytes":9706,"run":67}
+{"ms_wall":15.298,"out_bytes":9706,"run":68}
+{"ms_wall":16.364,"out_bytes":9706,"run":69}
+{"ms_wall":15.834,"out_bytes":9706,"run":70}
+{"ms_wall":16.194,"out_bytes":9706,"run":71}
+{"ms_wall":15.951,"out_bytes":9706,"run":72}
+{"ms_wall":15.892,"out_bytes":9706,"run":73}
+{"ms_wall":14.729,"out_bytes":9706,"run":74}
+{"ms_wall":15.143,"out_bytes":9706,"run":75}
+{"ms_wall":14.604,"out_bytes":9706,"run":76}
+{"ms_wall":15.094,"out_bytes":9706,"run":77}
+{"ms_wall":15.778,"out_bytes":9706,"run":78}
+{"ms_wall":15.129,"out_bytes":9706,"run":79}
+{"ms_wall":14.996,"out_bytes":9706,"run":80}
+{"ms_wall":15.687,"out_bytes":9706,"run":81}
+{"ms_wall":15.54,"out_bytes":9706,"run":82}
+{"ms_wall":15.91,"out_bytes":9706,"run":83}
+{"ms_wall":15.308,"out_bytes":9706,"run":84}
+{"ms_wall":15.794,"out_bytes":9706,"run":85}
+{"ms_wall":16.153,"out_bytes":9706,"run":86}
+{"ms_wall":16.085,"out_bytes":9706,"run":87}
+{"ms_wall":15.139,"out_bytes":9706,"run":88}
+{"ms_wall":15.495,"out_bytes":9706,"run":89}
+{"ms_wall":15.043,"out_bytes":9706,"run":90}
+{"ms_wall":14.744,"out_bytes":9706,"run":91}
+{"ms_wall":14.671,"out_bytes":9706,"run":92}
+{"ms_wall":14.922,"out_bytes":9706,"run":93}
+{"ms_wall":14.184,"out_bytes":9706,"run":94}
+{"ms_wall":14.644,"out_bytes":9706,"run":95}
+{"ms_wall":15.674,"out_bytes":9706,"run":96}
+{"ms_wall":15.493,"out_bytes":9706,"run":97}
+{"ms_wall":14.893,"out_bytes":9706,"run":98}
+{"ms_wall":15.033,"out_bytes":9706,"run":99}
+
+## bursts-wall.jsonl
+{"ms_wall":14.292,"out_bytes":9706,"run":0}
+{"ms_wall":10.867,"out_bytes":9706,"run":1}
+{"ms_wall":11.024,"out_bytes":9706,"run":2}
+{"ms_wall":11.324,"out_bytes":9706,"run":3}
+{"ms_wall":11.865,"out_bytes":9706,"run":4}
+{"ms_wall":11.333,"out_bytes":9706,"run":5}
+{"ms_wall":12.506,"out_bytes":9706,"run":6}
+{"ms_wall":14.633,"out_bytes":9706,"run":7}
+{"ms_wall":14.825,"out_bytes":9706,"run":8}
+{"ms_wall":11.362,"out_bytes":9706,"run":9}
+{"ms_wall":11.393,"out_bytes":9706,"run":10}
+{"ms_wall":10.919,"out_bytes":9706,"run":11}
+{"ms_wall":11.758,"out_bytes":9706,"run":12}
+{"ms_wall":10.976,"out_bytes":9706,"run":13}
+{"ms_wall":11.937,"out_bytes":9706,"run":14}
+{"ms_wall":12.723,"out_bytes":9706,"run":15}
+{"ms_wall":17.245,"out_bytes":9706,"run":16}
+{"ms_wall":18.927,"out_bytes":9706,"run":17}
+{"ms_wall":13.7,"out_bytes":9706,"run":18}
+{"ms_wall":11.43,"out_bytes":9706,"run":19}
+{"ms_wall":11.038,"out_bytes":9706,"run":20}
+{"ms_wall":11.917,"out_bytes":9706,"run":21}
+{"ms_wall":11.197,"out_bytes":9706,"run":22}
+{"ms_wall":11.201,"out_bytes":9706,"run":23}
+{"ms_wall":11.689,"out_bytes":9706,"run":24}
+{"ms_wall":11.075,"out_bytes":9706,"run":25}
+{"ms_wall":13.617,"out_bytes":9706,"run":26}
+{"ms_wall":14.663,"out_bytes":9706,"run":27}
+{"ms_wall":14.742,"out_bytes":9706,"run":28}
+{"ms_wall":11.495,"out_bytes":9706,"run":29}
+{"ms_wall":11.637,"out_bytes":9706,"run":30}
+{"ms_wall":12.838,"out_bytes":9706,"run":31}
+{"ms_wall":12.672,"out_bytes":9706,"run":32}
+{"ms_wall":13.173,"out_bytes":9706,"run":33}
+{"ms_wall":12.037,"out_bytes":9706,"run":34}
+{"ms_wall":11.906,"out_bytes":9706,"run":35}
+{"ms_wall":11.909,"out_bytes":9706,"run":36}
+{"ms_wall":12.784,"out_bytes":9706,"run":37}
+{"ms_wall":11.437,"out_bytes":9706,"run":38}
+{"ms_wall":12.054,"out_bytes":9706,"run":39}
+{"ms_wall":12.632,"out_bytes":9706,"run":40}
+{"ms_wall":13.639,"out_bytes":9706,"run":41}
+{"ms_wall":11.099,"out_bytes":9706,"run":42}
+{"ms_wall":11.884,"out_bytes":9706,"run":43}
+{"ms_wall":11.187,"out_bytes":9706,"run":44}
+{"ms_wall":11.327,"out_bytes":9706,"run":45}
+{"ms_wall":12.078,"out_bytes":9706,"run":46}
+{"ms_wall":11.429,"out_bytes":9706,"run":47}
+{"ms_wall":11.211,"out_bytes":9706,"run":48}
+{"ms_wall":11.464,"out_bytes":9706,"run":49}
+{"ms_wall":12.853,"out_bytes":9706,"run":50}
+{"ms_wall":12.44,"out_bytes":9706,"run":51}
+{"ms_wall":11.082,"out_bytes":9706,"run":52}
+{"ms_wall":11.129,"out_bytes":9706,"run":53}
+{"ms_wall":12.926,"out_bytes":9706,"run":54}
+{"ms_wall":16.756,"out_bytes":9706,"run":55}
+{"ms_wall":11.385,"out_bytes":9706,"run":56}
+{"ms_wall":12.524,"out_bytes":9706,"run":57}
+{"ms_wall":13.74,"out_bytes":9706,"run":58}
+{"ms_wall":11.3,"out_bytes":9706,"run":59}
+{"ms_wall":13.032,"out_bytes":9706,"run":60}
+{"ms_wall":10.915,"out_bytes":9706,"run":61}
+{"ms_wall":11.073,"out_bytes":9706,"run":62}
+{"ms_wall":12.278,"out_bytes":9706,"run":63}
+{"ms_wall":18.967,"out_bytes":9706,"run":64}
+{"ms_wall":11.138,"out_bytes":9706,"run":65}
+{"ms_wall":12.827,"out_bytes":9706,"run":66}
+{"ms_wall":11.24,"out_bytes":9706,"run":67}
+{"ms_wall":12.497,"out_bytes":9706,"run":68}
+{"ms_wall":12.638,"out_bytes":9706,"run":69}
+{"ms_wall":10.877,"out_bytes":9706,"run":70}
+{"ms_wall":12.196,"out_bytes":9706,"run":71}
+{"ms_wall":11.95,"out_bytes":9706,"run":72}
+{"ms_wall":15.445,"out_bytes":9706,"run":73}
+{"ms_wall":11.047,"out_bytes":9706,"run":74}
+{"ms_wall":11.386,"out_bytes":9706,"run":75}
+{"ms_wall":11.211,"out_bytes":9706,"run":76}
+{"ms_wall":11.228,"out_bytes":9706,"run":77}
+{"ms_wall":11.992,"out_bytes":9706,"run":78}
+{"ms_wall":11.152,"out_bytes":9706,"run":79}
+{"ms_wall":12.373,"out_bytes":9706,"run":80}
+{"ms_wall":11.095,"out_bytes":9706,"run":81}
+{"ms_wall":14.785,"out_bytes":9706,"run":82}
+{"ms_wall":11.536,"out_bytes":9706,"run":83}
+{"ms_wall":11.105,"out_bytes":9706,"run":84}
+{"ms_wall":11.789,"out_bytes":9706,"run":85}
+{"ms_wall":15.117,"out_bytes":9706,"run":86}
+{"ms_wall":11.227,"out_bytes":9706,"run":87}
+{"ms_wall":12.661,"out_bytes":9706,"run":88}
+{"ms_wall":12.92,"out_bytes":9706,"run":89}
+{"ms_wall":12.544,"out_bytes":9706,"run":90}
+{"ms_wall":14.189,"out_bytes":9706,"run":91}
+{"ms_wall":12.532,"out_bytes":9706,"run":92}
+{"ms_wall":11.467,"out_bytes":9706,"run":93}
+{"ms_wall":11.429,"out_bytes":9706,"run":94}
+{"ms_wall":14.871,"out_bytes":9706,"run":95}
+{"ms_wall":11.065,"out_bytes":9706,"run":96}
+{"ms_wall":11.618,"out_bytes":9706,"run":97}
+{"ms_wall":10.273,"out_bytes":9706,"run":98}
+{"ms_wall":13.258,"out_bytes":9706,"run":99}
+
+## flood-wall.jsonl
+{"ms_wall":17.517,"out_bytes":9706,"run":0}
+{"ms_wall":14.064,"out_bytes":9706,"run":1}
+{"ms_wall":12.538,"out_bytes":9706,"run":2}
+{"ms_wall":20.441,"out_bytes":9706,"run":3}
+{"ms_wall":47.408,"out_bytes":9706,"run":4}
+{"ms_wall":36.028,"out_bytes":9706,"run":5}
+{"ms_wall":16.013,"out_bytes":9706,"run":6}
+{"ms_wall":15.06,"out_bytes":9706,"run":7}
+{"ms_wall":13.932,"out_bytes":9706,"run":8}
+{"ms_wall":14.083,"out_bytes":9706,"run":9}
+{"ms_wall":14.123,"out_bytes":9706,"run":10}
+{"ms_wall":14.585,"out_bytes":9706,"run":11}
+{"ms_wall":15.411,"out_bytes":9706,"run":12}
+{"ms_wall":12.503,"out_bytes":9706,"run":13}
+{"ms_wall":13.508,"out_bytes":9706,"run":14}
+{"ms_wall":13.32,"out_bytes":9706,"run":15}
+{"ms_wall":13.418,"out_bytes":9706,"run":16}
+{"ms_wall":15.854,"out_bytes":9706,"run":17}
+{"ms_wall":31.04,"out_bytes":9706,"run":18}
+{"ms_wall":87.92,"out_bytes":9706,"run":19}
+{"ms_wall":24.136,"out_bytes":9706,"run":20}
+{"ms_wall":16.106,"out_bytes":9706,"run":21}
+{"ms_wall":15.371,"out_bytes":9706,"run":22}
+{"ms_wall":13.749,"out_bytes":9706,"run":23}
+{"ms_wall":14.542,"out_bytes":9706,"run":24}
+{"ms_wall":14.851,"out_bytes":9706,"run":25}
+{"ms_wall":13.808,"out_bytes":9706,"run":26}
+{"ms_wall":13.074,"out_bytes":9706,"run":27}
+{"ms_wall":14.149,"out_bytes":9706,"run":28}
+{"ms_wall":13.273,"out_bytes":9706,"run":29}
+{"ms_wall":13.099,"out_bytes":9706,"run":30}
+{"ms_wall":22.298,"out_bytes":9706,"run":31}
+{"ms_wall":20.257,"out_bytes":9706,"run":32}
+{"ms_wall":88.638,"out_bytes":9706,"run":33}
+{"ms_wall":22.43,"out_bytes":9706,"run":34}
+{"ms_wall":15.054,"out_bytes":9706,"run":35}
+{"ms_wall":14.056,"out_bytes":9706,"run":36}
+{"ms_wall":14.614,"out_bytes":9706,"run":37}
+{"ms_wall":13.731,"out_bytes":9706,"run":38}
+{"ms_wall":12.855,"out_bytes":9706,"run":39}
+{"ms_wall":14.902,"out_bytes":9706,"run":40}
+{"ms_wall":14.895,"out_bytes":9706,"run":41}
+{"ms_wall":13.528,"out_bytes":9706,"run":42}
+{"ms_wall":13.703,"out_bytes":9706,"run":43}
+{"ms_wall":15.15,"out_bytes":9706,"run":44}
+{"ms_wall":31.956,"out_bytes":9706,"run":45}
+{"ms_wall":23.337,"out_bytes":9706,"run":46}
+{"ms_wall":39.938,"out_bytes":9706,"run":47}
+{"ms_wall":28.945,"out_bytes":9706,"run":48}
+{"ms_wall":14.181,"out_bytes":9706,"run":49}
+{"ms_wall":14.233,"out_bytes":9706,"run":50}
+{"ms_wall":13.578,"out_bytes":9706,"run":51}
+{"ms_wall":14.032,"out_bytes":9706,"run":52}
+{"ms_wall":13.685,"out_bytes":9706,"run":53}
+{"ms_wall":13.761,"out_bytes":9706,"run":54}
+{"ms_wall":13.581,"out_bytes":9706,"run":55}
+{"ms_wall":14.231,"out_bytes":9706,"run":56}
+{"ms_wall":15.509,"out_bytes":9706,"run":57}
+{"ms_wall":21.978,"out_bytes":9706,"run":58}
+{"ms_wall":73.158,"out_bytes":9706,"run":59}
+{"ms_wall":47.919,"out_bytes":9706,"run":60}
+{"ms_wall":16.886,"out_bytes":9706,"run":61}
+{"ms_wall":12.911,"out_bytes":9706,"run":62}
+{"ms_wall":14.315,"out_bytes":9706,"run":63}
+{"ms_wall":14.032,"out_bytes":9706,"run":64}
+{"ms_wall":13,"out_bytes":9706,"run":65}
+{"ms_wall":13.505,"out_bytes":9706,"run":66}
+{"ms_wall":13.334,"out_bytes":9706,"run":67}
+{"ms_wall":14.119,"out_bytes":9706,"run":68}
+{"ms_wall":15.311,"out_bytes":9706,"run":69}
+{"ms_wall":14.79,"out_bytes":9706,"run":70}
+{"ms_wall":14.95,"out_bytes":9706,"run":71}
+{"ms_wall":23.813,"out_bytes":9706,"run":72}
+{"ms_wall":39.469,"out_bytes":9706,"run":73}
+{"ms_wall":16.857,"out_bytes":9706,"run":74}
+{"ms_wall":14.273,"out_bytes":9706,"run":75}
+{"ms_wall":14.622,"out_bytes":9706,"run":76}
+{"ms_wall":13.729,"out_bytes":9706,"run":77}
+{"ms_wall":12.942,"out_bytes":9706,"run":78}
+{"ms_wall":14.033,"out_bytes":9706,"run":79}
+{"ms_wall":13.681,"out_bytes":9706,"run":80}
+{"ms_wall":15.378,"out_bytes":9706,"run":81}
+{"ms_wall":13.269,"out_bytes":9706,"run":82}
+{"ms_wall":13.689,"out_bytes":9706,"run":83}
+{"ms_wall":13.308,"out_bytes":9706,"run":84}
+{"ms_wall":14.34,"out_bytes":9706,"run":85}
+{"ms_wall":17.504,"out_bytes":9706,"run":86}
+{"ms_wall":70.517,"out_bytes":9706,"run":87}
+{"ms_wall":31.394,"out_bytes":9706,"run":88}
+{"ms_wall":13.986,"out_bytes":9706,"run":89}
+{"ms_wall":13.998,"out_bytes":9706,"run":90}
+{"ms_wall":14.702,"out_bytes":9706,"run":91}
+{"ms_wall":14.131,"out_bytes":9706,"run":92}
+{"ms_wall":13.326,"out_bytes":9706,"run":93}
+{"ms_wall":13.19,"out_bytes":9706,"run":94}
+{"ms_wall":14.073,"out_bytes":9706,"run":95}
+{"ms_wall":13.886,"out_bytes":9706,"run":96}
+{"ms_wall":15.529,"out_bytes":9706,"run":97}
+{"ms_wall":13.307,"out_bytes":9706,"run":98}
+{"ms_wall":14.252,"out_bytes":9706,"run":99}
+
+## claude-idle-wall.jsonl
+{"run":1,"s_claude":4.090}
+{"run":2,"s_claude":2.213}
+{"run":3,"s_claude":4.046}
+{"run":4,"s_claude":4.374}
+{"run":5,"s_claude":4.353}
+{"run":6,"s_claude":4.180}
+{"run":7,"s_claude":4.196}
+{"run":8,"s_claude":4.331}
+{"run":9,"s_claude":4.017}
+{"run":10,"s_claude":4.351}
+{"run":11,"s_claude":4.068}
+{"run":12,"s_claude":4.123}
+{"run":13,"s_claude":4.212}
+{"run":14,"s_claude":4.140}
+{"run":15,"s_claude":4.144}
+{"run":16,"s_claude":4.229}
+{"run":17,"s_claude":4.227}
+{"run":18,"s_claude":4.169}
+{"run":19,"s_claude":4.160}
+{"run":20,"s_claude":4.228}
+
+## claude-flood-wall.jsonl
+{"run":1,"s_claude":4.023}
+{"run":2,"s_claude":4.449}
+{"run":3,"s_claude":4.622}
+{"run":4,"s_claude":4.541}
+{"run":5,"s_claude":4.194}
+{"run":6,"s_claude":4.215}
+{"run":7,"s_claude":4.393}
+{"run":8,"s_claude":2.172}
+{"run":9,"s_claude":4.185}
+{"run":10,"s_claude":2.145}
+{"run":11,"s_claude":4.099}
+{"run":12,"s_claude":4.219}
+{"run":13,"s_claude":4.168}
+{"run":14,"s_claude":4.172}
+{"run":15,"s_claude":4.166}
+{"run":16,"s_claude":4.165}
+{"run":17,"s_claude":4.168}
+{"run":18,"s_claude":4.575}
+{"run":19,"s_claude":2.442}
+{"run":20,"s_claude":4.144}
+
+## bursts-cpu.txt
+01:59:19 herdr_cpu=101.2 load={ 2.27 1.73 1.75 }
+01:59:20 herdr_cpu= 51.4 load={ 2.09 1.70 1.74 }
+01:59:21 herdr_cpu=155.9 load={ 2.09 1.70 1.74 }
+01:59:22 herdr_cpu=137.2 load={ 2.09 1.70 1.74 }
+01:59:23 herdr_cpu= 95.3 load={ 2.09 1.70 1.74 }
+01:59:24 herdr_cpu=124.9 load={ 2.09 1.70 1.74 }
+01:59:25 herdr_cpu=116.3 load={ 2.24 1.74 1.75 }
+01:59:26 herdr_cpu=145.5 load={ 2.24 1.74 1.75 }
+01:59:27 herdr_cpu=158.2 load={ 2.24 1.74 1.75 }
+01:59:28 herdr_cpu=119.6 load={ 2.24 1.74 1.75 }
+01:59:29 herdr_cpu=141.8 load={ 2.24 1.74 1.75 }
+01:59:30 herdr_cpu=109.7 load={ 2.14 1.73 1.74 }
+01:59:31 herdr_cpu= 98.7 load={ 2.14 1.73 1.74 }
+01:59:32 herdr_cpu=198.7 load={ 2.14 1.73 1.74 }
+01:59:33 herdr_cpu=194.9 load={ 2.14 1.73 1.74 }
+01:59:34 herdr_cpu=492.7 load={ 1.97 1.70 1.73 }
+01:59:35 herdr_cpu=341.5 load={ 1.97 1.70 1.73 }
+01:59:36 herdr_cpu=365.5 load={ 1.97 1.70 1.73 }
+01:59:37 herdr_cpu=258.5 load={ 1.97 1.70 1.73 }
+01:59:38 herdr_cpu=288.3 load={ 1.97 1.70 1.73 }
+01:59:39 herdr_cpu=167.7 load={ 1.81 1.67 1.72 }
+01:59:40 herdr_cpu=212.2 load={ 1.81 1.67 1.72 }
+01:59:41 herdr_cpu=160.1 load={ 1.81 1.67 1.72 }
+01:59:42 herdr_cpu=379.0 load={ 1.81 1.67 1.72 }
+01:59:43 herdr_cpu=126.3 load={ 1.81 1.67 1.72 }
+01:59:44 herdr_cpu=116.6 load={ 1.91 1.69 1.73 }
+01:59:45 herdr_cpu=131.0 load={ 1.91 1.69 1.73 }
+01:59:46 herdr_cpu=535.2 load={ 1.91 1.69 1.73 }
+01:59:47 herdr_cpu=145.9 load={ 1.91 1.69 1.73 }
+01:59:48 herdr_cpu=185.8 load={ 1.91 1.69 1.73 }
+01:59:49 herdr_cpu=120.0 load={ 2.00 1.71 1.74 }
+01:59:50 herdr_cpu=261.0 load={ 2.00 1.71 1.74 }
+01:59:51 herdr_cpu=287.1 load={ 2.00 1.71 1.74 }
+01:59:52 herdr_cpu=153.4 load={ 2.00 1.71 1.74 }
+01:59:53 herdr_cpu= 78.1 load={ 2.00 1.71 1.74 }
+01:59:54 herdr_cpu= 89.7 load={ 2.40 1.80 1.77 }
+01:59:55 herdr_cpu=294.0 load={ 2.40 1.80 1.77 }
+01:59:56 herdr_cpu=193.7 load={ 2.40 1.80 1.77 }
+01:59:57 herdr_cpu=740.5 load={ 2.40 1.80 1.77 }
+01:59:58 herdr_cpu=729.2 load={ 2.40 1.80 1.77 }
+
+## flood-cpu.txt
+02:00:00 herdr_cpu=595.8 load={ 4.61 2.27 1.93 }
+02:00:01 herdr_cpu=605.4 load={ 4.61 2.27 1.93 }
+02:00:02 herdr_cpu=598.6 load={ 4.61 2.27 1.93 }
+02:00:03 herdr_cpu=572.8 load={ 4.61 2.27 1.93 }
+02:00:04 herdr_cpu=564.6 load={ 4.61 2.27 1.93 }
+02:00:05 herdr_cpu=577.9 load={ 6.32 2.66 2.07 }
+02:00:06 herdr_cpu=584.9 load={ 6.32 2.66 2.07 }
+02:00:07 herdr_cpu=572.8 load={ 6.32 2.66 2.07 }
+02:00:08 herdr_cpu=660.4 load={ 6.32 2.66 2.07 }
+02:00:09 herdr_cpu=675.9 load={ 6.32 2.66 2.07 }
+02:00:10 herdr_cpu=662.8 load={ 7.25 2.92 2.17 }
+02:00:11 herdr_cpu=683.2 load={ 7.25 2.92 2.17 }
+02:00:12 herdr_cpu=742.9 load={ 7.25 2.92 2.17 }
+02:00:13 herdr_cpu=655.7 load={ 7.25 2.92 2.17 }
+02:00:14 herdr_cpu=601.0 load={ 7.25 2.92 2.17 }
+02:00:15 herdr_cpu=220.0 load={ 7.71 3.08 2.23 }
+02:00:16 herdr_cpu=  6.6 load={ 7.71 3.08 2.23 }
+02:00:17 herdr_cpu=  1.0 load={ 7.71 3.08 2.23 }
+02:00:18 herdr_cpu=  3.0 load={ 7.71 3.08 2.23 }
+02:00:19 herdr_cpu=  2.0 load={ 7.71 3.08 2.23 }
+02:00:20 herdr_cpu=  3.2 load={ 7.18 3.05 2.22 }
+02:00:21 herdr_cpu=  1.8 load={ 7.18 3.05 2.22 }
+02:00:22 herdr_cpu=  1.9 load={ 7.18 3.05 2.22 }
+02:00:23 herdr_cpu=  0.7 load={ 7.18 3.05 2.22 }
+02:00:24 herdr_cpu=  1.4 load={ 6.68 3.02 2.22 }
+02:00:25 herdr_cpu=  0.9 load={ 6.68 3.02 2.22 }
+02:00:26 herdr_cpu=  1.0 load={ 6.68 3.02 2.22 }
+02:00:27 herdr_cpu=  1.5 load={ 6.68 3.02 2.22 }
+02:00:28 herdr_cpu=  1.3 load={ 6.68 3.02 2.22 }
+02:00:29 herdr_cpu=  1.2 load={ 6.15 2.96 2.20 }
+02:00:30 herdr_cpu=  1.2 load={ 6.15 2.96 2.20 }
+02:00:31 herdr_cpu=  1.5 load={ 6.15 2.96 2.20 }
+02:00:32 herdr_cpu=  1.1 load={ 6.15 2.96 2.20 }
+02:00:33 herdr_cpu=  0.8 load={ 6.15 2.96 2.20 }
+02:00:34 herdr_cpu=  0.6 load={ 5.73 2.93 2.20 }
+02:00:35 herdr_cpu=  0.9 load={ 5.73 2.93 2.20 }
+02:00:36 herdr_cpu=  0.9 load={ 5.73 2.93 2.20 }
+02:00:37 herdr_cpu=  1.1 load={ 5.73 2.93 2.20 }
+02:00:38 herdr_cpu=  0.8 load={ 5.73 2.93 2.20 }
+02:00:39 herdr_cpu=  0.8 load={ 5.43 2.92 2.19 }
+
+## claude-flood-cpu.txt
+02:02:53 herdr_cpu=610.9 load={ 1.99 2.43 2.10 }
+02:02:54 herdr_cpu=571.0 load={ 1.99 2.43 2.10 }
+02:02:55 herdr_cpu=591.2 load={ 4.79 3.00 2.30 }
+02:02:56 herdr_cpu=571.0 load={ 4.79 3.00 2.30 }
+02:02:58 herdr_cpu=567.7 load={ 4.79 3.00 2.30 }
+02:02:59 herdr_cpu=659.9 load={ 4.79 3.00 2.30 }
+02:03:00 herdr_cpu=607.3 load={ 7.21 3.53 2.49 }
+02:03:01 herdr_cpu=607.4 load={ 7.21 3.53 2.49 }
+02:03:02 herdr_cpu=656.7 load={ 7.21 3.53 2.49 }
+02:03:03 herdr_cpu=724.7 load={ 7.21 3.53 2.49 }
+02:03:04 herdr_cpu=684.3 load={ 7.21 3.53 2.49 }
+02:03:05 herdr_cpu=681.5 load={ 7.59 3.67 2.55 }
+02:03:06 herdr_cpu=660.2 load={ 7.59 3.67 2.55 }
+02:03:07 herdr_cpu=604.7 load={ 7.59 3.67 2.55 }
+02:03:08 herdr_cpu=588.0 load={ 7.59 3.67 2.55 }
+02:03:09 herdr_cpu=605.7 load={ 7.59 3.67 2.55 }
+02:03:10 herdr_cpu=669.2 load={ 8.43 3.91 2.64 }
+02:03:11 herdr_cpu=671.8 load={ 8.43 3.91 2.64 }
+02:03:12 herdr_cpu=614.4 load={ 8.43 3.91 2.64 }
+02:03:13 herdr_cpu=602.6 load={ 8.43 3.91 2.64 }
+02:03:14 herdr_cpu=628.3 load={ 8.43 3.91 2.64 }
+02:03:15 herdr_cpu=648.3 load={ 9.59 4.23 2.76 }
+02:03:16 herdr_cpu=709.5 load={ 9.59 4.23 2.76 }
+02:03:17 herdr_cpu=704.8 load={ 9.59 4.23 2.76 }
+02:03:18 herdr_cpu=711.0 load={ 9.59 4.23 2.76 }
+02:03:19 herdr_cpu=684.0 load={ 9.59 4.23 2.76 }
+02:03:20 herdr_cpu=686.0 load={ 12.67 4.95 3.02 }
+02:03:21 herdr_cpu=567.5 load={ 12.67 4.95 3.02 }
+02:03:22 herdr_cpu=593.3 load={ 12.67 4.95 3.02 }
+02:03:23 herdr_cpu=578.8 load={ 12.67 4.95 3.02 }
+02:03:24 herdr_cpu=579.6 load={ 12.67 4.95 3.02 }
+02:03:25 herdr_cpu=567.8 load={ 14.06 5.37 3.18 }
+02:03:26 herdr_cpu=592.6 load={ 14.06 5.37 3.18 }
+02:03:27 herdr_cpu=682.1 load={ 14.06 5.37 3.18 }
+02:03:28 herdr_cpu=633.9 load={ 14.06 5.37 3.18 }
+02:03:29 herdr_cpu=700.7 load={ 14.06 5.37 3.18 }
+02:03:30 herdr_cpu=672.4 load={ 14.13 5.53 3.25 }
+02:03:32 herdr_cpu=684.3 load={ 14.13 5.53 3.25 }
+02:03:33 herdr_cpu=710.5 load={ 14.13 5.53 3.25 }
+02:03:34 herdr_cpu=669.1 load={ 14.13 5.53 3.25 }
+02:03:35 herdr_cpu=673.2 load={ 14.13 5.53 3.25 }
+02:03:36 herdr_cpu=600.4 load={ 14.12 5.67 3.31 }
+02:03:37 herdr_cpu=567.6 load={ 14.12 5.67 3.31 }
+02:03:38 herdr_cpu=611.8 load={ 14.12 5.67 3.31 }
+02:03:39 herdr_cpu=669.2 load={ 14.12 5.67 3.31 }
+02:03:40 herdr_cpu=700.4 load={ 14.83 5.96 3.43 }
+02:03:41 herdr_cpu=709.7 load={ 14.83 5.96 3.43 }
+02:03:42 herdr_cpu=703.3 load={ 14.83 5.96 3.43 }
+02:03:43 herdr_cpu=657.6 load={ 14.83 5.96 3.43 }
+02:03:44 herdr_cpu=623.5 load={ 14.83 5.96 3.43 }
+02:03:45 herdr_cpu=607.3 load={ 14.68 6.07 3.48 }
+02:03:46 herdr_cpu=557.4 load={ 14.68 6.07 3.48 }
+02:03:47 herdr_cpu=607.3 load={ 14.68 6.07 3.48 }
+02:03:48 herdr_cpu=627.0 load={ 14.68 6.07 3.48 }
+02:03:49 herdr_cpu=719.5 load={ 14.68 6.07 3.48 }
+02:03:50 herdr_cpu=680.2 load={ 15.67 6.42 3.62 }
+02:03:51 herdr_cpu=682.5 load={ 15.67 6.42 3.62 }
+02:03:52 herdr_cpu=756.2 load={ 15.67 6.42 3.62 }
+02:03:53 herdr_cpu=691.4 load={ 15.67 6.42 3.62 }
+02:03:54 herdr_cpu=636.0 load={ 15.67 6.42 3.62 }
+
+## pane-env.txt (probe pane w1:p1)
+HERDR_BIN_PATH=/Users/aryanvijaywargia/.local/bin/herdr
+HERDR_ENV=1
+HERDR_PANE_ID=w1:p1
+HERDR_SESSION=brain-spike-e7s4
+HERDR_SOCKET_PATH=/tmp/e7s4/home/.config/herdr/sessions/brain-spike-e7s4/herdr.sock
+HERDR_TAB_ID=w1:t1
+HERDR_WORKSPACE_ID=w1
+
+## claude reply (all runs the same)
+You've hit your weekly limit · resets 9:30am (Asia/Calcutta)
