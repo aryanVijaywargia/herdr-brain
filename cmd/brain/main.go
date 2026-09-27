@@ -53,7 +53,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// A popup pane closes when its command exits, so wait until the user has read the output.
 	if args[0] == "setup" && os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID") != "" {
 		fmt.Fprint(stdout, "Press Enter to close.")
-		in.ReadString('\n')
+		_, _ = in.ReadString('\n') // any error, such as EOF, also ends the wait
 	}
 	return code
 }
