@@ -16,8 +16,8 @@ Uber Go style guides, cut down to what matters in this repo.
 
 ## Errors
 
-1. One place prints. `main` is `os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))`, and `run`
-   is the only function that prints an error and picks the exit code. Every other function
+1. One place prints. `main` only calls `os.Exit(run(...))`, and `run` is the only function
+   that prints an error and picks the exit code. Every other function
    returns `error`. No `fmt.Fprintf(stderr, ...); return 1` in each branch.
 2. Wrap once, with context: `fmt.Errorf("create link dir: %w", err)`. Lowercase, `%w` at the
    end, no trailing period, no "failed to", "unable to" or "error:". Add only what the error
@@ -93,9 +93,11 @@ func setup(bin, link string) error {
 13. Comments say why, not what. A doc comment is a full sentence that starts with the name:
     `// Setup links the brain binary into ~/.local/bin.` No comments that restate the code,
     no "Step 1:" comments, no banner comments, no commented-out code.
-14. No over-defensive code: no nil checks on values that cannot be nil, no second validation
-    of the same input, no `len(s) > 0` guard before a `range`, no "just in case" `recover`.
-    Validate at the edge (arguments, files, environment), then trust the values inside.
+14. No over-defensive code: no nil checks on values that cannot be nil, no `len(s) > 0` guard
+    before a `range`, no "just in case" `recover`, no second check of a value that cannot
+    have changed. Validate at trust boundaries (arguments, files, environment, hook input).
+    Always recheck state that can change between the check and the use: an expected
+    revision, a generation, a scope, or anything read before a wait or from another goroutine.
 15. No silent fallbacks. Do not swallow an error and go on with a default value. When the
     spec wants a default for a missing file, check only `errors.Is(err, fs.ErrNotExist)`,
     say why in a comment, and test it.
@@ -110,7 +112,8 @@ func setup(bin, link string) error {
 
 17. `defer f.Close()` goes right after the error check of a successful open. If a loop opens
     files, move the loop body into a function, so that each `defer` runs once per iteration.
-    For a file you write, return the error from `Close`, or use `os.WriteFile`.
+    For a file you write, return the error from `Close`, or use `os.WriteFile`. For a file
+    you only read, `defer f.Close() //nolint:errcheck // read-only: Close cannot lose data`.
 18. A function that can block, or that the user can cancel, takes `ctx context.Context` as
     its first parameter. Never store a `ctx` in a struct. Pass the `ctx` down; do not start a
     new `context.Background()` in the middle of a call chain.
@@ -123,7 +126,8 @@ func setup(bin, link string) error {
     channel or inject the clock. No assertion libraries.
 21. Before you say the work is done: `gofmt -l .` prints nothing, and `go vet ./...`,
     `golangci-lint run` and `go test -race ./...` pass. If golangci-lint is not installed,
-    push and read the log of the CI `lint` job. Do not install tools without the owner.
+    say in your report that lint did not run locally; the CI `lint` job runs it on the pull
+    request. Do not install tools without the owner.
 
 ## Lint
 

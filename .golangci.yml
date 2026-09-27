@@ -17,14 +17,6 @@ linters:
     - funlen
     - forcetypeassert
   settings:
-    errcheck:
-      # A failed write to the terminal has no one to report to, and Close cannot lose data
-      # on a file that was only read. Close on a written file: go-quality rule 4.
-      exclude-functions:
-        - fmt.Fprint
-        - fmt.Fprintf
-        - fmt.Fprintln
-        - (*os.File).Close
     funlen:
       lines: -1 # count statements, not lines, so long test tables pass
       statements: 40 # [NEW] rule 10: short functions
@@ -32,6 +24,13 @@ linters:
       threshold: 150 # [NEW] tokens; only large copies, rule 9: extract at the third copy
     nestif:
       min-complexity: 5 # [NEW] rule 10: flat functions
+  exclusions:
+    rules:
+      # cmd/ prints to the user's terminal, and a failed write there has no one to report to.
+      # fmt.Fprint* in other packages, and every Close, stay checked.
+      - path: ^cmd/
+        linters: [errcheck]
+        text: "Error return value of `fmt\\.Fprint(f|ln)?` is not checked"
 
 issues:
   # Show every finding in one run, not the first 50 per linter or 3 per message.
