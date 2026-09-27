@@ -27,11 +27,11 @@ var errWithheld = errors.New("withheld: root unreadable")
 func readRoot(path, workspaceID string) (string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", errWithheld, err)
+		return "", fmt.Errorf("%w: %w", errWithheld, err)
 	}
 	var f sessionFile
 	if err := json.Unmarshal(b, &f); err != nil {
-		return "", fmt.Errorf("%w: %v", errWithheld, err)
+		return "", fmt.Errorf("%w: %w", errWithheld, err)
 	}
 	if f.Version == nil || *f.Version != knownVersion {
 		return "", fmt.Errorf("%w: unknown version", errWithheld)
