@@ -79,15 +79,18 @@ func TestOfferLinkKeepsExistingFiles(t *testing.T) {
 	}
 
 	// Another file or a broken link at the link path: never replaced.
-	os.Remove(link)
 	other := filepath.Join(filepath.Dir(link), "other")
-	os.WriteFile(other, []byte("x"), 0o755)
+	if err := os.WriteFile(other, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	for name, mk := range map[string]func() error{
 		"file":   func() error { return os.WriteFile(link, []byte("mine"), 0o755) },
 		"other":  func() error { return os.Symlink(other, link) },
 		"broken": func() error { return os.Symlink(filepath.Join(filepath.Dir(link), "gone"), link) },
 	} {
-		os.Remove(link)
+		if err := os.Remove(link); err != nil { // the link path always holds the previous step's file
+			t.Fatal(err)
+		}
 		if err := mk(); err != nil {
 			t.Fatal(err)
 		}
@@ -159,7 +162,7 @@ func TestOfferLinkErrors(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			if os.Geteuid() == 0 && c.cause == os.ErrPermission {
+			if os.Geteuid() == 0 && errors.Is(c.cause, os.ErrPermission) {
 				t.Skip("root ignores file modes")
 			}
 			bin, link := linkFixture(t)
@@ -202,5 +205,9 @@ func mustMkdir(t *testing.T, dir string, mode os.FileMode) {
 	if err := os.Chmod(dir, mode); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+	t.Cleanup(func() {
+		if err := os.Chmod(dir, 0o755); err != nil {
+			t.Error(err)
+		}
+	})
 }
