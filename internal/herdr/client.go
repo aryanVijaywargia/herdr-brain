@@ -71,9 +71,16 @@ func childEnv(environ []string, t Target) []string {
 
 // run runs `herdr --session <target> args...` and returns its stdout. The caller gives the
 // deadline in ctx: herdr is on the path of every Brain call, so no call may wait forever.
+// herdr 0.9.1 takes the last --session in the whole command line, so run refuses any
+// argument that would change the target.
 func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		return nil, errors.New("context has no deadline")
+	}
+	for _, a := range args {
+		if a == "--session" || strings.HasPrefix(a, "--session=") {
+			return nil, fmt.Errorf("argument %q would change the herdr target", a)
+		}
 	}
 	cmd := exec.CommandContext(ctx, c.bin, append([]string{"--session", c.target.Session}, args...)...)
 	cmd.Env = c.env
@@ -177,6 +184,9 @@ func (c *Client) ClientVersion(ctx context.Context) (string, error) {
 
 // Pane returns the pane with id, from `herdr pane get`.
 func (c *Client) Pane(ctx context.Context, id string) (Pane, error) {
+	if err := checkPaneID(id); err != nil {
+		return Pane{}, fmt.Errorf("herdr pane get: %w", err)
+	}
 	var r struct {
 		Pane *rawPane `json:"pane"`
 	}
@@ -188,6 +198,15 @@ func (c *Client) Pane(ctx context.Context, id string) (Pane, error) {
 		return Pane{}, fmt.Errorf("herdr pane get: %w", err)
 	}
 	return p, nil
+}
+
+// checkPaneID refuses a pane id that herdr would not print, before it reaches the command
+// line.
+func checkPaneID(id string) error {
+	if !paneIDRe.MatchString(id) {
+		return fmt.Errorf("malformed pane id %q", id)
+	}
+	return nil
 }
 
 // Workspaces returns the workspaces of the target session, from `herdr workspace list`.
@@ -281,6 +300,9 @@ func (c *Client) OpenPluginPane(ctx context.Context, s PluginPaneSpec) (PluginPa
 // ClosePluginPane closes a plugin pane with `herdr plugin pane close`. herdr refuses a pane
 // that no plugin opened.
 func (c *Client) ClosePluginPane(ctx context.Context, paneID string) error {
+	if err := checkPaneID(paneID); err != nil {
+		return fmt.Errorf("herdr plugin pane close: %w", err)
+	}
 	var r struct {
 		PaneID *string `json:"pane_id"`
 	}

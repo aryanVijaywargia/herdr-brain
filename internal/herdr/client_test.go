@@ -443,6 +443,48 @@ func TestNew(t *testing.T) {
 	}
 }
 
+// TestTargetArgs shows that no caller string can change the herdr target: herdr 0.9.1 takes
+// the last --session anywhere in the command line.
+func TestTargetArgs(t *testing.T) {
+	open := func(s PluginPaneSpec) func(*Client) error {
+		return func(c *Client) error {
+			_, err := c.OpenPluginPane(deadline(t), s)
+			return err
+		}
+	}
+	spec := PluginPaneSpec{Plugin: "brain", Entrypoint: "review", Placement: "split", TargetPane: "w1:p1"}
+	with := func(f func(*PluginPaneSpec)) PluginPaneSpec {
+		s := spec
+		f(&s)
+		return s
+	}
+	tests := []struct {
+		name string
+		call func(*Client) error
+		want string // part of the error
+	}{
+		{"pane id flag", func(c *Client) error { _, err := c.Pane(deadline(t), "--session"); return err }, `malformed pane id "--session"`},
+		{"pane id flag=value", func(c *Client) error { _, err := c.Pane(deadline(t), "--session=default"); return err }, `malformed pane id "--session=default"`},
+		{"close pane id flag=value", func(c *Client) error { return c.ClosePluginPane(deadline(t), "--session=default") }, "malformed pane id"},
+		{"plugin flag", open(with(func(s *PluginPaneSpec) { s.Plugin = "--session" })), `argument "--session" would change the herdr target`},
+		{"entrypoint flag=value", open(with(func(s *PluginPaneSpec) { s.Entrypoint = "--session=default" })), `argument "--session=default"`},
+		{"placement flag", open(with(func(s *PluginPaneSpec) { s.Placement = "--session" })), `argument "--session"`},
+		{"target pane flag=value", open(with(func(s *PluginPaneSpec) { s.TargetPane = "--session=default" })), `argument "--session=default"`},
+		{"env flag=value", open(with(func(s *PluginPaneSpec) { s.Env = []string{"--session=default"} })), `argument "--session=default"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, dir := fakeClient(t, map[string]reply{})
+			if err := tt.call(c); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("err = %v, want it to contain %q", err, tt.want)
+			}
+			if cs := calls(t, dir); len(cs) != 0 {
+				t.Errorf("herdr ran: %+v", cs)
+			}
+		})
+	}
+}
+
 func TestDeadline(t *testing.T) {
 	c, dir := fakeClient(t, map[string]reply{"workspace list": {Hang: true}})
 	if _, err := c.Workspaces(context.Background()); err == nil {
