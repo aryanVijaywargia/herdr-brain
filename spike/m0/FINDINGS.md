@@ -13,7 +13,7 @@
 | 1 | Codex SessionStart `additionalContext` reaches the model | PASS | After trust in the Codex TUI, an interactive Codex returned the nonce. The hook fired at the first prompt, not at start. |
 | 2 | Claude `additionalContext` size limit | PASS, limit found | 10,000 characters reach the model inline. At 10,001 characters Claude writes the text to `~/.claude/projects/<proj>/<sid>/tool-results/hook-...-additionalContext.txt` and gives the model only the path. |
 | 2 | Codex size limit | PASS, no limit seen | `codex exec` returned both markers at 10,500, 30,000 and 100,000 characters. |
-| 4 | Workspace root | PARTIAL | `WorkspaceInfo` has no root or cwd field. A plugin action got `workspace_cwd` in `HERDR_PLUGIN_CONTEXT_JSON`. `pane get` gives `cwd` and `foreground_cwd`. Open: `workspace_cwd` versus `identity_cwd` after the root pane changes folder. |
+| 4 | Workspace root | ANSWERED (E2-S5), owner decision open | The API has no root. `workspace_cwd` is the focused pane's live folder. `identity_cwd` is the root pane's folder at the last save. Both follow `cd`. See "Workspace root folder source". |
 | 10 | Hook timing | PARTIAL | Stdin read 0.4 ms. `herdr pane get` from the hook: 4.5-10.2 ms. Whole hook: 5.4-10.7 ms (Claude and Codex). Open: busy load, manifest check. |
 | 11 | Pane split with no focus, then close | PASS | `pane split --no-focus` kept focus. A plugin `split` pane with `--no-focus --env BRAIN_REVIEW=1` kept focus and got the env. `plugin pane close` closed it. `plugin pane close` on a normal pane returned `plugin_pane_not_found` and left it open. Open: `popup` placement. |
 | 21 | Conformance test | OPEN | |
@@ -69,16 +69,41 @@
 - herdr reuses `w1` after a deletion of session state. The `identity_cwd` match catches a new folder. It cannot catch a new workspace in the same folder. That case is treated as the same workspace, as in the HLD.
 - herdr has no persistent session identity, so the HLD branch "if herdr gives a persistent session identity" does not apply on 0.9.1.
 
+## Workspace root folder source (E2-S5, items 4 and 27)
+
+- Date: 2026-09-28. herdr 0.9.1. Headless scratch server, session `brain-spike-e2s5`, scratch HOME `/tmp/e2s5/home`. The raw replies are in `data/e2s5-root-source.txt`. The read probe is `rootread/main.go`.
+- **Question 1: does `workspace_cwd` equal `identity_cwd` after the root pane changes folder? No.**
+  - `workspace_cwd` is the live folder of the **focused** pane of the workspace at call time. With a second pane focused, it gave that pane's folder, not the root pane's folder.
+  - `identity_cwd` is the folder of the tab's **root pane** at the **last save** of `session.json`. It is not the folder at creation.
+  - herdr saves on a structure change (create, split, rename, close) about 5 s later, and on `session stop`. A `cd` alone does not save. So `identity_cwd` can lag the live folder.
+  - When the root pane closes, the next pane becomes the root pane, and `identity_cwd` follows it.
+  - A restart keeps the ids and the last saved `identity_cwd`, including a changed one.
+  - **So neither value is a fixed root folder. Both follow `cd`.**
+- **Question 2: can a non-action `brain` call get the root folder from the API? No.**
+  - `workspace list`, `workspace get` and `api snapshot` have no folder for a workspace.
+  - The reply of `plugin action invoke` has `context.workspace_cwd`. But it covers only the focused workspace (no workspace argument), it runs the action's command, and it is the focused pane's folder.
+  - `pane get` gives a pane's `cwd`. The API does not say which pane is the root pane.
+- **Root source for E2-S4:** `<session_dir>/session.json`, read only, field `workspaces[id == <workspace id>].identity_cwd`.
+  - `session_dir` comes from `herdr session list --json`. For `default` it is `~/.config/herdr`. For a named session it is `~/.config/herdr/sessions/<name>`. In both, it is the folder of `socket_path`.
+  - No `workspace list` call. One file read and one JSON parse.
+  - Read time: 0.06-0.47 ms in the process (median 0.18 ms for a 33,445-byte file). The whole probe process: 2.3-3.2 ms.
+  - herdr replaces the file on each save (the inode changes). No partial read was seen.
+  - A new workspace is not in the file for about 5 s after creation. It is unmapped in that time anyway.
+- **Format change: withhold, never guess.** The reader withholds ("withheld: identity") when: the file is missing or does not parse, `version` is not 3, a workspace has no `id` or `identity_cwd`, a type is wrong, the root is not absolute, the workspace is not in the file, or two entries have the same id. The reader checks every entry, so the result does not depend on entry order. The reader ignores unknown extra fields. `rootread/main_test.go` tests each case.
+- **Owner decision needed (HLD §11 and §17 item 4):** the HLD treats `identity_cwd` as the fixed root folder. It is not. With the E2-S4 rule "same id + new root = new key", a `cd` in the root pane followed by a save gives a new key. The old items then wait for a relink. This fails closed (never a wrong delivery), but it also loses delivery after a normal `cd`. The owner chooses the rule. This spike does not change the HLD.
+- **Side result for E2-S6:** a plugin `[[events]]` command for `workspace.renamed` ran. It got `HERDR_PLUGIN_EVENT_JSON` with `workspace_id` and `label`, and a `HERDR_PLUGIN_CONTEXT_JSON`.
+
 ## Cleanup done
 
+- E2-S5: the scratch session `brain-spike-e2s5` is stopped and deleted. Its plugin link lived only in the scratch HOME. The main session was not touched.
 - Test panes `w14:p2P`, `w14:p2Q`, `w14:p2R` and `w14:p2S` are closed. The spike plugin is unlinked. The `brain-eval` session is stopped and deleted.
 
 ## Open items
 
-- Item 4: `workspace_cwd` versus `identity_cwd` after the root pane changes folder.
+- Item 4: answered by E2-S5 (see above). The root matching rule waits for an owner decision.
 - Item 10: busy load and the manifest check.
 - Item 11: the plugin `popup` placement.
 - Item 21: the conformance test (built in M1).
 - Item 28: Codex long reply.
-- Plugin `[[events]]` delivery (not tested, because a rename would change a real workspace). Test it in a named session.
+- Plugin `[[events]]` delivery: `workspace.renamed` ran in a scratch session (E2-S5). Other events and timing are not tested.
 - The eval delivery and exclusion stages (scripts plus the owner's check).
