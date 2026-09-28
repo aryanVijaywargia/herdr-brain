@@ -140,8 +140,8 @@ Its command runs one short `brain` subcommand. The subcommand marks the (herdr s
 
 **Cost (the later build task):**
 - `herdr-plugin.toml`: one `[[events]]` entry, `on = "workspace.closed"`, command `"$HERDR_PLUGIN_ROOT/bin/brain" <subcommand>`.
-- One `brain` subcommand: read `HERDR_PLUGIN_EVENT_JSON` (`data.workspace_id`) and `HERDR_SESSION` (not set means `default`, see M0 FINDINGS). Find the binding with the resolver. Take the map lock, mark the pair closed, and set its rows to `closed`. An unbound session or an unknown pair does nothing.
-- `internal/workspace`: a close method and a closed flag in the map entry. `current` skips closed entries. The map file version changes.
+- One `brain` subcommand: read `HERDR_PLUGIN_EVENT_JSON` (`data.workspace_id`) and `HERDR_SESSION` (not set means `default`, see M0 FINDINGS). Find the binding with `bindings.BySocket` and `HERDR_SOCKET_PATH` and check its session name. Do not use `resolver.Resolve`: it needs `HERDR_PANE_ID` and a live pane, and a close event has neither (test step 2). Take the map lock, mark the pair closed, and set its rows to `closed`. An unbound session or an unknown pair does nothing.
+- `internal/workspace`: a close method and a closed flag in the map entry. `current` skips closed entries. The flag is optional (`omitempty`), so the map file stays version 1: `readMap` rejects any other version, and an old map file has no flag, so it still parses.
 - Tests: a closed pair gives `Unmapped` in `Lookup`. A reused id gets a new key in `Refresh`. The subcommand parses the event env and ignores an unbound session. A manifest test for the `[[events]]` entry.
 
 **E2-S4 open point (old row stays `live` after a remap):** the event does not change it while the workspace stays open, because a remap is not a close. When the workspace closes, the handler marks all rows of the pair `closed`, the old remapped rows too.
@@ -177,7 +177,7 @@ $S/h session stop brain-e2s6; $S/h session delete brain-e2s6
 | Step | Result |
 |---|---|
 | 1. `plugin link` | The plugin is linked in the scratch config. `session list` shows `default` (not running) and `brain-e2s6`. |
-| 2. events | Every create, rename and close ran its command once, 20-60 ms after the CLI call. Env: `HERDR_SESSION=brain-e2s6`, `HERDR_SOCKET_PATH`, `HERDR_WORKSPACE_ID`, `HERDR_PLUGIN_EVENT=workspace.closed`, `HERDR_PLUGIN_EVENT_JSON={"event":"workspace_closed","data":{"type":"workspace_closed","workspace_id":"w2","workspace":{…,"label":"B2",…}}}`. The close context has no `workspace_cwd`. |
+| 2. events | Every create, rename and close ran its command once, 20-60 ms after the CLI call. Env: `HERDR_SESSION=brain-e2s6`, `HERDR_SOCKET_PATH`, `HERDR_WORKSPACE_ID`, `HERDR_PLUGIN_EVENT=workspace.closed`, no `HERDR_PANE_ID` on a close, `HERDR_PLUGIN_EVENT_JSON={"event":"workspace_closed","data":{"type":"workspace_closed","workspace_id":"w2","workspace":{…,"label":"B2",…}}}`. The close context has no `workspace_cwd`. |
 | 2. ids in a running session | After `close w2`, the next workspace got `w3`. After `close w1`, the next got `w4`. No reuse. |
 | 3. `session stop` | No event ran. |
 | 3. restart | `workspace list`: `w3` only. The new workspace E (in `rootA`, like the closed `w4` D) got **`w4`**. |
