@@ -16,25 +16,32 @@ const undoUsage = `usage: brain undo <item>`
 
 // Undo runs `brain undo` with args after "undo" (§7.5 undo, E4-S5). It undoes the latest
 // revision of an item with a new revision.
-func Undo(ctx context.Context, e Env, args []string) (err error) {
-	fs := flag.NewFlagSet("undo", flag.ContinueOnError)
+func Undo(ctx context.Context, e Env, args []string) error {
+	return onItem(ctx, e, "undo", undoUsage, args, caller.undo)
+}
+
+// onItem runs a command whose one argument is an item id: it parses the id, opens the store
+// and runs fn with a caller.
+func onItem(ctx context.Context, e Env, name, usage string, args []string,
+	fn func(caller, context.Context, int64) error) (err error) {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	if err := fs.Parse(args); err != nil {
-		return fmt.Errorf("%w\n%s", err, undoUsage)
+		return fmt.Errorf("%w\n%s", err, usage)
 	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("want one item id, got %d\n%s", fs.NArg(), undoUsage)
+		return fmt.Errorf("want one item id, got %d\n%s", fs.NArg(), usage)
 	}
 	id, err := strconv.ParseInt(fs.Arg(0), 10, 64)
 	if err != nil || id <= 0 {
-		return fmt.Errorf("bad item id %q\n%s", fs.Arg(0), undoUsage)
+		return fmt.Errorf("bad item id %q\n%s", fs.Arg(0), usage)
 	}
 	c, err := e.Open(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, c.Close()) }()
-	return newCaller(e, c).undo(ctx, id)
+	return fn(newCaller(e, c), ctx, id)
 }
 
 // undo writes a revision of item id that copies the revision before the latest one, and
@@ -47,6 +54,9 @@ func (cl caller) undo(ctx context.Context, id int64) error {
 		it, cur, err := cl.item(ctx, tx, id)
 		if err != nil {
 			return err
+		}
+		if forgotten(cur) {
+			return fmt.Errorf("item %d is forgotten: undo has no text to restore", id)
 		}
 		if it.State == store.StateDraft {
 			return fmt.Errorf("item %d is a draft: decide its proposal with brain review", id)

@@ -25,6 +25,8 @@ func TestRun(t *testing.T) {
 		{[]string{"pin"}, 1, ""},
 		{[]string{"undo"}, 1, ""},
 		{[]string{"help"}, 0, "undo      <item>"},
+		{[]string{"forget"}, 1, ""},
+		{[]string{"help"}, 0, "forget    <item>"},
 		{[]string{"repair", "x"}, 1, ""},
 		{[]string{"help"}, 0, "repair    [--confirm]"},
 	}
