@@ -41,6 +41,17 @@ func InstallFile() (string, error) {
 	return filepath.Join(dir, "install.json"), nil
 }
 
+// ConformanceFile returns ~/.local/share/brain/conformance.json, the conformance results
+// (HLD §8.5, E8-S4). The eval runner (E10) writes it; `brain status` reads it. It sits
+// outside every store folder, as the install record does.
+func ConformanceFile() (string, error) {
+	dir, err := DataHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "conformance.json"), nil
+}
+
 // LinkPath returns ~/.local/bin/brain, the symlink that `brain setup` offers to make.
 func LinkPath() (string, error) {
 	home, err := homeDir()

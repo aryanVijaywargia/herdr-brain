@@ -2,6 +2,8 @@ package adapter
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -87,6 +89,27 @@ func TestProfiles(t *testing.T) {
 			t.Errorf("Load(%q) = %+v, want kind %s, target %s, version %s, start SessionStart",
 				tt.harness, p, tt.harness, tt.target, tt.version)
 		}
+	}
+}
+
+// TestProfileHash checks that the hash covers the whole profile file, so any change to the
+// file changes it.
+func TestProfileHash(t *testing.T) {
+	good := readFile(t, "fake/fake.toml")
+	load := func(data []byte) string {
+		t.Helper()
+		p, err := LoadFS(fstest.MapFS{"fake.toml": {Data: data}}, "fake")
+		if err != nil {
+			t.Fatalf("LoadFS() = %v", err)
+		}
+		return p.SHA256
+	}
+	sum := sha256.Sum256(good)
+	if got, want := load(good), hex.EncodeToString(sum[:]); got != want {
+		t.Errorf("SHA256 = %s, want %s", got, want)
+	}
+	if load(append(good, "# a comment\n"...)) == load(good) {
+		t.Error("SHA256 is the same after a change to the profile file")
 	}
 }
 

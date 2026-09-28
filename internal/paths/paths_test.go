@@ -63,6 +63,18 @@ func TestInstallFile(t *testing.T) {
 	}
 }
 
+func TestConformanceFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got, err := ConformanceFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".local", "share", "brain", "conformance.json"); got != want {
+		t.Errorf("ConformanceFile = %q, want %q", got, want)
+	}
+}
+
 func TestLinkPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

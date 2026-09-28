@@ -1,9 +1,12 @@
 // Package adapter is the base adapter (HLD §8.5): the code that every harness shares. It loads
 // a harness profile, reads the hook input by the profile's JSON paths and writes the brief in
-// the profile's output form. It knows no harness by name. Storing the adapter state is E8-S4.
+// the profile's output form. It knows no harness by name. Package harness computes the
+// adapter state (E8-S4).
 package adapter
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,6 +50,9 @@ type Profile struct {
 	// AdditionalContextLimit goes into the hook entry when set. Codex sends a longer
 	// additionalContext to a file and not to the model; 0 turns the limit off (E8 epic).
 	AdditionalContextLimit *int `toml:"additional_context_limit"`
+	// SHA256 is the hex SHA-256 of the profile file. A conformance result holds it, so a
+	// changed profile needs a new test (§8.5, E8-S4).
+	SHA256 string `toml:"-"`
 
 	// cond is StartCondition, parsed; its path is empty when the profile has no condition.
 	cond condition
@@ -89,6 +95,8 @@ func LoadFS(fsys fs.FS, harness string) (*Profile, error) {
 	if err := p.check(); err != nil {
 		return nil, fmt.Errorf("profile %s: %w", name, err)
 	}
+	sum := sha256.Sum256(data)
+	p.SHA256 = hex.EncodeToString(sum[:])
 	return &p, nil
 }
 
