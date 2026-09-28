@@ -106,3 +106,80 @@ An action needs no `PATH`. A popup closes by itself, and it needs no pane id.
     A popup has no pane id, so the test could not read its screen or type into it. The unit tests cover the questions.
   - `printf 'y\n' | env -i HOME=<scratch HOME> bin/brain setup` made the link. A second run said "already points to it".
 - Open: E10-S5 (first-use test in a clean home with `remember`) needs E4 and E10. It is not run yet.
+
+## E2-S6: plugin `[[events]]` in M1 (#11)
+
+### D4. `workspace.closed` marks a workspace closed
+
+**Decision:** yes, for one event. The manifest gets one `[[events]]` entry for `workspace.closed`.
+Its command runs one short `brain` subcommand. The subcommand marks the (herdr session, workspace id) pair closed in the workspace map and marks its `workspaces` rows `closed`. Then it exits.
+- No listener process. herdr starts the command once for each event.
+- No handler for `workspace.renamed` or `workspace.created`. The label refresh stays on each `brain` call.
+- Other `brain` calls keep `Session.Sync` as it is. The hook keeps `Session.Lookup` as it is.
+- A closed pair has no current entry. So a later workspace with the same id is unmapped, and the next `brain` call gives it a new key.
+- This story writes the decision only. The coordinator schedules the subcommand, because other threads change `cmd/brain/main.go` now.
+
+**Reason: herdr reuses a closed workspace id after a restart.**
+- In a running session, ids only go up. After `session stop` and a new start, the next id is the highest open id + 1 (test step 3).
+  So when you close the workspace with the highest id and herdr restarts, the next new workspace gets the old id.
+- Without the event, Brain never learns about the close. The map keeps the pair (session, `w4`) on the old key.
+  The next workspace `w4` then gets the closed workspace's items:
+  - Same project folder: the hook says "mapped" and delivers the old workspace items. HLD §11 says a new herdr id never inherits items by folder, and §9.4 says Brain never links by itself. Both break.
+  - Another project folder: the hook withholds ("withheld: identity"), and `brain status` asks for a remap. This fails closed, but you must act for a workspace that is simply new.
+- A refresh on `brain` calls cannot fix this. `workspace list` and `session.json` hold no creation time and no unique id (E2-S5).
+  A refresh that marks absent ids closed helps only when a `brain` call runs between the close and the reuse. The hook can run before any `brain` call.
+- A restart after a close is a normal flow: `herdr update`, a reboot, `session stop`.
+- The event gives exactly the missing fact. It fires about 40 ms after the close, with `HERDR_SESSION`, `HERDR_SOCKET_PATH` and `workspace_id` in its env (test step 2). It also fires when the last pane of a workspace closes (test step 4).
+- HLD §9.4 ("Close: Brain marks the workspace closed") and the `workspaces` status (live/closed, §11) already ask for this. No HLD change is needed.
+
+**Why not `workspace.renamed`:** a stale label is display only (the `workspaces` row and the map). Keys and block file names do not use it. The next `brain` call fixes it. The gain is small, so the simpler choice wins.
+
+**Limits (known, no extra work in M1):**
+- A close while Brain is not installed, or while `bin/brain` is missing (D1: reinstall window, uninstall), is lost. herdr does not replay events (HLD §4.2). The reused id then maps to the old key, as today. No backfill.
+- An event reaches only the herdr server of the user's `HOME`. The plugin config is shared by all herdr sessions of that `HOME`, so every bound session gets the event (test step 1).
+
+**Cost (the later build task):**
+- `herdr-plugin.toml`: one `[[events]]` entry, `on = "workspace.closed"`, command `"$HERDR_PLUGIN_ROOT/bin/brain" <subcommand>`.
+- One `brain` subcommand: read `HERDR_PLUGIN_EVENT_JSON` (`data.workspace_id`) and `HERDR_SESSION` (not set means `default`, see M0 FINDINGS). Find the binding with the resolver. Take the map lock, mark the pair closed, and set its rows to `closed`. An unbound session or an unknown pair does nothing.
+- `internal/workspace`: a close method and a closed flag in the map entry. `current` skips closed entries. The map file version changes.
+- Tests: a closed pair gives `Unmapped` in `Lookup`. A reused id gets a new key in `Refresh`. The subcommand parses the event env and ignores an unbound session. A manifest test for the `[[events]]` entry.
+
+**E2-S4 open point (old row stays `live` after a remap):** the event does not change it while the workspace stays open, because a remap is not a close. When the workspace closes, the handler marks all rows of the pair `closed`, the old remapped rows too.
+
+**Test (scratch `HOME`, named session `brain-e2s6`, a probe plugin that logs its env; the main server and `default` were not touched):**
+
+```sh
+S=/tmp/e2s6
+# h: herdr with the scratch HOME and the test session only
+printf '#!/bin/sh\nexec env -i HOME=%s/home PATH=/usr/bin:/bin:%s/.local/bin herdr --session brain-e2s6 "$@"\n' $S $HOME > $S/h
+$S/h server &                                   # headless test server
+$S/h plugin link $S/plugin                      # [[events]] on workspace.created, .renamed, .closed; each logs its env
+# step 2: events
+$S/h workspace create --cwd $S/rootA --label A  # w1
+$S/h workspace create --cwd $S/rootB --label B  # w2
+$S/h workspace rename w2 B2
+$S/h workspace close w2
+$S/h workspace create --cwd $S/rootC --label C  # w3 (w2 not reused)
+$S/h workspace close w1
+$S/h workspace create --cwd $S/rootA --label D  # w4
+# step 3: restart
+$S/h workspace close w4; sleep 6               # session.json keeps only w3
+$S/h session stop brain-e2s6; $S/h server &
+$S/h workspace create --cwd $S/rootA --label E
+# step 4: close the last pane
+$S/h workspace create --cwd $S/rootB --label F  # w5
+$S/h pane close w5:p1
+$S/h session stop brain-e2s6; $S/h session delete brain-e2s6
+```
+
+**Results (herdr 0.9.1, 2026-09-28):**
+
+| Step | Result |
+|---|---|
+| 1. `plugin link` | The plugin is linked in the scratch config. `session list` shows `default` (not running) and `brain-e2s6`. |
+| 2. events | Every create, rename and close ran its command once, 20-60 ms after the CLI call. Env: `HERDR_SESSION=brain-e2s6`, `HERDR_SOCKET_PATH`, `HERDR_WORKSPACE_ID`, `HERDR_PLUGIN_EVENT=workspace.closed`, `HERDR_PLUGIN_EVENT_JSON={"event":"workspace_closed","data":{"type":"workspace_closed","workspace_id":"w2","workspace":{…,"label":"B2",…}}}`. The close context has no `workspace_cwd`. |
+| 2. ids in a running session | After `close w2`, the next workspace got `w3`. After `close w1`, the next got `w4`. No reuse. |
+| 3. `session stop` | No event ran. |
+| 3. restart | `workspace list`: `w3` only. The new workspace E (in `rootA`, like the closed `w4` D) got **`w4`**. |
+| 4. `pane close` of the only pane | The workspace closed, and `workspace.closed` ran for `w5`. |
+| cleanup | `session stop` and `session delete` of `brain-e2s6`. No process left. The plugin link lived only in the scratch `HOME`. |
