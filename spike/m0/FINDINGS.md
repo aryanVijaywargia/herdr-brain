@@ -15,7 +15,7 @@
 | 2 | Codex size limit | PASS, no limit seen | `codex exec` returned both markers at 10,500, 30,000 and 100,000 characters. |
 | 4 | Workspace root | ANSWERED (E2-S5), owner decision open | The API has no root. `workspace_cwd` is the focused pane's live folder. `identity_cwd` is the root pane's folder at the last save. Both follow `cd`. See "Workspace root folder source". |
 | 10 | Hook timing | PASS (E7-S4) | Normal load (M0): whole hook 5.4-10.7 ms. E7-S4, with the manifest check and a SQLite receipt, 100 runs per level: whole hook p95 7.6 ms idle, 8.1 ms with output bursts, 16.5 ms with a flood (max 80.9 ms, from one slow `pane get`). Manifest check ≤ 0.6 ms. Proposed lookup deadline: 150 ms from hook start [NEW]. See "Hook under load and manifest check (E7-S4)". |
-| 11 | Pane split with no focus, then close | PASS | `pane split --no-focus` kept focus. A plugin `split` pane with `--no-focus --env BRAIN_REVIEW=1` kept focus and got the env. `plugin pane close` closed it. `plugin pane close` on a normal pane returned `plugin_pane_not_found` and left it open. Open: `popup` placement. |
+| 11 | Pane split with no focus, then close | PASS | `pane split --no-focus` kept focus. A plugin `split` pane with `--no-focus --env BRAIN_REVIEW=1` kept focus and got the env. `plugin pane close` closed it. `plugin pane close` on a normal pane returned `plugin_pane_not_found` and left it open. `popup` placement: tested in E5-S3; M1 keeps `split` (see "Popup placement and plugin actions (E5-S3)"). |
 | 13 | Headless extractor call, no tools, JSON schema | PASS for no file, shell, network, MCP or hook access; PARTIAL for literal "no tools" (E13-S1) | Claude 2.1.283 and codex-cli 0.154.0 both return schema-valid JSON. Claude keeps only `StructuredOutput`. Codex 0.154 with `gpt-6-sol` keeps code-mode `exec`/`wait` (V8, no nested tools) and `request_user_input_async`; no flag removes them. When the output cannot fit, Claude can exit 0 with no structured output; Codex bends a bad prompt to the schema and fails only for an unsatisfiable schema. See "Headless extractor call (E13-S1)". |
 | 21 | Conformance test | OPEN | |
 | 25 | No `brain` on PATH | PASS | `command -v brain` finds nothing. |
@@ -224,6 +224,24 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
   - Both cases fit §7.3: Brain checks the result itself (schema, evidence refs, permission flag). A schema alone does not stop an invented claim.
 - **Limits.** One machine, one small model per CLI, a few runs each. The Codex MCP server names come from this machine's config. The tool set of Codex depends on the model catalog (`tool_mode`, `experimental_supported_tools`), so a new model or Codex version can add a tool: the adapter should keep the `--json` tool-item check.
 
+## Popup placement and plugin actions (E5-S3)
+
+- Date: 2026-09-28. herdr 0.9.1. Headless scratch server, session `brain-e5s3`, scratch HOME `/tmp/e5s3/home`, a test binding (kind `test`) to a scratch store. Commands and raw results: `data/e5s3-popup-placement.txt`.
+- **Popup facts.**
+  - A popup gets `HERDR_SESSION`, `HERDR_SOCKET_PATH`, `HERDR_PLUGIN_*` and `HERDR_PLUGIN_CONTEXT_JSON` (with `workspace_id` and `focused_pane_id`). It gets **no `HERDR_PANE_ID`, `HERDR_WORKSPACE_ID` or `HERDR_TAB_ID`**.
+  - `plugin pane open` of a popup returns `{"type":"ok"}` with no pane. `pane list` does not show it.
+  - It takes all input. Esc does not close it. It closes when its process exits (Enter after a `read`, or Ctrl+C).
+  - With no client attached, the popup waits and shows when a client attaches.
+- **Popup with `brain review`: FAIL today.** The popup printed `brain review: no Brain store for this pane (not in herdr: HERDR_PANE_ID is not set); nothing was written`. The resolver needs `HERDR_PANE_ID` and `HERDR_WORKSPACE_ID`.
+- **Split facts.** A plugin `split` pane gets its own `HERDR_PANE_ID` and `HERDR_WORKSPACE_ID` (the workspace of the focused pane). So `brain review` resolves the caller as in any pane, with the E4 scope check. A split pane also closes when its process exits.
+- **The `review` action: PASS.**
+  - `herdr plugin action invoke brain.review` with workspace B focused opened a `Brain queue` split right of the focused pane, with focus. It listed the B proposal and the global proposal, not the A proposal. Enter closed it.
+  - **From the herdr UI:** herdr 0.9.1 runs an action from a key bound in `config.toml` (`[[keys.command]]`, `type = "plugin_action"`, `command = "brain.review"`). The keybinds help has no plugin action list. With `prefix+y` bound in the scratch config, the key opened the queue in workspace B (B + global) and in workspace A (A + global). A running server picks up a new key only after a restart.
+  - `brain review` prints the list and exits, and the pane closes on exit. So the `queue` pane command waits for Enter after the list. No code change was needed.
+- **Choice: `split`** (D6). A popup gives no clear gain: it needs new code to resolve the caller from `HERDR_PLUGIN_CONTEXT_JSON`, and it blocks all other input while it is open. A split gives the caller from the env and keeps the other panes usable. The `setup` pane stays a popup: `brain setup` resolves no caller.
+- **Limits.** One machine, one client size. The key binding is the user's own config: Brain does not write it (no AC asks for it). The side the split opens on is herdr's choice (right here).
+- **Side fact (not in scope):** two `brain remember` calls at the same time on a new, empty store: one failed with `store busy: set WAL mode: database is locked (5) (SQLITE_BUSY)`. A retry passed.
+
 ## Cleanup done
 
 - E2-S5: the scratch session `brain-spike-e2s5` is stopped and deleted. Its plugin link lived only in the scratch HOME. The main session was not touched.
@@ -232,11 +250,13 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
 - E13-S1: no herdr session was made. `~/.codex/config.toml` is the same as before the test. The empty `~/.claude/projects/-private-tmp-e13s1-work/` folder and `/tmp/e13s1` are removed.
 - Test panes `w14:p2P`, `w14:p2Q`, `w14:p2R` and `w14:p2S` are closed. The spike plugin is unlinked. The `brain-eval` session is stopped and deleted.
 
+- E5-S3: the scratch session `brain-e5s3` is stopped and deleted. The client tab `w2C:t2` that this thread made is closed. The plugin links and the key binding lived only in the scratch HOME. `/tmp/e5s3` is removed.
+
 ## Open items
 
 - Item 4: answered by E2-S5 (see above). The root matching rule waits for an owner decision.
 - Item 10: answered by E7-S4. The lookup deadline (150 ms, [NEW]) waits for the owner to accept it in the HLD.
-- Item 11: the plugin `popup` placement.
+- Item 11: answered by E5-S3. M1 uses `split` for the `review` action; `popup` stays for `setup` only (D6).
 - Item 13: answered by E13-S1. Decided (owner, 2026-09-28, HLD §7.3). Both CLIs run with no file, shell, network, MCP or hook access and a JSON schema. Codex cannot drop its code-mode `exec`/`wait` and `request_user_input_async` tools; the owner accepts Codex as an extractor, and §7.3 says what "no tools" means. Use the argv and env rule above. Brain must treat a Claude result with no `structured_output` as invalid.
 - Item 21: the conformance test (built in M1).
 - Item 28: answered by E10-S4. Decided (owner, 2026-09-28, HLD §17 item 28): PASS for Claude and Codex. `agent read --source recent-unwrapped` returns a full Codex reply when `--lines` covers the reply and the pane text below it. The runner must still check that the whole reply is there; a partial read is `reply incomplete`.

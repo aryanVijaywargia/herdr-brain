@@ -25,12 +25,29 @@ title = "Brain: setup"
 contexts = ["global", "workspace", "pane"]
 command = ["sh", "-c", "exec \"$HERDR_BIN_PATH\" plugin pane open --plugin brain --entrypoint setup"]
 
-# Placement: popup is the simpler choice until E5 decides popup or split [NEW].
+# D6 (E5-S3): setup stays a popup; `brain setup` resolves no caller, so it needs no pane id.
 [[panes]]
 id = "setup"
 title = "Brain setup"
 placement = "popup"
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" setup"]
+
+# E5-S3 (D6): opens the queue of the focused pane's workspace in a split beside that pane.
+# Also: `herdr plugin action invoke brain.review`.
+[[actions]]
+id = "review"
+title = "Brain: review"
+contexts = ["workspace", "pane"]
+command = ["sh", "-c", "exec \"$HERDR_BIN_PATH\" plugin pane open --plugin brain --entrypoint queue"]
+
+# D6: split, not popup. A popup has no HERDR_PANE_ID, so `brain review` cannot resolve the
+# caller in it. `brain review` prints and exits, and the pane closes on exit, so the pane
+# waits for Enter. The E5-S1 review pane is a separate entry.
+[[panes]]
+id = "queue"
+title = "Brain queue"
+placement = "split"
+command = ["sh", "-c", "\"$HERDR_PLUGIN_ROOT/bin/brain\" review; printf 'Press Enter to close.'; read -r _"]
 
 # D4 (E2-S6): a close marks the workspace closed, because herdr reuses a closed id after a
 # restart. herdr runs the command once for each event; there is no listener process.
