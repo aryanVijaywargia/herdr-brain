@@ -58,3 +58,17 @@ func TestManifestSetupAction(t *testing.T) {
 		t.Errorf("setup pane command = %s, want it to run bin/brain setup", pane["command"])
 	}
 }
+
+// D4: one [[events]] entry, for workspace.closed, runs `brain event workspace-closed`.
+func TestManifestClosedEvent(t *testing.T) {
+	events := manifestTables(t, "events")
+	if len(events) != 1 {
+		t.Fatalf("%d [[events]] entries, want 1", len(events))
+	}
+	if events[0]["on"] != `"workspace.closed"` {
+		t.Errorf("event on = %s, want \"workspace.closed\"", events[0]["on"])
+	}
+	if !strings.Contains(events[0]["command"], `$HERDR_PLUGIN_ROOT/bin/brain\" event workspace-closed`) {
+		t.Errorf("event command = %s, want it to run bin/brain event workspace-closed", events[0]["command"])
+	}
+}
