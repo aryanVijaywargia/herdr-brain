@@ -389,7 +389,8 @@ func TestCheckErrors(t *testing.T) {
 	}
 }
 
-// TestMarkRetestError checks that a marker that cannot be written is an error.
+// TestMarkRetestError checks that a marker that cannot be written, or a current marker that
+// cannot be read, is an error.
 func TestMarkRetestError(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(file, nil, 0o600); err != nil {
@@ -397,5 +398,12 @@ func TestMarkRetestError(t *testing.T) {
 	}
 	if err := MarkRetest(filepath.Join(file, "retest"), "claude", time.Now()); err == nil || !strings.Contains(err.Error(), "retest marker") {
 		t.Errorf("MarkRetest(under a file) = %v, want a retest marker error", err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "claude.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkRetest(dir, "claude", time.Now()); err == nil || !strings.Contains(err.Error(), "retest marker") {
+		t.Errorf("MarkRetest(over a bad marker) = %v, want a retest marker error", err)
 	}
 }

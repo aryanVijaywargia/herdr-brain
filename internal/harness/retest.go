@@ -37,8 +37,11 @@ func MarkRetest(dir, kind string, at time.Time) (err error) {
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
 		return fmt.Errorf("retest marker: lock %s: %w", lock.Name(), err)
 	}
-	// An unreadable marker is replaced: the new one is valid.
-	if m, ok, err := readMarker(dir, kind); err == nil && ok && !m.At.Before(at) {
+	m, ok, err := readMarker(dir, kind)
+	if err != nil {
+		return err
+	}
+	if ok && !m.At.Before(at) {
 		return nil
 	}
 	f, err := os.CreateTemp(dir, kind+".*.tmp")
