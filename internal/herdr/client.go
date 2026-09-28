@@ -243,6 +243,30 @@ func (c *Client) Pane(ctx context.Context, id string) (Pane, error) {
 	return p, nil
 }
 
+// Panes returns every pane of the target session, from `herdr pane list`.
+func (c *Client) Panes(ctx context.Context) ([]Pane, error) {
+	var r struct {
+		Panes *[]*rawPane `json:"panes"`
+	}
+	if err := c.result(ctx, "pane_list", &r, "pane", "list"); err != nil {
+		return nil, fmt.Errorf("herdr pane list: %w", err)
+	}
+	var ck check
+	raw := req(&ck, r.Panes, "panes")
+	if ck.err != nil {
+		return nil, fmt.Errorf("herdr pane list: %w", ck.err)
+	}
+	ps := make([]Pane, len(raw))
+	for i, rp := range raw {
+		p, err := rp.parse(fmt.Sprintf("panes[%d]", i))
+		if err != nil {
+			return nil, fmt.Errorf("herdr pane list: %w", err)
+		}
+		ps[i] = p
+	}
+	return ps, nil
+}
+
 // checkPaneID refuses a pane id that herdr would not print, before it reaches the command
 // line.
 func checkPaneID(id string) error {

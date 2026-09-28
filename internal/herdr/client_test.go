@@ -539,3 +539,49 @@ func TestDeadline(t *testing.T) {
 		t.Errorf("Workspaces() on a hung herdr: err = %v, want context.DeadlineExceeded", err)
 	}
 }
+
+func TestPanes(t *testing.T) {
+	list := fixture(t, "pane-list.json")
+	tests := []struct {
+		name  string
+		out   string
+		want  []Pane
+		field string // want a ShapeError for this field
+	}{
+		{
+			name: "two panes",
+			out:  list,
+			want: []Pane{
+				{ID: "w1:p1", WorkspaceID: "w1", TabID: "w1:t1", Cwd: ptr("/private/tmp")},
+				{ID: "w14:p2F", WorkspaceID: "w14", TabID: "w14:t1", Agent: ptr("claude"), Cwd: ptr("/private/tmp"),
+					AgentSession: &AgentSession{Agent: "claude", Source: "herdr:claude", Kind: "id", Value: "6a345ec1-3050-4e61-b736-d0e9d2edab82"}},
+			},
+		},
+		{name: "no panes", out: `{"result":{"type":"pane_list","panes":[]}}`, want: []Pane{}},
+		{name: "panes missing", out: `{"result":{"type":"pane_list"}}`, field: "panes"},
+		{
+			name:  "bad pane",
+			out:   strings.Replace(list, `"pane_id":"w14:p2F"`, `"pane_id":"p2F"`, 1),
+			field: "panes[1].pane_id",
+		},
+		{name: "other result type", out: fixture(t, "workspace-list.json"), field: "result.type"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, dir := fakeClient(t, map[string]reply{"pane list": {Stdout: tt.out}})
+			got, err := c.Panes(deadline(t))
+			if tt.field != "" {
+				wantShape(t, err, tt.field)
+			} else if err != nil {
+				t.Fatalf("Panes() err = %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Panes() = %+v, want %+v", got, tt.want)
+			}
+			wantArgs := []string{"pane", "list"}
+			if cs := calls(t, dir); len(cs) != 1 || !slices.Equal(cs[0].Args, wantArgs) {
+				t.Errorf("herdr calls = %+v, want one call with %q", cs, wantArgs)
+			}
+		})
+	}
+}
