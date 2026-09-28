@@ -31,12 +31,13 @@ type remember struct {
 // and one pending proposal, and prints the proposal id. The draft goes live only when you
 // approve it in review; an agent's call takes the same path and never approves (S52).
 func Remember(ctx context.Context, e Env, args []string) (err error) {
-	r, err := parseRemember(args)
-	if err != nil {
+	// The filter runs on the raw arguments before the parser and the store: a hit writes
+	// nothing, and no parse error can print a secret in a flag value (§6.7, E4-S1).
+	if err := secret.Check(strings.Join(args, " ")); err != nil {
 		return err
 	}
-	// The filter runs before the store opens, so a hit writes nothing (§6.7, E4-S1).
-	if err := secret.Check(r.text); err != nil {
+	r, err := parseRemember(args)
+	if err != nil {
 		return err
 	}
 	c, err := e.Open(ctx)

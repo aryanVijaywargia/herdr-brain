@@ -175,6 +175,7 @@ func TestRemember(t *testing.T) {
 		key       *string // the workspace key of the draft; nil for a global draft
 		wantErr   string  // "" when the call writes a draft
 		wantNoRun bool    // the call fails before the sync
+		moveAt    string  // the calling pane moves to workspace moveAt during the sync
 	}{
 		{name: "workspace by default", args: []string{"use pnpm, not npm"}, text: "use pnpm, not npm", pane: "w14:p1", ws: "w14",
 			kind: store.KindFact, key: ptr("ws_a14")},
@@ -200,6 +201,10 @@ func TestRemember(t *testing.T) {
 			wantErr: "pane not live", wantNoRun: true},
 		{name: "pane moved (S49)", args: []string{"x"}, pane: "w14:p2", ws: "w14",
 			wantErr: "not a member", wantNoRun: true},
+		{name: "pane moved during the sync", args: []string{"x"}, pane: "w14:p1", ws: "w14", moveAt: "w15",
+			wantErr: "moved to workspace w15"},
+		{name: "secret in a flag value", args: []string{"--kind=ghp_" + strings.Repeat("a1B2", 9), "x"}, pane: "w14:p1", ws: "w14",
+			wantErr: "github-token", wantNoRun: true},
 		{name: "secret", args: []string{"--global", "password=hunter22"}, pane: "w14:p1", ws: "w14",
 			wantErr: "password-pair", wantNoRun: true},
 	}
@@ -212,13 +217,21 @@ func TestRemember(t *testing.T) {
 				sock = f.sock
 			}
 			var out bytes.Buffer
-			err := Remember(context.Background(), f.env(sock, c.pane, c.ws, &out), c.args)
+			e := f.env(sock, c.pane, c.ws, &out)
+			if c.moveAt != "" {
+				sync := e.Sync
+				e.Sync = func(ctx context.Context, s workspace.Session, st *store.Store) error {
+					f.panes[c.pane] = herdr.Pane{ID: c.pane, WorkspaceID: c.moveAt}
+					return sync(ctx, s, st)
+				}
+			}
+			err := Remember(context.Background(), e, c.args)
 			after := f.rows(t)
 			if (f.syncs == 0) != c.wantNoRun {
 				t.Errorf("Remember(%q) synced %d times, want a sync: %v", c.args, f.syncs, !c.wantNoRun)
 			}
 			if c.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+				if err == nil || !strings.Contains(err.Error(), c.wantErr) || strings.Contains(err.Error(), "a1B2") {
 					t.Errorf("Remember(%q) = %v, want an error with %q", c.args, err, c.wantErr)
 				}
 				if len(after.items) != len(before.items) || len(after.proposals) != len(before.proposals) || out.Len() != 0 {

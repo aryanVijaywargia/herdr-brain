@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
+	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/resolver"
@@ -124,7 +125,27 @@ func (e Env) Open(ctx context.Context) (*Call, error) {
 			return nil, errors.Join(werr, c.Close())
 		}
 	}
+	// The pane can move to another workspace during the sync or the repair, so check it again
+	// before the command writes (§5.1).
+	if err := e.recheck(ctx, c); err != nil {
+		return nil, errors.Join(err, c.Close())
+	}
 	return c, nil
+}
+
+// recheck asks herdr again for the calling pane, and fails when it is gone or no longer in
+// the workspace that the resolver confirmed.
+func (e Env) recheck(ctx context.Context, c *Call) error {
+	ctx, cancel := context.WithTimeout(ctx, herdrDeadline)
+	defer cancel()
+	p, err := e.Pane(ctx, herdr.Target{Session: c.Binding.Session, Socket: c.Binding.Socket}, c.PaneID)
+	if err != nil {
+		return fmt.Errorf("check pane %s again: %w; nothing was written", c.PaneID, err)
+	}
+	if p.ID != c.PaneID || p.WorkspaceID != c.WorkspaceID {
+		return fmt.Errorf("pane %s moved to workspace %s; nothing was written", c.PaneID, p.WorkspaceID)
+	}
+	return nil
 }
 
 func noStoreError(n *resolver.NoStore) error {
