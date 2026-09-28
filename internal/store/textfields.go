@@ -14,6 +14,7 @@ func ItemTextFields() []Field {
 		{"items", "anchors"}, // The paths that the item text names (§9.1).
 		{"item_revisions", "text"},
 		{"proposals", "text"},
+		{"proposals", "target"},
 		{"proposals", "diff"},
 		{"proposals", "expected_benefit"},
 		{"proposals", "change_request"},
@@ -40,7 +41,6 @@ func noItemTextFields() []Field {
 		{"items", "state"},
 		{"items", "created"},
 		{"proposals", "scope"},
-		{"proposals", "target"},
 		{"proposals", "trigger_prompts"}, // Prompt hashes (§11).
 		{"proposals", "status"},
 		{"proposals", "surface"},
