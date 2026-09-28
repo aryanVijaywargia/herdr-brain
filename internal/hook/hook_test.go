@@ -25,7 +25,6 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
-	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
@@ -746,16 +745,16 @@ func TestCap(t *testing.T) {
 			stdin, stdout := tt.setup(f, &h, release)
 			bw, stalledOut := stdout.(*blockedWriter)
 			buf, _ := stdout.(*bytes.Buffer)
-			if stalledOut {
-				// The stalled print ends with the test, as it ends with the process.
-				t.Cleanup(func() { close(bw.release) })
-			}
 			err := h.Run(context.Background(), stdin, stdout)
 			if took := time.Since(h.Start); !errors.Is(err, errCapped) || took > hookCap+capSlack {
 				t.Fatalf("Run() = %v after %v, want %v by %v", err, took, errCapped, hookCap+capSlack)
 			}
 			if stalledOut {
 				<-bw.started // the print started before the cap and stalled
+				// In the process the exit ends the stalled print (TestProcessCap); here it ends
+				// before the fixture does.
+				close(bw.release)
+				<-ended
 			} else {
 				close(release)
 				<-ended
@@ -837,15 +836,19 @@ func TestBudget(t *testing.T) {
 // timingRuns is the number of hook runs that TestTiming times. [NEW]
 const timingRuns = 200
 
-// TestTiming times Main, the whole hook after the process start, against a store of the
+// timingTarget is the hook time target of §8.3.
+const timingTarget = 100 * time.Millisecond
+
+// TestTiming times Main, the hook after the process start, against a store of the
 // E3-S1 schema: the stdin read, the bindings read, one `pane get` through a fake herdr
 // process, the workspace map, the manifest check, the print and the receipt (store open and
-// insert). It logs p50 and p99; run it with -v to see them. The target is < 100 ms (§8.3).
+// insert). It logs p50 and p99; run it with -v to see them. It checks the p99 against the
+// target. TestProcessTiming adds the process start and exit.
 func TestTiming(t *testing.T) {
 	if testing.Short() {
 		t.Skip("timing runs")
 	}
-	env := timingSetup(t)
+	_, env := processSetup(t, answer)
 	args := []string{"--profile", "claude", "--event", "start"}
 	// The first start of a new executable can be slow on macOS (a lookup past its deadline
 	// withholds), so one untimed run comes first.
@@ -870,39 +873,10 @@ func TestTiming(t *testing.T) {
 		}
 	}
 	slices.Sort(times)
-	// Nearest-rank percentiles, as in the E7-S4 FINDINGS.
-	rank := func(p int) time.Duration { return times[(p*len(times)+99)/100-1] }
-	t.Logf("whole hook, %d runs (%d emitted, %d capped), %s/%s: p50 %v, p99 %v, max %v", timingRuns, emitted,
-		capped, runtime.GOOS, runtime.GOARCH, rank(50), rank(99), times[len(times)-1])
-}
-
-// timingSetup puts the bindings of a new fixture in the data home of a scratch HOME, and
-// returns a hook environment whose herdr is a fake that answers `pane get`.
-func timingSetup(t *testing.T) []string {
-	t.Helper()
-	f := newFixture(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	file, err := paths.BindingsFile()
-	if err != nil {
-		t.Fatal(err)
+	t.Logf("in-process hook, %d runs (%d emitted, %d capped), %s/%s: p50 %v, p99 %v, max %v", timingRuns, emitted,
+		capped, runtime.GOOS, runtime.GOARCH, rank(times, 50), rank(times, 99), times[len(times)-1])
+	// One slow run on a busy machine is noise; the target is for the p99.
+	if p99 := rank(times, 99); p99 >= timingTarget {
+		t.Errorf("p99 = %v, want < %v", p99, timingTarget)
 	}
-	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(f.file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(file, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// The fake herdr is a shell script, so each lookup starts a process as the real one does.
-	bin := filepath.Join(home, "herdr")
-	reply := `{"id":"cli:pane:get","result":{"pane":{"agent_status":"idle","cwd":"/tmp","focused":true,` +
-		`"pane_id":"w14:p1","revision":0,"tab_id":"w14:t1","terminal_id":"term_1","workspace_id":"w14"},"type":"pane_info"}}`
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho '"+reply+"'\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	return append(environ(f.mainSock, "", "w14:p1", "w14"), "PATH=/usr/bin:/bin", "HERDR_BIN_PATH="+bin)
 }
