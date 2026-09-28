@@ -167,11 +167,24 @@ func TestLearnStoreOffWins(t *testing.T) {
 	s := learnSession{name: "default", sock: f.sock, store: f.store, kind: bindings.KindMain}
 	f.mustLearn(t, f.sock, "off")
 	out := f.mustLearn(t, f.sock, "on", "--pane", "w14:p1")
-	if !strings.Contains(out, "Learning stays off there: it is off for the whole store") {
+	if !strings.Contains(out, "Learning stays off there: a wider scope is off") {
 		t.Errorf("learn on --pane = %q, want the store off note", out)
 	}
 	if learningOn(t, s, "ws_a14", "w14:p1") {
 		t.Error("learning is on for w14:p1, want off: the store is off")
+	}
+}
+
+// A workspace off also wins over a pane on in that workspace, and the output says so.
+func TestLearnWorkspaceOffWins(t *testing.T) {
+	f := newFixture(t)
+	f.mustLearn(t, f.sock, "off", "--workspace", "w14")
+	if out := f.mustLearn(t, f.sock, "on", "--pane", "w14:p1"); !strings.Contains(out, "Learning stays off there") {
+		t.Errorf("learn on --pane = %q, want the stays off note", out)
+	}
+	s := learnSession{name: "default", sock: f.sock, store: f.store, kind: bindings.KindMain}
+	if learningOn(t, s, "ws_a14", "w14:p1") {
+		t.Error("learning is on for w14:p1, want off: its workspace is off")
 	}
 }
 
@@ -204,6 +217,13 @@ func TestLearnErrors(t *testing.T) {
 		{[]string{"off", "extra"}, `unexpected argument "extra"`},
 		{[]string{"off", "--pane", "w99:p1"}, "pane w99:p1"},
 		{[]string{"off", "--workspace", "w99"}, "workspace w99 is not mapped"},
+		// An empty value never switches the whole store.
+		{[]string{"off", "--workspace", ""}, "--workspace is empty"},
+		{[]string{"off", "--pane", ""}, "--pane is empty"},
+		// A label is not a workspace id, so it never picks another workspace than the id.
+		{[]string{"off", "--workspace", "shop"}, "workspace shop is not mapped"},
+		// herdr answers the old id of a moved pane with its new id (S49).
+		{[]string{"off", "--pane", "w14:p2"}, "pane w14:p2 is now pane w20:p2"},
 	} {
 		if _, err := f.learn(t, f.sock, tt.args...); err == nil || !strings.Contains(err.Error(), tt.want) {
 			t.Errorf("Learn(%v) = %v, want %q", tt.args, err, tt.want)
