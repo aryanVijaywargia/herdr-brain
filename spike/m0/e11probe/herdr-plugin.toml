@@ -1,0 +1,29 @@
+id = "e11probe"
+name = "E11 probe"
+version = "0.0.1"
+min_herdr_version = "0.9.1"
+description = "E11-S1 spike probe: startup and event hosting."
+platforms = ["macos", "linux"]
+
+[[startup]]
+command = ["sh", "startup.sh"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["sh", "event.sh"]
+
+[[events]]
+on = "pane.agent_detected"
+command = ["sh", "event.sh"]
+
+[[events]]
+on = "pane.created"
+command = ["sh", "event.sh"]
+
+[[events]]
+on = "pane.closed"
+command = ["sh", "event.sh"]
+
+[[events]]
+on = "pane.exited"
+command = ["sh", "event.sh"]

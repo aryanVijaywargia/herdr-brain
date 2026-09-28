@@ -219,3 +219,36 @@ $S/h session stop brain-e2s6; $S/h session delete brain-e2s6
 | Probe split | `HERDR_PANE_ID` of the new pane and `HERDR_WORKSPACE_ID` of the focused workspace. Closes on exit. |
 | `plugin action invoke brain.review` in B | Split `Brain queue` right of the focused pane, with focus. Lists the B and global proposals, not the A proposal. Enter closes it. |
 | UI key `prefix+y` in B, then in A | B: B + global. A: A + global. |
+
+## E11-S1: how `brained` runs (#55)
+
+### D7. A `[[startup]]` command hosts `brained`
+
+**Decision:** `[[startup]]`. The Brain manifest starts `brained` with one `[[startup]]` entry. It runs as one long process for each herdr session (each herdr server). Brain uses no `[[events]]` handler for capture, and no launchd or systemd.
+
+`brained` must do these things itself, because herdr does not do them:
+- **One copy for each herdr session.** It takes a lock file in `HERDR_PLUGIN_STATE_DIR`, keyed by `HERDR_SESSION` (empty for `default`). A second copy exits. herdr can start a second copy while an old one still runs (test below).
+- **Exit when the server stops.** herdr sends no signal on `session stop`, and the process lives on with ppid 1. The event socket closes (EOF), so `brained` exits on EOF.
+- **Exit when Brain is disabled or unlinked.** herdr does not stop it. `brained` checks this itself. E11-S2 picks the check.
+- **Subscribe for each pane.** `events.subscribe` needs a `pane_id` for `pane.agent_status_changed`. `brained` subscribes to `pane.created` and `pane.agent_detected` (no pane id), lists the panes at start, and adds a subscription for each pane.
+- **No restart after a crash.** herdr does not start it again until the next server start or live handoff. `brain status` and `brain doctor` show "brained is not running". A new link or install also starts nothing until the server starts again.
+
+**Reason:**
+- HLD §6.2 needs one read at a time for each pane, in event order, and the last read in memory. A long process gives this.
+- `[[events]]` runs one new process for each event. A burst of 10 changes gave 10 processes at the same time, with 3 s hooks. Nothing orders them, and none keeps state. Each call would need a lock and a state file.
+- The `[[events]]` payload has no time and no event id. So a late process cannot tell that its event is old.
+- herdr runs `[[startup]]` after the API socket is ready. A long startup process is allowed: two ran for 12 minutes with no kill.
+
+**Test** (herdr 0.9.1, 2026-09-29, scratch HOME, named sessions `brain-e11s1` and `brain-e11s1b` and a scratch-HOME `default`; the main server and the real `default` were not touched). Probe: `spike/m0/e11probe/`. Raw log: `spike/m0/data/e11s1-hosting.txt`.
+
+| Step | Result |
+|---|---|
+| Server start | One startup process for each session. Env: `HERDR_SESSION`, `HERDR_SOCKET_PATH`, `HERDR_PLUGIN_STATE_DIR`, `HERDR_PLUGIN_EVENT=startup`, context `invocation_source` = `startup`. |
+| Long run | Two processes ran about 12 min. Plugin log status: `running`. |
+| `plugin disable`, then `enable` | The process runs on. `enable` starts no second copy. Event hooks do not run while disabled. |
+| `plugin unlink`, then `link` | The process runs on. Event hooks stop. `link` starts no copy. |
+| `kill -9` | No restart. Plugin log status: `failed`, no exit code. |
+| `session stop` | The process runs on with ppid 1 and gets no signal. The next server start runs a second copy beside it. |
+| `[[events]]` burst, 10 changes, 3 s hook | 10 hook processes at the same time. All 10 ran. |
+| `events.subscribe` with no `pane_id` for `pane.agent_status_changed` | `invalid_request`: "missing field `pane_id`". |
+| Socket subscriber on `session stop` | It reads EOF and exits. |

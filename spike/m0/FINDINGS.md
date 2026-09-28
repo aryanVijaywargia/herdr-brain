@@ -14,9 +14,13 @@
 | 2 | Claude `additionalContext` size limit | PASS, limit found | 10,000 characters reach the model inline. At 10,001 characters Claude writes the text to `~/.claude/projects/<proj>/<sid>/tool-results/hook-...-additionalContext.txt` and gives the model only the path. |
 | 2 | Codex size limit | PASS, no limit seen | `codex exec` returned both markers at 10,500, 30,000 and 100,000 characters. |
 | 4 | Workspace root | ANSWERED (E2-S5), owner decision open | The API has no root. `workspace_cwd` is the focused pane's live folder. `identity_cwd` is the root pane's folder at the last save. Both follow `cd`. See "Workspace root folder source". |
+| 8 | Event delay after a state change | PASS (E11-S1) | Claude 2.1.284, 7 real changes: the socket `pane.agent_status_changed` came 0.14-0.42 s after the matching Claude hook or key press. A fake `pane report-agent` change: 0.03-0.10 s to the socket and to an `[[events]]` hook. The event has no time and no id. See "brained hosting and capture (E11-S1)". |
+| 9 | Alternate-screen loss, user message at turn start | PASS for Claude, OPEN live for Codex (E11-S1) | Claude draws in the alternate screen. While `working` or `blocked`, only the screen (37 rows here) can be read; rows that scroll off are gone until idle. At idle herdr scroll-captures the full history (138 of 138 lines). The user prompt line is on the screen at turn start. Codex draws inline (source, E10-S4), so rows go to normal scrollback. |
 | 10 | Hook timing | PASS (E7-S4) | Normal load (M0): whole hook 5.4-10.7 ms. E7-S4, with the manifest check and a SQLite receipt, 100 runs per level: whole hook p95 7.6 ms idle, 8.1 ms with output bursts, 16.5 ms with a flood (max 80.9 ms, from one slow `pane get`). Manifest check ≤ 0.6 ms. Proposed lookup deadline: 150 ms from hook start [NEW]. See "Hook under load and manifest check (E7-S4)". |
 | 11 | Pane split with no focus, then close | PASS | `pane split --no-focus` kept focus. A plugin `split` pane with `--no-focus --env BRAIN_REVIEW=1` kept focus and got the env. `plugin pane close` closed it. `plugin pane close` on a normal pane returned `plugin_pane_not_found` and left it open. `popup` placement: tested in E5-S3; M1 keeps `split` (see "Popup placement and plugin actions (E5-S3)"). |
 | 13 | Headless extractor call, no tools, JSON schema | PASS for no file, shell, network, MCP or hook access; PARTIAL for literal "no tools" (E13-S1) | Claude 2.1.283 and codex-cli 0.154.0 both return schema-valid JSON. Claude keeps only `StructuredOutput`. Codex 0.154 with `gpt-6-sol` keeps code-mode `exec`/`wait` (V8, no nested tools) and `request_user_input_async`; no flag removes them. When the output cannot fit, Claude can exit 0 with no structured output; Codex bends a bad prompt to the schema and fails only for an unsatisfiable schema. See "Headless extractor call (E13-S1)". |
+| 14 | Hook payloads: `UserPromptSubmit`, `PostToolUse`, `Stop` | PASS for Claude (live), PASS from source for Codex, 2 Codex facts OPEN (E11-S1) | Claude: the `prompt` field is the exact text. An empty hook leaves the prompt unchanged. `PostToolUse` has the command and the shell cwd after the command, but no exit code. A failed command goes to `PostToolUseFailure` with `error` = "Exit code N...". Codex (source): `tool_input.command`, the session cwd, no exit code. See "brained hosting and capture (E11-S1)". |
+| 20 | `recent-unwrapped` while `working` or `blocked` | FAIL for Claude, OPEN live for Codex (E11-S1) | Claude: `--lines 300` returns `agent_not_idle` in `working`, `blocked` and just after submit. `--lines 20` (at or below the screen) and `visible` work in every state. At idle, a `--lines` value larger than the history often returns only the screen, with exit 0. Codex is inline, so herdr does not need a scroll capture; not run live. |
 | 21 | Conformance test | OPEN | |
 | 25 | No `brain` on PATH | PASS | `command -v brain` finds nothing. |
 | 27 | Named test session | PASS (session parts) | `herdr --session brain-eval server` (background) ran beside `default` with its own socket. Its first workspace was `w1`. Its panes had `HERDR_SESSION=brain-eval` and their own `HERDR_SOCKET_PATH`. `herdr session stop brain-eval` and `herdr session delete brain-eval` touched only that session. |
@@ -242,6 +246,72 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
 - **Limits.** One machine, one client size. The key binding is the user's own config: Brain does not write it (no AC asks for it). The side the split opens on is herdr's choice (right here).
 - **Side fact (not in scope):** two `brain remember` calls at the same time on a new, empty store: one failed with `store busy: set WAL mode: database is locked (5) (SQLITE_BUSY)`. A retry passed.
 
+## brained hosting and capture (E11-S1, items 8, 9, 14, 20)
+
+- Date: 2026-09-29. herdr 0.9.1, Claude Code 2.1.284 (Claude updated since M0), `claude-haiku-4-5-20251001`, codex-cli 0.154.0.
+- Hosting ran in a scratch HOME with the sessions `brain-e11s1` and `brain-e11s1b`. Capture ran in the named session `brain-spike-e11` with the real HOME, a clean env (`env -i`) and a Claude `--settings` file for the test hooks. No hook went into `~/.claude` or `~/.codex`.
+- Probe: `e11probe/` (a plugin with one `[[startup]]` and five `[[events]]` entries, a socket subscriber, a read poller, a hook logger). The paths in it point to `/tmp/e11s1`.
+- Raw logs: `data/e11s1-hosting.txt`, `data/e11s1-capture.txt`, `data/e11s1-claude-hooks.txt`, `data/e11s1-codex-hooks.txt`.
+
+### Hosting: `[[startup]]` against `[[events]]`
+
+- The choice is `[[startup]]` (decision D7 in `docs/design/decisions.md`).
+- `[[startup]]` runs one process for each herdr server, after the socket is ready. A long process is allowed (12 min, no kill).
+- herdr does not restart it after a crash. `plugin disable` and `plugin unlink` do not stop it. `session stop` does not signal it; it lives on with ppid 1, and the next server start runs a second copy.
+- So `brained` needs a lock for each session, an exit on socket EOF, and its own check for disable and unlink.
+- `[[events]]` runs one process for each event, for all panes, with no per-pane filter. A burst of 10 changes gave 10 processes at the same time. `HERDR_PLUGIN_EVENT_JSON` has the pane, the workspace, the status and the agent, but no time, no id and no `agent_session`.
+- Socket `events.subscribe`: `pane.agent_status_changed` needs a `pane_id`. A subscription for all panes fails with `invalid_request`.
+- Event names are not the same on the socket: `pane.agent_status_changed` but `pane_agent_detected`. Match both forms.
+
+### Event delay (item 8)
+
+| Change | Reference time | Socket event | Delay |
+|---|---|---|---|
+| idle → working (turn 1) | prompt sent | working | 0.42 s |
+| working → idle (turn 1) | `Stop` hook start | idle | 0.29 s |
+| idle → working (turn 2) | `UserPromptSubmit` hook start | working | 0.27 s |
+| blocked → working (turn 2) | Enter sent to approve | working | 0.14 s |
+| working → idle (turn 2) | `Stop` hook start | idle | 0.22 s |
+| idle → working (run 2) | `UserPromptSubmit` hook start | working | 0.19 s |
+| working → idle (run 2) | `Stop` hook start | idle | 0.25 s |
+
+- A fake `pane report-agent` change reached an `[[events]]` hook in 0.03 s and the socket in 0.09 s.
+- One sample is only a guide. A delay under 0.5 s means that a read at the event sees the turn end.
+
+### Alternate-screen loss and reads while busy (items 9, 20)
+
+- Claude draws in the alternate screen (`max_offset_from_bottom` = 0). The screen here had 37 rows.
+- While `working` or `blocked`, `agent read --source recent-unwrapped --lines 300` fails: `agent_not_idle`, "its alternate-screen history can only be captured by scrolling while idle. Wait and retry, or use --source visible". It also failed once while the status was still `idle`, just after the submit.
+- `--lines 20` (at or below the screen) and `--source visible` work in every state. They give the screen only.
+- At idle, herdr scroll-captures the history through the agent's mouse-scroll input: 138 lines (header, prompt, 120 reply rows, footer), later 148.
+- **Silent partial read:** at idle, `--lines 300` against a 138-line history gave only the 37 screen rows with exit 0 in 6 of 6 reads in a row. A retry loop (up to 40 reads, 0.3 s apart) did get the full 138 lines. After turn 2, the poller got the full 148 lines in 4 of 19 idle reads (the others: 38 screen lines, exit 0). Brain cannot trust the line count of one read.
+- The user prompt line is on the screen at turn start. A `visible` read at the `working` event had the marker from the prompt.
+- Codex draws inline and uses the alternate screen only for overlays (source, `data/e11s1-codex-hooks.txt`). E10-S4 read a full 150-line Codex reply at idle. The live Codex check while busy did not run (see "Open items").
+- The herdr scroll capture sends mouse-scroll input to the agent pane. HLD §6.2 says "Brain reads only. It never sends keys or scrolls a pane". This needs an owner decision.
+
+### Hook payloads (item 14)
+
+- Claude `UserPromptSubmit`: `session_id`, `transcript_path`, `cwd`, `prompt_id`, `permission_mode`, `hook_event_name`, `prompt`. `prompt` is the exact text that was sent. A hook with no output left the prompt unchanged: the model answered as the prompt asked.
+- Claude `PostToolUse` (Bash): `tool_input.command`, `tool_input.description`, `tool_response` (`stdout`, `stderr`, `interrupted`, ...), `tool_use_id`, `duration_ms`. There is no exit code. `cwd` is the shell cwd after the command: `cd sub && ... pwd` gave `.../agent/sub`.
+- Claude sends a failed Bash command to `PostToolUseFailure`, not to `PostToolUse`. It has `tool_input.command` and `error` = "Exit code 1\n<stderr>". Brain must match both events to see failures.
+- Claude `Stop`: `stop_hook_active`, `last_assistant_message` (the reply text), `background_tasks`, `session_crons`, plus the common fields.
+- Codex (source, tag `rust-v0.154.0`): common fields `session_id`, `turn_id`, `transcript_path`, `cwd`, `hook_event_name`, `model`, `permission_mode`. `UserPromptSubmit.prompt` is the joined text items; empty stdout means no change. `PostToolUse` has `tool_name` "Bash", `tool_input.command` and a truncated output string, but no exit code; `cwd` is the session cwd. `Stop` has `stop_hook_active` and `last_assistant_message`.
+
+### Agent identity in one pane
+
+| Field | Run 1 | Run 2 (same pane, after `/exit`) |
+|---|---|---|
+| `agent_session.value` | `88ce9f75-...` | `4e5d3e1a-...` |
+| Claude pid | 90558 | 7713 |
+| `state_change_seq` | 10 | 12 |
+| `terminal_id` | `term_65c92fe3a07d11` | same |
+| shell pid | 89202 | same |
+
+- `agent_session.value` (the Claude session id) and the agent pid tell one run from the next. `terminal_id` and the shell pid do not.
+- On `/exit`, herdr sends `pane_agent_detected` with `"released": true` and `"final_status": "idle"`, then status `unknown`. `agent get` gives `agent_not_found`.
+- herdr has no agent start time. The pid comes from `pane process-info`.
+- After a server restart, `pane list` showed the old agent and `agent_session` on the restored pane for under 3 s, then herdr cleared them. `terminal_id` changed.
+
 ## Cleanup done
 
 - E2-S5: the scratch session `brain-spike-e2s5` is stopped and deleted. Its plugin link lived only in the scratch HOME. The main session was not touched.
@@ -251,6 +321,7 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
 - Test panes `w14:p2P`, `w14:p2Q`, `w14:p2R` and `w14:p2S` are closed. The spike plugin is unlinked. The `brain-eval` session is stopped and deleted.
 
 - E5-S3: the scratch session `brain-e5s3` is stopped and deleted. The client tab `w2C:t2` that this thread made is closed. The plugin links and the key binding lived only in the scratch HOME. `/tmp/e5s3` is removed.
+- E11-S1: the scratch sessions `brain-e11s1`, `brain-e11s1b` and the scratch-HOME `default` are stopped. They lived in the scratch HOME, which is removed. The test session `brain-spike-e11` is stopped and deleted. The orphaned `startup.sh` probes, the socket subscribers and the test Claude runs are ended. `/tmp/e11s1` and `~/.claude/projects/-private-tmp-e11s1-agent/` are removed. The Claude folder-trust entry for `/private/tmp/e11s1/agent` stays in `~/.claude.json`; that file was not read or edited. No Codex session ran, so `~/.codex/config.toml` has no change. The real `default` session and the main server were not touched.
 
 ## Open items
 
@@ -260,5 +331,7 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
 - Item 13: answered by E13-S1. Decided (owner, 2026-09-28, HLD §7.3). Both CLIs run with no file, shell, network, MCP or hook access and a JSON schema. Codex cannot drop its code-mode `exec`/`wait` and `request_user_input_async` tools; the owner accepts Codex as an extractor, and §7.3 says what "no tools" means. Use the argv and env rule above. Brain must treat a Claude result with no `structured_output` as invalid.
 - Item 21: the conformance test (built in M1).
 - Item 28: answered by E10-S4. Decided (owner, 2026-09-28, HLD §17 item 28): PASS for Claude and Codex. `agent read --source recent-unwrapped` returns a full Codex reply when `--lines` covers the reply and the pane text below it. The runner must still check that the whole reply is there; a partial read is `reply incomplete`.
-- Plugin `[[events]]` delivery: `workspace.renamed` ran in a scratch session (E2-S5). Other events and timing are not tested.
+- Plugin `[[events]]` delivery: tested by E11-S1 for pane events. Hosting uses `[[startup]]` (D7).
+- Items 9, 14 and 20 for Codex, live: not run. A live Codex run needs folder trust, which writes to `~/.codex/config.toml`, and the tool gate stopped it. Open: reads while `working` and `blocked`, the live `UserPromptSubmit` text with @-mentions and images, and an empty-hook check.
+- herdr scroll capture of Claude history sends mouse-scroll input to the pane. HLD §6.2 says Brain never scrolls a pane. Owner decision.
 - The eval delivery and exclusion stages (scripts plus the owner's check).
