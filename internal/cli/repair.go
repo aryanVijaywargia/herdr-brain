@@ -13,9 +13,9 @@ import (
 
 const repairUsage = `usage: brain repair [--confirm]`
 
-// Repair runs `brain repair` with args after "repair" (E6-S4). Open runs the output repair
-// (§7.5 step 6); Repair then lists the open output conflicts and keeps their folders. With
-// --confirm it deletes each conflict folder and builds again (§7.5 step 5, D5).
+// Repair runs `brain repair` with args after "repair" (E6-S4). It runs the output repair
+// (§7.5 step 6) and lists the open output conflicts under the same lock, and keeps their
+// folders. With --confirm it deletes each conflict folder and builds again (§7.5 step 5, D5).
 func Repair(ctx context.Context, e Env, args []string) (err error) {
 	fs := flag.NewFlagSet("repair", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -26,7 +26,7 @@ func Repair(ctx context.Context, e Env, args []string) (err error) {
 	if fs.NArg() != 0 {
 		return fmt.Errorf("want no arguments, got %q\n%s", fs.Args(), repairUsage)
 	}
-	c, err := e.Open(ctx)
+	c, err := e.open(ctx, false)
 	if err != nil {
 		return err
 	}
@@ -39,7 +39,7 @@ func Repair(ctx context.Context, e Env, args []string) (err error) {
 		}
 		return printConflicts(e.Stdout, cs, "deleted: %v\n", "the output is built again\n")
 	}
-	cs, err := output.Conflicts(out)
+	cs, err := output.RepairConflicts(ctx, c.Store, out, e.Now)
 	if err != nil {
 		return err
 	}

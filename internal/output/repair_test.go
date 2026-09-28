@@ -659,3 +659,57 @@ func TestConfirmAfterStoppedRecord(t *testing.T) {
 		t.Errorf("current row = %d, want %d", recorded, gen)
 	}
 }
+
+// AC #120: a hook that read the old pointer just before Confirm switched it still reads the
+// files of the old current generation: Confirm deletes that folder only after one hookCap.
+func TestConfirmKeepsOldCurrentForHook(t *testing.T) {
+	s, out := newStore(t)
+	addItem(t, s, "k1", "use pnpm")
+	old := mustBuild(t, s, out)
+	handEdit(t, out, old, globalName)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := Confirm(context.Background(), s, out, at(testNow))
+		done <- err
+	}()
+	// The hook holds the old folder: it reads the files as soon as the pointer leaves it.
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		if gen, err := readPointer(out); err == nil && gen != old {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the pointer did not leave the old generation")
+		}
+	}
+	for _, name := range []string{manifestName, globalName} {
+		if _, err := os.ReadFile(filepath.Join(out, folder(old), name)); err != nil {
+			t.Errorf("hook read of %s right after the switch = %v, want the file", name, err)
+		}
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("Confirm() = %v", err)
+	}
+	if exists(t, filepath.Join(out, folder(old))) {
+		t.Errorf("hand-edited generation %d is still there after Confirm", old)
+	}
+}
+
+// AC #119: RepairConflicts repairs, and lists the open conflicts that it kept.
+func TestRepairConflicts(t *testing.T) {
+	s, out := newStore(t)
+	addItem(t, s, "k1", "use pnpm")
+	gen := mustBuild(t, s, out)
+	handEdit(t, out, gen, globalName)
+	addItem(t, s, "", "second item")
+
+	cs, err := RepairConflicts(context.Background(), s, out, at(later))
+	if err != nil {
+		t.Fatalf("RepairConflicts() = %v, want the conflict in the list, not an error", err)
+	}
+	want := []ConflictError{{Generation: gen, Files: []string{globalName}}}
+	if !reflect.DeepEqual(cs, want) {
+		t.Errorf("RepairConflicts() = %v, want %v", cs, want)
+	}
+	checkPointer(t, out, gen)
+}
