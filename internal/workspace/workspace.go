@@ -95,20 +95,25 @@ func (s Session) Lookup(id string) (Mapping, error) {
 	if !ok {
 		return Mapping{State: Unmapped}, nil
 	}
-	e := m.Entries[i]
+	return s.check(m.Entries[i], id), nil
+}
+
+// check reads the saved root of workspace id and checks that it lies in the project folder of
+// e. A withheld result holds the reason in Err.
+func (s Session) check(e Entry, id string) Mapping {
 	r, err := root(s.sessionFile(), id)
 	if err != nil {
-		return Mapping{State: Withheld, Entry: e, Err: err}, nil
+		return Mapping{State: Withheld, Entry: e, Err: err}
 	}
 	in, err := within(e.Project, r)
 	switch {
 	case err != nil:
-		return Mapping{State: Withheld, Entry: e, Root: r, Err: fmt.Errorf("%w: %w", ErrIdentity, err)}, nil
+		return Mapping{State: Withheld, Entry: e, Root: r, Err: fmt.Errorf("%w: %w", ErrIdentity, err)}
 	case !in:
 		return Mapping{State: Withheld, Entry: e, Root: r,
-			Err: fmt.Errorf("%w: root %s is outside the project folder %s", ErrIdentity, r, e.Project)}, nil
+			Err: fmt.Errorf("%w: root %s is outside the project folder %s", ErrIdentity, r, e.Project)}
 	}
-	return Mapping{State: Mapped, Entry: e, Root: r}, nil
+	return Mapping{State: Mapped, Entry: e, Root: r}
 }
 
 // Remappable reports whether a remap can help: the saved root is readable, but it lies
