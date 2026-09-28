@@ -105,10 +105,9 @@ func TestOfferLinkKeepsExistingFiles(t *testing.T) {
 
 // `brain setup` through run(): it shows the absolute binary path and makes no link on "no".
 func TestSetupCommand(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := setupHome(t, "0.9.1")
 	var out, errOut bytes.Buffer
-	if code := run([]string{"setup"}, strings.NewReader("n\n"), &out, &errOut); code != 0 {
+	if code := run([]string{"setup"}, strings.NewReader("n\nn\n"), &out, &errOut); code != 0 {
 		t.Fatalf("setup = %d, stderr %q", code, errOut.String())
 	}
 	if !strings.Contains(out.String(), "Brain binary: /") {
@@ -183,11 +182,11 @@ func TestSetupCommandError(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores file modes")
 	}
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := setupHome(t, "0.9.1")
 	mustMkdir(t, filepath.Join(home, ".local"), 0o555)
 	var out, errOut bytes.Buffer
-	if code := run([]string{"setup"}, strings.NewReader("y\n"), &out, &errOut); code != 1 {
+	// No binding, then yes to the link.
+	if code := run([]string{"setup"}, strings.NewReader("n\ny\n"), &out, &errOut); code != 1 {
 		t.Fatalf("setup = %d, want 1", code)
 	}
 	lines := strings.Split(strings.TrimSpace(errOut.String()), "\n")
