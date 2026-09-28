@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
@@ -216,27 +217,83 @@ func TestInstallWithLostRecord(t *testing.T) {
 }
 
 func TestHandEditedEntryStays(t *testing.T) {
-	in := newInstaller(t)
-	p := profile(t, "codex")
-	path := put(t, in, p, fixture(t, "codex"))
-	expect(t, "Install", Added)(in.Install(p))
-	edited := strings.Replace(string(read(t, path)), `"timeout":5,`, `"timeout":7,`, 1)
-	put(t, in, p, []byte(edited))
-
-	expect(t, "Uninstall", Edited)(in.Uninstall(p))
-	if got := read(t, path); string(got) != edited {
-		t.Errorf("uninstall changed a hand-edited file:\n%s", got)
+	tests := []struct{ name, old, new string }{
+		{"timeout", `"timeout":5,`, `"timeout":7,`},
+		{"command", `--event start"`, `--event start --verbose"`},
+		{"binary path", fakeBinary + " hook", "/home/test/.local/bin/brain hook"},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := newInstaller(t)
+			p := profile(t, "codex")
+			path := put(t, in, p, fixture(t, "codex"))
+			expect(t, "Install", Added)(in.Install(p))
+			edited := strings.Replace(string(read(t, path)), tt.old, tt.new, 1)
+			put(t, in, p, []byte(edited))
+
+			expect(t, "Uninstall", Edited)(in.Uninstall(p))
+			if got := read(t, path); string(got) != edited {
+				t.Errorf("uninstall changed a hand-edited file:\n%s", got)
+			}
+			rec, err := Read(in.Record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := rec.Entries["codex"]; !ok {
+				t.Error("record lost the entry of a hand-edited file, want it kept")
+			}
+			expect(t, "Install", Edited)(in.Install(p))
+			if got := read(t, path); string(got) != edited {
+				t.Errorf("install changed a hand-edited file:\n%s", got)
+			}
+		})
+	}
+}
+
+// Two installs at the same time, from two panes: the record lock keeps both record updates.
+func TestOverlappingInstalls(t *testing.T) {
+	in := newInstaller(t)
+	claude, codex := profile(t, "claude"), profile(t, "codex")
+	claudeFile := put(t, in, claude, fixture(t, "claude"))
+	codexFile := put(t, in, codex, fixture(t, "codex"))
+	other := &Installer{Home: in.Home, Record: in.Record, Binary: in.Binary}
+
+	done := make(chan error, 1)
+	in.beforeCheck = func() {
+		f, err := os.OpenFile(in.Record+".lock", os.O_RDWR, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close() //nolint:errcheck // read-only probe of the lock
+		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); !errors.Is(err, syscall.EWOULDBLOCK) {
+			t.Errorf("record lock during install: flock = %v, want EWOULDBLOCK", err)
+		}
+		go func() {
+			_, err := other.Install(codex)
+			done <- err
+		}()
+	}
+	expect(t, "Install claude", Added)(in.Install(claude))
+	if err := <-done; err != nil {
+		t.Fatalf("Install codex = %v", err)
+	}
+
 	rec, err := Read(in.Record)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := rec.Entries["codex"]; !ok {
-		t.Error("record lost the entry of a hand-edited file, want it kept")
+	for _, path := range []string{claudeFile, codexFile} {
+		if _, ok := rec.Snapshots[path]; !ok {
+			t.Errorf("record has no snapshot of %s", path)
+		}
 	}
-	expect(t, "Install", Edited)(in.Install(p))
-	if got := read(t, path); string(got) != edited {
-		t.Errorf("install changed a hand-edited file:\n%s", got)
+	in.beforeCheck = nil
+	expect(t, "Uninstall claude", Removed)(in.Uninstall(claude))
+	expect(t, "Uninstall codex", Removed)(in.Uninstall(codex))
+	for path, want := range map[string][]byte{claudeFile: fixture(t, "claude"), codexFile: fixture(t, "codex")} {
+		if got := read(t, path); string(got) != string(want) {
+			t.Errorf("%s after uninstall:\n%s\nwant the original", path, got)
+		}
 	}
 }
 

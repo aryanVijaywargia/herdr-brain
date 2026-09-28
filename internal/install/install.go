@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 )
@@ -78,6 +79,11 @@ func (in *Installer) Install(p *adapter.Profile) (Status, error) {
 	if err != nil {
 		return "", err
 	}
+	lk, err := lock(in.Record)
+	if err != nil {
+		return "", err
+	}
+	defer lk.Close() //nolint:errcheck // the close only drops the lock; the file holds no data
 	rec, err := Read(in.Record)
 	if err != nil {
 		return "", err
@@ -90,7 +96,7 @@ func (in *Installer) Install(p *adapter.Profile) (Status, error) {
 	if old.missing {
 		data = []byte("{}\n")
 	}
-	out, wrap, st, err := insert(data, p.Events.Start, e, rec.Entries[p.Kind])
+	out, wrap, st, err := insert(data, p, e, rec.Entries[p.Kind])
 	if err != nil || st == Edited {
 		return st, err
 	}
@@ -118,6 +124,11 @@ func (in *Installer) Install(p *adapter.Profile) (Status, error) {
 // unchanged. It keeps every other byte as it is now (S45). A hand-edited entry stays, and
 // Uninstall returns Edited. The snapshot stays in the record as recovery material (§8.1).
 func (in *Installer) Uninstall(p *adapter.Profile) (Status, error) {
+	lk, err := lock(in.Record)
+	if err != nil {
+		return "", err
+	}
+	defer lk.Close() //nolint:errcheck // the close only drops the lock; the file holds no data
 	rec, err := Read(in.Record)
 	if err != nil {
 		return "", err
@@ -132,7 +143,7 @@ func (in *Installer) Uninstall(p *adapter.Profile) (Status, error) {
 	}
 	st, out := NotFound, []byte(nil)
 	if !old.missing {
-		out, st, err = remove(old.data, p.Events.Start, e)
+		out, st, err = remove(old.data, p, e)
 		if err != nil || st == Edited {
 			return st, err
 		}
@@ -198,9 +209,10 @@ func (in *Installer) check(old file) error {
 }
 
 // insert appends entry e to the start event array of the hook file b. It returns Present with
-// no change when the file already holds e, and Edited when it holds another Brain entry: one
-// with the Brain command or with the hash of the recorded entry prev.
-func insert(b []byte, event string, e, prev Entry) (out []byte, wrap string, st Status, err error) {
+// no change when the file already holds e, and Edited when it holds another Brain entry of p:
+// one with the hash of the recorded entry prev, or a handler that runs `brain hook` for p.
+func insert(b []byte, p *adapter.Profile, e, prev Entry) (out []byte, wrap string, st Status, err error) {
+	event := p.Events.Start
 	root, err := parse(b)
 	if err != nil || root.kind != '{' {
 		return nil, "", "", layoutError(e, "the file is not one JSON object")
@@ -228,7 +240,7 @@ func insert(b []byte, event string, e, prev Entry) (out []byte, wrap string, st 
 		case string(text) == e.Text:
 			// With no record of the entry, uninstall may remove only the group.
 			return nil, cmp.Or(prev.Wrap, wrapGroup), Present, nil
-		case hash(text) == prev.SHA256 || hasCommand(text, e.Command):
+		case hash(text) == prev.SHA256 || isBrain(text, p):
 			return nil, "", Edited, nil
 		}
 	}
@@ -237,7 +249,8 @@ func insert(b []byte, event string, e, prev Entry) (out []byte, wrap string, st 
 
 // remove takes the recorded entry e out of the hook file b, with what install created around
 // it (e.Wrap) when nothing else is left there.
-func remove(b []byte, event string, e Entry) ([]byte, Status, error) {
+func remove(b []byte, p *adapter.Profile, e Entry) ([]byte, Status, error) {
+	event := p.Events.Start
 	root, err := parse(b)
 	if err != nil || root.kind != '{' {
 		return nil, "", layoutError(e, "the file is not one JSON object")
@@ -259,7 +272,7 @@ func remove(b []byte, event string, e Entry) ([]byte, Status, error) {
 			idx = i
 			break
 		}
-		if hasCommand(text, e.Command) {
+		if isBrain(text, p) {
 			st = Edited
 		}
 	}
@@ -276,8 +289,11 @@ func remove(b []byte, event string, e Entry) ([]byte, Status, error) {
 	return append(b[:from:from], b[to:]...), Removed, nil
 }
 
-// hasCommand reports whether the matcher group text has a handler that runs command.
-func hasCommand(text []byte, command string) bool {
+// isBrain reports whether the matcher group text has a handler that runs `brain hook` for p.
+// It matches the fixed arguments, not the whole command, so an entry whose command you edited
+// still counts as the Brain entry: install adds no second one, and uninstall keeps it and its
+// record.
+func isBrain(text []byte, p *adapter.Profile) bool {
 	var g struct {
 		Hooks []struct {
 			Command string `json:"command"`
@@ -288,7 +304,7 @@ func hasCommand(text []byte, command string) bool {
 		return false
 	}
 	for _, h := range g.Hooks {
-		if h.Command == command {
+		if strings.Contains(h.Command, " hook --profile "+p.Kind+" ") {
 			return true
 		}
 	}
@@ -393,4 +409,23 @@ func writeAndRename(tmp *os.File, path string, data []byte, mode fs.FileMode) er
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// lock takes the lock of the install record, <record>.lock. It serializes install and
+// uninstall across Brain processes: each one reads the record, edits a hook file and writes
+// the record, so two at the same time would lose one record update. Closing the file drops
+// the lock.
+func lock(record string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(record), 0o700); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(record+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		_ = f.Close() // the lock error is the one to report
+		return nil, fmt.Errorf("lock install record: %w", err)
+	}
+	return f, nil
 }
