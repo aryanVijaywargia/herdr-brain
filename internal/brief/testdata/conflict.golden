@@ -1,0 +1,8 @@
+<!-- brain:begin v1 -->
+Precedence: for ordinary preferences, a workspace item wins over a global item. It never relaxes a global permission or safety rule. A "conflicts with" mark wins over this line.
+## Global (all workspaces)
+- [3] Use npm for installs.
+- [5] Use tabs for indentation.
+## This workspace
+- [9] Use yarn in this repo. (conflicts with 3; ask the user) (conflicts with 5; ask the user)
+<!-- brain:end -->
