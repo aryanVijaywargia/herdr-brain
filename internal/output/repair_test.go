@@ -505,3 +505,103 @@ func TestForgetClearsLaterAuditRows(t *testing.T) {
 		t.Errorf("Read() = %q, revisions %v, want B only (%v)", br.Global, br.Revisions, want)
 	}
 }
+
+func mustConfirm(t *testing.T, s *store.Store, out string, now time.Time) []ConflictError {
+	t.Helper()
+	cs, err := Confirm(context.Background(), s, out, at(now))
+	if err != nil {
+		t.Fatalf("Confirm() = %v", err)
+	}
+	return cs
+}
+
+// AC: confirm a hand edit in the current generation: its folder goes, and the pointer names a
+// new generation whose files match its manifest. The log keeps none of your bytes.
+func TestConfirmCurrentGeneration(t *testing.T) {
+	s, out := newStore(t)
+	addItem(t, s, "k1", "use pnpm")
+	old := mustBuild(t, s, out)
+	handEdit(t, out, old, globalName)
+
+	want := []ConflictError{{Generation: old, Files: []string{globalName}}}
+	if cs := mustConfirm(t, s, out, testNow); !reflect.DeepEqual(cs, want) {
+		t.Errorf("Confirm() = %v, want %v", cs, want)
+	}
+	if exists(t, filepath.Join(out, folder(old))) {
+		t.Errorf("hand-edited generation %d is still there", old)
+	}
+	gen, err := current(out)
+	if err != nil || gen <= old {
+		t.Fatalf("pointer = %d, %v, want a generation after %d", gen, err, old)
+	}
+	if _, err := checkGeneration(out, gen); err != nil {
+		t.Errorf("generation %d does not match its manifest: %v", gen, err)
+	}
+	if b := mustRead(t, out, "k1"); !strings.Contains(b.Workspace, "use pnpm") {
+		t.Errorf("Read() workspace part = %q, want the item", b.Workspace)
+	}
+	if cs := mustConflicts(t, out); len(cs) != 0 {
+		t.Errorf("Conflicts() after Confirm = %v, want none", cs)
+	}
+	if n := textAfter(t, s, 0, "mine"); n != 0 {
+		t.Errorf("%d applied edits hold your hand edit, want 0", n)
+	}
+}
+
+// AC: confirm a hand edit in a retired generation that cleanup kept: its folder goes, and the
+// pointer stays.
+func TestConfirmRetiredGeneration(t *testing.T) {
+	s, out := newStore(t)
+	id := addItem(t, s, "", "one")
+	edited := mustBuild(t, s, out)
+	mustRevise(t, s, id, 1, "two")
+	cur := mustBuild(t, s, out)
+	handEdit(t, out, edited, globalName)
+	mustRepair(t, s, out, later)
+
+	want := []ConflictError{{Generation: edited, Files: []string{globalName}}}
+	if cs := mustConfirm(t, s, out, later); !reflect.DeepEqual(cs, want) {
+		t.Errorf("Confirm() = %v, want %v", cs, want)
+	}
+	if exists(t, filepath.Join(out, folder(edited))) {
+		t.Errorf("hand-edited generation %d is still there", edited)
+	}
+	checkPointer(t, out, cur)
+	if cs := mustConflicts(t, out); len(cs) != 0 {
+		t.Errorf("Conflicts() after Confirm = %v, want none", cs)
+	}
+}
+
+// AC: with no conflict, Confirm is the normal repair.
+func TestConfirmNoConflict(t *testing.T) {
+	s, out := newStore(t)
+	addItem(t, s, "", "use npm")
+	if cs := mustConfirm(t, s, out, testNow); len(cs) != 0 {
+		t.Errorf("Confirm() = %v, want no conflict", cs)
+	}
+	checkPointer(t, out, newest(t, s))
+}
+
+// AC S77: a conflict folder that holds a forgotten item keeps forget pending; after Confirm,
+// no folder holds the item.
+func TestConfirmEndsPendingForget(t *testing.T) {
+	s, out := newStore(t)
+	id := addItem(t, s, "", "secret plan")
+	gen := mustBuild(t, s, out)
+	handEdit(t, out, gen, globalName)
+	markForget(t, s, gen)
+	retire(t, s, id, 1)
+	wantConflict(t, Repair(context.Background(), s, out, at(later)), gen, globalName)
+	if !mustHolds(t, out, id) {
+		t.Fatalf("Holds(%d) with the conflict open = false, want true", id)
+	}
+
+	mustConfirm(t, s, out, later)
+	if mustHolds(t, out, id) {
+		t.Errorf("Holds(%d) after Confirm = true, want false (forget done)", id)
+	}
+	checkPointer(t, out, newest(t, s))
+	if n := textAfter(t, s, gen, "secret plan"); n != 0 {
+		t.Errorf("%d applied edits hold the forgotten text, want 0", n)
+	}
+}
