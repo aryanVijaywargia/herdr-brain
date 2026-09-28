@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"cmp"
 	"context"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
@@ -189,6 +191,12 @@ func bind(d setupDeps, sess herdr.Session, test string, in *bufio.Reader, stdout
 	if err != nil {
 		return err
 	}
+	// Another setup can write the file while this one waits for the answer. writeBinding
+	// compares the file with these bytes, so it never drops that change.
+	before, err := readBindingsFile(file)
+	if err != nil {
+		return err
+	}
 	bs, dropped, err := bindings.Read(file)
 	if err != nil {
 		return fmt.Errorf("%w; fix or remove the bindings file, then run brain setup again", err)
@@ -220,14 +228,7 @@ func bind(d setupDeps, sess herdr.Session, test string, in *bufio.Reader, stdout
 		}
 	}
 
-	if cur != nil {
-		fmt.Fprintf(stdout, "Session %q is bound to %s (%s). Setup replaces this binding.\n", cur.Session, cur.Store, cur.Kind)
-	}
-	for _, x := range dropped {
-		if x.Binding.Session != sess.Name {
-			fmt.Fprintf(stdout, "Setup also removes the bad test binding of session %q: %v\n", x.Binding.Session, x.Err)
-		}
-	}
+	showReplaced(stdout, sess.Name, cur, dropped)
 	ok, err := ask(in, stdout, fmt.Sprintf("Write %s: session %q, socket %s, store %s (%s)? [y/N] ",
 		file, want.Session, want.Socket, want.Store, want.Kind))
 	if err != nil || !ok {
@@ -236,16 +237,42 @@ func bind(d setupDeps, sess herdr.Session, test string, in *bufio.Reader, stdout
 		}
 		return err
 	}
-	if err := writeBinding(file, next, want); err != nil {
+	if err := writeBinding(file, before, next, want); err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "Bound session %q to %s.\n", sess.Name, want.Store)
 	return nil
 }
 
-// writeBinding makes the store folder of want, checks next again and writes it to file. On a
+// showReplaced shows the binding of session that setup replaces, and the bad test bindings of
+// other sessions that it removes.
+func showReplaced(stdout io.Writer, session string, cur *bindings.Binding, dropped []bindings.Dropped) {
+	if cur != nil {
+		fmt.Fprintf(stdout, "Session %q is bound to %s (%s). Setup replaces this binding.\n", cur.Session, cur.Store, cur.Kind)
+	}
+	for _, x := range dropped {
+		if x.Binding.Session != session {
+			fmt.Fprintf(stdout, "Setup also removes the bad test binding of session %q: %v\n", x.Binding.Session, x.Err)
+		}
+	}
+}
+
+// writeBinding makes the store folder of want, checks next again and writes it to file. It
+// holds a lock on the bindings folder, and refuses when the file is no longer before. On a
 // failure it removes the folders that it made.
-func writeBinding(file string, next []bindings.Binding, want bindings.Binding) error {
+func writeBinding(file string, before []byte, next []bindings.Binding, want bindings.Binding) error {
+	unlock, err := lockDir(filepath.Dir(file))
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	now, err := readBindingsFile(file)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(before, now) {
+		return fmt.Errorf("refused: %s changed while setup waited for your answer; run brain setup again", file)
+	}
 	made, err := mkdirs(want.Store)
 	if err != nil {
 		return err
@@ -257,6 +284,32 @@ func writeBinding(file string, next []bindings.Binding, want bindings.Binding) e
 		return errors.Join(err, rmdirs(made))
 	}
 	return nil
+}
+
+// readBindingsFile returns the bytes of the bindings file, or nil when it does not exist.
+func readBindingsFile(file string) ([]byte, error) {
+	b, err := os.ReadFile(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	return b, err
+}
+
+// lockDir makes dir and takes an exclusive lock on it, so two setups write the bindings file
+// one after the other. The lock is on the folder, so it leaves no lock file.
+func lockDir(dir string) (unlock func(), err error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	f, err := os.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		_ = f.Close() // the lock error is the one to report
+		return nil, fmt.Errorf("lock %s: %w", dir, err)
+	}
+	return func() { _ = f.Close() }, nil // the close drops the lock
 }
 
 // wantBinding is the binding of sess to the main store, or to the test store folder test.
@@ -361,30 +414,47 @@ func hooks(d setupDeps, bin string, in *bufio.Reader, stdout io.Writer) (codex b
 			fmt.Fprintf(stdout, "%s holds a Brain hook entry for %s that you edited. Brain keeps it.\n", e.Target, kind)
 			continue
 		default:
-			fmt.Fprintf(stdout, "Brain adds this entry to the %s array of %s:\n  %s\n"+
-				"To remove it later: brain uninstall (a dry run), then brain uninstall --apply.\n"+
-				"It removes only this entry, and keeps every other byte of the file.\n",
-				p.Events.Start, e.Target, e.Text)
-			ok, err := ask(in, stdout, fmt.Sprintf("Add the Brain hook for %s? [y/N] ", kind))
+			added, err := offerHook(inst, p, e, in, stdout)
 			if err != nil {
 				return false, err
 			}
-			if !ok {
-				fmt.Fprintf(stdout, "No change to %s. %s sessions get no Brain items.\n", e.Target, kind)
+			if !added {
 				continue
 			}
-			if st, err = inst.Install(p); err != nil {
-				return false, err
-			}
-			if st == install.Edited {
-				fmt.Fprintf(stdout, "%s holds a Brain hook entry for %s that you edited. Brain keeps it.\n", e.Target, kind)
-				continue
-			}
-			fmt.Fprintf(stdout, "Added the Brain hook for %s.\n", kind)
 		}
 		codex = codex || kind == "codex"
 	}
 	return codex, nil
+}
+
+// offerHook shows the hook entry e of p and how to remove it, and adds it on yes.
+func offerHook(inst *install.Installer, p *adapter.Profile, e install.Entry, in *bufio.Reader, stdout io.Writer) (bool, error) {
+	kind := p.Kind
+	fmt.Fprintf(stdout, "Brain adds this entry to the %s array of %s:\n  %s\n"+
+		"To remove it later: brain uninstall (a dry run), then brain uninstall --apply.\n"+
+		"It removes only this entry, and keeps every other byte of the file.\n",
+		p.Events.Start, e.Target, e.Text)
+	ok, err := ask(in, stdout, fmt.Sprintf("Add the Brain hook for %s? [y/N] ", kind))
+	if err != nil || !ok {
+		if err == nil {
+			fmt.Fprintf(stdout, "No change to %s. %s sessions get no Brain items.\n", e.Target, kind)
+		}
+		return false, err
+	}
+	// A CLI can be installed before it made its config folder.
+	if err := os.MkdirAll(filepath.Dir(e.Target), 0o700); err != nil {
+		return false, err
+	}
+	st, err := inst.Install(p)
+	if err != nil {
+		return false, err
+	}
+	if st == install.Edited {
+		fmt.Fprintf(stdout, "%s holds a Brain hook entry for %s that you edited. Brain keeps it.\n", e.Target, kind)
+		return false, nil
+	}
+	fmt.Fprintf(stdout, "Added the Brain hook for %s.\n", kind)
+	return true, nil
 }
 
 // offerLink shows the binary path and asks before it makes link -> bin.

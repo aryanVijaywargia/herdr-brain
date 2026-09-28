@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -369,5 +370,78 @@ func TestSetupSkipsMissingCLI(t *testing.T) {
 	}
 	if after := mustRead(t, filepath.Join(home, ".codex", "hooks.json")); !bytes.Equal(before, after) {
 		t.Error("setup changed the Codex hook file")
+	}
+}
+
+// A CLI on PATH that has no config folder yet gets the folder and the hook on yes, and
+// nothing on no.
+func TestSetupMissingConfigFolder(t *testing.T) {
+	for _, c := range []struct{ kind, dir, file, answers string }{
+		{"claude", ".claude", "settings.json", "y\ny\ny\ny\n"},
+		{"codex", ".codex", "hooks.json", "y\ny\ny\ny\n"},
+		{"claude", ".claude", "settings.json", "y\ny\nn\ny\n"},
+		{"codex", ".codex", "hooks.json", "y\ny\ny\nn\n"},
+	} {
+		yes := !strings.Contains(c.answers, "n")
+		t.Run(fmt.Sprintf("%s yes=%t", c.kind, yes), func(t *testing.T) {
+			home := setupHome(t, "0.9.1")
+			if err := os.RemoveAll(filepath.Join(home, c.dir)); err != nil {
+				t.Fatal(err)
+			}
+			code, out, errOut := runSetup(t, c.answers)
+			if code != 0 {
+				t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
+			}
+			b, err := os.ReadFile(filepath.Join(home, c.dir, c.file))
+			switch {
+			case yes && (err != nil || !bytes.Contains(b, []byte(" hook --profile "))):
+				t.Errorf("%s: %v\n%s", c.file, err, b)
+			case !yes:
+				if _, err := os.Lstat(filepath.Join(home, c.dir)); !os.IsNotExist(err) {
+					t.Errorf("setup made %s after the answer no: %v", c.dir, err)
+				}
+			}
+		})
+	}
+}
+
+// hookReader runs fn at the first read, while setup waits at its first question.
+type hookReader struct {
+	fn func()
+	r  io.Reader
+}
+
+func (h *hookReader) Read(p []byte) (int, error) {
+	if h.fn != nil {
+		h.fn()
+		h.fn = nil
+	}
+	return h.r.Read(p)
+}
+
+// A setup that binds another session while this setup waits for its answer keeps its
+// binding: this setup refuses and changes nothing.
+func TestSetupOverlap(t *testing.T) {
+	home := setupHome(t, "0.9.1")
+	file := filepath.Join(home, ".local", "share", "brain", "bindings.json")
+	var other []byte
+	in := &hookReader{r: strings.NewReader("y\nn\nn\nn\n"), fn: func() {
+		if code, out, errOut := runSetup(t, "y\nn\nn\nn\n", "--session", "brain-test2"); code != 0 {
+			t.Fatalf("other setup = %d: %s\n%s", code, errOut, out)
+		}
+		other = mustRead(t, file)
+	}}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"setup"}, in, &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "changed while setup waited") {
+		t.Fatalf("setup = %d, stderr %q, want 1 and changed", code, errOut.String())
+	}
+	if now := mustRead(t, file); !bytes.Equal(now, other) {
+		t.Errorf("bindings file changed:\n%s\n->\n%s", other, now)
+	}
+	if code, out, errOut := runSetup(t, "y\nn\nn\nn\n"); code != 0 {
+		t.Fatalf("setup again = %d: %s\n%s", code, errOut, out)
+	}
+	if bs := readBindings(t, home); len(bs) != 2 {
+		t.Errorf("bindings = %+v, want 2", bs)
 	}
 }
