@@ -209,18 +209,25 @@ func InsertItemRevision(ctx context.Context, tx *sql.Tx, r ItemRevision) error {
 
 // ItemRevisionByKey reads one revision of an item. It returns sql.ErrNoRows when there is none.
 func ItemRevisionByKey(ctx context.Context, tx *sql.Tx, itemID, revision int64) (ItemRevision, error) {
-	var r ItemRevision
-	err := tx.QueryRowContext(ctx, `SELECT item_id, revision, text, scope, workspace_key, state, pinned,
-		author, origin, proposal_id, undoes_revision, exception_to_item, exception_to_revision,
-		conflicts_with, created FROM item_revisions WHERE item_id = ? AND revision = ?`,
-		itemID, revision).Scan(
-		&r.ItemID, &r.Revision, &r.Text, &r.Scope, &r.WorkspaceKey, &r.State, &r.Pinned, &r.Author,
-		&r.Origin, &r.ProposalID, &r.UndoesRevision, &r.ExceptionToItem, &r.ExceptionToRevision,
-		listDest[int64]{&r.ConflictsWith}, timeDest{&r.Created})
+	r, err := scanRevision(tx.QueryRowContext(ctx, `SELECT `+revisionColumns+` FROM item_revisions r
+		WHERE item_id = ? AND revision = ?`, itemID, revision))
 	if err != nil {
 		return ItemRevision{}, fmt.Errorf("read item %d revision %d: %w", itemID, revision, err)
 	}
 	return r, nil
+}
+
+// revisionColumns are the columns of an item_revisions row r, in the order of scanRevision.
+const revisionColumns = `r.item_id, r.revision, r.text, r.scope, r.workspace_key, r.state, r.pinned,
+	r.author, r.origin, r.proposal_id, r.undoes_revision, r.exception_to_item, r.exception_to_revision,
+	r.conflicts_with, r.created`
+
+func scanRevision(row interface{ Scan(dest ...any) error }) (ItemRevision, error) {
+	var r ItemRevision
+	err := row.Scan(&r.ItemID, &r.Revision, &r.Text, &r.Scope, &r.WorkspaceKey, &r.State, &r.Pinned,
+		&r.Author, &r.Origin, &r.ProposalID, &r.UndoesRevision, &r.ExceptionToItem, &r.ExceptionToRevision,
+		listDest[int64]{&r.ConflictsWith}, timeDest{&r.Created})
+	return r, err
 }
 
 // Proposal is one change that waits for your decision, or that you decided (§7.4).
@@ -306,6 +313,8 @@ func OutputByGeneration(ctx context.Context, tx *sql.Tx, generation int64) (Outp
 
 // AppliedEdit logs one file that an output generation wrote (§7.5 step 7). ContentBefore is
 // nil when the edit created the file, and ContentAfter when it removed the file.
+// ContentBefore is nil too when the forget rule kept the old bytes out (§6.7); then
+// RevisionsBefore is not empty.
 type AppliedEdit struct {
 	ID            int64
 	ProposalID    *int64
@@ -316,24 +325,32 @@ type AppliedEdit struct {
 	ContentHash   string
 	Applied       time.Time
 	RolledBack    time.Time
+	// RevisionsBefore and RevisionsAfter are the (item id, revision) pairs in the file before
+	// and after the edit. They hold no text, so they stay after forget.
+	RevisionsBefore []RevisionRef
+	RevisionsAfter  []RevisionRef
 }
 
 // InsertAppliedEdit adds e and returns its new id. e.ID is ignored.
 func InsertAppliedEdit(ctx context.Context, tx *sql.Tx, e AppliedEdit) (int64, error) {
 	return insertRow(ctx, tx, "applied edit", `INSERT INTO applied_edits
-		(proposal_id, file, generation, content_before, content_after, content_hash, applied, rolled_back)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		(proposal_id, file, generation, content_before, content_after, content_hash, applied, rolled_back,
+		revisions_before, revisions_after)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.ProposalID, e.File, e.Generation, e.ContentBefore, e.ContentAfter, e.ContentHash,
-		timeArg(e.Applied), timeArg(e.RolledBack))
+		timeArg(e.Applied), timeArg(e.RolledBack), jsonList[RevisionRef](e.RevisionsBefore),
+		jsonList[RevisionRef](e.RevisionsAfter))
 }
 
 // AppliedEditByID reads the applied edit with id. It returns sql.ErrNoRows when there is none.
 func AppliedEditByID(ctx context.Context, tx *sql.Tx, id int64) (AppliedEdit, error) {
 	var e AppliedEdit
 	err := tx.QueryRowContext(ctx, `SELECT id, proposal_id, file, generation, content_before,
-		content_after, content_hash, applied, rolled_back FROM applied_edits WHERE id = ?`, id).Scan(
+		content_after, content_hash, applied, rolled_back, revisions_before, revisions_after
+		FROM applied_edits WHERE id = ?`, id).Scan(
 		&e.ID, &e.ProposalID, &e.File, &e.Generation, &e.ContentBefore, &e.ContentAfter, &e.ContentHash,
-		timeDest{&e.Applied}, timeDest{&e.RolledBack})
+		timeDest{&e.Applied}, timeDest{&e.RolledBack}, listDest[RevisionRef]{&e.RevisionsBefore},
+		listDest[RevisionRef]{&e.RevisionsAfter})
 	if err != nil {
 		return AppliedEdit{}, fmt.Errorf("read applied edit %d: %w", id, err)
 	}
