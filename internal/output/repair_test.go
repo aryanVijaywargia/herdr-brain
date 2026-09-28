@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -658,4 +659,112 @@ func TestConfirmAfterStoppedRecord(t *testing.T) {
 	if recorded != gen {
 		t.Errorf("current row = %d, want %d", recorded, gen)
 	}
+}
+
+// fakeSleep replaces sleep for the test: it records each wait and runs during at the wait.
+func fakeSleep(t *testing.T, during func()) *[]time.Duration {
+	t.Helper()
+	var waits []time.Duration
+	old := sleep
+	sleep = func(d time.Duration) {
+		waits = append(waits, d)
+		during()
+	}
+	t.Cleanup(func() { sleep = old })
+	return &waits
+}
+
+// checkReadable checks that a hook that holds generation gen still reads its files.
+func checkReadable(t *testing.T, out string, gen int64) {
+	t.Helper()
+	for _, name := range []string{manifestName, globalName} {
+		if _, err := os.ReadFile(filepath.Join(out, folder(gen), name)); err != nil {
+			t.Errorf("hook read of %s in generation %d = %v, want the file", name, gen, err)
+		}
+	}
+}
+
+// AC #120: a hook that read the old pointer just before Confirm switched it still reads the
+// files of the old current generation: Confirm waits one hookCap after the switch, and
+// deletes that folder only then.
+func TestConfirmKeepsOldCurrentForHook(t *testing.T) {
+	s, out := newStore(t)
+	addItem(t, s, "k1", "use pnpm")
+	old := mustBuild(t, s, out)
+	handEdit(t, out, old, globalName)
+	waits := fakeSleep(t, func() {
+		if gen, err := readPointer(out); err != nil || gen == old {
+			t.Errorf("pointer during the wait = %d, %v, want it past %d", gen, err, old)
+		}
+		checkReadable(t, out, old)
+	})
+
+	mustConfirm(t, s, out, testNow)
+	if want := []time.Duration{hookCap}; !slices.Equal(*waits, want) {
+		t.Errorf("waits = %v, want %v", *waits, want)
+	}
+	if exists(t, filepath.Join(out, folder(old))) {
+		t.Errorf("hand-edited generation %d is still there after Confirm", old)
+	}
+}
+
+// Review of #120: a conflict that a build retired less than one hookCap ago waits for the
+// rest of the cap too.
+func TestConfirmWaitsForRecentlyRetired(t *testing.T) {
+	s, out := newStore(t)
+	id := addItem(t, s, "", "one")
+	edited := mustBuild(t, s, out)
+	mustRevise(t, s, id, 1, "two")
+	mustBuild(t, s, out)
+	handEdit(t, out, edited, globalName)
+	waits := fakeSleep(t, func() { checkReadable(t, out, edited) })
+
+	mustConfirm(t, s, out, testNow.Add(100*time.Millisecond))
+	if want := []time.Duration{hookCap - 100*time.Millisecond}; !slices.Equal(*waits, want) {
+		t.Errorf("waits = %v, want %v", *waits, want)
+	}
+	if exists(t, filepath.Join(out, folder(edited))) {
+		t.Errorf("hand-edited generation %d is still there after Confirm", edited)
+	}
+}
+
+// AC #119: RepairConflicts repairs, and lists the open conflicts that it kept. It reads them
+// while it still holds the build lock.
+func TestRepairConflicts(t *testing.T) {
+	s, out := newStore(t)
+	addItem(t, s, "k1", "use pnpm")
+	gen := mustBuild(t, s, out)
+	handEdit(t, out, gen, globalName)
+	addItem(t, s, "", "second item")
+	old := beforeScan
+	t.Cleanup(func() { beforeScan = old })
+	scanned := false
+	beforeScan = func() {
+		scanned = true
+		f, err := os.Open(filepath.Join(out, lockName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := f.Close(); err != nil {
+				t.Error(err)
+			}
+		}()
+		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); !errors.Is(err, syscall.EWOULDBLOCK) {
+			t.Errorf("lock before the scan = %v, want it held (EWOULDBLOCK)", err)
+		}
+	}
+
+	cs, err := RepairConflicts(context.Background(), s, out, at(later))
+	if err != nil {
+		t.Fatalf("RepairConflicts() = %v, want the conflict in the list, not an error", err)
+	}
+	if !scanned {
+		t.Error("RepairConflicts() did not scan")
+	}
+	want := []ConflictError{{Generation: gen, Files: []string{globalName}}}
+	if !reflect.DeepEqual(cs, want) {
+		t.Errorf("RepairConflicts() = %v, want %v", cs, want)
+	}
+	checkPointer(t, out, gen)
 }
