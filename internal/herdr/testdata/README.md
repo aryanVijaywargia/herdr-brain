@@ -28,3 +28,15 @@ a scratch HOME), with the plugin folder shortened to `/tmp/brain-t0048/plug`:
 
 - `pane-process-info.json`: `herdr pane process-info --pane w1:p2` of the Brain review pane,
   opened with `--env BRAIN_PROPOSAL_ID=7` (E5-S2)
+
+Recorded on 2026-09-29 from a headless scratch server (`herdr --session brain-eval-dev server`
+with a scratch HOME), for the eval runner (E10-S1):
+
+- `workspace-created.json`: `herdr workspace create --cwd <folder> --label eval-case --no-focus`
+- `pane-split.json`: `herdr pane split w1:p1 --direction right --cwd <folder> --no-focus`
+- `output-matched.json`: `herdr pane wait-output w1:p1 --regex '<done> [0-9]+' --timeout 5000`
+  after `herdr pane run w1:p1 'echo hi; echo <done> $?'`
+- `pane-process-info-sleep.json`: `herdr pane process-info --pane w1:p2` with `sleep 300` in
+  the foreground
+- `pane-closed.json`: `herdr pane close w1:p2`
+- `error-agent-not-found.json`: stderr of `herdr agent read w1:p1` on a shell pane (exit 1)
