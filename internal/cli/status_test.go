@@ -28,7 +28,8 @@ type fakeStatusHerdr struct {
 	panesErr error
 	version  string
 	untested bool
-	lists    int // the pane list calls
+	checkErr error // the CheckServer error, such as a herdr that is too old
+	lists    int   // the pane list calls
 }
 
 func (h *fakeStatusHerdr) Panes(context.Context) ([]herdr.Pane, error) {
@@ -37,7 +38,7 @@ func (h *fakeStatusHerdr) Panes(context.Context) ([]herdr.Pane, error) {
 }
 
 func (h *fakeStatusHerdr) CheckServer(context.Context) (string, bool, error) {
-	return h.version, h.untested, nil
+	return h.version, h.untested, h.checkErr
 }
 
 // statusFixture is a fixture with a data home, fake agent CLIs on the PATH and a fake herdr.
@@ -339,5 +340,29 @@ func TestStatusChecksAgents(t *testing.T) {
 	}
 	if len(ids) != 0 {
 		t.Errorf("unchecked agent sessions %v after status, want none", ids)
+	}
+}
+
+// AC #136: a missing part of the current generation joins ErrInconsistent and fs.ErrNotExist.
+// Status shows the damage, not "not built yet".
+func TestStatusDamagedBrief(t *testing.T) {
+	f := newStatusFixture(t)
+	if err := os.Remove(filepath.Join(f.genDir(f.rows(t).newest), "global.md")); err != nil {
+		t.Fatal(err)
+	}
+	out := f.mustStatus(t)
+	if strings.Contains(out, "not built yet") || !strings.Contains(out, "brief: ") ||
+		!strings.Contains(out, "output files do not match their manifest") {
+		t.Errorf("status:\n%s\nwant the inconsistent brief", out)
+	}
+}
+
+// AC #136: when the pane list fails, a CLI with no hook shows "unknown", not "none": status
+// cannot tell whether it is detected.
+func TestStatusPaneListFailsCLIUnknown(t *testing.T) {
+	f := newStatusFixture(t)
+	f.herdr.panesErr = errors.New("herdr pane list: timeout")
+	if out := f.mustStatus(t); !strings.Contains(out, "  claude 2.1.283: unknown\n") {
+		t.Errorf("status:\n%s\nwant claude unknown", out)
 	}
 }

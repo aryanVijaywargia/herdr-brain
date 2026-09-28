@@ -51,6 +51,7 @@ type Env struct {
 	Data     string
 	Adapters harness.Files
 	Now      func() time.Time
+	Stdin    io.Reader // the answers to a question; nil answers "no"
 	Stdout   io.Writer
 	Stderr   io.Writer // for warnings; the caller prints the error of a command
 }

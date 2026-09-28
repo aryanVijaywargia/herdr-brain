@@ -1,0 +1,158 @@
+package harness
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
+	"github.com/aryanVijaywargia/herdr-brain/internal/install"
+)
+
+func ptr[T any](v T) *T { return &v }
+
+// The want values are trusted_hash values that Codex 0.154 wrote to config.toml when the owner
+// trusted these hooks in the TUI (the golden values of the E8-S3 probe).
+func TestHookHashMatchesCodex(t *testing.T) {
+	tests := []struct {
+		name    string
+		event   string
+		matcher *string
+		h       handler
+		want    string
+	}{
+		{
+			name:  "M0 inline session flags hook",
+			event: "SessionStart",
+			h:     handler{Command: "/Users/aryanvijaywargia/Projects/herdr-brain/spike/m0/hook/brainspike codex", Timeout: ptr[uint64](5)},
+			want:  "sha256:e13f3a03acf65bd0d2f320a9d8879834e42e07d4b30f5954058c1aa9c22f28c7",
+		},
+		{
+			name:  "hooks.json session start, no matcher",
+			event: "SessionStart",
+			h:     handler{Command: "bash '/Users/aryanvijaywargia/.codex/herdr-agent-state.sh' session", Timeout: ptr[uint64](10)},
+			want:  "sha256:9b6563c12756ab055c0b4a03352e4016706dd0f8a43d2e5cbcf1a84241a84d01",
+		},
+		{
+			name:    "hooks.json subagent start, matcher, default timeout",
+			event:   "SubagentStart",
+			matcher: ptr("tldraw-offline"),
+			h:       handler{Command: "sh '/Users/aryanvijaywargia/skills/tldraw-offline/inject-server-context.sh' SubagentStart"},
+			want:    "sha256:a7e36c07775b97099838895ecb15743029e4c59ce6144ae67a2e98ccc2b306b3",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.h.Type = "command"
+			got, err := hookHash(tt.event, eventLabels[tt.event], tt.matcher, tt.h)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Errorf("hash = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+// trustEnv is a Codex home with an other group before the Brain group, so the Brain key has
+// group index 1. It returns the recorded entry, its key and its hash.
+func trustEnv(t *testing.T) (dir string, e install.Entry, key, sum string) {
+	t.Helper()
+	home := t.TempDir()
+	dir = filepath.Join(home, ".codex")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	other := `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"other","timeout":10}]}]}}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "hooks.json"), []byte(other), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := adapter.Load("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst := &install.Installer{Home: home, Record: filepath.Join(home, "install.json"), Binary: "/opt/brain/bin/brain"}
+	if _, err := inst.Install(p); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := install.Read(inst.Record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e = rec.Entries["codex"]
+	// The entry sets timeout 5 and additionalContextLimit 0, and both are in the hash.
+	sum, err = hookHash("SessionStart", "session_start", nil, handler{Type: "command",
+		Command: "/opt/brain/bin/brain hook --profile codex --event start", Timeout: ptr[uint64](5),
+		AdditionalContextLimit: ptr[uint64](0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir, e, filepath.Join(dir, "hooks.json") + ":session_start:1:0", sum
+}
+
+func writeConfig(t *testing.T, dir, text string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// AC: the trusted, modified and untrusted cases of the status rule, and enabled = false.
+func TestCodexTrust(t *testing.T) {
+	dir, e, key, sum := trustEnv(t)
+	tests := []struct {
+		name, config string
+		want         Trust
+	}{
+		{"no config", "", Untrusted},
+		{"trusted", fmt.Sprintf("model = \"x\"\n\n[hooks.state.%q]\ntrusted_hash = %q\n", key, sum), Trusted},
+		{"modified", fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = \"sha256:00\"\n", key), Modified},
+		{"other key", fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = %q\n", key[:len(key)-3]+"0:0", sum), Untrusted},
+		{"disabled", fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = %q\nenabled = false\n", key, sum), Disabled},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.config == "" {
+				_ = os.Remove(filepath.Join(dir, "config.toml"))
+			} else {
+				writeConfig(t, dir, tt.config)
+			}
+			got, err := CodexTrust(dir, e, "SessionStart")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Errorf("CodexTrust() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// AC: a Codex home whose hooks.json holds no Brain entry, for example another CODEX_HOME.
+func TestCodexTrustNoEntry(t *testing.T) {
+	_, e, _, _ := trustEnv(t)
+	got, err := CodexTrust(t.TempDir(), e, "SessionStart")
+	if err != nil || got != NoEntry {
+		t.Errorf("CodexTrust() = %q, %v; want %q", got, err, NoEntry)
+	}
+}
+
+func TestCodexHome(t *testing.T) {
+	if got, err := CodexHome("/home/u", ""); err != nil || got != "/home/u/.codex" {
+		t.Errorf("CodexHome no env = %q, %v", got, err)
+	}
+	dir := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := CodexHome("/home/u", link); err != nil || got != want {
+		t.Errorf("CodexHome(%s) = %q, %v; want %q", link, got, err, want)
+	}
+}
