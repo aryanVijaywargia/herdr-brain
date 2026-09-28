@@ -237,6 +237,42 @@ func TestPermissionWarning(t *testing.T) {
 	}
 }
 
+// A change to an active item warns when the old text or the new text has a keyword: a retire
+// or an edit that removes a safety rule changes it (§7.4).
+func TestChangeWarning(t *testing.T) {
+	cases := []struct {
+		name, text string
+		args       []string
+	}{
+		{"retire of a safety rule", "never run rm -rf in the home folder", []string{"--retire"}},
+		{"edit that removes the keyword", "never run the deploy script", []string{"--edit", "run the deploy script when you like"}},
+		{"edit that adds a keyword", "use pnpm", []string{"--edit", "allow npm too"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t)
+			item := f.addActive(t, ptr("ws_a14"), c.text)
+			f.mustReview(t, append([]string{"--item", fmt.Sprint(item)}, c.args...)...)
+			if out := f.mustReview(t); !strings.Contains(out, "[permission warning]") {
+				t.Errorf("list = %q, want the warning mark", out)
+			}
+			if out := f.mustReview(t, "1"); !strings.Contains(out, "warning:") {
+				t.Errorf("show = %q, want the warning line", out)
+			}
+			if _, err := f.review(t, "1", "--approve"); err == nil || !strings.Contains(err.Error(), "--confirm") {
+				t.Errorf("approve with no --confirm = %v, want an error", err)
+			}
+			if it, _ := f.rows(t).item(t, item); it.CurrentRevision != 1 {
+				t.Errorf("item = %+v, want revision 1: nothing written", it)
+			}
+			f.mustReview(t, "1", "--approve", "--confirm")
+			if it, _ := f.rows(t).item(t, item); it.CurrentRevision != 2 {
+				t.Errorf("item after --confirm = %+v, want revision 2", it)
+			}
+		})
+	}
+}
+
 func TestPermissionWords(t *testing.T) {
 	for text, want := range map[string]bool{
 		"Allow git push": true, "ask for permission": true, "no sandbox": true, "use --dangerously-skip": true,

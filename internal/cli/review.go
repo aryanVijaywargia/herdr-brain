@@ -277,7 +277,7 @@ func (cl caller) approved(r review, p store.Proposal, it store.Item, cur store.I
 		}
 		// A retired revision keeps its text, so that restore can bring it back (§9.2).
 		next.State = store.StateRetired
-		return next, nil
+		return next, confirmed(r, p, next)
 	}
 	next.Text, next.State, next.Pinned = p.Text, store.StateActive, cur.Pinned || r.pin
 	if r.edit != nil {
@@ -296,11 +296,17 @@ func (cl caller) approved(r review, p store.Proposal, it store.Item, cur store.I
 		}
 		next.Scope, next.WorkspaceKey = store.ScopeWorkspace, &cl.key
 	}
+	return next, confirmed(r, p, next)
+}
+
+// confirmed checks that you gave --confirm when approving p may change a permission, an allow
+// rule or a safety rule (§7.4). The revision's text counts too, as an --edit can add a keyword.
+func confirmed(r review, p store.Proposal, next store.ItemRevision) error {
 	if (p.PermissionWarning || permissionWords.MatchString(next.Text)) && !r.confirm {
-		return store.ItemRevision{}, fmt.Errorf("proposal %d may change a permission, an allow rule or a safety rule: read it with brain review %d, then approve with --confirm; nothing was written",
+		return fmt.Errorf("proposal %d may change a permission, an allow rule or a safety rule: read it with brain review %d, then approve with --confirm; nothing was written",
 			p.ID, p.ID)
 	}
-	return next, nil
+	return nil
 }
 
 // reject marks the proposal rejected. The item does not change.
@@ -406,8 +412,10 @@ func (cl caller) proposeChange(ctx context.Context, r review) error {
 			Diff: "- " + cur.Text, Status: store.ProposalPending, Created: cl.Now()}
 		if r.edit != nil {
 			p.Text, p.Diff = *r.edit, p.Diff+"\n+ "+*r.edit
-			p.PermissionWarning = permissionWords.MatchString(p.Text)
 		}
+		// The diff holds the old text too: a retire or an edit that removes a safety rule
+		// changes it (§7.4).
+		p.PermissionWarning = permissionWords.MatchString(p.Diff)
 		pid, err = store.InsertProposal(ctx, tx, p)
 		return err
 	})
