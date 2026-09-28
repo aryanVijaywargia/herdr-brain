@@ -16,8 +16,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
+	"github.com/aryanVijaywargia/herdr-brain/internal/install"
 )
 
 const (
@@ -48,11 +50,12 @@ type fakeHerdr struct {
 	alive   map[int]bool
 	nextPID int
 	nextWS  int
-	stuck   bool // a closed pane's processes keep running
+	labels  map[string]string // workspace id to label
+	stuck   bool              // a closed pane's processes keep running
 }
 
 func newFake(store string) *fakeHerdr {
-	return &fakeHerdr{store: store, panes: map[string]*fakePane{}, agents: map[string]string{}, alive: map[int]bool{}, nextPID: 1000}
+	return &fakeHerdr{store: store, panes: map[string]*fakePane{}, agents: map[string]string{}, labels: map[string]string{}, alive: map[int]bool{}, nextPID: 1000}
 }
 
 func (f *fakeHerdr) pid() int {
@@ -87,6 +90,19 @@ func (f *fakeHerdr) Panes(context.Context) ([]herdr.Pane, error) {
 	return ps, nil
 }
 
+// Workspaces lists the workspaces with an open pane: herdr closes a workspace with its last
+// pane.
+func (f *fakeHerdr) Workspaces(context.Context) ([]herdr.Workspace, error) {
+	var ws []herdr.Workspace
+	for _, id := range f.order {
+		p := f.panes[id]
+		if !p.closed && !slices.ContainsFunc(ws, func(w herdr.Workspace) bool { return w.ID == p.pane.WorkspaceID }) {
+			ws = append(ws, herdr.Workspace{ID: p.pane.WorkspaceID, Label: f.labels[p.pane.WorkspaceID]})
+		}
+	}
+	return ws, nil
+}
+
 func (f *fakeHerdr) PaneProcessInfo(_ context.Context, id string) (herdr.ProcessInfo, error) {
 	p, err := f.get(id)
 	if err != nil {
@@ -95,8 +111,9 @@ func (f *fakeHerdr) PaneProcessInfo(_ context.Context, id string) (herdr.Process
 	return herdr.ProcessInfo{ShellPID: p.shell, Processes: slices.Clone(p.fg)}, nil
 }
 
-func (f *fakeHerdr) CreateWorkspace(_ context.Context, cwd, _ string) (herdr.Pane, error) {
+func (f *fakeHerdr) CreateWorkspace(_ context.Context, cwd, label string) (herdr.Pane, error) {
 	f.nextWS++
+	f.labels[fmt.Sprintf("w%d", f.nextWS)] = label
 	return f.add(fmt.Sprintf("w%d:p1", f.nextWS), cwd).pane, nil
 }
 
@@ -222,9 +239,9 @@ func newEnv(t *testing.T) *env {
 	e.data = filepath.Join(e.home, ".local", "share", "brain")
 	e.mainStore = filepath.Join(e.data, "main")
 	write(t, filepath.Join(e.mainStore, "brain.db"), "real rows")
-	write(t, filepath.Join(e.home, ".claude", "settings.json"), `{"hooks":{"SessionStart":["brain hook"]}}`)
-	write(t, filepath.Join(e.home, ".codex", "hooks.json"), `{"hooks":["brain hook"]}`)
-	write(t, filepath.Join(e.data, "install.json"), `{"entries":{"claude":{"target":"x"},"codex":{"target":"y"}},"snapshots":{}}`)
+	write(t, filepath.Join(e.home, ".claude", "settings.json"), `{"theme":"dark"}`)
+	write(t, filepath.Join(e.home, ".codex", "config.toml"), `model = "x"`)
+	e.install(t, "claude", "codex")
 	write(t, filepath.Join(e.testStore, "brain.db"), "earlier test rows")
 	e.bind(t, bindings.KindTest)
 	e.fake = newFake(e.testStore)
@@ -255,6 +272,22 @@ func newEnv(t *testing.T) *env {
 		Stdout:   io.Discard,
 	}
 	return e
+}
+
+// install adds the Brain hook of each harness to its hook file in the scratch HOME, as
+// `brain setup` does.
+func (e *env) install(t *testing.T, harnesses ...string) {
+	t.Helper()
+	in := &install.Installer{Home: e.home, Record: filepath.Join(e.data, "install.json"), Binary: "/opt/brain/bin/brain"}
+	for _, h := range harnesses {
+		p, err := adapter.Load(h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := in.Install(p); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // bind writes the bindings file: the default session on the main store, and brain-eval on
@@ -412,7 +445,11 @@ func TestSetupMissing(t *testing.T) {
 		{"no install record", func(t *testing.T, e *env) { rm(t, filepath.Join(e.data, "install.json")) }, nil, "run `brain setup` first"},
 		{"empty install record", func(t *testing.T, e *env) { write(t, filepath.Join(e.data, "install.json"), `{"entries":{}}`) }, nil, "run `brain setup` first"},
 		{"no hook of a probe", func(t *testing.T, e *env) {
-			write(t, filepath.Join(e.data, "install.json"), `{"entries":{"claude":{"target":"x"}}}`)
+			rm(t, filepath.Join(e.data, "install.json"))
+			e.install(t, "claude")
+		}, []Case{{ID: "c", Probes: []Probe{{Harness: "codex", Prompt: "p"}}}}, "hook of codex is not installed"},
+		{"hook taken out of its file", func(t *testing.T, e *env) {
+			write(t, filepath.Join(e.home, ".codex", "hooks.json"), `{}`)
 		}, []Case{{ID: "c", Probes: []Probe{{Harness: "codex", Prompt: "p"}}}}, "hook of codex is not installed"},
 		{"no bindings file", func(t *testing.T, e *env) { rm(t, filepath.Join(e.data, "bindings.json")) }, nil, "brain setup --session brain-eval --test <folder>"},
 		{"main binding", func(t *testing.T, e *env) { e.bind(t, bindings.KindMain) }, nil, "not a test store"},
@@ -467,7 +504,8 @@ func TestSecondRunnerStops(t *testing.T) {
 }
 
 // After an interrupted run, a writer of that run can still be alive in the test session:
-// an agent pane, or a pane whose foreground process is a CLI or brain. The next run does not
+// an agent pane, a pane whose foreground process is a CLI or brain, or a case workspace
+// whose shell may run a writer in the background. The next run does not
 // reset the store, and leaves that pane alone.
 func TestLiveWriterBlocksReset(t *testing.T) {
 	claude := "claude"
@@ -478,11 +516,15 @@ func TestLiveWriterBlocksReset(t *testing.T) {
 		{"agent pane", func(p *fakePane) { p.pane.Agent = &claude }},
 		{"brain process", func(p *fakePane) { p.fg = []herdr.Process{{Name: "brain", PID: 7}} }},
 		{"codex process", func(p *fakePane) { p.fg = []herdr.Process{{Name: "codex", PID: 8}} }},
+		{"case workspace", func(*fakePane) {}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newEnv(t)
 			left := e.fake.add("w9:p1", t.TempDir())
+			if tt.name == "case workspace" {
+				e.fake.labels["w9"] = caseLabel + "old"
+			}
 			tt.set(left)
 			store := tree(t, e.testStore)
 			_, err := e.r.Run(context.Background(), []Case{{ID: "c", Setup: []string{"true"}}})

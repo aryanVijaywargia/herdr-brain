@@ -2,6 +2,7 @@ package herdr
 
 import (
 	"errors"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -125,5 +126,19 @@ func TestPaneProcessInfo(t *testing.T) {
 		c, _ := fakeClient(t, map[string]reply{cmd: {Stdout: out}})
 		_, err := c.PaneProcessInfo(deadline(t), "w1:p2")
 		wantShape(t, err, field)
+	}
+}
+
+// Stop of a server whose process already exited changes nothing: a session of that name is
+// another server's, for example one that won the start.
+func TestStopAfterExit(t *testing.T) {
+	env, dir := fakeEnv(t, map[string]reply{})
+	s := &Server{bin: os.Args[0], environ: env, name: "brain-eval", done: make(chan struct{})}
+	close(s.done)
+	if err := s.Stop(deadline(t)); !errors.Is(err, ErrServerGone) {
+		t.Errorf("Stop() = %v, want ErrServerGone", err)
+	}
+	if cs := calls(t, dir); len(cs) != 0 {
+		t.Errorf("calls = %+v, want none", cs)
 	}
 }

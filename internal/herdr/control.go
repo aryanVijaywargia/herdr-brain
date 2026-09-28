@@ -200,7 +200,8 @@ type Server struct {
 	bin     string
 	environ []string
 	name    string
-	done    chan error // gets the exit of the server process
+	done    chan struct{} // closed when the server process exits
+	exit    error         // the exit of the server process; read it after done
 }
 
 // serverPoll is how often StartServer asks herdr whether the new server runs. [NEW]
@@ -229,8 +230,8 @@ func StartServer(ctx context.Context, environ []string, name string) (*Server, e
 	if err := cmd.Start(); err != nil { // nil stdio: the server reads and writes /dev/null
 		return nil, fmt.Errorf("start herdr server %q: %w", name, err)
 	}
-	s := &Server{cmd: cmd, bin: bin, environ: env, name: name, done: make(chan error, 1)}
-	go func() { s.done <- cmd.Wait() }()
+	s := &Server{cmd: cmd, bin: bin, environ: env, name: name, done: make(chan struct{})}
+	go func() { s.exit = cmd.Wait(); close(s.done) }()
 	if err := s.waitRunning(ctx); err != nil {
 		_ = cmd.Process.Kill() // the start error is the one to report
 		<-s.done
@@ -245,11 +246,16 @@ func (s *Server) waitRunning(ctx context.Context) error {
 	for {
 		ss, err := Sessions(ctx, s.environ)
 		if err == nil && slices.ContainsFunc(ss, func(x Session) bool { return x.Name == s.name && x.Running }) {
-			return nil
+			select {
+			case <-s.done: // another server of that name runs, not this one
+				return fmt.Errorf("the server exited: %w", s.exit)
+			default:
+				return nil
+			}
 		}
 		select {
-		case err := <-s.done:
-			return fmt.Errorf("the server exited: %w", err)
+		case <-s.done:
+			return fmt.Errorf("the server exited: %w", s.exit)
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-tick.C:
@@ -257,9 +263,19 @@ func (s *Server) waitRunning(ctx context.Context) error {
 	}
 }
 
+// ErrServerGone says that the server process exited before Stop. The session of that name,
+// if one runs, is not this server's, so Stop leaves it.
+var ErrServerGone = errors.New("the server process exited before its stop")
+
 // Stop stops the server with `herdr session stop`, waits for its process, and deletes the
-// session with `herdr session delete`. ctx needs a deadline.
+// session with `herdr session delete`. ctx needs a deadline. When the process already exited,
+// for example because another server of the same name won the start, Stop changes nothing.
 func (s *Server) Stop(ctx context.Context) error {
+	select {
+	case <-s.done:
+		return fmt.Errorf("herdr session %s: %w", s.name, errors.Join(ErrServerGone, s.exit))
+	default:
+	}
 	if _, err := run(ctx, s.bin, s.environ, "session", "stop", s.name); err != nil {
 		return fmt.Errorf("herdr session stop %s: %w", s.name, err)
 	}

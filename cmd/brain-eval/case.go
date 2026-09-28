@@ -44,6 +44,9 @@ type Reply struct {
 	Text    string
 }
 
+// caseLabel starts the label of the workspace of each case.
+const caseLabel = "brain-eval-case-"
+
 // markerSlot is the placeholder of the case marker in steps and prompts.
 const markerSlot = "{{marker}}"
 
@@ -82,7 +85,7 @@ func (r *Runner) runCase(ctx context.Context, h Herdr, c Case) (o Outcome, err e
 		err = errors.Join(err, r.closeAll(ctx, h, opened), os.RemoveAll(dir))
 	}()
 	shell, err := call(ctx, r.Timeouts.Call, func(ctx context.Context) (herdr.Pane, error) {
-		return h.CreateWorkspace(ctx, dir, "brain-eval-"+c.ID)
+		return h.CreateWorkspace(ctx, dir, caseLabel+c.ID)
 	})
 	if err != nil {
 		return Outcome{}, err
@@ -104,11 +107,22 @@ func (r *Runner) runCase(ctx context.Context, h Herdr, c Case) (o Outcome, err e
 	return o, nil
 }
 
-// guard fails when a pane that this run did not open holds an agent, or a foreground CLI or
-// Brain process: it could write to the test store during or after the reset (HLD §12.1). The
-// runner closes its own panes at the end of each case, so any such pane is foreign here,
-// for example one of an interrupted run.
+// guard fails when a case workspace of an earlier run is still open, or when a pane that this
+// run did not open holds an agent, or a foreground CLI or Brain process: it could write to
+// the test store during or after the reset (HLD §12.1). The runner closes its own panes at
+// the end of each case, so any such pane is foreign here, for example one of an interrupted
+// run.
 func (r *Runner) guard(ctx context.Context, h Herdr) error {
+	ws, err := call(ctx, r.Timeouts.Call, h.Workspaces)
+	if err != nil {
+		return err
+	}
+	// A case workspace outlives its case only when a run did not reach its clean-up. A
+	// background process in it can still write, and herdr does not show it; so any such
+	// workspace stops the reset.
+	if i := slices.IndexFunc(ws, func(w herdr.Workspace) bool { return strings.HasPrefix(w.Label, caseLabel) }); i >= 0 {
+		return fmt.Errorf("workspace %s (%s) is left from an earlier run; no reset (close it, then run again)", ws[i].ID, ws[i].Label)
+	}
 	panes, err := call(ctx, r.Timeouts.Call, h.Panes)
 	if err != nil {
 		return err

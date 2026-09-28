@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
@@ -24,6 +25,7 @@ const session = "brain-eval"
 // replace it.
 type Herdr interface {
 	Panes(ctx context.Context) ([]herdr.Pane, error)
+	Workspaces(ctx context.Context) ([]herdr.Workspace, error)
 	PaneProcessInfo(ctx context.Context, id string) (herdr.ProcessInfo, error)
 	CreateWorkspace(ctx context.Context, cwd, label string) (herdr.Pane, error)
 	SplitPane(ctx context.Context, id, cwd string) (herdr.Pane, error)
@@ -131,12 +133,29 @@ func (r *Runner) check(cases []Case) (bindings.Binding, error) {
 	}
 	for _, c := range cases {
 		for _, p := range c.Probes {
-			if _, ok := rec.Entries[p.Harness]; !ok {
-				return bindings.Binding{}, fmt.Errorf("%w: the Brain hook of %s is not installed; run `brain setup` first", errSetup, p.Harness)
+			if err := r.hookInstalled(p.Harness); err != nil {
+				return bindings.Binding{}, err
 			}
 		}
 	}
 	return r.testBinding()
+}
+
+// hookInstalled checks that the hook file of harness still holds the recorded Brain entry: a
+// record without its entry is a missing install. An entry that you edited counts as there.
+func (r *Runner) hookInstalled(harness string) error {
+	p, err := adapter.Load(harness)
+	if err != nil {
+		return err
+	}
+	st, err := (&install.Installer{Record: r.Install}).WouldUninstall(p)
+	if err != nil {
+		return err
+	}
+	if st == install.NotInstalled || st == install.NotFound {
+		return fmt.Errorf("%w: the Brain hook of %s is not installed; run `brain setup` first", errSetup, harness)
+	}
+	return nil
 }
 
 // testBinding reads the bindings file and returns the binding of the brain-eval session. It

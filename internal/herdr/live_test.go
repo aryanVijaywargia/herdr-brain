@@ -179,6 +179,10 @@ func TestLiveServerControl(t *testing.T) {
 			t.Errorf("ClosePane(%s) = %v", id, err)
 		}
 	}
+	// The eval guard counts on this: herdr closes a workspace with its last pane.
+	if ws, err := c.Workspaces(deadline(t)); err != nil || slices.ContainsFunc(ws, func(w Workspace) bool { return w.Label == "eval-case" }) {
+		t.Errorf("Workspaces() after the close = %+v, %v, want no eval-case", ws, err)
+	}
 	if err := s.Stop(deadline(t)); err != nil {
 		t.Fatal(err)
 	}
