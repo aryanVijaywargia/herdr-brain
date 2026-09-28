@@ -68,3 +68,9 @@ func homeDir() (string, error) {
 	}
 	return home, nil
 }
+
+// WorkspaceMap returns <store>/workspaces.json, the workspace map of the store folder store
+// (HLD §8.3 step 4, §11). `brain` calls write it; the hook only reads it.
+func WorkspaceMap(store string) string {
+	return filepath.Join(store, "workspaces.json")
+}
