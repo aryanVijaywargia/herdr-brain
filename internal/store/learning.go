@@ -65,9 +65,9 @@ func LearningSettings(ctx context.Context, tx *sql.Tx) ([]LearningSetting, error
 	return ss, nil
 }
 
-// StoreLearningOn reports whether learning is on for the whole store: its store setting, or
+// LearningOnWholeStore reports whether learning is on for the whole store: its store setting, or
 // defaultOn when there is none. defaultOn is false for a test store (§12.1).
-func StoreLearningOn(ctx context.Context, tx *sql.Tx, defaultOn bool) (bool, error) {
+func LearningOnWholeStore(ctx context.Context, tx *sql.Tx, defaultOn bool) (bool, error) {
 	var learning string
 	err := tx.QueryRowContext(ctx, `SELECT learning FROM learning_settings WHERE scope = ?`, LearningStore).Scan(&learning)
 	switch {
@@ -84,7 +84,7 @@ func StoreLearningOn(ctx context.Context, tx *sql.Tx, defaultOn bool) (bool, err
 // setting when there is no store row: false for a test store (§12.1). Any off setting that
 // applies wins over a narrower on setting [NEW, design choice]. E11 calls it before it captures.
 func LearningOn(ctx context.Context, tx *sql.Tx, defaultOn bool, session, workspaceKey, paneID string) (bool, error) {
-	on, err := StoreLearningOn(ctx, tx, defaultOn)
+	on, err := LearningOnWholeStore(ctx, tx, defaultOn)
 	if err != nil || !on {
 		return false, err
 	}

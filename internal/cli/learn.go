@@ -22,22 +22,9 @@ const learnUsage = `usage: brain learn on|off [--workspace <w> | --pane <p>]`
 // of this herdr session. Delivery and brain remember never read it, and in M1 there is no
 // capture, so the switch only records: it changes no item, output or receipt. E11 reads it.
 func Learn(ctx context.Context, e Env, args []string) (err error) {
-	if len(args) == 0 || args[0] != "on" && args[0] != "off" {
-		return fmt.Errorf("want on or off\n%s", learnUsage)
-	}
-	on := args[0] == "on"
-	fs := flag.NewFlagSet("learn", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	ws := fs.String("workspace", "", "")
-	pane := fs.String("pane", "", "")
-	if err := fs.Parse(args[1:]); err != nil {
-		return fmt.Errorf("%w\n%s", err, learnUsage)
-	}
-	switch {
-	case fs.NArg() != 0:
-		return fmt.Errorf("unexpected argument %q\n%s", fs.Arg(0), learnUsage)
-	case *ws != "" && *pane != "":
-		return fmt.Errorf("--workspace and --pane exclude each other\n%s", learnUsage)
+	on, ws, pane, err := parseLearn(args)
+	if err != nil {
+		return err
 	}
 	// The switch touches no output, so the call does not repair it either.
 	c, err := e.open(ctx, false)
@@ -48,26 +35,26 @@ func Learn(ctx context.Context, e Env, args []string) (err error) {
 	set := store.LearningSetting{Scope: store.LearningStore, On: on, Changed: e.Now()}
 	where := "the whole store"
 	switch {
-	case *ws != "":
-		key, label, err := workspaceKey(c, *ws)
+	case ws != "":
+		key, label, err := workspaceKey(c, ws)
 		if err != nil {
 			return err
 		}
 		set.Scope, set.Target = store.LearningWorkspace, key
-		where = fmt.Sprintf("workspace %s (%s, key %s)", *ws, label, key)
-	case *pane != "":
-		if err := livePane(ctx, e, c.Binding, *pane); err != nil {
+		where = fmt.Sprintf("workspace %s (%s, key %s)", ws, label, key)
+	case pane != "":
+		if err := livePane(ctx, e, c.Binding, pane); err != nil {
 			return err
 		}
-		set.Scope, set.HerdrSession, set.Target = store.LearningPane, c.Binding.Session, *pane
-		where = fmt.Sprintf("pane %s of herdr session %q", *pane, c.Binding.Session)
+		set.Scope, set.HerdrSession, set.Target = store.LearningPane, c.Binding.Session, pane
+		where = fmt.Sprintf("pane %s of herdr session %q", pane, c.Binding.Session)
 	}
 	var storeOn bool
 	err = c.Store.Write(ctx, func(tx *sql.Tx) error {
 		if err := store.SetLearning(ctx, tx, set); err != nil {
 			return err
 		}
-		storeOn, err = store.StoreLearningOn(ctx, tx, learningDefault(c.Binding))
+		storeOn, err = store.LearningOnWholeStore(ctx, tx, learningDefault(c.Binding))
 		return err
 	})
 	if err != nil {
@@ -79,6 +66,27 @@ func Learn(ctx context.Context, e Env, args []string) (err error) {
 	}
 	_, err = io.WriteString(e.Stdout, msg)
 	return err
+}
+
+// parseLearn parses the arguments of brain learn: on or off, and at most one scope flag.
+func parseLearn(args []string) (on bool, ws, pane string, err error) {
+	if len(args) == 0 || args[0] != "on" && args[0] != "off" {
+		return false, "", "", fmt.Errorf("want on or off\n%s", learnUsage)
+	}
+	fs := flag.NewFlagSet("learn", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.StringVar(&ws, "workspace", "", "")
+	fs.StringVar(&pane, "pane", "", "")
+	if err := fs.Parse(args[1:]); err != nil {
+		return false, "", "", fmt.Errorf("%w\n%s", err, learnUsage)
+	}
+	switch {
+	case fs.NArg() != 0:
+		return false, "", "", fmt.Errorf("unexpected argument %q\n%s", fs.Arg(0), learnUsage)
+	case ws != "" && pane != "":
+		return false, "", "", fmt.Errorf("--workspace and --pane exclude each other\n%s", learnUsage)
+	}
+	return args[0] == "on", ws, pane, nil
 }
 
 // workspaceKey returns the Brain key and the label of workspace w of this herdr session: its
@@ -126,7 +134,7 @@ func onOffWord(on bool) string {
 
 // learningLine is the learning line of brain status: on, off, or the scopes that are off.
 func learningLine(ctx context.Context, tx *sql.Tx, b bindings.Binding) (string, error) {
-	on, err := store.StoreLearningOn(ctx, tx, learningDefault(b))
+	on, err := store.LearningOnWholeStore(ctx, tx, learningDefault(b))
 	if err != nil {
 		return "", err
 	}

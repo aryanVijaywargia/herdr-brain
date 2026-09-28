@@ -48,13 +48,13 @@ func (f *fixture) bindLearn(t *testing.T, name string, kind bindings.Kind) learn
 	return s
 }
 
-// learn runs brain learn from pane of the herdr session with socket sock. In another session
-// than default, herdr has every pane that the call names, and the workspace map is not synced.
-func (f *fixture) learn(t *testing.T, sock, pane string, args ...string) (string, error) {
+// learn runs brain learn from pane w14:p1 of the herdr session with socket sock. In another
+// session than default, herdr has every pane that the call names, and the workspace map is
+// not synced.
+func (f *fixture) learn(t *testing.T, sock string, args ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
-	ws, _, _ := strings.Cut(pane, ":")
-	e := f.env(sock, pane, ws, &out)
+	e := f.env(sock, "w14:p1", "w14", &out)
 	if sock != f.sock {
 		// bindLearn puts the socket of session name in the folder name.
 		e.Environ = append(e.Environ, "HERDR_SESSION="+filepath.Base(filepath.Dir(sock)))
@@ -71,9 +71,9 @@ func (f *fixture) learn(t *testing.T, sock, pane string, args ...string) (string
 	return out.String(), err
 }
 
-func (f *fixture) mustLearn(t *testing.T, sock, pane string, args ...string) string {
+func (f *fixture) mustLearn(t *testing.T, sock string, args ...string) string {
 	t.Helper()
-	out, err := f.learn(t, sock, pane, args...)
+	out, err := f.learn(t, sock, args...)
 	if err != nil {
 		t.Fatalf("Learn(%v) = %v", args, err)
 	}
@@ -100,15 +100,15 @@ func TestLearnStatus(t *testing.T) {
 	if out := f.mustStatus(t); !strings.Contains(out, "\nlearning: on\n") {
 		t.Errorf("status:\n%s\nwant learning: on", out)
 	}
-	out := f.mustLearn(t, f.sock, "w14:p1", "off", "--pane", "w14:p1")
+	out := f.mustLearn(t, f.sock, "off", "--pane", "w14:p1")
 	if want := "learning is off for pane w14:p1 of herdr session \"default\". Delivery and brain remember stay on.\n"; out != want {
 		t.Errorf("learn off --pane = %q, want %q", out, want)
 	}
-	f.mustLearn(t, f.sock, "w14:p1", "off", "--workspace", "w15")
+	f.mustLearn(t, f.sock, "off", "--workspace", "w15")
 	if out := f.mustStatus(t); !strings.Contains(out, "\nlearning: on; off for workspace ws_a15, pane w14:p1 of herdr session \"default\"\n") {
 		t.Errorf("status:\n%s\nwant the workspace and the pane off", out)
 	}
-	f.mustLearn(t, f.sock, "w14:p1", "off")
+	f.mustLearn(t, f.sock, "off")
 	if out := f.mustStatus(t); !strings.Contains(out, "\nlearning: off for the whole store; delivery and brain remember stay on\n") {
 		t.Errorf("status:\n%s\nwant learning off for the whole store", out)
 	}
@@ -121,11 +121,11 @@ func TestLearnPaneIsolation(t *testing.T) {
 	main := learnSession{name: "default", sock: f.sock, store: f.store, kind: bindings.KindMain}
 	other := f.bindLearn(t, "other", bindings.KindMain)
 	test := f.bindLearn(t, "t1", bindings.KindTest)
-	f.mustLearn(t, test.sock, "w14:p1", "on")
+	f.mustLearn(t, test.sock, "on")
 
-	f.mustLearn(t, main.sock, "w14:p1", "off", "--pane", "w14:p1")
-	f.mustLearn(t, other.sock, "w14:p1", "off", "--pane", "w14:p2")
-	f.mustLearn(t, test.sock, "w14:p1", "off", "--pane", "w14:p3")
+	f.mustLearn(t, main.sock, "off", "--pane", "w14:p1")
+	f.mustLearn(t, other.sock, "off", "--pane", "w14:p2")
+	f.mustLearn(t, test.sock, "off", "--pane", "w14:p3")
 	for _, tt := range []struct {
 		s    learnSession
 		pane string
@@ -148,7 +148,7 @@ func TestLearnChangesNothingElse(t *testing.T) {
 	rows, out, deliveries := f.rows(t), readTree(t, filepath.Join(f.store, outDir)), countDeliveries(t, f.store)
 	for _, args := range [][]string{{"off"}, {"off", "--workspace", "w14"}, {"off", "--pane", "w14:p1"},
 		{"on", "--pane", "w14:p1"}, {"on"}} {
-		f.mustLearn(t, f.sock, "w14:p1", args...)
+		f.mustLearn(t, f.sock, args...)
 	}
 	if got := f.rows(t); !reflect.DeepEqual(got, rows) {
 		t.Errorf("rows = %+v, want %+v", got, rows)
@@ -165,8 +165,8 @@ func TestLearnChangesNothingElse(t *testing.T) {
 func TestLearnStoreOffWins(t *testing.T) {
 	f := newFixture(t)
 	s := learnSession{name: "default", sock: f.sock, store: f.store, kind: bindings.KindMain}
-	f.mustLearn(t, f.sock, "w14:p1", "off")
-	out := f.mustLearn(t, f.sock, "w14:p1", "on", "--pane", "w14:p1")
+	f.mustLearn(t, f.sock, "off")
+	out := f.mustLearn(t, f.sock, "on", "--pane", "w14:p1")
 	if !strings.Contains(out, "Learning stays off there: it is off for the whole store") {
 		t.Errorf("learn on --pane = %q, want the store off note", out)
 	}
@@ -182,7 +182,7 @@ func TestLearnNewTestStoreOff(t *testing.T) {
 	if learningOn(t, test, "", "w14:p1") {
 		t.Error("learning is on in a new test store, want off")
 	}
-	f.mustLearn(t, test.sock, "w14:p1", "on")
+	f.mustLearn(t, test.sock, "on")
 	if !learningOn(t, test, "", "w14:p1") {
 		t.Error("learning is off after brain learn on, want on")
 	}
@@ -205,7 +205,7 @@ func TestLearnErrors(t *testing.T) {
 		{[]string{"off", "--pane", "w99:p1"}, "pane w99:p1"},
 		{[]string{"off", "--workspace", "w99"}, "workspace w99 is not mapped"},
 	} {
-		if _, err := f.learn(t, f.sock, "w14:p1", tt.args...); err == nil || !strings.Contains(err.Error(), tt.want) {
+		if _, err := f.learn(t, f.sock, tt.args...); err == nil || !strings.Contains(err.Error(), tt.want) {
 			t.Errorf("Learn(%v) = %v, want %q", tt.args, err, tt.want)
 		}
 	}
