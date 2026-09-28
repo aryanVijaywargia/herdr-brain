@@ -36,26 +36,56 @@ func Repair(ctx context.Context, s *store.Store, out string, now func() time.Tim
 
 // repair is Repair for a caller that holds the lock.
 func (b builder) repair(ctx context.Context, s *store.Store) error {
+	return errors.Join(b.catchUp(ctx, s), cleanup(ctx, s, b.out, b.now))
+}
+
+// catchUp builds the output when it is behind the store. The caller holds the lock.
+func (b builder) catchUp(ctx context.Context, s *store.Store) error {
 	cur, err := current(b.out)
 	if err != nil {
 		return err
 	}
 	behind, err := behind(ctx, s, cur)
-	if err != nil {
+	if err != nil || !behind {
 		return err
 	}
-	var buildErr error
-	if behind {
-		_, buildErr = b.buildLocked(ctx, s, nil)
-	}
-	return errors.Join(buildErr, cleanup(ctx, s, b.out, b.now))
+	_, err = b.buildLocked(ctx, s, nil)
+	return err
 }
+
+// RepairConflicts runs brain repair: it repairs as Repair does, and then returns the open
+// output conflicts under the same lock, so no build changes the folders between the two
+// (§7.5 step 5). A conflict is not an error here: it is in the list. now is the clock.
+func RepairConflicts(ctx context.Context, s *store.Store, out string, now func() time.Time) (_ []ConflictError, err error) {
+	b := builder{out: out, now: now, writeFile: writeFile, afterRender: func() {}}
+	unlock, err := b.lock()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
+	buildErr := b.catchUp(ctx, s)
+	var ce *ConflictError
+	if errors.As(buildErr, &ce) {
+		buildErr = nil
+	}
+	if err := errors.Join(buildErr, cleanup(ctx, s, b.out, b.now)); err != nil {
+		return nil, err
+	}
+	beforeScan()
+	return Conflicts(out)
+}
+
+// beforeScan runs just before RepairConflicts reads the conflicts; a test checks the lock
+// there.
+var beforeScan = func() {}
 
 // Confirm resolves the open output conflicts in out: you confirm them with brain repair
 // --confirm (§7.5 step 5, D5). Under the lock, it builds a new generation in place of a
 // hand-edited current generation, deletes every conflict folder (the current one and the
-// retired ones that cleanup kept), and then repairs as Repair does. It returns the conflicts
-// that it deleted, in generation order. now is the clock.
+// retired ones that cleanup kept), and then repairs as Repair does. Before the deletes, it
+// waits until the pointer left them more than one hookCap ago, so a hook that read the old
+// pointer still reads its folder (§7.5 step 8). It returns the conflicts that it deleted, in generation
+// order. now is the clock.
 func Confirm(ctx context.Context, s *store.Store, out string, now func() time.Time) (_ []ConflictError, err error) {
 	b := builder{out: out, now: now, writeFile: writeFile, afterRender: func() {}}
 	unlock, err := b.lock()
@@ -87,12 +117,42 @@ func Confirm(ctx context.Context, s *store.Store, out string, now func() time.Ti
 			return nil, err
 		}
 	}
+	if len(cs) > 0 {
+		if err := waitReaders(ctx, s, out, now); err != nil {
+			return nil, err
+		}
+	}
 	for _, c := range cs {
 		if err := os.RemoveAll(filepath.Join(out, folder(c.Generation))); err != nil {
 			return nil, err
 		}
 	}
 	return cs, b.repair(ctx, s)
+}
+
+// sleep is time.Sleep; a test replaces it.
+var sleep = time.Sleep
+
+// waitReaders waits until the pointer left every generation that is not current more than
+// hookCap ago, so no hook still reads their folders (§7.5 step 8). With no record of the last
+// switch it waits one full hookCap.
+func waitReaders(ctx context.Context, s *store.Store, out string, now func() time.Time) error {
+	cur, err := current(out)
+	if err != nil {
+		return err
+	}
+	left, err := switchedAt(ctx, s, cur)
+	if err != nil {
+		return err
+	}
+	wait := hookCap
+	if !left.IsZero() {
+		wait = min(hookCap, hookCap-now().Sub(left))
+	}
+	if wait > 0 {
+		sleep(wait)
+	}
+	return nil
 }
 
 // newGeneration records one more output generation when the store has none newer than cur, so
