@@ -18,30 +18,43 @@ type record struct {
 	check                 resolver.AgentCheck
 }
 
+// step is one hook run in w14:p1 of herdr session default, while herdr shows agent there.
+type step struct {
+	agent string // the agent session that herdr shows at the run; "" for none
+	id    string // the hook session_id
+}
+
 // TestAgentCheck: a hook run records (pane, agent session id), and the next run for the pane
 // checks it against the agent that herdr shows then (§8.3 limit, §17 item 29).
 func TestAgentCheck(t *testing.T) {
 	const (
+		pending = resolver.AgentPending
 		unknown = resolver.AgentUnknown
 		match   = resolver.AgentMatch
 		nested  = resolver.NotThisPanesAgent
 	)
 	tests := []struct {
 		name  string
-		agent string // the agent session that herdr shows in w14:p1 after the first run; "" for none
-		want  []record
+		steps []step
+		want  []record // after the record of session work, which no step checks
 	}{
 		{
 			// A nested `claude -p` in the pane sees the parent's agent_session.
 			name:  "nested run",
-			agent: "sess-1",
-			want: []record{{"work", "sess-w", unknown}, {"default", "sess-1", match},
-				{"default", "nested-1", nested}, {"default", "nested-2", unknown}},
+			steps: []step{{"", "sess-1"}, {"sess-1", "nested-1"}, {"sess-1", "nested-2"}},
+			want:  []record{{"default", "sess-1", match}, {"default", "nested-1", nested}, {"default", "nested-2", pending}},
 		},
 		{
-			name: "no agent_session",
-			want: []record{{"work", "sess-w", unknown}, {"default", "sess-1", unknown},
-				{"default", "nested-1", unknown}, {"default", "nested-2", unknown}},
+			name:  "no agent_session",
+			steps: []step{{"", "sess-1"}, {"", "nested-1"}},
+			want:  []record{{"default", "sess-1", unknown}, {"default", "nested-1", pending}},
+		},
+		{
+			// Agent A exits with no brain call, and agent B starts in the same pane. B's hook
+			// checks A; a later call sees B and checks B only, not A against B.
+			name:  "sequential agents",
+			steps: []step{{"", "sess-a"}, {"", "sess-b"}, {"sess-b", "nested-1"}},
+			want:  []record{{"default", "sess-a", unknown}, {"default", "sess-b", match}, {"default", "nested-1", pending}},
 		},
 	}
 	for _, tt := range tests {
@@ -58,21 +71,23 @@ func TestAgentCheck(t *testing.T) {
 			// The same pane id in herdr session work shares the main store; its record is not
 			// checked against the agent of default's w14:p1.
 			run(f.workSock, "work", "sess-w")
-			run(f.mainSock, "", "sess-1")
-			if tt.agent != "" {
+			for _, s := range tt.steps {
 				p := f.herdr.panes[f.mainSock]["w14:p1"]
-				p.AgentSession = &herdr.AgentSession{Agent: "claude", Source: "herdr:claude", Kind: "id", Value: tt.agent}
+				p.AgentSession = nil
+				if s.agent != "" {
+					p.AgentSession = &herdr.AgentSession{Agent: "claude", Source: "herdr:claude", Kind: "id", Value: s.agent}
+				}
 				f.herdr.panes[f.mainSock]["w14:p1"] = p
+				run(f.mainSock, "", s.id)
 			}
-			run(f.mainSock, "", "nested-1")
-			run(f.mainSock, "", "nested-2")
 
 			var got []record
 			for _, d := range deliveries(t, f.mainStore) {
 				got = append(got, record{*d.HerdrSession, *d.AgentSessionID, resolver.AgentCheck(*d.AgentCheck)})
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("records = %v, want %v", got, tt.want)
+			want := append([]record{{"work", "sess-w", pending}}, tt.want...)
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("records = %v, want %v", got, want)
 			}
 		})
 	}

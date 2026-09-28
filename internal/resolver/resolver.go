@@ -45,7 +45,9 @@ type AgentCheck string
 
 // The agent checks.
 const (
-	AgentUnknown      AgentCheck = "unknown" // not checked yet: herdr shows no agent session
+	// AgentPending: recorded, not checked yet. The next call for the pane checks it. [NEW] value.
+	AgentPending      AgentCheck = "pending"
+	AgentUnknown      AgentCheck = "unknown" // at the next call herdr showed no agent session
 	AgentMatch        AgentCheck = "match"
 	NotThisPanesAgent AgentCheck = "not this pane's agent" // for example a nested `claude -p`
 )
@@ -59,8 +61,7 @@ type Withheld struct {
 	Reason       DenyReason
 }
 
-// Store is the part of a store that the resolver uses. The store tables for receipts and
-// agent records come with a later story; until then only test fakes implement it.
+// Store is the part of a store that the resolver uses.
 //
 // All real herdr sessions share the main store, and two sessions can have the same pane id.
 // So an agent record belongs to a herdr session and a pane id.
@@ -68,7 +69,7 @@ type Store interface {
 	WriteWithheld(ctx context.Context, w Withheld) error
 	RecordAgentSession(ctx context.Context, session, paneID, agentSession string) error
 	// UncheckedAgentSessions returns the agent session ids recorded for paneID of session
-	// whose check is still AgentUnknown.
+	// whose check is still AgentPending.
 	UncheckedAgentSessions(ctx context.Context, session, paneID string) ([]string, error)
 	SetAgentCheck(ctx context.Context, session, paneID, agentSession string, c AgentCheck) error
 	Close() error
@@ -264,23 +265,26 @@ func (r *Resolver) denied(b bindings.Binding, e env, agentSession string, reason
 	return &Denied{Binding: b, PaneID: e.paneID, WorkspaceID: e.workspaceID, AgentSession: agentSession, Reason: reason, open: r.open}
 }
 
-// checkAgents checks the earlier (pane, agent session id) records of pane p of session
+// checkAgents checks the pending (pane, agent session id) records of pane p of session
 // against the agent session that herdr shows now, then records agentSession. At hook time
 // herdr does not show the new agent yet, so a record is checked on the next call (§17 item 29).
+// Each record gets one check only: a later call could see another agent in the pane.
 func checkAgents(ctx context.Context, st Store, session string, p herdr.Pane, agentSession string) error {
-	if p.AgentSession != nil {
-		ids, err := st.UncheckedAgentSessions(ctx, session, p.ID)
-		if err != nil {
-			return err
+	ids, err := st.UncheckedAgentSessions(ctx, session, p.ID)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		c := AgentUnknown
+		switch {
+		case p.AgentSession == nil:
+		case id == p.AgentSession.Value:
+			c = AgentMatch
+		default:
+			c = NotThisPanesAgent
 		}
-		for _, id := range ids {
-			c := NotThisPanesAgent
-			if id == p.AgentSession.Value {
-				c = AgentMatch
-			}
-			if err := st.SetAgentCheck(ctx, session, p.ID, id, c); err != nil {
-				return err
-			}
+		if err := st.SetAgentCheck(ctx, session, p.ID, id, c); err != nil {
+			return err
 		}
 	}
 	if agentSession == "" {

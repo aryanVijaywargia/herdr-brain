@@ -15,7 +15,7 @@ import (
 // TestOpenChecksAgents: a command in a pane checks the (pane, agent session id) records of
 // earlier hook runs there against the agent that herdr shows now (§8.3 limit, §17 item 29).
 func TestOpenChecksAgents(t *testing.T) {
-	unknown := string(resolver.AgentUnknown)
+	pending, unknown := string(resolver.AgentPending), string(resolver.AgentUnknown)
 	tests := []struct {
 		name  string
 		agent *herdr.AgentSession // the agent session that herdr shows in w14:p1
@@ -25,11 +25,11 @@ func TestOpenChecksAgents(t *testing.T) {
 			// A nested `claude -p` in the pane saw the parent's agent_session.
 			name:  "nested run",
 			agent: &herdr.AgentSession{Agent: "claude", Source: "herdr:claude", Kind: "id", Value: "sess-1"},
-			want:  map[string]string{"sess-1": string(resolver.AgentMatch), "nested-1": string(resolver.NotThisPanesAgent), "other-pane": unknown},
+			want:  map[string]string{"sess-1": string(resolver.AgentMatch), "nested-1": string(resolver.NotThisPanesAgent), "other-pane": pending},
 		},
 		{
 			name: "no agent_session",
-			want: map[string]string{"sess-1": unknown, "nested-1": unknown, "other-pane": unknown},
+			want: map[string]string{"sess-1": unknown, "nested-1": unknown, "other-pane": pending},
 		},
 	}
 	for _, tt := range tests {
@@ -40,7 +40,7 @@ func TestOpenChecksAgents(t *testing.T) {
 				for id, pane := range map[string]string{"sess-1": "w14:p1", "nested-1": "w14:p1", "other-pane": "w16:p1"} {
 					_, err := store.InsertDelivery(context.Background(), tx, store.Delivery{Profile: "claude",
 						HerdrSession: ptr("default"), PaneID: pane, AgentSessionID: ptr(id), ItemRevisions: []store.RevisionRef{},
-						Result: store.ResultEmitted, At: testNow, AgentCheck: ptr(unknown)})
+						Result: store.ResultEmitted, At: testNow, AgentCheck: ptr(pending)})
 					if err != nil {
 						return err
 					}

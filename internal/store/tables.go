@@ -378,8 +378,8 @@ type Delivery struct {
 	Result           Result
 	WithheldReason   *string
 	At               time.Time
-	// AgentCheck is the deferred session-id check (§8.3 limit): "unknown", "match" or "not
-	// this pane's agent". nil when the receipt holds no (pane, agent session id) record.
+	// AgentCheck is the deferred session-id check (§8.3 limit): "pending", "unknown", "match"
+	// or "not this pane's agent". nil when the receipt holds no (pane, agent session id) record.
 	AgentCheck *string
 }
 

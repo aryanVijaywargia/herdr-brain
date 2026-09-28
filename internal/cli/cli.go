@@ -170,7 +170,7 @@ func (commandStore) RecordAgentSession(context.Context, string, string, string) 
 func (cs commandStore) UncheckedAgentSessions(ctx context.Context, session, paneID string) ([]string, error) {
 	var ids []string
 	err := cs.Write(ctx, func(tx *sql.Tx) (err error) {
-		ids, err = store.AgentSessions(ctx, tx, session, paneID, string(resolver.AgentUnknown))
+		ids, err = store.AgentSessions(ctx, tx, session, paneID, string(resolver.AgentPending))
 		return err
 	})
 	return ids, err
@@ -178,7 +178,7 @@ func (cs commandStore) UncheckedAgentSessions(ctx context.Context, session, pane
 
 func (cs commandStore) SetAgentCheck(ctx context.Context, session, paneID, agentSession string, c resolver.AgentCheck) error {
 	return cs.Write(ctx, func(tx *sql.Tx) error {
-		return store.SetAgentCheck(ctx, tx, session, paneID, agentSession, string(resolver.AgentUnknown), string(c))
+		return store.SetAgentCheck(ctx, tx, session, paneID, agentSession, string(resolver.AgentPending), string(c))
 	})
 }
 
