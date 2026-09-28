@@ -108,8 +108,11 @@ func Check(ctx context.Context, h Panes, f Files, profiles []*adapter.Profile) (
 		}
 		r, ok := last(results, p.Kind)
 		passed := ok && r.Result == Pass
-		// Hook input of an unknown shape after the pass invalidates it (S14).
-		marked = marked && !(passed && r.At.After(m.At))
+		// Hook input of an unknown shape after the pass invalidates it (S14); a pass that
+		// completed after the marker clears the marker.
+		if passed && r.At.After(m.At) {
+			marked = false
+		}
 		s.Verified = s.Configured && passed && !marked && s.VersionErr == nil &&
 			r.CLIVersion == s.CLIVersion && r.ProfileSHA256 == p.SHA256 && r.EntrySHA256 == e.SHA256
 		// A pass on the current version tests that version (§8.5 "tested version"), so a
