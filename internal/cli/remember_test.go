@@ -33,6 +33,7 @@ type fixture struct {
 	panes             map[string]herdr.Pane // the panes that herdr has
 	syncs             int
 	herdr             *fakeHerdr
+	others            map[string]*fakeHerdr // the herdr of other bound sessions, by socket
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -113,8 +114,12 @@ func (f *fixture) env(socket, paneID, workspaceID string, stdout *bytes.Buffer) 
 				{ID: "w16", Label: "new"}}, testNow)
 		},
 		Herdr: func(t herdr.Target) (PaneHerdr, error) {
-			f.herdr.targets = append(f.herdr.targets, t)
-			return f.herdr, nil
+			h := f.herdr
+			if o, ok := f.others[t.Socket]; ok {
+				h = o
+			}
+			h.targets = append(h.targets, t)
+			return h, nil
 		},
 		Now:    now,
 		Stdout: stdout,

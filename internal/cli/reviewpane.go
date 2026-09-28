@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
@@ -29,15 +30,20 @@ const (
 	proposalEnv = "BRAIN_PROPOSAL_ID"
 )
 
-// target is the herdr session of call c.
-func target(c *Call) herdr.Target {
-	return herdr.Target{Session: c.Binding.Session, Socket: c.Binding.Socket}
+// target is the herdr session of binding b.
+func target(b bindings.Binding) herdr.Target {
+	return herdr.Target{Session: b.Session, Socket: b.Socket}
 }
 
 // openReviewPane opens the review pane of proposal id beside the calling pane, without focus,
 // and records it in review_panes (§5.1, S52). It returns the new pane id.
 func openReviewPane(ctx context.Context, e Env, c *Call, id int64) (string, error) {
-	h, err := e.Herdr(target(c))
+	// The split is in the workspace of the calling pane.
+	identity, err := continuity(c.Workspace, c.WorkspaceID)
+	if err != nil {
+		return "", err
+	}
+	h, err := e.Herdr(target(c.Binding))
 	if err != nil {
 		return "", err
 	}
@@ -50,8 +56,7 @@ func openReviewPane(ctx context.Context, e Env, c *Call, id int64) (string, erro
 	}
 	err = c.Store.Write(ctx, func(tx *sql.Tx) error {
 		_, err := store.InsertReviewPane(ctx, tx, store.ReviewPane{HerdrSession: c.Binding.Session,
-			SessionIdentity: continuity(c.Workspace, pp.Pane.ID), PaneID: pp.Pane.ID, BesidePaneID: c.PaneID,
-			ProposalID: id, Opened: e.Now()})
+			SessionIdentity: identity, PaneID: pp.Pane.ID, BesidePaneID: c.PaneID, ProposalID: id, Opened: e.Now()})
 		return err
 	})
 	if err != nil {
@@ -61,46 +66,57 @@ func openReviewPane(ctx context.Context, e Env, c *Call, id int64) (string, erro
 	return pp.Pane.ID, nil
 }
 
-// continuity is the continuity identity of the workspace of paneID: its Brain key, or nil
-// when it has none. The key changes when the (herdr session, workspace id) pair no longer
-// holds its project (§11 "Workspace identity"), so a row of an old workspace stops matching.
-func continuity(s workspace.Session, paneID string) *string {
-	ws, _, _ := strings.Cut(paneID, ":")
+// errNoContinuity: the workspace no longer holds the project of its entry.
+var errNoContinuity = errors.New("the workspace has no continuity identity")
+
+// continuity is the continuity identity of workspace ws of s: its Brain key. The key changes
+// when the (herdr session, workspace id) pair no longer holds its project (§11 "Workspace
+// identity"), so a row of an old workspace stops matching. An unmapped workspace has no
+// identity yet (nil): herdr saves a new workspace after about 5 s. A withheld workspace gives
+// errNoContinuity.
+func continuity(s workspace.Session, ws string) (*string, error) {
 	m, err := s.Lookup(ws)
-	if err != nil || m.State != workspace.Mapped {
-		return nil
+	switch {
+	case err != nil:
+		return nil, err
+	case m.State == workspace.Mapped:
+		return &m.Entry.Key, nil
+	case m.State == workspace.Unmapped:
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("%w: %w", errNoContinuity, m.Err)
 	}
-	return &m.Entry.Key
 }
 
-// closeReviewPanes closes the review panes of proposal id after a decision (§5.1). It closes
-// only a pane whose herdr session and pane id are in review_panes, whose workspace keeps its
-// continuity identity, and that herdr shows still runs the review pane of id (§11
+// closeReviewPanes closes the review panes of proposal id after a decision (§5.1). A pane can
+// be in any herdr session that is bound to this store: the call targets the binding of the
+// row. It closes only a pane whose binding and pane id are in review_panes, whose workspace
+// keeps its continuity identity, and that herdr shows still runs the review pane of id (§11
 // review_panes, S82). A row that fails a check is invalid and is marked closed with no herdr
 // call. The review pane that made the decision exits by itself: its row is only marked. The
 // decision is done, so a failed herdr call is a warning.
 func (cl caller) closeReviewPanes(ctx context.Context, id int64) error {
 	var rows []store.ReviewPane
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) (err error) {
-		rows, err = store.OpenReviewPanes(ctx, tx, cl.Binding.Session, id)
+		rows, err = store.OpenReviewPanes(ctx, tx, id)
 		return err
 	})
 	if err != nil || len(rows) == 0 {
 		return err
 	}
-	h, err := cl.Herdr(target(cl.Call))
+	bs, _, err := bindings.Read(cl.Bindings)
 	if err != nil {
 		return cl.warn(err)
 	}
 	var closed []int64
 	var warns []error
 	for _, p := range rows {
-		done, err := cl.closeReviewPane(ctx, h, p)
+		done, err := cl.closeReviewPane(ctx, bs, p)
 		if done {
 			closed = append(closed, p.ID)
 		}
 		if err != nil {
-			warns = append(warns, fmt.Errorf("review pane %s: %w", p.PaneID, err))
+			warns = append(warns, fmt.Errorf("review pane %s of herdr session %s: %w", p.PaneID, p.HerdrSession, err))
 		}
 	}
 	if len(closed) > 0 {
@@ -120,14 +136,31 @@ func (cl caller) closeReviewPanes(ctx context.Context, id int64) error {
 	return nil
 }
 
-// closeReviewPane closes the pane of row p when the checks pass. done is true when the row is
-// no longer open: the pane closed, is gone, or the row is invalid.
-func (cl caller) closeReviewPane(ctx context.Context, h PaneHerdr, p store.ReviewPane) (done bool, err error) {
-	switch {
-	case p.PaneID == cl.PaneID && cl.surface == store.SurfacePane:
+// closeReviewPane closes the pane of row p when the checks pass. bs is the bindings file. done
+// is true when the row is no longer open: the pane closed, is gone, or the row is invalid.
+func (cl caller) closeReviewPane(ctx context.Context, bs []bindings.Binding, p store.ReviewPane) (done bool, err error) {
+	if p.HerdrSession == cl.Binding.Session && p.PaneID == cl.PaneID && cl.surface == store.SurfacePane {
 		return true, nil // the calling review pane exits by itself
-	case !samePtr(p.SessionIdentity, continuity(cl.Workspace, p.PaneID)):
+	}
+	i := slices.IndexFunc(bs, func(b bindings.Binding) bool {
+		return b.Session == p.HerdrSession && b.Store == cl.Binding.Store
+	})
+	if i < 0 {
+		return true, nil // the binding is gone
+	}
+	ws, _, _ := strings.Cut(p.PaneID, ":")
+	identity, err := continuity(workspace.For(bs[i]), ws)
+	switch {
+	case errors.Is(err, errNoContinuity):
+		return true, nil
+	case err != nil:
+		return false, err
+	case !samePtr(p.SessionIdentity, identity):
 		return true, nil // continuity lost: the pane id may name another pane now
+	}
+	h, err := cl.Herdr(target(bs[i]))
+	if err != nil {
+		return false, err
 	}
 	hctx, cancel := context.WithTimeout(ctx, herdrDeadline)
 	defer cancel()

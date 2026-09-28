@@ -482,12 +482,12 @@ func ReviewPaneByID(ctx context.Context, tx *sql.Tx, id int64) (ReviewPane, erro
 	return p, nil
 }
 
-// OpenReviewPanes reads the review panes of proposal proposalID that Brain opened in herdr
-// session session and has not marked closed, oldest first.
-func OpenReviewPanes(ctx context.Context, tx *sql.Tx, session string, proposalID int64) ([]ReviewPane, error) {
+// OpenReviewPanes reads the review panes of proposal proposalID that Brain opened, in any herdr
+// session, and has not marked closed, oldest first.
+func OpenReviewPanes(ctx context.Context, tx *sql.Tx, proposalID int64) ([]ReviewPane, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT id, herdr_session, session_identity, pane_id, beside_pane_id,
 		proposal_id, opened, closed FROM review_panes
-		WHERE herdr_session = ? AND proposal_id = ? AND closed IS NULL ORDER BY id`, session, proposalID)
+		WHERE proposal_id = ? AND closed IS NULL ORDER BY id`, proposalID)
 	if err != nil {
 		return nil, fmt.Errorf("read review panes of proposal %d: %w", proposalID, err)
 	}

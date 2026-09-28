@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
@@ -166,6 +170,53 @@ func TestReviewClosesPane(t *testing.T) {
 	}
 }
 
+// bindSession binds herdr session name to the fixture's store, with its own socket and herdr.
+func (f *fixture) bindSession(t *testing.T, name string) *fakeHerdr {
+	t.Helper()
+	sock := filepath.Join(filepath.Dir(filepath.Dir(f.sock)), name, "herdr.sock")
+	if err := os.MkdirAll(filepath.Dir(sock), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	bs, _, err := bindings.Read(f.file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bs = append(bs, bindings.Binding{Session: name, Socket: sock, Store: f.store, Kind: bindings.KindMain, Created: testNow})
+	if err := bindings.Write(f.file, bs); err != nil {
+		t.Fatal(err)
+	}
+	h := &fakeHerdr{procs: map[string][]herdr.Process{}}
+	if f.others == nil {
+		f.others = map[string]*fakeHerdr{}
+	}
+	f.others[sock] = h
+	return h
+}
+
+// S82: herdr session A has a review pane w14:p2. Session B ("default" here) has an agent at
+// w14:p2. A decision in B closes A's pane through A's binding, and does not touch B's w14:p2.
+func TestReviewClosesPaneInOtherSession(t *testing.T) {
+	f := newFixture(t)
+	a := f.bindSession(t, "a")
+	f.herdr.openErr = errors.New("no pane") // only the row of session A
+	id := f.remember(t, "use pnpm")
+	// A's w14 is not in the map, so the row has no identity yet.
+	f.addReviewPane(t, store.ReviewPane{HerdrSession: "a", PaneID: "w14:p2", BesidePaneID: "w14:p1",
+		ProposalID: id, Opened: testNow})
+	a.procs["w14:p2"] = reviewProc(id)
+	f.herdr.procs["w14:p2"] = []herdr.Process{{Name: "claude", Argv: []string{"claude"}}}
+	f.mustReview(t, fmt.Sprint(id), "--reject")
+	if !reflect.DeepEqual(a.closed, []string{"w14:p2"}) || len(a.targets) != 1 || a.targets[0].Session != "a" {
+		t.Errorf("session A: closed %v, targets %+v, want w14:p2 closed in A", a.closed, a.targets)
+	}
+	if len(f.herdr.closed) != 0 || len(f.herdr.asked) != 0 {
+		t.Errorf("session B: closed %v, asked %v, want no call", f.herdr.closed, f.herdr.asked)
+	}
+	if f.reviewPanes(t)[0].Closed.IsZero() {
+		t.Error("the row is still open")
+	}
+}
+
 // Brain closes no pane whose row fails a check. The row is invalid, so it is marked closed.
 func TestReviewKeepsOtherPanes(t *testing.T) {
 	old := "ws_old"
@@ -173,12 +224,13 @@ func TestReviewKeepsOtherPanes(t *testing.T) {
 		name      string
 		row       store.ReviewPane
 		procs     []herdr.Process // what herdr shows at the row's pane id; nil: no pane
+		withheld  bool            // w15's saved root moves out of its project after the open
 		wantAsked []string
 	}{
 		{
-			// S82: herdr session A has a review pane w14:p2. Session B ("default" here) has an
-			// agent at w14:p2. A decision in B does not touch B's w14:p2, nor read it.
-			name: "another session (S82)",
+			// Session A is not bound to this store now, so Brain cannot reach its pane, and it
+			// does not touch B's w14:p2.
+			name: "a session with no binding",
 			row: store.ReviewPane{HerdrSession: "a", SessionIdentity: ptr("ws_a14"), PaneID: "w14:p2",
 				BesidePaneID: "w14:p1", Opened: testNow},
 			procs: []herdr.Process{{Name: "claude", Argv: []string{"claude"}}},
@@ -204,6 +256,13 @@ func TestReviewKeepsOtherPanes(t *testing.T) {
 			procs: reviewProc(1),
 		},
 		{
+			name: "the workspace is withheld",
+			row: store.ReviewPane{HerdrSession: "default", SessionIdentity: ptr("ws_a15"), PaneID: "w15:p2",
+				BesidePaneID: "w15:p1", Opened: testNow},
+			procs:    reviewProc(1),
+			withheld: true,
+		},
+		{
 			name: "the pane is gone",
 			row: store.ReviewPane{HerdrSession: "default", SessionIdentity: ptr("ws_a14"), PaneID: "w14:p2",
 				BesidePaneID: "w14:p1", Opened: testNow},
@@ -220,6 +279,18 @@ func TestReviewKeepsOtherPanes(t *testing.T) {
 			if c.procs != nil {
 				f.herdr.procs["w14:p2"] = c.procs
 			}
+			if c.withheld {
+				file := filepath.Join(filepath.Dir(f.sock), "session.json")
+				var ss struct {
+					Version    int                 `json:"version"`
+					Workspaces []map[string]string `json:"workspaces"`
+				}
+				if b, err := os.ReadFile(file); err != nil || json.Unmarshal(b, &ss) != nil {
+					t.Fatalf("read %s: %v", file, err)
+				}
+				ss.Workspaces[1]["identity_cwd"] = t.TempDir() // w15
+				writeJSON(t, file, ss)
+			}
 			f.mustReview(t, fmt.Sprint(id), "--reject")
 			if len(f.herdr.closed) != 0 {
 				t.Errorf("closed %v, want none", f.herdr.closed)
@@ -227,9 +298,8 @@ func TestReviewKeepsOtherPanes(t *testing.T) {
 			if !reflect.DeepEqual(f.herdr.asked, c.wantAsked) {
 				t.Errorf("read the processes of %v, want %v", f.herdr.asked, c.wantAsked)
 			}
-			wantClosed := c.row.HerdrSession == "default"
-			if got := f.reviewPanes(t)[0].Closed; got.IsZero() == wantClosed {
-				t.Errorf("row closed = %v, want marked closed %v", got, wantClosed)
+			if f.reviewPanes(t)[0].Closed.IsZero() {
+				t.Error("the row is still open, want it marked closed")
 			}
 		})
 	}
