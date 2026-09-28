@@ -93,11 +93,11 @@ func (f *statusFixture) mustStatus(t *testing.T) string {
 func (f *statusFixture) golden(t *testing.T, name, out string) {
 	t.Helper()
 	dir := filepath.Dir(f.store)
-	real, err := filepath.EvalSymlinks(dir)
+	canon, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	out = strings.ReplaceAll(strings.ReplaceAll(out, real, "<tmp>"), dir, "<tmp>")
+	out = strings.ReplaceAll(strings.ReplaceAll(out, canon, "<tmp>"), dir, "<tmp>")
 	path := filepath.Join("testdata", "status", name+".txt")
 	if *update {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
