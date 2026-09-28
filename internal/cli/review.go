@@ -42,7 +42,12 @@ type review struct {
 }
 
 // Review runs `brain review` with args after "review" (§7.4, E4-S3).
-func Review(ctx context.Context, e Env, args []string) (err error) {
+func Review(ctx context.Context, e Env, args []string) error {
+	return runReview(ctx, e, store.SurfaceCLI, args)
+}
+
+// runReview runs `brain review` args for surface, the one that records a decision.
+func runReview(ctx context.Context, e Env, surface store.Surface, args []string) (err error) {
 	// As in remember, the filter runs on the raw arguments: an --edit text with a secret
 	// writes nothing, and no parse error prints it.
 	if err := secret.Check(strings.Join(args, " ")); err != nil {
@@ -58,6 +63,7 @@ func Review(ctx context.Context, e Env, args []string) (err error) {
 	}
 	defer func() { err = errors.Join(err, c.Close()) }()
 	cl := newCaller(e, c)
+	cl.surface = surface
 	switch {
 	case r.exceptionTo != 0 || r.conflictsWith != 0:
 		return cl.link(ctx, r)
@@ -223,8 +229,14 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	var p store.Proposal
 	var it store.Item
 	var cur store.ItemRevision
+	// The review pane shows a pending proposal only: it closes on one that another surface
+	// decided (E5-S1).
+	read := cl.proposal
+	if cl.surface == store.SurfacePane {
+		read = cl.pending
+	}
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) (err error) {
-		p, it, cur, err = cl.proposal(ctx, tx, id)
+		p, it, cur, err = read(ctx, tx, id)
 		return err
 	})
 	if err != nil {
@@ -245,7 +257,7 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	if warns(p) {
 		b.WriteString("warning:  this may change a permission, an allow rule or a safety rule; approve needs --confirm\n")
 	}
-	if p.Status == store.ProposalPending {
+	if p.Status == store.ProposalPending && cl.surface != store.SurfacePane {
 		fmt.Fprintf(&b, "actions:  brain review %d --approve [--edit \"<text>\"] [--scope global|workspace] [--pin] | --reject | --later\n", p.ID)
 	}
 	_, err = io.WriteString(cl.Stdout, b.String())
@@ -268,7 +280,7 @@ func (cl caller) approve(ctx context.Context, r review) error {
 		if next, err = cl.approved(r, p, it, cur); err != nil {
 			return err
 		}
-		if err := store.DecideProposal(ctx, tx, p.ID, store.ProposalApproved, store.SurfaceCLI, cl.Now()); err != nil {
+		if err := store.DecideProposal(ctx, tx, p.ID, store.ProposalApproved, cl.surface, cl.Now()); err != nil {
 			return err
 		}
 		_, err = store.WriteRevision(ctx, tx, *p.BaseRevision, next)
@@ -316,12 +328,15 @@ func (cl caller) approved(r review, p store.Proposal, it store.Item, cur store.I
 	return next, confirmed(r, p, next)
 }
 
+// errConfirm: approve needs --confirm.
+var errConfirm = errors.New("may change a permission, an allow rule or a safety rule")
+
 // confirmed checks that you gave --confirm when approving p may change a permission, an allow
 // rule or a safety rule (§7.4). The revision's text counts too, as an --edit can add a keyword.
 func confirmed(r review, p store.Proposal, next store.ItemRevision) error {
 	if (p.PermissionWarning || permissionWords.MatchString(next.Text)) && !r.confirm {
-		return fmt.Errorf("proposal %d may change a permission, an allow rule or a safety rule: read it with brain review %d, then approve with --confirm; nothing was written",
-			p.ID, p.ID)
+		return fmt.Errorf("proposal %d %w: read it with brain review %d, then approve with --confirm; nothing was written",
+			p.ID, errConfirm, p.ID)
 	}
 	return nil
 }
@@ -332,7 +347,7 @@ func (cl caller) reject(ctx context.Context, id int64) error {
 		if _, _, _, err := cl.pending(ctx, tx, id); err != nil {
 			return err
 		}
-		return store.DecideProposal(ctx, tx, id, store.ProposalRejected, store.SurfaceCLI, cl.Now())
+		return store.DecideProposal(ctx, tx, id, store.ProposalRejected, cl.surface, cl.Now())
 	})
 	if err != nil {
 		return err
