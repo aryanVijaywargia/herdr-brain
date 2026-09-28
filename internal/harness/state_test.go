@@ -235,7 +235,12 @@ func TestRetestMarker(t *testing.T) {
 			r.Result = "fail"
 			e.conformance(t, pass(2), r)
 		}, Retest},
-		{"pass after the newer marker", func() { e.conformance(t, pass(5)) }, Verified},
+		{"pass of another profile after the newer marker", func() {
+			r := pass(5)
+			r.ProfileSHA256 = "00"
+			e.conformance(t, r)
+		}, Retest},
+		{"pass after the newer marker", func() { e.conformance(t, pass(6)) }, Verified},
 	}
 	for _, st := range steps {
 		st.do()

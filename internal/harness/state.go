@@ -107,14 +107,14 @@ func Check(ctx context.Context, h Panes, f Files, profiles []*adapter.Profile) (
 			return nil, err
 		}
 		r, ok := last(results, p.Kind)
-		passed := ok && r.Result == Pass
-		// Hook input of an unknown shape after the pass invalidates it (S14); a pass that
-		// completed after the marker clears the marker.
-		if passed && r.At.After(m.At) {
+		current := s.Configured && ok && s.VersionErr == nil && r.Result == Pass &&
+			r.CLIVersion == s.CLIVersion && r.ProfileSHA256 == p.SHA256 && r.EntrySHA256 == e.SHA256
+		// Hook input of an unknown shape after the pass invalidates it (S14). Only a pass on
+		// the current values that completed after the marker clears the marker.
+		if current && r.At.After(m.At) {
 			marked = false
 		}
-		s.Verified = s.Configured && passed && !marked && s.VersionErr == nil &&
-			r.CLIVersion == s.CLIVersion && r.ProfileSHA256 == p.SHA256 && r.EntrySHA256 == e.SHA256
+		s.Verified = current && !marked
 		// A pass on the current version tests that version (§8.5 "tested version"), so a
 		// verified CLI after an update needs no retest.
 		s.Retest = (s.CLIVersion != p.TestedVersion || marked) && !s.Verified
