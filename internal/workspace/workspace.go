@@ -267,26 +267,33 @@ func (s Session) Remap(ctx context.Context, environ []string, st *store.Store, i
 // their store rows. The items stay in the store, without delivery (§9.4). A later workspace
 // with the same id is then unmapped, and the next `brain` call gives it a new key (D4). An
 // unknown pair changes nothing.
+//
+// The map goes first: herdr does not replay an event, and a map that still holds the pair
+// would give a reused id the old items. The rows follow, for every entry of the pair, so a
+// repeated close finishes rows that an earlier one left live.
 func (s Session) Close(ctx context.Context, st *store.Store, id string) error {
-	return s.update(func(m *mapFile) (bool, error) {
-		var keys []string
+	var keys []string
+	err := s.update(func(m *mapFile) (bool, error) {
+		changed := false
 		for i, e := range m.Entries {
-			if e.Session == s.Name && e.WorkspaceID == id && !e.Closed {
-				m.Entries[i].Closed = true
+			if e.Session == s.Name && e.WorkspaceID == id {
 				keys = append(keys, e.Key)
+				changed = changed || !e.Closed
+				m.Entries[i].Closed = true
 			}
 		}
-		if len(keys) == 0 {
-			return false, nil
-		}
-		return true, st.Write(ctx, func(tx *sql.Tx) error {
-			for _, k := range keys {
-				if err := store.CloseWorkspace(ctx, tx, k); err != nil {
-					return err
-				}
+		return changed, nil
+	})
+	if err != nil || len(keys) == 0 {
+		return err
+	}
+	return st.Write(ctx, func(tx *sql.Tx) error {
+		for _, k := range keys {
+			if err := store.CloseWorkspace(ctx, tx, k); err != nil {
+				return err
 			}
-			return nil
-		})
+		}
+		return nil
 	})
 }
 

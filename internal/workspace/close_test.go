@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -128,5 +129,27 @@ func TestMapWithoutClosedFlag(t *testing.T) {
 	writeFile(t, s.MapFile, `{"version":1,"entries":[{"key":"ws_old","session":"default","workspace_id":"w1","label":"x","project":"`+canon(t, repo)+`"}]}`)
 	if got := mapped(t, s, "w1"); got.Key != "ws_old" {
 		t.Errorf("key = %q, want ws_old", got.Key)
+	}
+}
+
+// The map closes before the rows. A close that stopped after the map write left the row live;
+// a repeated close finishes it.
+func TestCloseAgainFinishesRows(t *testing.T) {
+	repo := gitRepo(t)
+	s := newSession(t, "default")
+	save(t, s, map[string]string{"w1": repo})
+	refresh(t, s, w("w1", "brain"))
+	key := mapped(t, s, "w1").Key
+	closeWS(t, s, "w1")
+	if err := s.st.Write(context.Background(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(context.Background(), `UPDATE workspaces SET status = ? WHERE key = ?`, store.WorkspaceLive, key)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	closeWS(t, s, "w1")
+	if r := row(t, s, key); r.Status != store.WorkspaceClosed {
+		t.Errorf("row status after a second close = %q, want %q", r.Status, store.WorkspaceClosed)
 	}
 }
