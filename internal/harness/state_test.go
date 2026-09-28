@@ -199,11 +199,11 @@ func TestNotVerified(t *testing.T) {
 	}
 }
 
-// rewrite returns a change that replaces the first old with new in the hook file.
-func rewrite(old, new string) func(t *testing.T, target string, data []byte) {
+// rewrite returns a change that replaces the first from with to in the hook file.
+func rewrite(from, to string) func(t *testing.T, target string, data []byte) {
 	return func(t *testing.T, target string, data []byte) {
 		t.Helper()
-		if err := os.WriteFile(target, []byte(strings.Replace(string(data), old, new, 1)), 0o600); err != nil {
+		if err := os.WriteFile(target, []byte(strings.Replace(string(data), from, to, 1)), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

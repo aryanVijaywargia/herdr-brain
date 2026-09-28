@@ -137,9 +137,8 @@ func configured(e install.Entry, event string) (bool, error) {
 	var doc struct {
 		Hooks map[string][]json.RawMessage `json:"hooks"`
 	}
-	// A file of another shape holds no start hook that the CLI runs.
 	if json.Unmarshal(data, &doc) != nil {
-		return false, nil
+		return false, nil //nolint:nilerr // a file of another shape holds no start hook that the CLI runs
 	}
 	for _, g := range doc.Hooks[event] {
 		sum := sha256.Sum256(g)
