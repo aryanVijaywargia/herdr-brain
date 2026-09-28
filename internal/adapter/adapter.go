@@ -44,6 +44,9 @@ type Profile struct {
 		CWD       string `toml:"cwd"`
 	} `toml:"input"`
 	TestedVersion string `toml:"tested_version"`
+	// AdditionalContextLimit goes into the hook entry when set. Codex sends a longer
+	// additionalContext to a file and not to the model; 0 turns the limit off (E8 epic).
+	AdditionalContextLimit *int `toml:"additional_context_limit"`
 
 	// cond is StartCondition, parsed; its path is empty when the profile has no condition.
 	cond condition

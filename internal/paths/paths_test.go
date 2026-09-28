@@ -51,6 +51,18 @@ func TestBindingsFile(t *testing.T) {
 	}
 }
 
+func TestInstallFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got, err := InstallFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".local", "share", "brain", "install.json"); got != want {
+		t.Errorf("InstallFile = %q, want %q", got, want)
+	}
+}
+
 func TestLinkPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
