@@ -1,8 +1,18 @@
-<p align="center">
-  <img src="assets/readme/hero.svg" width="100%" alt="A head of Plato drawn in small light dots, turning slowly">
-</p>
-
 # Herdr Brain
+
+```text
+                _.-~~-._  _.-~~-._
+        .-.  .-'  .-.   `'  .-.   `-.
+   .--.( @ ).'  .-'   )  .-.(    `-.  `.    brain · a herdr plugin
+  / >_ `-.'/   (   .-'  (   `-.    )   \    ──────────────────────
+ (        (  .-.`-'  .-. `-.   )  .-'   ;   agents  claude code · codex
+  `.       ) (  `-. (   `-. )-'  (   .-.|   memory  global · workspace
+    `-.__.'   \  `-.  )`-.   ')  .-. `-(;   store   sqlite, local
+               `-. `-'    `-.' .'   `-.'/   needs   herdr 0.9.1+
+                  `-.____.-~-._  .-(((('
+                     ||  ||    `'  ||  ||
+                     ''  ''        ''  ''
+```
 
 A herdr plugin that gives every coding agent in herdr the same global and workspace memory.
 The name is temporary.
@@ -137,7 +147,6 @@ herdr plugin link .          # link never runs the build step; build first
 herdr plugin unlink brain
 ```
 
-To build the README art again, run `python3 assets/readme/make.py`. It needs numpy and Pillow, and downloads the scan once.
 
 ## Release
 
@@ -158,9 +167,4 @@ To build the README art again, run `python3 assets/readme/make.py`. It needs num
 | `.github/workflows/` | `ci.yml` (tests), `release.yml` (assets on tag `v*`) |
 | `docs/design/` | HLD, decisions and owner questions |
 | `spike/m0/` | M0 spike code and findings |
-| `assets/readme/` | The README art and `make.py`, the script that builds it |
 
-## Credits
-
-The hero art comes from a 3D scan of a plaster cast of Plato: SMK inv. KAS2111, [Statens Museum for Kunst](https://open.smk.dk/artwork/image/KAS2111), public domain (Public Domain Mark 1.0).
-`assets/readme/make.py` turns the scan into dots.
