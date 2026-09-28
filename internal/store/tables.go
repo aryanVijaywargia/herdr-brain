@@ -410,9 +410,10 @@ func DeliveryByID(ctx context.Context, tx *sql.Tx, id int64) (Delivery, error) {
 }
 
 // AgentSessions returns the agent session ids of the receipts of paneID in herdr session
-// whose agent check is check, each id once.
-func AgentSessions(ctx context.Context, tx *sql.Tx, session, paneID, check string) ([]string, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT agent_session_id FROM deliveries
+// whose agent check is check, each id once. It reads outside a write transaction: in WAL mode
+// a read takes no write lock, so the hook waits for the lock once only, in its receipt.
+func (s *Store) AgentSessions(ctx context.Context, session, paneID, check string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT agent_session_id FROM deliveries
 		WHERE herdr_session = ? AND pane_id = ? AND agent_check = ? AND agent_session_id IS NOT NULL
 		ORDER BY agent_session_id`, session, paneID, check)
 	if err != nil {
