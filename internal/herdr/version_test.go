@@ -79,7 +79,7 @@ func TestCheckServer(t *testing.T) {
 				t.Errorf("CheckServer() = %q, %v, want %q, %v", v, untested, tt.wantVersion, tt.wantUntested)
 			}
 			wantErrParts(t, err, tt.wantErr)
-			wantArgs := []string{"--session", testSession, "api", "snapshot"}
+			wantArgs := []string{"api", "snapshot"}
 			if cs := calls(t, dir); len(cs) != 1 || !reflect.DeepEqual(cs[0].Args, wantArgs) {
 				t.Errorf("herdr calls = %+v, want only %q", cs, wantArgs)
 			}

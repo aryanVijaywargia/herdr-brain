@@ -2,6 +2,7 @@ package herdr
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 )
 
@@ -175,11 +176,24 @@ type rawSession struct {
 }
 
 func (r rawSession) parse(c *check, field string) Session {
-	return Session{
+	s := Session{
 		Name:    req(c, r.Name, field+".name"),
 		Default: req(c, r.Default, field+".default"),
 		Running: req(c, r.Running, field+".running"),
 		Dir:     req(c, r.SessionDir, field+".session_dir"),
 		Socket:  req(c, r.SocketPath, field+".socket_path"),
 	}
+	if c.err != nil {
+		return s
+	}
+	if s.Name == "" {
+		c.fail(field+".name", "empty")
+	}
+	if !filepath.IsAbs(s.Dir) {
+		c.fail(field+".session_dir", fmt.Sprintf("%q is not absolute", s.Dir))
+	}
+	if !filepath.IsAbs(s.Socket) {
+		c.fail(field+".socket_path", fmt.Sprintf("%q is not absolute", s.Socket))
+	}
+	return s
 }

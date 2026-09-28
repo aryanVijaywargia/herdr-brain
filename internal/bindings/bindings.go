@@ -5,6 +5,7 @@ package bindings
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,7 +13,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -38,30 +38,118 @@ type file struct {
 	Bindings []Binding `json:"bindings"`
 }
 
-// Read reads the bindings file once and validates it. A binding stays in the file when its
-// herdr session is gone (§8.3), so Read never checks the socket against herdr.
-func Read(path string) ([]Binding, error) {
+// Dropped is a test binding that Read left out, and why.
+type Dropped struct {
+	Binding Binding
+	Err     error
+}
+
+// Read reads the bindings file once and validates it. A bad test binding does not stop the
+// other sessions (owner decision, 2026-09-28): Read leaves it out and returns it in dropped.
+// A test binding that conflicts with a main binding is dropped; two test bindings that
+// conflict are both dropped. A bad main binding, or main bindings that disagree, make Read
+// fail. A binding stays in the file when its herdr session is gone (§8.3), so Read never
+// checks the socket against herdr.
+func Read(path string) (bs []Binding, dropped []Dropped, err error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		// No file yet: `brain setup` has bound no session, so every session is unbound.
-		return nil, nil
+		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
-	var f file
+	// Each entry is decoded on its own, so that a malformed test entry drops only itself.
+	var f struct {
+		Bindings []json.RawMessage `json:"bindings"`
+	}
 	if err := dec.Decode(&f); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+		return nil, nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("parse %s: data after the bindings object", path)
+		return nil, nil, fmt.Errorf("parse %s: data after the bindings object", path)
 	}
-	if err := validate(f.Bindings, filepath.Dir(path)); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+	all := make([]Binding, len(f.Bindings))
+	errs := make([]error, len(f.Bindings))
+	for i, raw := range f.Bindings {
+		all[i], errs[i] = decode(raw)
+		if errs[i] != nil && all[i].Kind != KindTest {
+			return nil, nil, fmt.Errorf("parse %s: binding %d: %w", path, i, errs[i])
+		}
 	}
-	return f.Bindings, nil
+	bs, dropped, err = split(all, errs, filepath.Dir(path))
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return bs, dropped, nil
+}
+
+// decode decodes one binding. On an error it returns the fields that it could read, so that
+// the caller knows the kind and can name the dropped entry.
+func decode(raw json.RawMessage) (Binding, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	var b Binding
+	if err := dec.Decode(&b); err != nil {
+		var fields map[string]json.RawMessage
+		var part Binding
+		if json.Unmarshal(raw, &fields) == nil {
+			// A field that is missing or of the wrong type stays empty.
+			_ = json.Unmarshal(fields["kind"], &part.Kind)
+			_ = json.Unmarshal(fields["session"], &part.Session)
+			_ = json.Unmarshal(fields["socket"], &part.Socket)
+			_ = json.Unmarshal(fields["store"], &part.Store)
+		}
+		return part, err
+	}
+	return b, nil
+}
+
+// split splits bs into the bindings that pass validate and the dropped test bindings. errs
+// holds the decode error of each binding, or nil. It fails on a bad main binding or on two
+// main bindings that conflict.
+func split(bs []Binding, errs []error, dir string) (kept []Binding, dropped []Dropped, err error) {
+	for i, b := range bs {
+		if errs[i] != nil {
+			continue
+		}
+		errs[i] = checkOne(b, dir)
+		if errs[i] != nil && b.Kind != KindTest {
+			return nil, nil, errs[i]
+		}
+	}
+	// Each pair of valid bindings is compared, also when a conflict already marked one of
+	// them, so the result does not depend on the order of the entries.
+	conflicts := make([]error, len(bs))
+	for i, b := range bs {
+		for j, prev := range bs[:i] {
+			if errs[i] != nil || errs[j] != nil {
+				continue
+			}
+			err := conflict(prev, b)
+			switch {
+			case err == nil:
+			case prev.Kind == KindMain && b.Kind == KindMain:
+				return nil, nil, err
+			case prev.Kind == KindMain:
+				conflicts[i] = cmp.Or(conflicts[i], err)
+			case b.Kind == KindMain:
+				conflicts[j] = cmp.Or(conflicts[j], err)
+			default:
+				conflicts[i], conflicts[j] = cmp.Or(conflicts[i], err), cmp.Or(conflicts[j], err)
+			}
+		}
+	}
+	for i, b := range bs {
+		if err := cmp.Or(errs[i], conflicts[i]); err != nil {
+			dropped = append(dropped, Dropped{Binding: b, Err: err})
+			continue
+		}
+		kept = append(kept, b)
+	}
+	return kept, dropped, nil
 }
 
 // Write validates bs and replaces the bindings file atomically: it writes a temp file in the
@@ -107,17 +195,34 @@ func writeAndRename(tmp *os.File, path string, data []byte) error {
 	return os.Rename(tmp.Name(), path)
 }
 
+// BySocket returns the binding whose socket is socket, after links and aliases, as validate
+// compares them. A herdr pane gives its socket in HERDR_SOCKET_PATH, which may be a link path
+// or an alias of the path that `brain setup` stored. validate allows one binding per socket.
+func BySocket(bs []Binding, socket string) (Binding, bool, error) {
+	// Clean drops "link/.." as text, but the kernel follows the link first (see check).
+	if socket != filepath.Clean(socket) {
+		return Binding{}, false, fmt.Errorf("socket path %q is not a clean path", socket)
+	}
+	for _, b := range bs {
+		same, err := samePath(b.Socket, socket)
+		if err != nil {
+			return Binding{}, false, err
+		}
+		if same {
+			return b, true, nil
+		}
+	}
+	return Binding{}, false, nil
+}
+
 // validate checks each binding and the rules between them: one binding per session name and
 // per socket, one main store for all real sessions, and each test store apart from the main
 // store and from every other test store. No store may hold dir, the bindings folder, because
 // the file must stay outside every store (§8.3). Paths compare after links and aliases.
 func validate(bs []Binding, dir string) error {
 	for _, b := range bs {
-		if err := b.check(); err != nil {
+		if err := checkOne(b, dir); err != nil {
 			return err
-		}
-		if err := holdsNot(b.Store, dir); err != nil {
-			return fmt.Errorf("session %q: %w", b.Session, err)
 		}
 	}
 	for i, b := range bs {
@@ -126,6 +231,35 @@ func validate(bs []Binding, dir string) error {
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// checkOne checks one binding on its own. It also resolves the socket, so that a pair check
+// never fails on a link of one binding and blames the other. The store folder must exist:
+// only then can the checks compare it with other folders by identity, which also catches
+// aliases in letter case on a case-insensitive disk. `brain setup` creates it first.
+func checkOne(b Binding, dir string) error {
+	if err := b.check(); err != nil {
+		return err
+	}
+	if _, err := canonical(b.Store); err != nil {
+		return fmt.Errorf("session %q: %w", b.Session, err)
+	}
+	fi, err := os.Stat(b.Store)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return fmt.Errorf("session %q: store folder %s does not exist", b.Session, b.Store)
+	case err != nil:
+		return fmt.Errorf("session %q: %w", b.Session, err)
+	case !fi.IsDir():
+		return fmt.Errorf("session %q: store %s is not a folder", b.Session, b.Store)
+	}
+	if err := holdsNot(b.Store, dir); err != nil {
+		return fmt.Errorf("session %q: %w", b.Session, err)
+	}
+	if _, err := canonical(b.Socket); err != nil {
+		return fmt.Errorf("session %q: %w", b.Session, err)
 	}
 	return nil
 }
@@ -225,39 +359,55 @@ func samePath(a, b string) (bool, error) {
 	return os.SameFile(fa, fb), nil
 }
 
-// nested reports whether one of a and b is inside the other, after links.
+// nested reports whether the existing folders a and b are one folder, or one holds the other.
 func nested(a, b string) (bool, error) {
-	ca, err := canonical(a)
-	if err != nil {
-		return false, err
+	in, err := within(a, b)
+	if err != nil || in {
+		return in, err
 	}
-	cb, err := canonical(b)
-	if err != nil {
-		return false, err
-	}
-	return inside(ca, cb) || inside(cb, ca), nil
+	return within(b, a)
 }
 
-// holdsNot returns an error when store is dir or holds dir, after links.
+// holdsNot returns an error when the existing folder store is dir or holds dir.
 func holdsNot(store, dir string) error {
-	cs, err := canonical(store)
+	in, err := within(store, dir)
 	if err != nil {
 		return err
 	}
-	cd, err := canonical(dir)
-	if err != nil {
-		return err
-	}
-	if cs == cd || inside(cs, cd) {
+	if in {
 		return fmt.Errorf("store %s holds the bindings folder %s", store, dir)
 	}
 	return nil
 }
 
-// inside reports whether the clean path child is below parent.
-func inside(parent, child string) bool {
-	rel, err := filepath.Rel(parent, child)
-	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+// within reports whether path is the existing folder parent or below it. It compares parent
+// with each existing folder on the way up from path by identity, not by path text, so links
+// and aliases such as another letter case on a case-insensitive disk count as the same.
+func within(parent, path string) (bool, error) {
+	fp, err := os.Stat(parent)
+	if err != nil {
+		return false, err
+	}
+	p, err := canonical(path)
+	if err != nil {
+		return false, err
+	}
+	for {
+		fi, err := os.Stat(p)
+		switch {
+		case err == nil:
+			if os.SameFile(fp, fi) {
+				return true, nil
+			}
+		case !errors.Is(err, fs.ErrNotExist):
+			return false, err
+		}
+		up := filepath.Dir(p)
+		if up == p {
+			return false, nil
+		}
+		p = up
+	}
 }
 
 // canonical resolves the links in p. A store folder or a socket may not exist (yet), so it
