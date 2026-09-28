@@ -21,7 +21,9 @@ const reviewUsage = `usage:
   brain review <id> --reject | --later
   brain review --retired                         list the retired items
   brain review --restore <item>                  make a retired item active again
-  brain review --item <item> --edit "<text>" | --retire   propose a change to an active item`
+  brain review --item <item> --edit "<text>" | --retire   propose a change to an active item
+  brain review --item <item> --exception-to <global item> | --conflicts-with <global item>
+                                                 link a workspace item to a global item`
 
 // review is the parsed arguments of `brain review`. Each action has one command-line form, so
 // the review pane (E5), the plugin popup and E10 run the same code.
@@ -35,6 +37,8 @@ type review struct {
 	restore                int64 // the item to restore
 	item                   int64 // the active item to change
 	retire                 bool
+	exceptionTo            int64 // the global item that item is an exception to
+	conflictsWith          int64 // the global item that item conflicts with
 }
 
 // Review runs `brain review` with args after "review" (§7.4, E4-S3).
@@ -55,6 +59,8 @@ func Review(ctx context.Context, e Env, args []string) (err error) {
 	defer func() { err = errors.Join(err, c.Close()) }()
 	cl := newCaller(e, c)
 	switch {
+	case r.exceptionTo != 0 || r.conflictsWith != 0:
+		return cl.link(ctx, r)
 	case r.item != 0:
 		return cl.proposeChange(ctx, r)
 	case r.retired:
@@ -88,6 +94,8 @@ func parseReview(args []string) (review, error) {
 	fs.Int64Var(&r.restore, "restore", 0, "")
 	fs.Int64Var(&r.item, "item", 0, "")
 	fs.BoolVar(&r.retire, "retire", false, "")
+	fs.Int64Var(&r.exceptionTo, "exception-to", 0, "")
+	fs.Int64Var(&r.conflictsWith, "conflicts-with", 0, "")
 	// The id can come before the flags, as in `brain review 3 --approve`.
 	var ids []string
 	for {
@@ -134,11 +142,17 @@ func (r review) check() error {
 	case r.edit != nil && strings.TrimSpace(*r.edit) == "":
 		return errors.New("the --edit text is empty")
 	case r.item != 0:
-		if r.id != 0 || modifiers || (r.edit != nil) == r.retire {
-			return errors.New("--item takes either --edit or --retire, and no proposal id")
+		changes := 0
+		for _, on := range []bool{r.edit != nil, r.retire, r.exceptionTo != 0, r.conflictsWith != 0} {
+			if on {
+				changes++
+			}
 		}
-	case r.retire:
-		return errors.New("--retire needs --item")
+		if r.id != 0 || modifiers || changes != 1 {
+			return errors.New("--item takes one of --edit, --retire, --exception-to or --conflicts-with, and no proposal id")
+		}
+	case r.retire || r.exceptionTo != 0 || r.conflictsWith != 0:
+		return errors.New("--retire, --exception-to and --conflicts-with need --item")
 	case r.approve:
 		if r.id == 0 {
 			return errors.New("--approve needs a proposal id")
@@ -159,6 +173,9 @@ func (cl caller) list(ctx context.Context) error {
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		ids, err := store.PendingProposalIDs(ctx, tx)
 		if err != nil {
+			return err
+		}
+		if lines, err = cl.staleLinks(ctx, tx); err != nil {
 			return err
 		}
 		for _, id := range ids {
@@ -260,11 +277,10 @@ func (cl caller) approve(ctx context.Context, r review) error {
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(cl.Stdout, "proposal %d approved: item %d is %s at revision %d (%s)\n",
-		r.id, next.ItemID, next.State, next.Revision, cl.target(next.Scope)); err != nil {
-		return err
-	}
-	return cl.deliver(ctx, &r.id)
+	_, err = fmt.Fprintf(cl.Stdout, "proposal %d approved: item %d is %s at revision %d (%s)\n",
+		r.id, next.ItemID, next.State, next.Revision, cl.target(next.Scope))
+	// The build runs even when the message fails: the commit is done (§7.5, as in undo).
+	return errors.Join(err, cl.deliver(ctx, &r.id))
 }
 
 // approved is the revision that approving p with the edits of r writes.
@@ -388,10 +404,8 @@ func (cl caller) restore(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(cl.Stdout, "item %d restored at revision %d\n", id, rev); err != nil {
-		return err
-	}
-	return cl.deliver(ctx, nil)
+	_, err = fmt.Fprintf(cl.Stdout, "item %d restored at revision %d\n", id, rev)
+	return errors.Join(err, cl.deliver(ctx, nil))
 }
 
 // proposeChange writes a proposal to edit or retire an active item. The item's current
