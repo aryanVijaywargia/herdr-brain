@@ -256,7 +256,7 @@ func (d *doctorCall) trust(record string, p *adapter.Profile) error {
 // receipt means that the hook did not run or could not reach the herdr socket.
 func (d *doctorCall) receipts(ctx context.Context, kind string) error {
 	if d.panesErr != nil {
-		return nil
+		return nil //nolint:nilerr // run reports the failed pane list as its own check
 	}
 	var missing []string
 	err := d.Store.Write(ctx, func(tx *sql.Tx) error {
