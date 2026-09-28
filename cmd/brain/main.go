@@ -22,7 +22,7 @@ const usage = `usage: brain <command>
 commands:
   version   print the Brain version
   status    show Brain status
-  setup     show the binary path and offer a ~/.local/bin/brain link
+  setup     [--session <name> [--test <folder>]]: bind a herdr session, add the agent hooks
   remember  "<text>" [--global | --workspace <w>] [--kind <k>]: draft an item for your review
   review    [<id> [--approve | --reject | --later]]: the queue of proposals (brain review --help)
   pin       [--off] <item>: pin an active item, so it never ages
@@ -69,7 +69,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "status":
 		err = status(stdout)
 	case "setup":
-		err = setup(in, stdout)
+		err = setup(context.Background(), osSetupDeps(os.Environ()), args[1:], in, stdout)
 	case "remember", "review", "pin", "undo", "forget", "repair", "pane", "uninstall":
 		err = command(commands[args[0]], args[1:], stdout, stderr)
 	case "event":

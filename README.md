@@ -14,8 +14,22 @@ herdr plugin install aryanVijaywargia/herdr-brain
 herdr plugin action invoke brain.setup   # or run the "Brain: setup" action in herdr
 ```
 
-herdr does not put the plugin on your `PATH`. `brain setup` shows the binary path and offers a `~/.local/bin/brain` link.
-It never edits your shell config.
+### Setup
+
+`brain setup` shows each step and asks before each write. "No" at a step leaves its files as they are.
+Run it again at any time: it changes nothing that is already right.
+
+1. It checks the herdr version of the session, and stops if herdr is older than 0.9.1.
+2. It binds this herdr session (or the one that `--session <name>` names) to the main store `~/.local/share/brain/main`.
+   `--session <name> --test <folder>` binds a test session to a test store instead.
+   Setup refuses a test store that is, holds or sits inside the main store or another test store, also through links.
+3. herdr does not put the plugin on your `PATH`. Setup shows the binary path and offers a `~/.local/bin/brain` link.
+   It never edits your shell config.
+4. For Claude Code and Codex, when on `PATH`, it shows the hook entry and how to remove it, then adds it on yes.
+5. Codex runs a new hook only after you trust it. Setup prints the steps: start `codex`, open `/hooks`, and press `t`.
+6. It ends with a short first-use guide.
+
+herdr 0.9.1 gives a session no lasting identity. If you rename or recreate a session, run `brain setup` in it again.
 
 ### Without Go
 

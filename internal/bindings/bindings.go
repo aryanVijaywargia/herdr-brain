@@ -195,6 +195,12 @@ func writeAndRename(tmp *os.File, path string, data []byte) error {
 	return os.Rename(tmp.Name(), path)
 }
 
+// Check runs the checks of Write on bs for the bindings file at path, and writes nothing.
+// `brain setup` refuses a binding with it before it asks (E9-S1).
+func Check(path string, bs []Binding) error {
+	return validate(bs, filepath.Dir(path))
+}
+
 // BySocket returns the binding whose socket is socket, after links and aliases, as validate
 // compares them. A herdr pane gives its socket in HERDR_SOCKET_PATH, which may be a link path
 // or an alias of the path that `brain setup` stored. validate allows one binding per socket.
@@ -357,6 +363,13 @@ func samePath(a, b string) (bool, error) {
 		return false, err
 	}
 	return os.SameFile(fa, fb), nil
+}
+
+// Nested reports whether the existing folders a and b are one folder, or one holds the
+// other, after links and aliases. `brain setup` checks a test store against the main store
+// folder with it, also before any main binding exists (E9-S1, S76).
+func Nested(a, b string) (bool, error) {
+	return nested(a, b)
 }
 
 // nested reports whether the existing folders a and b are one folder, or one holds the other.

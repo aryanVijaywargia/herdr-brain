@@ -171,6 +171,39 @@ func (in *Installer) WouldUninstall(p *adapter.Profile) (Status, error) {
 	return st, err
 }
 
+// WouldInstall returns the entry that Install would add for profile p, and what Install
+// would do now: Present when the hook file and the record already hold that entry, Edited
+// when the file holds a Brain entry that you changed, else Added. It changes nothing.
+// `brain setup` shows the entry before it asks (E9-S1).
+func (in *Installer) WouldInstall(p *adapter.Profile) (Entry, Status, error) {
+	target := in.target(p)
+	e, err := in.entry(p, target)
+	if err != nil {
+		return Entry{}, "", err
+	}
+	rec, err := Read(in.Record)
+	if err != nil {
+		return Entry{}, "", err
+	}
+	old, err := readFile(target)
+	if err != nil {
+		return Entry{}, "", err
+	}
+	data := old.data
+	if old.missing {
+		data = []byte("{}\n")
+	}
+	_, _, st, err := insert(data, p, e, rec.Entries[p.Kind])
+	if err != nil {
+		return e, "", err
+	}
+	// Install also records an entry that is in the file but not in the record.
+	if prev, ok := rec.Entries[p.Kind]; st == Present && (!ok || prev.SHA256 != e.SHA256 || prev.Target != target) {
+		st = Added
+	}
+	return e, st, nil
+}
+
 // removal reads the hook file of the recorded entry e and returns it with the file bytes
 // without e. A missing file holds no entry.
 func removal(p *adapter.Profile, e Entry) (old file, out []byte, st Status, err error) {

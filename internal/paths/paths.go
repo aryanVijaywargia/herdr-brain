@@ -30,6 +30,16 @@ func BindingsFile() (string, error) {
 	return filepath.Join(dir, "bindings.json"), nil
 }
 
+// MainStore returns ~/.local/share/brain/main, the folder of the main store that every real
+// herdr session shares (HLD §8.3). It sits beside the bindings file, not around it. [NEW] name.
+func MainStore() (string, error) {
+	dir, err := DataHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "main"), nil
+}
+
 // InstallFile returns ~/.local/share/brain/install.json, the install record (HLD §11, E8). It
 // sits in the data home but outside every store folder, because the CLI hook files are shared
 // by all bindings.
