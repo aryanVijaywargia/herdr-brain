@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["claims"],
+  "properties": {
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "situation", "rule", "scope_guess", "evidence_refs", "same_as", "conflicts_with", "touches_permission", "expected_benefit"],
+        "properties": {
+          "kind": {"type": "string", "enum": ["correction", "preference", "procedure", "fact"]},
+          "situation": {"type": "string"},
+          "rule": {"type": "string"},
+          "scope_guess": {"type": "string", "enum": ["workspace", "global"]},
+          "evidence_refs": {"type": "array", "items": {"type": "string"}},
+          "same_as": {"type": ["string", "null"]},
+          "conflicts_with": {"type": ["string", "null"]},
+          "touches_permission": {"type": "boolean"},
+          "expected_benefit": {"type": "string"}
+        }
+      }
+    }
+  }
+}
