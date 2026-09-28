@@ -384,10 +384,13 @@ func (s *statusCall) relinks() {
 		s.w.printf("\nrelink: none\n")
 		return
 	}
-	s.w.printf("\nrelink: %d old workspaces with the same root\n", len(rs))
+	s.w.printf("\nrelink: old workspaces with the same root: %d\n", len(rs))
 	for _, r := range rs {
-		why := "replaced by"
-		if r.Old.Closed {
+		why := "same root as"
+		switch {
+		case r.Old.ReplacedBy != "":
+			why = "replaced by"
+		case r.Old.Closed:
 			why = "closed; same root as"
 		}
 		s.w.printf("  %s (%s %s): %s %s (%s %s)\n", r.Old.Key, r.Old.WorkspaceID, r.Old.Label, why,

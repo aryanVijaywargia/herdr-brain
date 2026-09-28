@@ -24,4 +24,5 @@ brief (output generation 1):
 output conflicts: none
 forget pending: none
 
-relink: none
+relink: old workspaces with the same root: 1
+  ws_a14 (w14 shop): same root as ws_a15 (w15 blog)

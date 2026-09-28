@@ -301,6 +301,16 @@ func (s Session) Relinks() ([]Relink, error) {
 			rs = append(rs, Relink{Old: e, New: byKey[e.ReplacedBy]})
 		}
 	}
+	// A new herdr id with the project folder of an older current entry (§9.4): the map
+	// appends entries, so the older one comes first.
+	for i, e := range cur {
+		for _, old := range cur[:i] {
+			if old.Project == e.Project {
+				rs = append(rs, Relink{Old: old, New: e})
+				break
+			}
+		}
+	}
 	return rs, nil
 }
 

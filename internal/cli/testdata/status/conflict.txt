@@ -23,4 +23,5 @@ output conflicts: 1 (brain repair --confirm deletes them)
   output generation 1 changed outside Brain: global.md
 forget pending: none
 
-relink: none
+relink: old workspaces with the same root: 1
+  ws_a14 (w14 shop): same root as ws_a15 (w15 blog)
