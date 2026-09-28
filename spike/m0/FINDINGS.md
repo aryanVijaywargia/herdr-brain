@@ -16,6 +16,7 @@
 | 4 | Workspace root | ANSWERED (E2-S5), owner decision open | The API has no root. `workspace_cwd` is the focused pane's live folder. `identity_cwd` is the root pane's folder at the last save. Both follow `cd`. See "Workspace root folder source". |
 | 10 | Hook timing | PASS (E7-S4) | Normal load (M0): whole hook 5.4-10.7 ms. E7-S4, with the manifest check and a SQLite receipt, 100 runs per level: whole hook p95 7.6 ms idle, 8.1 ms with output bursts, 16.5 ms with a flood (max 80.9 ms, from one slow `pane get`). Manifest check ≤ 0.6 ms. Proposed lookup deadline: 150 ms from hook start [NEW]. See "Hook under load and manifest check (E7-S4)". |
 | 11 | Pane split with no focus, then close | PASS | `pane split --no-focus` kept focus. A plugin `split` pane with `--no-focus --env BRAIN_REVIEW=1` kept focus and got the env. `plugin pane close` closed it. `plugin pane close` on a normal pane returned `plugin_pane_not_found` and left it open. Open: `popup` placement. |
+| 13 | Headless extractor call, no tools, JSON schema | PASS (E13-S1) | Claude 2.1.283 and codex-cli 0.154.0 both return schema-valid JSON with no tool, no hook and no MCP server. Claude can return success with no structured output; Codex fails the call instead. See "Headless extractor call (E13-S1)". |
 | 21 | Conformance test | OPEN | |
 | 25 | No `brain` on PATH | PASS | `command -v brain` finds nothing. |
 | 27 | Named test session | PASS (session parts) | `herdr --session brain-eval server` (background) ran beside `default` with its own socket. Its first workspace was `w1`. Its panes had `HERDR_SESSION=brain-eval` and their own `HERDR_SOCKET_PATH`. `herdr session stop brain-eval` and `herdr session delete brain-eval` touched only that session. |
@@ -194,11 +195,40 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
 - `visible` gives only the screen (40 rows). A reply longer than the screen is `reply incomplete` with this source.
 - **Limits.** One reply of 150 short lines, one pane size, one run. Long wrapped lines and replies longer than the herdr scrollback were not tested.
 
+## Headless extractor call (E13-S1, item 13)
+
+- Date: 2026-09-28. Claude Code 2.1.283 (`claude-haiku-4-5-20251001`), codex-cli 0.154.0 (`gpt-6-sol`, effort low). Commands and replies: `data/e13s1-extractor-call.txt`. Schema: `data/e13s1-schema.json` (the §7.3 claim fields, strict). No herdr session was needed.
+- **Env rule.** Brain starts the extractor with a clean env: `env -i HOME PATH USER LANG`, so no `HERDR_*`, `CLAUDE_CODE_*` or `ANTHROPIC_*` var reaches it, and from a scratch folder outside any project. The CLI uses its own sign-in. Brain also turns hooks off with a flag (below), so the call does not depend on the env alone.
+  - With the herdr env kept and the default flags, the herdr-projects SessionStart hook put its `additionalContext` into the Claude call, and the trusted M0 spike hook (a stand-in for the Brain brief) put its marker into the Codex call.
+  - With a clean env, the herdr integration hooks exit at once: `~/.codex/herdr-agent-state.sh` needs `HERDR_ENV=1`, `HERDR_SOCKET_PATH` and `HERDR_PANE_ID`. Claude's 3 SessionStart hooks ran with empty output.
+  - With the hook flags below, no hook ran, also with the herdr env kept: 0 hook events (Claude), 0 spike hook logs and marker `NONE` (Codex).
+  - `herdr pane get` of the tester's pane showed the same `agent_session` before and after all runs. `~/.codex/config.toml` was the same after the test (`cmp`).
+- **Claude argv:**
+  `claude -p --model <m> --tools "" --strict-mcp-config --setting-sources "" --settings '{"disableAllHooks":true}' --disable-slash-commands --no-session-persistence --output-format json --json-schema '<schema JSON>' '<prompt>' < /dev/null`
+  - Result: the only tool is `StructuredOutput`. No MCP server, no slash command, no skill, no hook. The user `CLAUDE.md` does not load. A bait to read `/etc/hosts` gave `NO_ACCESS`.
+  - `--tools ""` alone is not enough: plugin MCP tools, 3 hooks and 71 slash commands stayed.
+  - `--bare` is not usable: it needs an API key, not the Claude login.
+  - Read the answer from `structured_output` in the JSON result. Keep stderr apart: it has a "connectors are disabled" warning. Without `< /dev/null`, Claude waits 3 s for stdin.
+  - Side effect: an empty `~/.claude/projects/<cwd slug>/memory/` folder. No session file.
+- **Codex argv:**
+  `codex exec -m <m> --ephemeral --skip-git-repo-check --ignore-rules -s read-only --disable hooks --disable plugins --disable apps --disable shell_tool --disable unified_exec --disable multi_agent --disable sleep_tool --disable image_generation --disable view_image --disable browser_use --disable computer_use --disable tool_suggest --disable skill_search -c 'agents.enabled=false' -c 'tools.experimental_request_user_input.enabled=false' -c 'mcp_servers.<name>.enabled=false' (each) -c 'web_search="disabled"' --output-schema <file> -o <file> --json '<prompt>' < /dev/null`
+  - `<name>`: every enabled server of `codex --disable plugins mcp list --json`. `-c 'mcp_servers={}'` does not stop them. A plugin server (not in that list) fails with "invalid transport" if named; `--disable plugins` removes it.
+  - `--ignore-user-config` is not usable: the user config picks the model provider, and the call failed without it.
+  - Result (trace log of the request): only `exec` and `wait` (code mode) and `request_user_input_async` (from the model catalog) remain. `exec` runs plain JavaScript in V8 with "no file system, no network access", and no nested tool is left. No shell, file, MCP, web or agent tool. A bait to read `/etc/hosts` gave `NO_ACCESS` with no tool item.
+  - Read the answer from the `-o` file. `--json` events show any tool item, so Brain can reject a reply that has one.
+- **Schema check.** Every returned object passed the schema (python `jsonschema`, Draft 2020-12): 3 Claude and 2 Codex replies.
+- **When the output does not fit the schema:**
+  - Claude: exit 0, `is_error: false`, `subtype: "success"`, but `structured_output` is missing and `result` holds a refusal text. This happened for a prompt that asked for bad values and for an unsatisfiable schema. So Brain must treat "no `structured_output`" as an invalid response, not trust the exit code.
+  - Codex: the output is constrained to the schema. A prompt that asked for bad values gave a valid object with an invented claim and empty `evidence_refs`. An unsatisfiable schema gave exit 1, `turn.failed` and no `-o` file.
+  - Both cases fit §7.3: Brain checks the result itself (schema, evidence refs, permission flag). A schema alone does not stop an invented claim.
+- **Limits.** One machine, one small model per CLI, a few runs each. The Codex MCP server names come from this machine's config. The tool set of Codex depends on the model catalog (`tool_mode`, `experimental_supported_tools`), so a new model or Codex version can add a tool: the adapter should keep the `--json` tool-item check.
+
 ## Cleanup done
 
 - E2-S5: the scratch session `brain-spike-e2s5` is stopped and deleted. Its plugin link lived only in the scratch HOME. The main session was not touched.
 - E7-S4: the scratch session `brain-spike-e7s4` is stopped and deleted. Its 33 panes and their load loops ended with it. No hook was installed in `~/.claude` or `~/.codex`.
 - E10-S4: the scratch session `brain-spike-e10s4` is stopped and deleted, and the Codex process ended with it. Codex added `[projects."/private/tmp/e10s4/work"] trust_level = "trusted"` to `~/.codex/config.toml`; that entry is removed (the file is the same as before the test). No hook was trusted or installed.
+- E13-S1: no herdr session was made. `~/.codex/config.toml` is the same as before the test. The empty `~/.claude/projects/-private-tmp-e13s1-work/` folder and `/tmp/e13s1` are removed.
 - Test panes `w14:p2P`, `w14:p2Q`, `w14:p2R` and `w14:p2S` are closed. The spike plugin is unlinked. The `brain-eval` session is stopped and deleted.
 
 ## Open items
@@ -206,6 +236,7 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
 - Item 4: answered by E2-S5 (see above). The root matching rule waits for an owner decision.
 - Item 10: answered by E7-S4. The lookup deadline (150 ms, [NEW]) waits for the owner to accept it in the HLD.
 - Item 11: the plugin `popup` placement.
+- Item 13: answered by E13-S1. Both CLIs run with no tools and a JSON schema, with the argv and env rule above. Brain must treat a Claude result with no `structured_output` as invalid.
 - Item 21: the conformance test (built in M1).
 - Item 28: answered by E10-S4. `agent read --source recent-unwrapped` returns a full Codex reply when `--lines` covers the reply and the pane text below it. The runner must still check that the whole reply is there; a partial read is `reply incomplete`.
 - Plugin `[[events]]` delivery: `workspace.renamed` ran in a scratch session (E2-S5). Other events and timing are not tested.
