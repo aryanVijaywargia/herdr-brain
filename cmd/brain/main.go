@@ -24,6 +24,8 @@ commands:
   status    show Brain status
   setup     show the binary path and offer a ~/.local/bin/brain link
   remember  "<text>" [--global | --workspace <w>] [--kind <k>]: draft an item for your review
+  review    [<id> [--approve | --reject | --later]]: the queue of proposals (brain review --help)
+  pin       [--off] <item>: pin an active item, so it never ages
   event     workspace-closed: herdr's workspace.closed event (D4); marks the workspace closed
   hook      --profile <name> --event start: the agent start hook (prints the brief or nothing)
 `
@@ -52,7 +54,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "setup":
 		err = setup(in, stdout)
 	case "remember":
-		err = remember(args[1:], stdout, stderr)
+		err = command(cli.Remember, args[1:], stdout, stderr)
+	case "review":
+		err = command(cli.Review, args[1:], stdout, stderr)
+	case "pin":
+		err = command(cli.Pin, args[1:], stdout, stderr)
 	case "event":
 		err = event.Main(context.Background(), args[1:], os.Environ())
 	case "help", "-h", "--help":
@@ -74,12 +80,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return code
 }
 
-func remember(args []string, stdout, stderr io.Writer) error {
+// command runs a store command of internal/cli with the process environment.
+func command(fn func(context.Context, cli.Env, []string) error, args []string, stdout, stderr io.Writer) error {
 	e, err := cli.NewEnv(os.Environ(), stdout, stderr)
 	if err != nil {
 		return err
 	}
-	return cli.Remember(context.Background(), e, args)
+	return fn(context.Background(), e, args)
 }
 
 func status(stdout io.Writer) error {
