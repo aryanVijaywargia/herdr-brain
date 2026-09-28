@@ -87,3 +87,31 @@ func PublishOutput(ctx context.Context, tx *sql.Tx, generation int64, manifestHa
 	}
 	return nil
 }
+
+// AppliedEditsWithItem returns the ids of the applied edits whose file held item, at any
+// revision, before or after the edit, in id order. The forget flow clears their content
+// (§6.7). It finds them by the (item id, revision) pairs, never by a text search, so it finds
+// the rows that a later proposal made from a file that still held the item.
+func AppliedEditsWithItem(ctx context.Context, tx *sql.Tx, item int64) ([]int64, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM applied_edits e WHERE EXISTS (
+			SELECT 1 FROM json_each(e.revisions_before) WHERE json_extract(value, '$.item') = ?1
+			UNION ALL
+			SELECT 1 FROM json_each(e.revisions_after) WHERE json_extract(value, '$.item') = ?1)
+		ORDER BY id`, item)
+	if err != nil {
+		return nil, fmt.Errorf("read applied edits of item %d: %w", item, err)
+	}
+	defer rows.Close() //nolint:errcheck // read-only: rows.Err reports the read errors
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("read applied edits of item %d: %w", item, err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read applied edits of item %d: %w", item, err)
+	}
+	return ids, nil
+}

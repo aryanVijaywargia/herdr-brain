@@ -21,11 +21,12 @@ import (
 // The names in the out folder and in each generation folder. [NEW] all names except
 // out/gen-<n>/ and out/current, which come from §7.5 step 3.
 const (
-	pointerName  = "current"
-	lockName     = "lock"
-	manifestName = "manifest.json"
-	globalName   = "global.md"
-	workspaceDir = "workspaces"
+	pointerName   = "current"
+	lockName      = "lock"
+	stagingPrefix = "staging-" // out/staging-<n>/
+	manifestName  = "manifest.json"
+	globalName    = "global.md"
+	workspaceDir  = "workspaces"
 )
 
 // ErrInconsistent means that a file of a generation is missing or does not match the hash in

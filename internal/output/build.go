@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -52,22 +53,36 @@ type builder struct {
 }
 
 func (b builder) build(ctx context.Context, s *store.Store, proposalID *int64, now time.Time) (_ int64, err error) {
-	// [NEW] 0o700: the data home holds your items, the same as internal/bindings.
-	if err := os.MkdirAll(b.out, 0o700); err != nil {
-		return 0, err
-	}
-	unlock, err := lock(filepath.Join(b.out, lockName))
+	unlock, err := b.lock()
 	if err != nil {
 		return 0, err
 	}
 	defer func() { err = errors.Join(err, unlock()) }()
+	return b.buildLocked(ctx, s, proposalID, now)
+}
 
-	gen, parts, err := render(ctx, s)
-	if err != nil || gen == 0 {
-		return 0, err
+// lock makes the out folder and takes its build lock.
+func (b builder) lock() (unlock func() error, err error) {
+	// [NEW] 0o700: the data home holds your items, the same as internal/bindings.
+	if err := os.MkdirAll(b.out, 0o700); err != nil {
+		return nil, err
 	}
+	return lock(filepath.Join(b.out, lockName))
+}
+
+// buildLocked is build for a caller that holds the lock.
+func (b builder) buildLocked(ctx context.Context, s *store.Store, proposalID *int64, now time.Time) (int64, error) {
 	cur, err := current(b.out)
 	if err != nil {
+		return 0, err
+	}
+	// The first check of the current generation (§7.5 step 5): a hand edit stops the build
+	// before it writes anything. publish checks again just before the switch.
+	if _, err := readSource(b.out, cur); err != nil {
+		return 0, err
+	}
+	gen, parts, err := render(ctx, s)
+	if err != nil || gen == 0 {
 		return 0, err
 	}
 	// With gen == cur, an earlier build switched the pointer and then stopped before its record.
@@ -153,7 +168,7 @@ func current(out string) (int64, error) {
 // next build of gen replaces (S65).
 func (b builder) publishFolder(gen int64, parts []part, now time.Time) (generation, error) {
 	// [NEW] the staging folder form (issue #30).
-	staging := filepath.Join(b.out, fmt.Sprintf("staging-%d", gen))
+	staging := filepath.Join(b.out, stagingPrefix+strconv.FormatInt(gen, 10))
 	if err := os.RemoveAll(staging); err != nil {
 		return generation{}, err
 	}
@@ -232,16 +247,22 @@ func readSource(out string, cur int64) (generation, error) {
 	if cur == 0 {
 		return generation{}, nil
 	}
-	src, err := readGeneration(filepath.Join(out, folder(cur)))
+	return checkGeneration(out, cur)
+}
+
+// checkGeneration reads generation gen and checks its files against its manifest. A file that
+// does not match gives a *ConflictError.
+func checkGeneration(out string, gen int64) (generation, error) {
+	g, err := readGeneration(filepath.Join(out, folder(gen)))
 	if errors.Is(err, ErrInconsistent) {
-		files := src.changed
+		files := g.changed
 		if files == nil {
 			// With no changed file, the manifest itself is gone or damaged.
 			files = []string{manifestName}
 		}
-		return generation{}, &ConflictError{Generation: cur, Files: files}
+		return generation{}, &ConflictError{Generation: gen, Files: files}
 	}
-	return src, err
+	return g, err
 }
 
 // switchPointer makes gen current: it writes the pointer to a temp file and renames it over
