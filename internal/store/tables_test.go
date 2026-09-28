@@ -420,7 +420,7 @@ func TestRoundTrip(t *testing.T) {
 			d := Delivery{Profile: "claude", HerdrSession: ptr("default"), PaneID: "p1", AgentSessionID: ptr("s1"), WorkspaceKey: ptr("k1"),
 				BriefHash: ptr("b"), OutputGeneration: ptr[int64](4),
 				ItemRevisions: []RevisionRef{{Item: f.item.ID, Revision: 1}}, CLIVersion: ptr("2.1.0"),
-				Result: ResultEmitted, At: testNow}
+				Result: ResultEmitted, At: testNow, AgentCheck: ptr("unknown")}
 			id, err := InsertDelivery(ctx, tx, d)
 			if err != nil {
 				return nil, nil, err

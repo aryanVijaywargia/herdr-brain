@@ -55,9 +55,6 @@ const (
 // errCapped: the hook cap stopped the hook. It printed nothing and wrote nothing (S50).
 var errCapped = errors.New("hook cap reached")
 
-// errAgentRecords: the store has no table for (pane, agent session id) records yet.
-var errAgentRecords = errors.New("agent session records are not in the store yet (E7-S3)")
-
 // Main runs the hook for the frozen command `brain hook --profile <name> --event start` with
 // the process environment environ. The caller prints nothing on the error and exits 0.
 func Main(args, environ []string, stdin io.Reader, stdout io.Writer) error {
@@ -151,9 +148,9 @@ func (h Hook) run(ctx context.Context, stdin io.Reader, stdout io.Writer) (err e
 		}
 		return &receipts{s: s, profile: h.Profile.Kind, agentSession: in.SessionID, now: h.Now}, nil
 	}
-	// The agent session id is not passed: the resolver would record it, and that record is
-	// E7-S3. The receipts carry it instead.
-	res, err := resolver.New(h.Bindings, open, h.pane).Resolve(ctx, h.Environ, "")
+	// The resolver checks the earlier records of the pane and records this agent session; the
+	// receipt of this run holds the record (§8.3 limit).
+	res, err := resolver.New(h.Bindings, open, h.pane).Resolve(ctx, h.Environ, in.SessionID)
 	if err != nil {
 		return err
 	}
@@ -256,6 +253,9 @@ type receipts struct {
 	profile      string
 	agentSession string
 	now          func() time.Time
+	// recorded: the resolver recorded the agent session, so the receipt of this run holds the
+	// (pane, agent session id) record, with its check still unknown.
+	recorded bool
 }
 
 // WriteWithheld writes the receipt of a pane that failed the live check (S49, S63).
@@ -263,19 +263,27 @@ func (rc *receipts) WriteWithheld(ctx context.Context, w resolver.Withheld) erro
 	return rc.write(ctx, withheld(store.Delivery{HerdrSession: &w.Session, PaneID: w.PaneID}, string(w.Reason)))
 }
 
-// RecordAgentSession is E7-S3; the hook does not pass an agent session to the resolver.
+// RecordAgentSession writes nothing now: the receipt of this run, which has the same herdr
+// session, pane and agent session, holds the record. At hook time herdr does not show the new
+// agent yet, so the next brain call for the pane checks it (§17 item 29).
 func (rc *receipts) RecordAgentSession(context.Context, string, string, string) error {
-	return errAgentRecords
+	rc.recorded = true
+	return nil
 }
 
-// UncheckedAgentSessions returns none: the store records no agent sessions until E7-S3.
-func (rc *receipts) UncheckedAgentSessions(context.Context, string, string) ([]string, error) {
-	return nil, nil
+func (rc *receipts) UncheckedAgentSessions(ctx context.Context, session, paneID string) ([]string, error) {
+	var ids []string
+	err := rc.s.Write(ctx, func(tx *sql.Tx) (err error) {
+		ids, err = store.AgentSessions(ctx, tx, session, paneID, string(resolver.AgentUnknown))
+		return err
+	})
+	return ids, err
 }
 
-// SetAgentCheck is E7-S3.
-func (rc *receipts) SetAgentCheck(context.Context, string, string, string, resolver.AgentCheck) error {
-	return errAgentRecords
+func (rc *receipts) SetAgentCheck(ctx context.Context, session, paneID, agentSession string, c resolver.AgentCheck) error {
+	return rc.s.Write(ctx, func(tx *sql.Tx) error {
+		return store.SetAgentCheck(ctx, tx, session, paneID, agentSession, string(resolver.AgentUnknown), string(c))
+	})
 }
 
 func (rc *receipts) Close() error { return rc.s.Close() }
@@ -286,6 +294,10 @@ func (rc *receipts) write(ctx context.Context, d store.Delivery) error {
 
 func (rc *receipts) insert(ctx context.Context, tx *sql.Tx, d store.Delivery) error {
 	d.Profile, d.AgentSessionID, d.At = rc.profile, &rc.agentSession, rc.now()
+	if rc.recorded {
+		unknown := string(resolver.AgentUnknown)
+		d.AgentCheck = &unknown
+	}
 	_, err := store.InsertDelivery(ctx, tx, d)
 	return err
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
+	"github.com/aryanVijaywargia/herdr-brain/internal/resolver"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
@@ -500,6 +501,11 @@ func checkReceipt(t *testing.T, ds []store.Delivery, want *store.Delivery, brief
 	}
 	w := *want
 	w.ID, w.Profile, w.AgentSessionID, w.At = ds[0].ID, "claude", ptr("sess-1"), testNow
+	// A run in a live pane records its agent session; the pane shows no agent yet, so the
+	// check stays unknown. A pane that failed the live check records nothing.
+	if r := w.WithheldReason; r == nil || (*r != string(resolver.PaneGone) && *r != string(resolver.NotMember)) {
+		w.AgentCheck = ptr(string(resolver.AgentUnknown))
+	}
 	if brief != "" {
 		sum := sha256.Sum256([]byte(brief))
 		w.BriefHash, w.OutputGeneration = ptr(hex.EncodeToString(sum[:])), &gen
