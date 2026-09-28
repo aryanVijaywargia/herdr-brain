@@ -14,6 +14,7 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
@@ -26,7 +27,14 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
 )
 
+// The time limits of §8.3. The cap covers the whole hook from its start: the stdin read, the
+// lookup, the file reads, the receipt and the print. The lookup ends by lookupDeadline, plus
+// the 50 ms that the herdr client waits for herdr's pipes; a receipt waits at most busyTimeout
+// for the store lock. That is 250 ms, so at least 50 ms of the cap is left for the file reads
+// and the print, which took under 1 ms in M0 (E7-S4 FINDINGS).
 const (
+	// hookCap is the total cap of one hook run (§8.3 "Time limits"). [NEW] 300 ms, no source.
+	hookCap = 300 * time.Millisecond
 	// lookupDeadline is the herdr lookup deadline, counted from the hook start (§8.3 "Time
 	// limits", owner decision 2026-09-28).
 	lookupDeadline = 150 * time.Millisecond
@@ -43,6 +51,9 @@ const (
 	reasonInconsistent = "inconsistent"
 	reasonForget       = "forget pending"
 )
+
+// errCapped: the hook cap stopped the hook. It printed nothing and wrote nothing (S50).
+var errCapped = errors.New("hook cap reached")
 
 // errAgentRecords: the store has no table for (pane, agent session id) records yet.
 var errAgentRecords = errors.New("agent session records are not in the store yet (E7-S3)")
@@ -83,16 +94,45 @@ type Hook struct {
 	Pane     resolver.PaneFunc
 	Start    time.Time // the hook start; the lookup deadline counts from it
 	Now      func() time.Time
+
+	ended func() // tests only: called when the capped run ends, after the cap too
 }
 
 // Run reads the hook input from stdin and prints the brief to stdout, or nothing. A result
 // that withholds the brief is not an error. On an error Run has printed nothing, unless the
 // receipt write after the print failed: then the delivery is unknown (§8.3 step 7).
-func (h Hook) Run(ctx context.Context, stdin io.Reader, stdout io.Writer) (err error) {
+//
+// Run returns by hookCap after Start, also when stdin, herdr or stdout stall. The caller
+// exits then. A run that the cap stops prints nothing after the cap and writes no receipt,
+// so status shows the session as unknown (S50).
+func (h Hook) Run(ctx context.Context, stdin io.Reader, stdout io.Writer) error {
 	// Outside herdr the hook reads no file and asks no herdr (S61).
 	if lookup(h.Environ, "HERDR_ENV") != "1" {
 		return nil
 	}
+	ctx, cancel := context.WithDeadline(ctx, h.Start.Add(hookCap))
+	defer cancel()
+	out := &gate{w: stdout}
+	done := make(chan error, 1)
+	go func() {
+		err := h.run(ctx, stdin, out)
+		if h.ended != nil {
+			h.ended()
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		// The canceled ctx rolls back an open receipt transaction.
+		out.close()
+		return fmt.Errorf("%w: %w", errCapped, ctx.Err())
+	}
+}
+
+// run is Run without the cap.
+func (h Hook) run(ctx context.Context, stdin io.Reader, stdout io.Writer) (err error) {
 	raw, err := io.ReadAll(stdin)
 	if err != nil {
 		return fmt.Errorf("read hook input: %w", err)
@@ -149,7 +189,7 @@ func (h Hook) deliver(ctx context.Context, rc *receipts, r *resolver.Resolved, s
 	if err != nil {
 		return err
 	}
-	d := store.Delivery{PaneID: r.PaneID, Result: store.ResultEmitted}
+	d := store.Delivery{HerdrSession: &r.Binding.Session, PaneID: r.PaneID, Result: store.ResultEmitted}
 	var key string
 	switch m.State {
 	case workspace.Mapped:
@@ -181,7 +221,8 @@ func (h Hook) deliver(ctx context.Context, rc *receipts, r *resolver.Resolved, s
 		if err != nil {
 			return err
 		}
-		// The brief is made from the same bytes that passed the manifest check (S65).
+		// The brief is made from the same bytes that passed the manifest check (S65). The
+		// receipt names the (item, revision) pairs of that manifest, not the store rows now.
 		text := brief.Text(b.Global, b.Workspace)
 		if err := h.Profile.Write(stdout, text); err != nil {
 			return err
@@ -219,7 +260,7 @@ type receipts struct {
 
 // WriteWithheld writes the receipt of a pane that failed the live check (S49, S63).
 func (rc *receipts) WriteWithheld(ctx context.Context, w resolver.Withheld) error {
-	return rc.write(ctx, withheld(store.Delivery{PaneID: w.PaneID}, string(w.Reason)))
+	return rc.write(ctx, withheld(store.Delivery{HerdrSession: &w.Session, PaneID: w.PaneID}, string(w.Reason)))
 }
 
 // RecordAgentSession is E7-S3; the hook does not pass an agent session to the resolver.
@@ -247,4 +288,28 @@ func (rc *receipts) insert(ctx context.Context, tx *sql.Tx, d store.Delivery) er
 	d.Profile, d.AgentSessionID, d.At = rc.profile, &rc.agentSession, rc.now()
 	_, err := store.InsertDelivery(ctx, tx, d)
 	return err
+}
+
+// gate passes the print to w until the cap closes it. The print is one Write (one JSON
+// encode). A print that passed the gate before the cap may stall in w; the exit ends it.
+type gate struct {
+	mu     sync.Mutex
+	closed bool
+	w      io.Writer
+}
+
+func (g *gate) Write(p []byte) (int, error) {
+	g.mu.Lock()
+	closed := g.closed
+	g.mu.Unlock()
+	if closed {
+		return 0, errCapped
+	}
+	return g.w.Write(p)
+}
+
+func (g *gate) close() {
+	g.mu.Lock()
+	g.closed = true
+	g.mu.Unlock()
 }
