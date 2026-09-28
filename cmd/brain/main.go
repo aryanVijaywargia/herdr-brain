@@ -31,18 +31,20 @@ commands:
   repair    [--confirm]: repair the output and list its conflicts; --confirm deletes them
   pane      review --proposal <id>: the review pane of one proposal (herdr runs it)
   event     workspace-closed: herdr's workspace.closed event (D4); marks the workspace closed
+  uninstall [--apply] [--data]: list what uninstall removes; --apply removes it, --data the stores too
   hook      --profile <name> --event start: the agent start hook (prints the brief or nothing)
 `
 
 // commands are the store commands of internal/cli, by name.
 var commands = map[string]func(context.Context, cli.Env, []string) error{
-	"remember": cli.Remember,
-	"review":   cli.Review,
-	"pin":      cli.Pin,
-	"undo":     cli.Undo,
-	"forget":   cli.Forget,
-	"repair":   cli.Repair,
-	"pane":     cli.Pane,
+	"remember":  cli.Remember,
+	"review":    cli.Review,
+	"pin":       cli.Pin,
+	"undo":      cli.Undo,
+	"forget":    cli.Forget,
+	"repair":    cli.Repair,
+	"pane":      cli.Pane,
+	"uninstall": cli.Uninstall,
 }
 
 func main() {
@@ -68,7 +70,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = status(stdout)
 	case "setup":
 		err = setup(in, stdout)
-	case "remember", "review", "pin", "undo", "forget", "repair", "pane":
+	case "remember", "review", "pin", "undo", "forget", "repair", "pane", "uninstall":
 		err = command(commands[args[0]], args[1:], stdout, stderr)
 	case "event":
 		err = event.Main(context.Background(), args[1:], os.Environ())
