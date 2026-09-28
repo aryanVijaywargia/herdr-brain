@@ -101,25 +101,37 @@ const walRetry = 5 * time.Millisecond
 // setWAL switches the store to WAL mode. SQLite does not always call the busy handler for a
 // journal mode change, so two processes that open a new store at the same time can get
 // SQLITE_BUSY at once. setWAL tries again until the busy timeout ends, or the deadline of ctx
-// when that comes first.
-func setWAL(ctx context.Context, db *sql.DB, busyTimeout time.Duration) error {
+// when that comes first. Each try waits only for the time that is left.
+func setWAL(ctx context.Context, db *sql.DB, busyTimeout time.Duration) (err error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("get connection: %w", err)
+	}
+	defer func() {
+		// Later reads on this connection get the full busy timeout again.
+		err = errors.Join(err, setBusyTimeout(context.WithoutCancel(ctx), conn, busyTimeout), conn.Close())
+	}()
 	end := time.Now().Add(busyTimeout)
 	for {
+		if err := setBusyTimeout(ctx, conn, max(0, time.Until(end))); err != nil {
+			return err
+		}
 		var mode string
-		err := db.QueryRowContext(ctx, "PRAGMA journal_mode=WAL").Scan(&mode)
+		err := conn.QueryRowContext(ctx, "PRAGMA journal_mode=WAL").Scan(&mode)
 		if err == nil {
 			if mode != "wal" {
 				return fmt.Errorf("set WAL mode: journal mode is %q", mode)
 			}
 			return nil
 		}
-		if !errors.Is(busy(err), ErrBusy) || time.Now().Add(walRetry).After(end) {
-			return fmt.Errorf("set WAL mode: %w", err)
+		left := time.Until(end)
+		if !errors.Is(busy(err), ErrBusy) || left <= 0 {
+			return errors.Join(ctx.Err(), fmt.Errorf("set WAL mode: %w", err))
 		}
 		select {
 		case <-ctx.Done():
 			return errors.Join(ctx.Err(), fmt.Errorf("set WAL mode: %w", err))
-		case <-time.After(walRetry):
+		case <-time.After(min(walRetry, left)):
 		}
 	}
 }

@@ -78,8 +78,9 @@ func TestOpenBusyEndsAtTimeout(t *testing.T) {
 	if !errors.Is(err, ErrBusy) {
 		t.Errorf("Open() while locked = %v, want ErrBusy", err)
 	}
-	if waited >= testTimeout/2 {
-		t.Errorf("Open() with a 50 ms busy timeout waited %s, want less than %s", waited, testTimeout/2)
+	// The margin is for a slow test machine. [NEW]
+	if limit := timeout + 250*time.Millisecond; waited >= limit {
+		t.Errorf("Open() with a 50 ms busy timeout waited %s, want less than %s", waited, limit)
 	}
 }
 
