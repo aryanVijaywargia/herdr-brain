@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/cli"
 	"github.com/aryanVijaywargia/herdr-brain/internal/event"
 	"github.com/aryanVijaywargia/herdr-brain/internal/hook"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
@@ -22,6 +23,7 @@ commands:
   version   print the Brain version
   status    show Brain status
   setup     show the binary path and offer a ~/.local/bin/brain link
+  remember  "<text>" [--global | --workspace <w>] [--kind <k>]: draft an item for your review
   event     workspace-closed: herdr's workspace.closed event (D4); marks the workspace closed
   hook      --profile <name> --event start: the agent start hook (prints the brief or nothing)
 `
@@ -49,6 +51,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = status(stdout)
 	case "setup":
 		err = setup(in, stdout)
+	case "remember":
+		err = remember(args[1:], stdout, stderr)
 	case "event":
 		err = event.Main(context.Background(), args[1:], os.Environ())
 	case "help", "-h", "--help":
@@ -68,6 +72,14 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		_, _ = in.ReadString('\n') // any error, such as EOF, also ends the wait
 	}
 	return code
+}
+
+func remember(args []string, stdout, stderr io.Writer) error {
+	e, err := cli.NewEnv(os.Environ(), stdout, stderr)
+	if err != nil {
+		return err
+	}
+	return cli.Remember(context.Background(), e, args)
 }
 
 func status(stdout io.Writer) error {
