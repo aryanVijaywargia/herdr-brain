@@ -67,8 +67,6 @@ func (cl caller) pin(ctx context.Context, id int64, on bool) error {
 		_, err = fmt.Fprintf(cl.Stdout, "item %d is %s already\n", id, word)
 		return err
 	}
-	if _, err := fmt.Fprintf(cl.Stdout, "item %d is %s at revision %d\n", id, word, rev); err != nil {
-		return err
-	}
-	return cl.deliver(ctx, nil)
+	_, err = fmt.Fprintf(cl.Stdout, "item %d is %s at revision %d\n", id, word, rev)
+	return errors.Join(err, cl.deliver(ctx, nil))
 }

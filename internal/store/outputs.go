@@ -30,8 +30,54 @@ func CurrentGeneration(ctx context.Context, tx *sql.Tx) (int64, error) {
 	return g, nil
 }
 
-// ActiveRevisions reads the current revision of each active item, in item id order.
+// ActiveRevisions reads the current revision of each active item, in item id order. An
+// exception link counts only while it names the current revision of an active global item:
+// a new revision of that item sends the link back to review (§7.4), so ActiveRevisions drops
+// it, and the precedence line applies again (StaleExceptions lists it).
 func ActiveRevisions(ctx context.Context, tx *sql.Tx) ([]ItemRevision, error) {
+	rs, err := activeRevisions(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	for _, i := range staleLinks(rs) {
+		rs[i].ExceptionToItem, rs[i].ExceptionToRevision = nil, nil
+	}
+	return rs, nil
+}
+
+// StaleExceptions reads the current revision of each active item whose exception link does
+// not name the current revision of an active global item, in item id order (§7.4).
+func StaleExceptions(ctx context.Context, tx *sql.Tx) ([]ItemRevision, error) {
+	rs, err := activeRevisions(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	var stale []ItemRevision
+	for _, i := range staleLinks(rs) {
+		stale = append(stale, rs[i])
+	}
+	return stale, nil
+}
+
+// staleLinks returns the indexes of the revisions in rs, the active ones, whose exception
+// link names no current revision of an active global item.
+func staleLinks(rs []ItemRevision) []int {
+	global := make(map[int64]int64)
+	for _, r := range rs {
+		if r.Scope == ScopeGlobal {
+			global[r.ItemID] = r.Revision
+		}
+	}
+	var stale []int
+	for i, r := range rs {
+		if r.ExceptionToItem != nil && global[*r.ExceptionToItem] != *r.ExceptionToRevision {
+			stale = append(stale, i)
+		}
+	}
+	return stale
+}
+
+func activeRevisions(ctx context.Context, tx *sql.Tx) ([]ItemRevision, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT `+revisionColumns+` FROM item_revisions r
 		JOIN items i ON r.item_id = i.id AND r.revision = i.current_revision
 		WHERE i.state = ? ORDER BY i.id`, StateActive)
