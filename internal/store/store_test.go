@@ -63,6 +63,7 @@ func TestOpenEmptyFolder(t *testing.T) {
 		{"user_version", len(ms)},
 		{"busy_timeout", 1234},
 		{"foreign_keys", 1},
+		{"synchronous", 1}, // NORMAL
 	} {
 		if got := queryInt(t, s, "PRAGMA "+c.pragma); got != c.want {
 			t.Errorf("PRAGMA %s = %d, want %d", c.pragma, got, c.want)
