@@ -237,8 +237,8 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
 - Item 4: answered by E2-S5 (see above). The root matching rule waits for an owner decision.
 - Item 10: answered by E7-S4. The lookup deadline (150 ms, [NEW]) waits for the owner to accept it in the HLD.
 - Item 11: the plugin `popup` placement.
-- Item 13: answered by E13-S1. Both CLIs run with no file, shell, network, MCP or hook access and a JSON schema. Codex cannot drop its code-mode `exec`/`wait` and `request_user_input_async` tools; the owner decides whether this meets §7.3 "no tools". Use the argv and env rule above. Brain must treat a Claude result with no `structured_output` as invalid.
+- Item 13: answered by E13-S1. Decided (owner, 2026-09-28, HLD §7.3). Both CLIs run with no file, shell, network, MCP or hook access and a JSON schema. Codex cannot drop its code-mode `exec`/`wait` and `request_user_input_async` tools; the owner accepts Codex as an extractor, and §7.3 says what "no tools" means. Use the argv and env rule above. Brain must treat a Claude result with no `structured_output` as invalid.
 - Item 21: the conformance test (built in M1).
-- Item 28: answered by E10-S4. `agent read --source recent-unwrapped` returns a full Codex reply when `--lines` covers the reply and the pane text below it. The runner must still check that the whole reply is there; a partial read is `reply incomplete`.
+- Item 28: answered by E10-S4. Decided (owner, 2026-09-28, HLD §17 item 28): PASS for Claude and Codex. `agent read --source recent-unwrapped` returns a full Codex reply when `--lines` covers the reply and the pane text below it. The runner must still check that the whole reply is there; a partial read is `reply incomplete`.
 - Plugin `[[events]]` delivery: `workspace.renamed` ran in a scratch session (E2-S5). Other events and timing are not tested.
 - The eval delivery and exclusion stages (scripts plus the owner's check).
