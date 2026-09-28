@@ -323,11 +323,11 @@ func hash(b []byte) string {
 
 // quote returns path as one shell word: the CLIs run the command through a shell.
 func quote(path string) string {
-	safe := func(r rune) bool {
-		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' ||
-			strings.ContainsRune("/._-+", r))
+	unsafe := func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') &&
+			!strings.ContainsRune("/._-+", r)
 	}
-	if strings.IndexFunc(path, safe) < 0 {
+	if strings.IndexFunc(path, unsafe) < 0 {
 		return path
 	}
 	return "'" + strings.ReplaceAll(path, "'", `'\''`) + "'"
@@ -342,7 +342,7 @@ type file struct {
 }
 
 func readFile(path string) (file, error) {
-	real, err := filepath.EvalSymlinks(path)
+	resolved, err := filepath.EvalSymlinks(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		// No file yet: install creates it, uninstall finds no entry.
 		return file{path: path, mode: newFileMode, missing: true}, nil
@@ -350,15 +350,15 @@ func readFile(path string) (file, error) {
 	if err != nil {
 		return file{}, err
 	}
-	info, err := os.Stat(real)
+	info, err := os.Stat(resolved)
 	if err != nil {
 		return file{}, err
 	}
-	data, err := os.ReadFile(real)
+	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return file{}, err
 	}
-	return file{path: real, data: data, mode: info.Mode().Perm()}, nil
+	return file{path: resolved, data: data, mode: info.Mode().Perm()}, nil
 }
 
 // writeFile replaces old.path with data: a temp file in the same folder, the old file's mode,

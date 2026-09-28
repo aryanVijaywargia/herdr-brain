@@ -387,30 +387,30 @@ func TestMissingFile(t *testing.T) {
 func TestLinkedFile(t *testing.T) {
 	in := newInstaller(t)
 	p := profile(t, "claude")
-	real := filepath.Join(in.Home, "dotfiles", "settings.json")
-	if err := os.MkdirAll(filepath.Dir(real), 0o700); err != nil {
+	dotfile := filepath.Join(in.Home, "dotfiles", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(dotfile), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	orig := fixture(t, "claude")
-	if err := os.WriteFile(real, orig, 0o644); err != nil {
+	if err := os.WriteFile(dotfile, orig, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	link := in.target(p)
 	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(real, link); err != nil {
+	if err := os.Symlink(dotfile, link); err != nil {
 		t.Fatal(err)
 	}
 	expect(t, "Install", Added)(in.Install(p))
 	if info, err := os.Lstat(link); err != nil || info.Mode()&fs.ModeSymlink == 0 {
 		t.Fatalf("hook file after install: %v, %v, want a link", info, err)
 	}
-	if len(startGroups(t, read(t, real))) != 2 {
+	if len(startGroups(t, read(t, dotfile))) != 2 {
 		t.Error("linked file has no Brain entry")
 	}
 	expect(t, "Uninstall", Removed)(in.Uninstall(p))
-	if got := read(t, real); string(got) != string(orig) {
+	if got := read(t, dotfile); string(got) != string(orig) {
 		t.Errorf("linked file after uninstall:\n%s\nwant the original", got)
 	}
 }
