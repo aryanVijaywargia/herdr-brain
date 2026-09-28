@@ -36,7 +36,7 @@ herdr plugin uninstall brain
 ```
 
 `brain uninstall --apply` removes the Brain hook entries from `~/.claude/settings.json` and `~/.codex/hooks.json`, the install record, the `~/.local/bin/brain` link and the session bindings file.
-It keeps every other byte of the hook files. It keeps a hook entry that you edited and tells you to remove it by hand.
+It keeps every other byte of the hook files. It keeps a hook entry that you edited, and its install record, and tells you to remove the entry by hand.
 Without `--data`, your stores stay in `~/.local/share/brain`.
 With `--data`, it also removes `~/.local/share/brain`, `~/.config/herdr/plugins/config/brain` and `~/.local/state/herdr/plugins/brain`.
 

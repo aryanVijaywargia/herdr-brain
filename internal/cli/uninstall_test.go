@@ -219,7 +219,7 @@ func TestUninstallApplyKeepsStores(t *testing.T) {
 	}
 
 	out := runUninstall(t, "/tmp/main.sock", "--apply")
-	for _, gone := range []string{"install.json", "install.json.lock", "bindings.json"} {
+	for _, gone := range []string{"install.json", "bindings.json"} {
 		if _, err := os.Lstat(filepath.Join(data, gone)); !os.IsNotExist(err) {
 			t.Errorf("%s: Lstat = %v, want it removed", gone, err)
 		}
@@ -288,8 +288,18 @@ func TestUninstallKeepsEditedEntry(t *testing.T) {
 	if got := string(readFile(t, hooks)); got != edited {
 		t.Errorf("edited hook file changed:\n%s", got)
 	}
-	if !strings.Contains(out, "keep the Brain hook entry for codex in "+hooks) {
-		t.Errorf("output lacks the kept entry:\n%s", out)
+	record := filepath.Join(home, ".local", "share", "brain", "install.json")
+	for _, want := range []string{"keep the Brain hook entry for codex in " + hooks, "keep " + record} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	rec, err := install.Read(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rec.Entries["codex"]; !ok || len(rec.Entries) != 1 {
+		t.Errorf("record entries after uninstall = %v, want only codex", slices.Collect(maps.Keys(rec.Entries)))
 	}
 }
 

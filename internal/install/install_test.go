@@ -577,3 +577,28 @@ func TestWouldUninstall(t *testing.T) {
 	}
 	expect(t, "WouldUninstall with no hook file", NotFound)(in.WouldUninstall(p))
 }
+
+// RemoveRecord keeps a record that still holds an entry, for example one that an install
+// wrote after uninstall removed its entries (Astra E8-S5 review 1).
+func TestRemoveRecord(t *testing.T) {
+	in := newInstaller(t)
+	p := profile(t, "claude")
+	put(t, in, p, fixture(t, "claude"))
+	expect(t, "Install", Added)(in.Install(p))
+	if removed, err := RemoveRecord(in.Record); removed || err != nil {
+		t.Fatalf("RemoveRecord with an entry = %v, %v, want false, nil", removed, err)
+	}
+	if _, err := os.Stat(in.Record); err != nil {
+		t.Fatalf("record after RemoveRecord with an entry: %v", err)
+	}
+	expect(t, "Uninstall", Removed)(in.Uninstall(p))
+	if removed, err := RemoveRecord(in.Record); !removed || err != nil {
+		t.Fatalf("RemoveRecord with no entry = %v, %v, want true, nil", removed, err)
+	}
+	if _, err := os.Stat(in.Record); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("record after RemoveRecord: %v, want none", err)
+	}
+	if _, err := os.Stat(lockFile(in.Record)); err != nil {
+		t.Errorf("lock file after RemoveRecord: %v, want it kept", err)
+	}
+}

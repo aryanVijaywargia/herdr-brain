@@ -45,15 +45,18 @@ func Uninstall(_ context.Context, e Env, args []string) error {
 		return err
 	}
 	u := &uninstaller{out: e.Stdout, apply: *apply}
-	if err := u.entries(&install.Installer{Home: home, Record: record}); err != nil {
+	edited, err := u.entries(&install.Installer{Home: home, Record: record})
+	if err != nil {
 		return err
 	}
-	remove := install.Files(record)
+	if err := u.record(record, edited); err != nil {
+		return err
+	}
 	link, err := ownLink()
 	if err != nil {
 		return err
 	}
-	remove = append(remove, link, e.Bindings)
+	remove := []string{link, e.Bindings}
 	dataHome, err := paths.DataHome()
 	if err != nil {
 		return err
@@ -81,16 +84,17 @@ type uninstaller struct {
 }
 
 // entries removes the Brain hook entry of each profile in the install record whose hash is
-// unchanged. An entry that you edited stays, and Brain reports it (§8.1).
-func (u *uninstaller) entries(in *install.Installer) error {
+// unchanged. An entry that you edited stays, and Brain reports it (§8.1); edited says whether
+// one did.
+func (u *uninstaller) entries(in *install.Installer) (edited bool, err error) {
 	rec, err := install.Read(in.Record)
 	if err != nil {
-		return err
+		return false, err
 	}
 	for _, kind := range slices.Sorted(maps.Keys(rec.Entries)) {
 		p, err := adapter.Load(kind)
 		if err != nil {
-			return err
+			return false, err
 		}
 		do := in.WouldUninstall
 		if u.apply {
@@ -98,22 +102,44 @@ func (u *uninstaller) entries(in *install.Installer) error {
 		}
 		st, err := do(p)
 		if err != nil {
-			return err
+			return false, err
 		}
 		target := rec.Entries[kind].Target
 		switch st {
 		case install.Removed:
 			err = u.printf("%s the Brain hook entry for %s in %s\n", u.verb(), kind, target)
 		case install.Edited:
+			edited = true
 			err = u.printf("keep the Brain hook entry for %s in %s: you edited it, so remove it by hand\n", kind, target)
 		case install.NotFound:
 			err = u.printf("no Brain hook entry for %s in %s any more\n", kind, target)
 		}
 		if err != nil {
+			return false, err
+		}
+	}
+	return edited, nil
+}
+
+// record removes the install record when it holds no entry any more. It keeps the record of an
+// edited entry, and one that an install wrote since the entries went (install.RemoveRecord).
+func (u *uninstaller) record(path string, edited bool) error {
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	removed := !edited
+	if u.apply {
+		var err error
+		if removed, err = install.RemoveRecord(path); err != nil {
 			return err
 		}
 	}
-	return nil
+	if !removed {
+		return u.printf("keep %s: it still records a Brain hook entry\n", path)
+	}
+	return u.printf("%s %s\n", u.verb(), path)
 }
 
 // remove removes the file or folder at path when it exists. An empty path is nothing.

@@ -48,10 +48,27 @@ func Read(path string) (Record, error) {
 	return rec, nil
 }
 
-// Files returns the install record at path and its lock file: the files that
-// `brain uninstall` removes after the hook entries (E8-S5).
-func Files(path string) []string {
-	return []string{path, lockFile(path)}
+// RemoveRecord removes the install record at path when it holds no entry, and reports whether
+// it did. It holds the install lock, so an install at the same time either writes its entry
+// first, and the record stays, or writes a new record after the removal. The lock file stays:
+// another Brain process may wait on it (E8-S5).
+func RemoveRecord(path string) (bool, error) {
+	lk, err := lock(path)
+	if err != nil {
+		return false, err
+	}
+	defer lk.Close() //nolint:errcheck // the close only drops the lock; the file holds no data
+	rec, err := Read(path)
+	if err != nil {
+		return false, err
+	}
+	if len(rec.Entries) > 0 {
+		return false, nil
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false, err
+	}
+	return true, nil
 }
 
 func lockFile(record string) string {
