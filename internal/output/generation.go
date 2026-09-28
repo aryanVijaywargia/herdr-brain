@@ -61,8 +61,10 @@ type Brief struct {
 
 // Read reads the pointer in out once, then reads the global part and the part of workspace
 // key from that one generation, and checks each against the generation's manifest. key ""
-// reads the global part only. A missing file or a hash mismatch wraps ErrInconsistent. With no
-// pointer yet, the error wraps fs.ErrNotExist.
+// reads the global part only. When the manifest has no part for key, the generation was built
+// before the workspace existed, so it holds no items of it: Read returns the global part and an
+// empty workspace part. A missing file or a hash mismatch of a part that the manifest lists
+// wraps ErrInconsistent. With no pointer yet, the error wraps fs.ErrNotExist.
 func Read(out, key string) (Brief, error) {
 	gen, err := readPointer(out)
 	if err != nil {
@@ -87,6 +89,9 @@ func Read(out, key string) (Brief, error) {
 		return b, nil
 	}
 	name := workspaceName(key)
+	if _, ok := m.Files[name]; !ok {
+		return b, nil
+	}
 	ws, err := readChecked(dir, m, name)
 	if err != nil {
 		return Brief{}, err

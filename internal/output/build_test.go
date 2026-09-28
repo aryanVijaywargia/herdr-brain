@@ -601,7 +601,6 @@ func TestReadChecksHashes(t *testing.T) {
 			return os.WriteFile(filepath.Join(dir, "workspaces", "k1.md"), []byte("x"), 0o600)
 		}},
 		{"missing global part", "", func(dir string) error { return os.Remove(filepath.Join(dir, globalName)) }},
-		{"unknown workspace", "k9", func(string) error { return nil }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "out")
@@ -618,6 +617,24 @@ func TestReadChecksHashes(t *testing.T) {
 	}
 	if _, err := Read(t.TempDir(), ""); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("Read() with no pointer = %v, want os.ErrNotExist", err)
+	}
+}
+
+// A workspace that a generation does not list is newer than that generation, so the generation
+// holds no items of it: Read gives the global part only.
+func TestReadNewWorkspace(t *testing.T) {
+	s, out := newStore(t)
+	id := addItem(t, s, "", "use npm")
+	gen := mustBuild(t, s, out)
+	write(t, s, func(tx *sql.Tx) error {
+		return store.InsertWorkspace(context.Background(), tx, store.Workspace{Key: "k2", HerdrSession: "default",
+			HerdrWorkspaceID: "w2", Label: "new", Status: store.WorkspaceLive, LastSeen: testNow})
+	})
+
+	b := mustRead(t, out, "k2")
+	want := Brief{Generation: gen, Global: b.Global, Revisions: []store.RevisionRef{{Item: id, Revision: 1}}}
+	if !strings.Contains(b.Global, "use npm") || !reflect.DeepEqual(b, want) {
+		t.Errorf("Read(k2) = %+v, want the global part of generation %d and no workspace part", b, gen)
 	}
 }
 
