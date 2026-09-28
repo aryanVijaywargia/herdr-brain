@@ -48,6 +48,16 @@ func Read(path string) (Record, error) {
 	return rec, nil
 }
 
+// Files returns the install record at path and its lock file: the files that
+// `brain uninstall` removes after the hook entries (E8-S5).
+func Files(path string) []string {
+	return []string{path, lockFile(path)}
+}
+
+func lockFile(record string) string {
+	return record + ".lock"
+}
+
 // write replaces the install record at path atomically.
 func write(path string, rec Record) error {
 	data, err := json.MarshalIndent(rec, "", "  ")

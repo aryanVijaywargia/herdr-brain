@@ -25,6 +25,26 @@ It does this only when the checkout is clean and `HEAD` is the commit of tag `v<
 Any other ref needs Go 1.23 or later.
 The asset path works only when the repo is public.
 
+## Uninstall
+
+Run the two steps in this order:
+
+```sh
+brain uninstall            # dry run: lists what would change
+brain uninstall --apply    # removes it; add --data to remove your stores too
+herdr plugin uninstall brain
+```
+
+`brain uninstall --apply` removes the Brain hook entries from `~/.claude/settings.json` and `~/.codex/hooks.json`, the install record, the `~/.local/bin/brain` link and the session bindings file.
+It keeps every other byte of the hook files. It keeps a hook entry that you edited and tells you to remove it by hand.
+Without `--data`, your stores stay in `~/.local/share/brain`.
+With `--data`, it also removes `~/.local/share/brain`, `~/.config/herdr/plugins/config/brain` and `~/.local/state/herdr/plugins/brain`.
+
+If you ran `herdr plugin uninstall brain` first, the hook entries point to a missing binary. To fix this, do one of these:
+
+- Install the plugin again (it gets the same path), run `brain uninstall --apply`, then uninstall the plugin.
+- Or edit the files by hand. In `~/.claude/settings.json` and `~/.codex/hooks.json`, remove the `SessionStart` group whose command ends in `hook --profile claude --event start` or `hook --profile codex --event start`. Then remove `~/.local/share/brain/install.json`, `~/.local/share/brain/bindings.json` and the `~/.local/bin/brain` link.
+
 ## Develop
 
 ```sh

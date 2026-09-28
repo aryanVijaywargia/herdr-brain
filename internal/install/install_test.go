@@ -545,3 +545,35 @@ func list(t *testing.T, dir string) []string {
 	}
 	return names
 }
+
+// WouldUninstall gives the status of Uninstall and writes nothing: no hook file, no record and
+// no lock file.
+func TestWouldUninstall(t *testing.T) {
+	in := newInstaller(t)
+	p := profile(t, "claude")
+	expect(t, "WouldUninstall", NotInstalled)(in.WouldUninstall(p))
+	if _, err := os.Stat(filepath.Dir(in.Record)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("data home after WouldUninstall with no record: %v, want none", err)
+	}
+
+	path := put(t, in, p, fixture(t, "claude"))
+	expect(t, "Install", Added)(in.Install(p))
+	installed, rec := read(t, path), read(t, in.Record)
+	if err := os.Remove(lockFile(in.Record)); err != nil {
+		t.Fatal(err)
+	}
+	expect(t, "WouldUninstall", Removed)(in.WouldUninstall(p))
+	if string(read(t, path)) != string(installed) || string(read(t, in.Record)) != string(rec) {
+		t.Error("WouldUninstall changed the hook file or the record")
+	}
+	if _, err := os.Stat(lockFile(in.Record)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("lock file after WouldUninstall: %v, want none", err)
+	}
+
+	put(t, in, p, []byte(strings.Replace(string(installed), `"timeout":5`, `"timeout":6`, 1)))
+	expect(t, "WouldUninstall of an edited entry", Edited)(in.WouldUninstall(p))
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	expect(t, "WouldUninstall with no hook file", NotFound)(in.WouldUninstall(p))
+}

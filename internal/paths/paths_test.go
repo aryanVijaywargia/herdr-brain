@@ -131,3 +131,18 @@ func TestWorkspaceMap(t *testing.T) {
 		t.Errorf("WorkspaceMap(/data/brain) = %q, want %q", got, want)
 	}
 }
+
+func TestPluginDirs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	config, state, err := PluginDirs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".config", "herdr", "plugins", "config", "brain"); config != want {
+		t.Errorf("config = %q, want %q", config, want)
+	}
+	if want := filepath.Join(home, ".local", "state", "herdr", "plugins", "brain"); state != want {
+		t.Errorf("state = %q, want %q", state, want)
+	}
+}

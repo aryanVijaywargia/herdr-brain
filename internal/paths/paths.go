@@ -61,6 +61,23 @@ func LinkPath() (string, error) {
 	return filepath.Join(home, ".local", "bin", "brain"), nil
 }
 
+// Home returns HOME. It must be an absolute path.
+func Home() (string, error) {
+	return homeDir()
+}
+
+// PluginDirs returns ~/.config/herdr/plugins/config/brain and ~/.local/state/herdr/plugins/brain,
+// the config and state folders that herdr gives the plugin. `herdr plugin uninstall` leaves
+// them on disk (E8 epic), so `brain uninstall --data` removes them (E8-S5).
+func PluginDirs() (config, state string, err error) {
+	home, err := homeDir()
+	if err != nil {
+		return "", "", err
+	}
+	return filepath.Join(home, ".config", "herdr", "plugins", "config", "brain"),
+		filepath.Join(home, ".local", "state", "herdr", "plugins", "brain"), nil
+}
+
 // BinaryPath returns the absolute path of the running brain binary with all symlinks resolved.
 // A hook entry gets this path, so it names the managed checkout (<plugin_root>/bin/brain)
 // and not the ~/.local/bin/brain link.

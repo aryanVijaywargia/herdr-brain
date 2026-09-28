@@ -137,16 +137,9 @@ func (in *Installer) Uninstall(p *adapter.Profile) (Status, error) {
 	if !ok {
 		return NotInstalled, nil
 	}
-	old, err := readFile(e.Target)
-	if err != nil {
-		return "", err
-	}
-	st, out := NotFound, []byte(nil)
-	if !old.missing {
-		out, st, err = remove(old.data, p, e)
-		if err != nil || st == Edited {
-			return st, err
-		}
+	old, out, st, err := removal(p, e)
+	if err != nil || st == Edited {
+		return st, err
 	}
 	if st == Removed {
 		if err := in.check(old); err != nil {
@@ -161,6 +154,35 @@ func (in *Installer) Uninstall(p *adapter.Profile) (Status, error) {
 		return "", err
 	}
 	return st, nil
+}
+
+// WouldUninstall returns what Uninstall would do for profile p now, and changes nothing: it
+// takes no lock and writes no file. `brain uninstall` shows it in a dry run (E8-S5).
+func (in *Installer) WouldUninstall(p *adapter.Profile) (Status, error) {
+	rec, err := Read(in.Record)
+	if err != nil {
+		return "", err
+	}
+	e, ok := rec.Entries[p.Kind]
+	if !ok {
+		return NotInstalled, nil
+	}
+	_, _, st, err := removal(p, e)
+	return st, err
+}
+
+// removal reads the hook file of the recorded entry e and returns it with the file bytes
+// without e. A missing file holds no entry.
+func removal(p *adapter.Profile, e Entry) (old file, out []byte, st Status, err error) {
+	old, err = readFile(e.Target)
+	if err != nil {
+		return old, nil, "", err
+	}
+	if old.missing {
+		return old, nil, NotFound, nil
+	}
+	out, st, err = remove(old.data, p, e)
+	return old, out, st, err
 }
 
 // target returns the profile's install_target with "~/" as the home.
@@ -419,7 +441,7 @@ func lock(record string) (*os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(record), 0o700); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(record+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := os.OpenFile(lockFile(record), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, err
 	}
