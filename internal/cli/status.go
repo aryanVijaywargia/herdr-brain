@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
+	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/brief"
 	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
@@ -62,18 +63,8 @@ func Status(ctx context.Context, e Env, args []string) (err error) {
 	w := &lineWriter{w: e.Stdout}
 	w.printf("data: %s\n", e.Data)
 	c, err := e.Open(ctx)
-	var ns *noStoreError
-	switch {
-	case errors.As(err, &ns) && ns.Reason == resolver.Unbound:
-		name := cmp.Or(lookupEnv(e.Environ, "HERDR_SESSION"), "default")
-		w.printf("herdr session %q has no Brain binding, so Brain gives its agents nothing.\n", name)
-		w.printf("To bind it, run: brain setup --session %s\n", name)
-		return w.err
-	case errors.As(err, &ns) && ns.Reason == resolver.NotInHerdr:
-		w.printf("not in a herdr pane: run brain status in a pane of a herdr session\n")
-		return w.err
-	case err != nil:
-		return err
+	if explained, err := explainNoStore(w, e, err, "status"); explained || err != nil {
+		return errors.Join(err, w.err)
 	}
 	defer func() { err = errors.Join(err, c.Close()) }()
 	s := statusCall{caller: newCaller(e, c), w: w}
@@ -81,13 +72,58 @@ func Status(ctx context.Context, e Env, args []string) (err error) {
 	return w.err
 }
 
+// explainNoStore explains a call from an unbound session or from outside herdr, when err
+// says so, and prints the setup command (S84). It reads and writes nothing. cmd is the
+// command name. It returns err when it is another error.
+func explainNoStore(w *lineWriter, e Env, err error, cmd string) (explained bool, _ error) {
+	var ns *noStoreError
+	switch {
+	case errors.As(err, &ns) && ns.Reason == resolver.Unbound:
+		name := cmp.Or(lookupEnv(e.Environ, "HERDR_SESSION"), "default")
+		w.printf("herdr session %q has no Brain binding, so Brain gives its agents nothing.\n", name)
+		w.printf("To bind it, run: brain setup --session %s\n", name)
+		return true, nil
+	case errors.As(err, &ns) && ns.Reason == resolver.NotInHerdr:
+		w.printf("not in a herdr pane: run brain %s in a pane of a herdr session\n", cmd)
+		return true, nil
+	}
+	return false, err
+}
+
+// herdrState is what one command learns from herdr: the server version check and the one
+// pane list of the session.
+type herdrState struct {
+	version  string
+	untested bool
+	// versionErr is why the version check failed: herdr is too old or does not answer.
+	versionErr error
+	panes      []herdr.Pane
+	// panesErr is why the pane list failed; then the delivery coverage is unavailable.
+	panesErr error
+}
+
+// readHerdr checks the server version of the binding's herdr session and lists its panes once.
+func readHerdr(ctx context.Context, e Env, b bindings.Binding) herdrState {
+	var st herdrState
+	h, err := e.StatusHerdr(herdr.Target{Session: b.Session, Socket: b.Socket})
+	if err != nil {
+		st.versionErr, st.panesErr = err, err
+		return st
+	}
+	hctx, cancel := context.WithTimeout(ctx, herdrDeadline)
+	st.version, st.untested, st.versionErr = h.CheckServer(hctx)
+	cancel()
+	hctx, cancel = context.WithTimeout(ctx, herdrDeadline)
+	st.panes, st.panesErr = h.Panes(hctx)
+	cancel()
+	return st
+}
+
 // statusCall is one brain status call.
 type statusCall struct {
 	caller
-	w     *lineWriter
-	panes []herdr.Pane
-	// panesErr is why the one pane list failed; then the delivery coverage is unavailable.
-	panesErr error
+	w *lineWriter
+	herdrState
 }
 
 func (s *statusCall) run(ctx context.Context) {
@@ -130,26 +166,15 @@ func (s *statusCall) fail(err error) {
 
 // herdr prints the herdr version with the S54 warning, and lists the panes of the session once.
 func (s *statusCall) herdr(ctx context.Context) {
-	h, err := s.StatusHerdr(herdr.Target{Session: s.Binding.Session, Socket: s.Binding.Socket})
-	if err != nil {
-		s.w.printf("herdr: %v\n", err)
-		s.panesErr = err
-		return
-	}
-	hctx, cancel := context.WithTimeout(ctx, herdrDeadline)
-	v, untested, err := h.CheckServer(hctx)
-	cancel()
+	s.herdrState = readHerdr(ctx, s.Env, s.Binding)
 	switch {
-	case err != nil:
-		s.w.printf("herdr: %v\n", err)
-	case untested:
-		s.w.printf("herdr %s: not tested with Brain yet; Brain keeps working\n", v)
+	case s.versionErr != nil:
+		s.w.printf("herdr: %v\n", s.versionErr)
+	case s.untested:
+		s.w.printf("herdr %s: not tested with Brain yet; Brain keeps working\n", s.version)
 	default:
-		s.w.printf("herdr %s\n", v)
+		s.w.printf("herdr %s\n", s.version)
 	}
-	hctx, cancel = context.WithTimeout(ctx, herdrDeadline)
-	s.panes, s.panesErr = h.Panes(hctx)
-	cancel()
 }
 
 func loadProfiles() ([]*adapter.Profile, error) {
@@ -189,6 +214,11 @@ func (s *statusCall) clis(ctx context.Context, ps []*adapter.Profile) {
 			word = "configured, unverified"
 		case harness.Detected:
 			word = "detected, no Brain hook"
+		case harness.None:
+			// With no pane list, herdr may run an agent of the kind (#136).
+			if s.panesErr != nil {
+				word = "unknown"
+			}
 		}
 		s.w.printf("  %s %s: %s\n", st.Kind, version, word)
 	}
@@ -250,7 +280,7 @@ func (s *statusCall) coverage(ctx context.Context, tx *sql.Tx, kind string) erro
 			continue
 		}
 		n++
-		gap, err := s.gap(ctx, tx, kind, p)
+		gap, err := gap(ctx, tx, s.Binding.Session, kind, p)
 		if err != nil {
 			return err
 		}
@@ -280,11 +310,11 @@ func (s *statusCall) coverage(ctx context.Context, tx *sql.Tx, kind string) erro
 // gap is the delivery word of live pane p: the result of the newest receipt of its agent
 // session, or "unknown" with the reason. The receipt of an older agent in the same pane has
 // another agent session id, so it never counts.
-func (s *statusCall) gap(ctx context.Context, tx *sql.Tx, kind string, p herdr.Pane) (string, error) {
+func gap(ctx context.Context, tx *sql.Tx, session, kind string, p herdr.Pane) (string, error) {
 	if p.AgentSession == nil || p.AgentSession.Value == "" {
 		return "unknown: herdr shows no agent session id", nil
 	}
-	d, ok, err := store.LatestReceipt(ctx, tx, s.Binding.Session, kind, p.AgentSession.Value)
+	d, ok, err := store.LatestReceipt(ctx, tx, session, kind, p.AgentSession.Value)
 	if err != nil || !ok {
 		return "unknown: no receipt for its agent session", err
 	}
@@ -342,6 +372,9 @@ func (s *statusCall) output(forgetPending bool) {
 	out := filepath.Join(s.Binding.Store, outDir)
 	b, err := output.Read(out, s.key)
 	switch {
+	// A missing part of a generation is damage, not a brief that was never built (#136).
+	case errors.Is(err, output.ErrInconsistent):
+		s.w.printf("\nbrief: %v\n", err)
 	case errors.Is(err, fs.ErrNotExist):
 		s.w.printf("\nbrief: not built yet\n")
 	case err != nil:

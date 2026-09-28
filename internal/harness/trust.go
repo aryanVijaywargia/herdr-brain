@@ -1,0 +1,222 @@
+package harness
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+
+	"github.com/BurntSushi/toml"
+
+	"github.com/aryanVijaywargia/herdr-brain/internal/install"
+)
+
+// Trust is the Codex trust state of the Brain hook entry (spike/m0/FINDINGS.md "E8-S3: trust
+// check", the status rule of Codex 0.154).
+type Trust string
+
+// The trust states. Codex runs the hook only when it is Trusted.
+const (
+	Trusted   Trust = "trusted"   // the stored trusted_hash equals the hash of the entry
+	Modified  Trust = "modified"  // a stored trusted_hash of another hash: the entry changed
+	Untrusted Trust = "untrusted" // no stored trusted_hash for the key
+	Disabled  Trust = "disabled"  // trusted, but its state sets enabled = false
+	// NoEntry: the hooks.json that Codex reads holds no group with the recorded hash.
+	NoEntry Trust = "no entry"
+)
+
+// defaultContextLimit is DEFAULT_HOOK_OUTPUT_TOKEN_LIMIT in Codex 0.154. Codex drops an
+// additionalContextLimit equal to it before it hashes (E8-S3).
+const defaultContextLimit = 2500
+
+// eventLabels maps a hooks.json event name to its trust key label (hooks/src/lib.rs, E8-S3).
+var eventLabels = map[string]string{
+	"PreToolUse":        "pre_tool_use",
+	"PermissionRequest": "permission_request",
+	"PostToolUse":       "post_tool_use",
+	"PreCompact":        "pre_compact",
+	"PostCompact":       "post_compact",
+	"SessionStart":      "session_start",
+	"SessionEnd":        "session_end",
+	"UserPromptSubmit":  "user_prompt_submit",
+	"SubagentStart":     "subagent_start",
+	"SubagentStop":      "subagent_stop",
+	"Stop":              "stop",
+	"Interrupt":         "interrupt",
+}
+
+// handler is one hook handler of a hooks.json matcher group, as Codex reads it.
+type handler struct {
+	Type                   string  `json:"type"`
+	Command                string  `json:"command"`
+	Timeout                *uint64 `json:"timeout"`
+	Async                  bool    `json:"async"`
+	StatusMessage          *string `json:"statusMessage"`
+	AdditionalContextLimit *uint64 `json:"additionalContextLimit"`
+}
+
+type group struct {
+	Matcher *string   `json:"matcher"`
+	Hooks   []handler `json:"hooks"`
+}
+
+// CodexHome is the folder where Codex reads hooks.json and config.toml: the canonical path of
+// codexHomeEnv ($CODEX_HOME) when it is set, else <home>/.codex, not resolved for links (E8-S3).
+func CodexHome(home, codexHomeEnv string) (string, error) {
+	if codexHomeEnv == "" {
+		return filepath.Join(home, ".codex"), nil
+	}
+	abs, err := filepath.Abs(codexHomeEnv)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(abs)
+}
+
+// CodexTrust returns the trust state of the recorded Brain entry e of the start event in the
+// Codex home dir. It finds the entry in <dir>/hooks.json by its hash, builds the trust key and
+// the hash as Codex 0.154 does, and reads only the hooks.state table of <dir>/config.toml. It
+// never writes a file: you trust the hook in Codex.
+func CodexTrust(dir string, e install.Entry, event string) (Trust, error) {
+	label, ok := eventLabels[event]
+	if !ok {
+		return "", fmt.Errorf("codex trust: unknown event %q", event)
+	}
+	source := filepath.Join(dir, "hooks.json")
+	data, err := os.ReadFile(source)
+	if errors.Is(err, fs.ErrNotExist) {
+		return NoEntry, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var doc struct {
+		Hooks map[string][]json.RawMessage `json:"hooks"`
+	}
+	if json.Unmarshal(data, &doc) != nil {
+		return NoEntry, nil //nolint:nilerr // Codex runs no hook from a file of another shape
+	}
+	gi := -1
+	for i, g := range doc.Hooks[event] {
+		sum := sha256.Sum256(g)
+		if hex.EncodeToString(sum[:]) == e.SHA256 {
+			gi = i
+			break
+		}
+	}
+	if gi < 0 {
+		return NoEntry, nil
+	}
+	var g group
+	if err := json.Unmarshal(doc.Hooks[event][gi], &g); err != nil || len(g.Hooks) != 1 {
+		return "", fmt.Errorf("codex trust: the Brain group in %s is not one handler", source)
+	}
+	sum, err := hookHash(event, label, g.Matcher, g.Hooks[0])
+	if err != nil {
+		return "", err
+	}
+	states, err := readHookStates(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		return "", err
+	}
+	st, ok := states[fmt.Sprintf("%s:%s:%d:0", source, label, gi)]
+	switch {
+	case !ok || st.TrustedHash == "":
+		return Untrusted, nil
+	case st.TrustedHash != sum:
+		return Modified, nil
+	case st.Enabled != nil && !*st.Enabled:
+		return Disabled, nil
+	}
+	return Trusted, nil
+}
+
+// hookState is one [hooks.state."<key>"] table of the Codex config.toml.
+type hookState struct {
+	TrustedHash string `toml:"trusted_hash"`
+	Enabled     *bool  `toml:"enabled"`
+}
+
+// readHookStates returns the hooks.state table of the Codex config.toml at path by key. The
+// decode keeps only that table. No file is no state: nothing is trusted.
+func readHookStates(path string) (map[string]hookState, error) {
+	var cfg struct {
+		Hooks struct {
+			State map[string]hookState `toml:"state"`
+		} `toml:"hooks"`
+	}
+	_, err := toml.DecodeFile(path, &cfg)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("codex config %s: %w", path, err)
+	}
+	return cfg.Hooks.State, nil
+}
+
+// hookHash is hook_hash and version_for_toml of Codex 0.154, as the E8-S3 probe computes it:
+// the normalized identity {event_name, matcher, hooks: [handler]} as JSON with sorted keys and
+// no spaces, then SHA-256, as "sha256:<hex>".
+func hookHash(event, label string, matcher *string, h handler) (string, error) {
+	timeout := uint64(600)
+	if event == "SessionEnd" || event == "Interrupt" {
+		timeout = 1
+		if h.Timeout != nil {
+			timeout = min(max(*h.Timeout, 1), 3)
+		}
+	} else if h.Timeout != nil {
+		timeout = max(*h.Timeout, 1)
+	}
+	norm := map[string]any{
+		"type":    "command",
+		"command": h.Command,
+		"timeout": timeout,
+		"async":   h.Async,
+	}
+	if h.StatusMessage != nil {
+		norm["statusMessage"] = *h.StatusMessage
+	}
+	if h.AdditionalContextLimit != nil && *h.AdditionalContextLimit != defaultContextLimit && contextEvent(event) {
+		norm["additionalContextLimit"] = *h.AdditionalContextLimit
+	}
+	identity := map[string]any{
+		"event_name": label,
+		"hooks":      []any{norm},
+	}
+	if matcher != nil && matcherEvent(event) {
+		identity["matcher"] = *matcher
+	}
+	// encoding/json sorts map keys; Codex does not escape HTML.
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(identity); err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(bytes.TrimSuffix(buf.Bytes(), []byte("\n")))
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+// matcherEvent reports whether Codex keeps the matcher of the event (matcher_pattern_for_event).
+func matcherEvent(event string) bool {
+	switch event {
+	case "UserPromptSubmit", "Stop", "Interrupt":
+		return false
+	}
+	return true
+}
+
+// contextEvent reports whether the event can emit additionalContext.
+func contextEvent(event string) bool {
+	switch event {
+	case "PreToolUse", "PostToolUse", "SessionStart", "UserPromptSubmit", "SubagentStart":
+		return true
+	}
+	return false
+}
