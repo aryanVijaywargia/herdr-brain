@@ -845,6 +845,41 @@ func TestTiming(t *testing.T) {
 	if testing.Short() {
 		t.Skip("timing runs")
 	}
+	env := timingSetup(t)
+	args := []string{"--profile", "claude", "--event", "start"}
+	// The first start of a new executable can be slow on macOS (a lookup past its deadline
+	// withholds), so one untimed run comes first.
+	if err := Main(args, env, strings.NewReader(input), io.Discard); err != nil {
+		t.Fatalf("Main() = %v", err)
+	}
+	times := make([]time.Duration, timingRuns)
+	// A slow machine can stop a run at the cap; that is a bounded run, so it counts too.
+	emitted, capped := 0, 0
+	for i := range times {
+		var out bytes.Buffer
+		start := time.Now()
+		err := Main(args, env, strings.NewReader(input), &out)
+		times[i] = time.Since(start)
+		switch {
+		case errors.Is(err, errCapped):
+			capped++
+		case err != nil:
+			t.Fatalf("run %d: Main() = %v", i, err)
+		case strings.Contains(briefOf(t, out.String()), mainA14):
+			emitted++
+		}
+	}
+	slices.Sort(times)
+	// Nearest-rank percentiles, as in the E7-S4 FINDINGS.
+	rank := func(p int) time.Duration { return times[(p*len(times)+99)/100-1] }
+	t.Logf("whole hook, %d runs (%d emitted, %d capped), %s/%s: p50 %v, p99 %v, max %v", timingRuns, emitted,
+		capped, runtime.GOOS, runtime.GOARCH, rank(50), rank(99), times[len(times)-1])
+}
+
+// timingSetup puts the bindings of a new fixture in the data home of a scratch HOME, and
+// returns a hook environment whose herdr is a fake that answers `pane get`.
+func timingSetup(t *testing.T) []string {
+	t.Helper()
 	f := newFixture(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -869,30 +904,5 @@ func TestTiming(t *testing.T) {
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho '"+reply+"'\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	env := append(environ(f.mainSock, "", "w14:p1", "w14"), "PATH=/usr/bin:/bin", "HERDR_BIN_PATH="+bin)
-	args := []string{"--profile", "claude", "--event", "start"}
-	// The first start of a new executable can be slow on macOS (a lookup past its deadline
-	// withholds), so one untimed run comes first.
-	if err := Main(args, env, strings.NewReader(input), io.Discard); err != nil {
-		t.Fatalf("Main() = %v", err)
-	}
-	times := make([]time.Duration, timingRuns)
-	emitted := 0
-	for i := range times {
-		var out bytes.Buffer
-		start := time.Now()
-		err := Main(args, env, strings.NewReader(input), &out)
-		times[i] = time.Since(start)
-		if err != nil {
-			t.Fatalf("run %d: Main() = %v", i, err)
-		}
-		if strings.Contains(briefOf(t, out.String()), mainA14) {
-			emitted++
-		}
-	}
-	slices.Sort(times)
-	// Nearest-rank percentiles, as in the E7-S4 FINDINGS.
-	rank := func(p int) time.Duration { return times[(p*len(times)+99)/100-1] }
-	t.Logf("whole hook, %d runs (%d emitted), %s/%s: p50 %v, p99 %v, max %v", timingRuns, emitted,
-		runtime.GOOS, runtime.GOARCH, rank(50), rank(99), times[len(times)-1])
+	return append(environ(f.mainSock, "", "w14:p1", "w14"), "PATH=/usr/bin:/bin", "HERDR_BIN_PATH="+bin)
 }
