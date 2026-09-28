@@ -60,3 +60,19 @@ func TestStatusDataHomeSameInPluginAndHookEnv(t *testing.T) {
 		t.Errorf("hook env %q, plugin env %q, want both %q", hook, plugin, want)
 	}
 }
+
+// `brain hook` prints nothing and exits 0 on any error, so it never fails a session start.
+func TestHookErrorsExitZero(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("HERDR_ENV", "1")
+	for _, args := range [][]string{
+		{"hook"},
+		{"hook", "--profile", "nope", "--event", "start"},
+		{"hook", "--profile", "claude", "--event", "start"}, // no herdr socket in the environment
+	} {
+		var out, errOut bytes.Buffer
+		if code := run(args, strings.NewReader("{}"), &out, &errOut); code != 0 || out.Len() != 0 || errOut.Len() != 0 {
+			t.Errorf("run(%q) = %d, stdout %q, stderr %q; want 0 and no output", args, code, out.String(), errOut.String())
+		}
+	}
+}
