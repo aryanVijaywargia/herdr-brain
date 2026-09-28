@@ -63,29 +63,66 @@ func (b builder) build(ctx context.Context, s *store.Store, proposalID *int64, n
 	defer func() { err = errors.Join(err, unlock()) }()
 
 	gen, parts, err := render(ctx, s)
-	if err != nil {
+	if err != nil || gen == 0 {
 		return 0, err
 	}
 	cur, err := current(b.out)
-	if err != nil || gen == cur {
-		return cur, err
-	}
-	b.afterRender()
-	g, err := b.publishFolder(gen, parts, now)
 	if err != nil {
 		return 0, err
 	}
-	if err := checkNewest(ctx, s, gen); err != nil {
-		return 0, err
+	// With gen == cur, an earlier build switched the pointer and then stopped before its record.
+	// publish finds that from the outputs rows and records it now.
+	var g generation
+	if gen != cur {
+		b.afterRender()
+		if g, err = b.publishFolder(gen, parts, now); err != nil {
+			return 0, err
+		}
 	}
-	src, err := readSource(b.out, cur)
+	// One store write holds the write lock from the newest check to the record, so no commit (a
+	// forget too) lands between them.
+	err = s.Write(ctx, func(tx *sql.Tx) error { return b.publish(ctx, tx, gen, g, proposalID, now) })
 	if err != nil {
 		return 0, err
+	}
+	return gen, nil
+}
+
+// publish makes generation gen current and records it, unless the outputs rows record it as
+// current already. g is the generation folder as written, or zero when gen was current
+// already; then publish reads the folder again.
+func (b builder) publish(ctx context.Context, tx *sql.Tx, gen int64, g generation, proposalID *int64,
+	now time.Time) error {
+	newest, err := store.NewestGeneration(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if newest > gen {
+		return fmt.Errorf("build generation %d, newest %d: %w", gen, newest, ErrStale)
+	}
+	o, err := store.OutputByGeneration(ctx, tx, gen)
+	if err != nil || o.Current {
+		return err
+	}
+	if g.manifest.Generation == 0 {
+		if g, err = readSource(b.out, gen); err != nil {
+			return err
+		}
+	}
+	// The source is the generation that the rows record as current: the pointer can be on gen
+	// already after a stopped build.
+	was, err := store.CurrentGeneration(ctx, tx)
+	if err != nil {
+		return err
+	}
+	src, err := readSource(b.out, was)
+	if err != nil {
+		return err
 	}
 	if err := switchPointer(b.out, gen); err != nil {
-		return 0, err
+		return err
 	}
-	return gen, record(ctx, s, src, g, proposalID, now)
+	return record(ctx, tx, src, g, o.HoldsForgottenText, proposalID, now)
 }
 
 // lock takes the build lock of the out folder and waits while another build holds it. The lock
@@ -189,24 +226,8 @@ func readGeneration(dir string) (generation, error) {
 	return g, nil
 }
 
-// checkNewest stops the build when a commit recorded a newer generation than gen.
-func checkNewest(ctx context.Context, s *store.Store, gen int64) error {
-	var newest int64
-	err := s.Write(ctx, func(tx *sql.Tx) (err error) {
-		newest, err = store.NewestGeneration(ctx, tx)
-		return err
-	})
-	if err != nil {
-		return err
-	}
-	if newest > gen {
-		return fmt.Errorf("build generation %d, newest %d: %w", gen, newest, ErrStale)
-	}
-	return nil
-}
-
-// readSource reads the current generation cur, the source of this build, and checks its files
-// against its manifest. It returns a zero generation before the first build.
+// readSource reads generation cur and checks its files against its manifest. It returns a zero
+// generation for cur 0, before the first build.
 func readSource(out string, cur int64) (generation, error) {
 	if cur == 0 {
 		return generation{}, nil
@@ -234,22 +255,22 @@ func switchPointer(out string, gen int64) error {
 	return os.Rename(tmp, filepath.Join(out, pointerName))
 }
 
-// record copies the switch into the outputs row and logs one applied edit for each file that
-// changed from src to the new generation g (§7.5 steps 7, 9).
-func record(ctx context.Context, s *store.Store, src, g generation, proposalID *int64, now time.Time) error {
-	return s.Write(ctx, func(tx *sql.Tx) error {
-		forget, err := openForget(ctx, tx, src)
-		if err != nil {
+// record copies the switch into the outputs rows and logs one applied edit for each file that
+// changed from src to the new generation g (§7.5 steps 7, 9). forgetAfter reports whether g
+// holds the text of an item with an open forget.
+func record(ctx context.Context, tx *sql.Tx, src, g generation, forgetAfter bool, proposalID *int64,
+	now time.Time) error {
+	forgetBefore, err := openForget(ctx, tx, src)
+	if err != nil {
+		return err
+	}
+	for _, e := range edits(src, g, forgetBefore, forgetAfter) {
+		e.ProposalID, e.Applied = proposalID, now
+		if _, err := store.InsertAppliedEdit(ctx, tx, e); err != nil {
 			return err
 		}
-		for _, e := range edits(src, g, forget) {
-			e.ProposalID, e.Applied = proposalID, now
-			if _, err := store.InsertAppliedEdit(ctx, tx, e); err != nil {
-				return err
-			}
-		}
-		return store.PublishOutput(ctx, tx, g.manifest.Generation, g.manifestHash, now)
-	})
+	}
+	return store.PublishOutput(ctx, tx, g.manifest.Generation, g.manifestHash, now)
 }
 
 // openForget reports whether the source generation holds the text of an item with an open
@@ -266,10 +287,10 @@ func openForget(ctx context.Context, tx *sql.Tx, src generation) (bool, error) {
 }
 
 // edits lists one applied edit for each file that the new generation g adds, changes or
-// removes from src, in name order. With an open forget, a file that held items keeps its old
-// bytes out of the log: the row has the file, the generation, the hash and the revisions
-// only (§6.7). The content hash is the hash of the new bytes.
-func edits(src, g generation, forget bool) []store.AppliedEdit {
+// removes from src, in name order. With an open forget on a side, a file that holds items on
+// that side keeps those bytes out of the log: the row has the file, the generation, the hash
+// and the revisions only (§6.7). The content hash is the hash of the new bytes.
+func edits(src, g generation, forgetBefore, forgetAfter bool) []store.AppliedEdit {
 	names := slices.Sorted(maps.Keys(g.manifest.Files))
 	for _, name := range slices.Sorted(maps.Keys(src.manifest.Files)) {
 		if _, ok := g.manifest.Files[name]; !ok {
@@ -285,16 +306,18 @@ func edits(src, g generation, forget bool) []store.AppliedEdit {
 		}
 		e := store.AppliedEdit{File: name, Generation: g.manifest.Generation, ContentHash: hash(g.files[name]),
 			RevisionsBefore: was.Revisions, RevisionsAfter: is.Revisions}
-		withheld := forget && len(was.Revisions) > 0
-		if had && !withheld {
+		if had && !withheld(forgetBefore, was) {
 			e.ContentBefore = ptr(string(src.files[name]))
 		}
-		if has {
+		if has && !withheld(forgetAfter, is) {
 			e.ContentAfter = ptr(string(g.files[name]))
 		}
 		es = append(es, e)
 	}
 	return es
 }
+
+// withheld reports whether the log keeps the bytes of f out: f holds items and forget is open.
+func withheld(forget bool, f File) bool { return forget && len(f.Revisions) > 0 }
 
 func ptr[T any](v T) *T { return &v }

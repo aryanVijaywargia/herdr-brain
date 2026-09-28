@@ -19,6 +19,17 @@ func NewestGeneration(ctx context.Context, tx *sql.Tx) (int64, error) {
 	return g, nil
 }
 
+// CurrentGeneration returns the generation that the outputs rows record as current, or 0 when
+// no build recorded one yet.
+func CurrentGeneration(ctx context.Context, tx *sql.Tx) (int64, error) {
+	var g int64
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(generation), 0) FROM outputs WHERE current = 1`).Scan(&g)
+	if err != nil {
+		return 0, fmt.Errorf("read current output generation: %w", err)
+	}
+	return g, nil
+}
+
 // ActiveRevisions reads the current revision of each active item, in item id order.
 func ActiveRevisions(ctx context.Context, tx *sql.Tx) ([]ItemRevision, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT `+revisionColumns+` FROM item_revisions r

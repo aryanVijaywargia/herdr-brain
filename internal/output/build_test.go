@@ -391,6 +391,48 @@ func TestStoppedBuildLeavesOldGeneration(t *testing.T) {
 	}
 }
 
+// markForget does what the forget flow does to the outputs: it marks the generations that hold
+// the forgotten text.
+func markForget(t *testing.T, s *store.Store, gens ...int64) {
+	t.Helper()
+	write(t, s, func(tx *sql.Tx) error {
+		for _, g := range gens {
+			if _, err := tx.Exec("UPDATE outputs SET holds_forgotten_text = 1 WHERE generation = ?", g); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// retire commits a retired revision of item id, which is at revision expected, and returns
+// the new generation.
+func retire(t *testing.T, s *store.Store, id, expected int64) int64 {
+	t.Helper()
+	var gen int64
+	write(t, s, func(tx *sql.Tx) error {
+		r, err := store.ItemRevisionByKey(context.Background(), tx, id, expected)
+		if err != nil {
+			return err
+		}
+		r.Text, r.State = "", store.StateRetired
+		gen, err = store.WriteRevision(context.Background(), tx, expected, r)
+		return err
+	})
+	return gen
+}
+
+// textAfter counts the applied edits after generation gen whose bytes hold text.
+func textAfter(t *testing.T, s *store.Store, gen int64, text string) int64 {
+	t.Helper()
+	var n int64
+	write(t, s, func(tx *sql.Tx) error {
+		return tx.QueryRow(`SELECT COUNT(*) FROM applied_edits WHERE generation > ?
+			AND (instr(content_before, ?) > 0 OR instr(content_after, ?) > 0)`, gen, text, text).Scan(&n)
+	})
+	return n
+}
+
 // AC: with an open forget, a build writes no old item text into applied_edits.
 func TestOpenForgetKeepsOldTextOut(t *testing.T) {
 	for _, c := range []struct {
@@ -403,21 +445,9 @@ func TestOpenForgetKeepsOldTextOut(t *testing.T) {
 			addItem(t, s, "k1", "use pnpm")
 			old := mustBuild(t, s, out)
 			if c.forget {
-				// What the forget flow does: mark the generations that hold the text.
-				write(t, s, func(tx *sql.Tx) error {
-					_, err := tx.Exec("UPDATE outputs SET holds_forgotten_text = 1 WHERE generation = ?", old)
-					return err
-				})
+				markForget(t, s, old)
 			}
-			write(t, s, func(tx *sql.Tx) error {
-				r, err := store.ItemRevisionByKey(context.Background(), tx, id, 1)
-				if err != nil {
-					return err
-				}
-				r.Text, r.State = "", store.StateRetired
-				_, err = store.WriteRevision(context.Background(), tx, 1, r)
-				return err
-			})
+			retire(t, s, id, 1)
 			gen := mustBuild(t, s, out)
 
 			es := appliedEdits(t, s, gen)
@@ -431,6 +461,110 @@ func TestOpenForgetKeepsOldTextOut(t *testing.T) {
 			holds := e.ContentBefore != nil && strings.Contains(*e.ContentBefore, "secret plan")
 			if holds == c.forget {
 				t.Errorf("ContentBefore = %v, want old text %v", e.ContentBefore, !c.forget)
+			}
+		})
+	}
+}
+
+// A generation that the forget flow marked before its build keeps its own bytes out too.
+func TestOpenForgetKeepsNewTextOut(t *testing.T) {
+	s, out := newStore(t)
+	id := addItem(t, s, "", "one")
+	mustBuild(t, s, out)
+	markForget(t, s, mustRevise(t, s, id, 1, "secret plan"))
+	gen := mustBuild(t, s, out)
+
+	es := appliedEdits(t, s, gen)
+	if len(es) != 1 || es[0].ContentAfter != nil || es[0].ContentBefore == nil {
+		t.Fatalf("applied edits = %+v, want one with the old bytes and no new bytes", es)
+	}
+	if want := []store.RevisionRef{{Item: id, Revision: 2}}; !reflect.DeepEqual(es[0].RevisionsAfter, want) {
+		t.Errorf("RevisionsAfter = %v, want %v", es[0].RevisionsAfter, want)
+	}
+}
+
+// A forget that commits while a build runs makes that build stale, so its text never reaches
+// applied_edits (review finding 1).
+func TestForgetDuringBuild(t *testing.T) {
+	s, out := newStore(t)
+	id := addItem(t, s, "", "secret plan")
+	first := mustBuild(t, s, out)
+	second := mustRevise(t, s, id, 1, "secret plan v2")
+
+	reached, release := make(chan struct{}), make(chan struct{})
+	b := builder{out: out, writeFile: writeFile, afterRender: func() {
+		close(reached)
+		<-release
+	}}
+	errc := make(chan error, 1)
+	go func() {
+		_, err := b.build(context.Background(), s, nil, testNow)
+		errc <- err
+	}()
+	<-reached
+	markForget(t, s, first, second)
+	gen := retire(t, s, id, 2)
+	close(release)
+	if err := <-errc; !errors.Is(err, ErrStale) {
+		t.Fatalf("build() = %v, want ErrStale", err)
+	}
+
+	if got := mustBuild(t, s, out); got != gen {
+		t.Errorf("Build() = %d, want %d", got, gen)
+	}
+	if n := textAfter(t, s, first, "secret plan"); n != 0 {
+		t.Errorf("%d applied edits after generation %d hold the forgotten text, want 0", n, first)
+	}
+}
+
+// A build that switched the pointer and then stopped before its record gets its record from
+// the next build, once (review finding 2).
+func TestRetryRecordsStoppedPublish(t *testing.T) {
+	for _, first := range []bool{true, false} {
+		t.Run(fmt.Sprintf("first publication %v", first), func(t *testing.T) {
+			s, out := newStore(t)
+			id := addItem(t, s, "", "one")
+			if !first {
+				mustBuild(t, s, out)
+				mustRevise(t, s, id, 1, "two")
+			}
+			fail := func(on bool) {
+				stmt := "DROP TRIGGER fail"
+				if on {
+					stmt = "CREATE TRIGGER fail BEFORE INSERT ON applied_edits BEGIN SELECT RAISE(ABORT, 'stop'); END"
+				}
+				write(t, s, func(tx *sql.Tx) error { _, err := tx.Exec(stmt); return err })
+			}
+			fail(true)
+			want := newest(t, s)
+			if _, err := Build(context.Background(), s, out, nil, testNow); err == nil {
+				t.Fatal("Build() with a failing record = nil, want an error")
+			}
+			if gen, err := readPointer(out); err != nil || gen != want {
+				t.Fatalf("pointer = %d, %v, want %d", gen, err, want)
+			}
+			fail(false)
+
+			if got := mustBuild(t, s, out); got != want {
+				t.Errorf("Build() = %d, want %d", got, want)
+			}
+			mustBuild(t, s, out)
+			var current int64
+			write(t, s, func(tx *sql.Tx) (err error) {
+				current, err = store.CurrentGeneration(context.Background(), tx)
+				return err
+			})
+			// The first publication creates both parts; the later one changes the global part only.
+			files := []string{globalName}
+			if first {
+				files = append(files, workspaceName("k1"))
+			}
+			var got []string
+			for _, e := range appliedEdits(t, s, want) {
+				got = append(got, e.File)
+			}
+			if current != want || !slices.Equal(got, files) {
+				t.Errorf("current row %d, applied edit files %v, want %d and %v", current, got, want, files)
 			}
 		})
 	}
