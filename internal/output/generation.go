@@ -139,7 +139,31 @@ func readManifest(dir string) (Manifest, []byte, error) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return Manifest{}, nil, fmt.Errorf("%s: %w: %w", filepath.Join(dir, manifestName), ErrInconsistent, err)
 	}
+	if err := checkManifest(m); err != nil {
+		return Manifest{}, nil, fmt.Errorf("%s: %w: %w", filepath.Join(dir, manifestName), ErrInconsistent, err)
+	}
 	return m, b, nil
+}
+
+// checkManifest checks the structure that every build writes: a generation number, the global
+// part, and a hash and a revision list for each file. Valid JSON that lacks it is damaged, and
+// cannot show that a file holds no item revision.
+func checkManifest(m Manifest) error {
+	if m.Generation < 1 {
+		return fmt.Errorf("generation %d", m.Generation)
+	}
+	if _, ok := m.Files[globalName]; !ok {
+		return fmt.Errorf("no %s", globalName)
+	}
+	for name, f := range m.Files {
+		if _, err := hex.DecodeString(f.SHA256); err != nil || len(f.SHA256) != 2*sha256.Size {
+			return fmt.Errorf("%s: bad sha256", name)
+		}
+		if f.Revisions == nil {
+			return fmt.Errorf("%s: no revisions", name)
+		}
+	}
+	return nil
 }
 
 // readChecked reads the file name of the generation in dir and checks it against m.

@@ -23,9 +23,9 @@ const hookCap = 300 * time.Millisecond
 // steps 6, 8, 9): it deletes every staging folder, and each old generation that no reader can
 // still use. Every brain call except the hook runs it, and so do brain doctor and forget. A
 // hand-edited current generation stops the build with a *ConflictError; the cleanup still
-// runs, so a forget can finish once you resolve the conflict.
-func Repair(ctx context.Context, s *store.Store, out string, now time.Time) (err error) {
-	b := builder{out: out, writeFile: writeFile, afterRender: func() {}}
+// runs, so a forget can finish once you resolve the conflict. now is the clock.
+func Repair(ctx context.Context, s *store.Store, out string, now func() time.Time) (err error) {
+	b := builder{out: out, now: now, writeFile: writeFile, afterRender: func() {}}
 	unlock, err := b.lock()
 	if err != nil {
 		return err
@@ -42,7 +42,7 @@ func Repair(ctx context.Context, s *store.Store, out string, now time.Time) (err
 	}
 	var buildErr error
 	if behind {
-		_, buildErr = b.buildLocked(ctx, s, nil, now)
+		_, buildErr = b.buildLocked(ctx, s, nil)
 	}
 	return errors.Join(buildErr, cleanup(ctx, s, out, now))
 }
@@ -65,7 +65,7 @@ func behind(ctx context.Context, s *store.Store, cur int64) (bool, error) {
 // that the pointer left more than hookCap ago. The caller holds the lock, so no build writes a
 // staging folder now, and a staging folder was never published: it has no reader. A
 // generation whose files no longer match its manifest stays as a conflict (Conflicts).
-func cleanup(ctx context.Context, s *store.Store, out string, now time.Time) error {
+func cleanup(ctx context.Context, s *store.Store, out string, now func() time.Time) error {
 	gens, staging, err := folders(out)
 	if err != nil {
 		return err
@@ -80,7 +80,7 @@ func cleanup(ctx context.Context, s *store.Store, out string, now time.Time) err
 		return err
 	}
 	left, err := switchedAt(ctx, s, cur)
-	if err != nil || left.IsZero() || now.Sub(left) <= hookCap {
+	if err != nil || left.IsZero() || now().Sub(left) <= hookCap {
 		return err
 	}
 	for _, gen := range gens {
@@ -145,9 +145,10 @@ func Conflicts(out string) ([]ConflictError, error) {
 
 // Holds reports whether any folder in out may still hold the text of item, at any revision
 // (§6.7). The forget flow reports "done" only when it is false. A generation counts by the
-// (item id, revision) pairs in its manifest, never by a text search. A staging folder, or a
-// generation with a missing or invalid manifest, may hold anything, so it counts too, until
-// cleanup removes it. A kept conflict folder counts by its manifest like any other.
+// (item id, revision) pairs in its manifest, never by a text search. A staging folder, a
+// generation with a missing or invalid manifest, or a file that the manifest does not name may
+// hold anything, so it counts too, until cleanup removes it. A kept conflict folder counts by
+// its manifest like any other.
 func Holds(out string, item int64) (bool, error) {
 	gens, staging, err := folders(out)
 	if err != nil {
@@ -157,14 +158,15 @@ func Holds(out string, item int64) (bool, error) {
 		return true, nil
 	}
 	for _, gen := range gens {
-		m, _, err := readManifest(filepath.Join(out, folder(gen)))
-		if errors.Is(err, ErrInconsistent) || (err == nil && m.Generation != gen) {
-			return true, nil
-		}
-		if err != nil {
+		g, err := readGeneration(filepath.Join(out, folder(gen)))
+		if err != nil && !errors.Is(err, ErrInconsistent) {
 			return false, err
 		}
-		for _, f := range m.Files {
+		// A manifest that did not read leaves a zero generation number.
+		if g.manifest.Generation != gen || len(g.extra) > 0 {
+			return true, nil
+		}
+		for _, f := range g.manifest.Files {
 			if slices.ContainsFunc(f.Revisions, func(r store.RevisionRef) bool { return r.Item == item }) {
 				return true, nil
 			}

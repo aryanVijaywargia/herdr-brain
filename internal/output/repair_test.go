@@ -3,6 +3,7 @@ package output
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -21,7 +22,7 @@ var later = testNow.Add(time.Second)
 
 func mustRepair(t *testing.T, s *store.Store, out string, now time.Time) {
 	t.Helper()
-	if err := Repair(context.Background(), s, out, now); err != nil {
+	if err := Repair(context.Background(), s, out, at(now)); err != nil {
 		t.Fatalf("Repair() = %v", err)
 	}
 }
@@ -53,10 +54,10 @@ func mustHolds(t *testing.T, out string, item int64) bool {
 	return h
 }
 
-// handEdit writes text over file name of generation gen.
-func handEdit(t *testing.T, out string, gen int64, name, text string) {
+// handEdit writes "mine" over file name of generation gen.
+func handEdit(t *testing.T, out string, gen int64, name string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(out, folder(gen), filepath.FromSlash(name)), []byte(text), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(out, folder(gen), filepath.FromSlash(name)), []byte("mine"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -113,10 +114,10 @@ func TestRepairKeepsHandEdit(t *testing.T) {
 	s, out := newStore(t)
 	id := addItem(t, s, "", "one")
 	old := mustBuild(t, s, out)
-	handEdit(t, out, old, globalName, "mine")
+	handEdit(t, out, old, globalName)
 	gen := mustRevise(t, s, id, 1, "two")
 
-	wantConflict(t, Repair(context.Background(), s, out, testNow), old, globalName)
+	wantConflict(t, Repair(context.Background(), s, out, at(testNow)), old, globalName)
 	checkBytes(t, out, old, globalName, "mine")
 	checkPointer(t, out, old)
 	// The first check stops the build before it writes anything.
@@ -137,8 +138,8 @@ func TestHandEditBeforeSwitch(t *testing.T) {
 	mustRevise(t, s, id, 1, "two")
 
 	name := workspaceName("k1")
-	b := builder{out: out, writeFile: writeFile, afterRender: func() { handEdit(t, out, old, name, "mine") }}
-	_, err := b.build(context.Background(), s, nil, testNow)
+	b := builder{out: out, now: at(testNow), writeFile: writeFile, afterRender: func() { handEdit(t, out, old, name) }}
+	_, err := b.build(context.Background(), s, nil)
 	wantConflict(t, err, old, name)
 	checkBytes(t, out, old, name, "mine")
 	checkPointer(t, out, old)
@@ -157,7 +158,7 @@ func TestHandEditToRetiredGeneration(t *testing.T) {
 	clean := mustBuild(t, s, out)
 	mustRevise(t, s, id, 2, "three")
 	cur := mustBuild(t, s, out)
-	handEdit(t, out, edited, globalName, "mine")
+	handEdit(t, out, edited, globalName)
 
 	mustRepair(t, s, out, later)
 	checkBytes(t, out, edited, globalName, "mine")
@@ -193,9 +194,108 @@ func TestCleanupWaitsOneHookCap(t *testing.T) {
 	}
 }
 
+// rewriteManifest changes the manifest in dir with fn. The result is still valid JSON.
+func rewriteManifest(dir string, fn func(*Manifest)) error {
+	path := filepath.Join(dir, manifestName)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var m Manifest
+	if err := json.Unmarshal(b, &m); err != nil {
+		return err
+	}
+	fn(&m)
+	if b, err = json.Marshal(m); err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o600)
+}
+
+// damage lists changes to a generation folder that no hash of a named file shows: file is the
+// name that the conflict gives.
+var damage = []struct {
+	name, file string
+	edit       func(dir string) error
+}{
+	{"manifest with no files", manifestName, func(dir string) error {
+		return rewriteManifest(dir, func(m *Manifest) { m.Files = map[string]File{} })
+	}},
+	{"manifest with no revision list", manifestName, func(dir string) error {
+		return rewriteManifest(dir, func(m *Manifest) {
+			f := m.Files[globalName]
+			f.Revisions = nil
+			m.Files[globalName] = f
+		})
+	}},
+	{"manifest with a bad hash", manifestName, func(dir string) error {
+		return rewriteManifest(dir, func(m *Manifest) {
+			f := m.Files[globalName]
+			f.SHA256 = "x"
+			m.Files[globalName] = f
+		})
+	}},
+	{"file the manifest does not name", "notes.md", func(dir string) error {
+		return os.WriteFile(filepath.Join(dir, "notes.md"), []byte("item 99"), 0o600)
+	}},
+}
+
+// Astra finding 1: a damaged retired generation is a conflict, and cleanup keeps it.
+func TestCleanupKeepsDamagedGeneration(t *testing.T) {
+	for _, c := range damage {
+		t.Run(c.name, func(t *testing.T) {
+			s, out := newStore(t)
+			id := addItem(t, s, "", "one")
+			old := mustBuild(t, s, out)
+			mustRevise(t, s, id, 1, "two")
+			mustBuild(t, s, out)
+			if err := c.edit(filepath.Join(out, folder(old))); err != nil {
+				t.Fatal(err)
+			}
+
+			mustRepair(t, s, out, later)
+			if !exists(t, filepath.Join(out, folder(old), globalName)) {
+				t.Errorf("damaged generation %d is gone, want it kept", old)
+			}
+			want := []ConflictError{{Generation: old, Files: []string{c.file}}}
+			if cs := mustConflicts(t, out); !reflect.DeepEqual(cs, want) {
+				t.Errorf("Conflicts() = %v, want %v", cs, want)
+			}
+			if !mustHolds(t, out, 99) {
+				t.Errorf("Holds(99) = false, want true: the damaged folder may hold anything")
+			}
+		})
+	}
+}
+
+// Astra finding 2: cleanup counts the reader grace period from the switch, not from the start
+// of a slow build.
+func TestSlowBuildKeepsOldGeneration(t *testing.T) {
+	s, out := newStore(t)
+	id := addItem(t, s, "", "one")
+	old := mustBuild(t, s, out)
+	mustRevise(t, s, id, 1, "two")
+
+	clock := testNow
+	b := builder{out: out, now: func() time.Time { return clock }, writeFile: writeFile,
+		afterRender: func() { clock = clock.Add(time.Second) }}
+	if _, err := b.build(context.Background(), s, nil); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(out, folder(old))
+	mustRepair(t, s, out, clock.Add(hookCap))
+	if !exists(t, dir) {
+		t.Fatalf("generation %d went one hook cap after the build started, want it kept", old)
+	}
+	mustRepair(t, s, out, clock.Add(hookCap+time.Millisecond))
+	if exists(t, dir) {
+		t.Errorf("generation %d is still there one hook cap after the switch", old)
+	}
+}
+
 // AC S66: a current file that does not match its manifest is a conflict.
 func TestConflictsCurrentGeneration(t *testing.T) {
-	for _, c := range []struct {
+	cases := append(slices.Clone(damage), []struct {
 		name, file string
 		edit       func(dir string) error
 	}{
@@ -208,7 +308,8 @@ func TestConflictsCurrentGeneration(t *testing.T) {
 		{"missing manifest", manifestName, func(dir string) error {
 			return os.Remove(filepath.Join(dir, manifestName))
 		}},
-	} {
+	}...)
+	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s, out := newStore(t)
 			addItem(t, s, "k1", "use pnpm")
@@ -232,12 +333,12 @@ func TestForgetPendingWithConflict(t *testing.T) {
 	s, out := newStore(t)
 	id := addItem(t, s, "", "secret plan")
 	gen := mustBuild(t, s, out)
-	handEdit(t, out, gen, globalName, "mine")
+	handEdit(t, out, gen, globalName)
 	markForget(t, s, gen)
 	retire(t, s, id, 1)
 
 	for _, now := range []time.Time{testNow, later} {
-		wantConflict(t, Repair(context.Background(), s, out, now), gen, globalName)
+		wantConflict(t, Repair(context.Background(), s, out, at(now)), gen, globalName)
 		if !mustHolds(t, out, id) {
 			t.Errorf("Holds(%d) with the conflict open = false, want true (forget pending)", id)
 		}
@@ -254,13 +355,13 @@ func TestCrashThenForget(t *testing.T) {
 	second := mustRevise(t, s, id, 1, "secret plan v2")
 	stop := errors.New("stopped")
 	n := 0
-	b := builder{out: out, afterRender: func() {}, writeFile: func(path string, data []byte) error {
+	b := builder{out: out, now: at(testNow), afterRender: func() {}, writeFile: func(path string, data []byte) error {
 		if n++; n == 2 {
 			return stop
 		}
 		return writeFile(path, data)
 	}}
-	if _, err := b.build(context.Background(), s, nil, testNow); !errors.Is(err, stop) {
+	if _, err := b.build(context.Background(), s, nil); !errors.Is(err, stop) {
 		t.Fatalf("build() = %v, want the injected stop", err)
 	}
 

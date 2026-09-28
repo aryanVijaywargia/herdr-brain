@@ -46,6 +46,9 @@ func write(t *testing.T, s *store.Store, fn func(tx *sql.Tx) error) {
 
 func ptr64(v int64) *int64 { return &v }
 
+// at is a clock that always reads t.
+func at(t time.Time) func() time.Time { return func() time.Time { return t } }
+
 // newStore makes a store with workspace k1, and returns it and its out folder.
 func newStore(t *testing.T) (*store.Store, string) {
 	t.Helper()
@@ -102,7 +105,7 @@ func mustRevise(t *testing.T, s *store.Store, id, expected int64, text string) i
 
 func mustBuild(t *testing.T, s *store.Store, out string) int64 {
 	t.Helper()
-	gen, err := Build(context.Background(), s, out, nil, testNow)
+	gen, err := Build(context.Background(), s, out, nil, at(testNow))
 	if err != nil {
 		t.Fatalf("Build() = %v", err)
 	}
@@ -236,7 +239,7 @@ func TestOlderBuildStops(t *testing.T) {
 	old := mustRevise(t, s, id, 1, "two")
 
 	reached, release := make(chan struct{}), make(chan struct{})
-	older := builder{out: out, writeFile: writeFile, afterRender: func() {
+	older := builder{out: out, now: at(testNow), writeFile: writeFile, afterRender: func() {
 		close(reached)
 		<-release
 	}}
@@ -246,7 +249,7 @@ func TestOlderBuildStops(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, olderErr = older.build(context.Background(), s, nil, testNow)
+		_, olderErr = older.build(context.Background(), s, nil)
 	}()
 	<-reached
 	// The older build holds the lock and has rendered generation old. A newer commit lands now.
@@ -254,7 +257,7 @@ func TestOlderBuildStops(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		newerGen, newerErr = Build(context.Background(), s, out, nil, testNow)
+		newerGen, newerErr = Build(context.Background(), s, out, nil, at(testNow))
 	}()
 	close(release)
 	wg.Wait()
@@ -302,7 +305,7 @@ func TestConcurrentBuilds(t *testing.T) {
 					errs <- err
 					return
 				}
-				if _, err := Build(ctx, st, out, nil, testNow); err != nil && !errors.Is(err, ErrStale) {
+				if _, err := Build(ctx, st, out, nil, at(testNow)); err != nil && !errors.Is(err, ErrStale) {
 					errs <- err
 				}
 			}
@@ -355,13 +358,13 @@ func TestStoppedBuildLeavesOldGeneration(t *testing.T) {
 
 	stop := errors.New("stopped")
 	n := 0
-	b := builder{out: out, afterRender: func() {}, writeFile: func(path string, data []byte) error {
+	b := builder{out: out, now: at(testNow), afterRender: func() {}, writeFile: func(path string, data []byte) error {
 		if n++; n == 2 {
 			return stop
 		}
 		return writeFile(path, data)
 	}}
-	if _, err := b.build(context.Background(), s, nil, testNow); !errors.Is(err, stop) {
+	if _, err := b.build(context.Background(), s, nil); !errors.Is(err, stop) {
 		t.Fatalf("build() = %v, want the injected stop", err)
 	}
 
@@ -492,13 +495,13 @@ func TestForgetDuringBuild(t *testing.T) {
 	second := mustRevise(t, s, id, 1, "secret plan v2")
 
 	reached, release := make(chan struct{}), make(chan struct{})
-	b := builder{out: out, writeFile: writeFile, afterRender: func() {
+	b := builder{out: out, now: at(testNow), writeFile: writeFile, afterRender: func() {
 		close(reached)
 		<-release
 	}}
 	errc := make(chan error, 1)
 	go func() {
-		_, err := b.build(context.Background(), s, nil, testNow)
+		_, err := b.build(context.Background(), s, nil)
 		errc <- err
 	}()
 	<-reached
@@ -537,7 +540,7 @@ func TestRetryRecordsStoppedPublish(t *testing.T) {
 			}
 			fail(true)
 			want := newest(t, s)
-			if _, err := Build(context.Background(), s, out, nil, testNow); err == nil {
+			if _, err := Build(context.Background(), s, out, nil, at(testNow)); err == nil {
 				t.Fatal("Build() with a failing record = nil, want an error")
 			}
 			if gen, err := readPointer(out); err != nil || gen != want {
@@ -579,7 +582,7 @@ func TestHandEditIsConflict(t *testing.T) {
 	}
 	mustRevise(t, s, id, 1, "two")
 
-	_, err := Build(context.Background(), s, out, nil, testNow)
+	_, err := Build(context.Background(), s, out, nil, at(testNow))
 	var ce *ConflictError
 	if !errors.As(err, &ce) || ce.Generation != old || !slices.Equal(ce.Files, []string{globalName}) {
 		t.Fatalf("Build() = %v, want a conflict on generation %d, file %s", err, old, globalName)

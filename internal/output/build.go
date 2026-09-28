@@ -39,26 +39,27 @@ func (e *ConflictError) Error() string {
 // current (§7.5 steps 3-4, 7, 9). E4 calls it right after a commit, and repair calls it too.
 // proposalID is the proposal whose approval made the generation, or nil. It returns the current
 // generation, or 0 when the store has none yet. A build that a newer commit overtook returns
-// ErrStale; a hand-edited current generation returns a *ConflictError.
-func Build(ctx context.Context, s *store.Store, out string, proposalID *int64, now time.Time) (int64, error) {
-	b := builder{out: out, writeFile: writeFile, afterRender: func() {}}
-	return b.build(ctx, s, proposalID, now)
+// ErrStale; a hand-edited current generation returns a *ConflictError. now is the clock.
+func Build(ctx context.Context, s *store.Store, out string, proposalID *int64, now func() time.Time) (int64, error) {
+	b := builder{out: out, now: now, writeFile: writeFile, afterRender: func() {}}
+	return b.build(ctx, s, proposalID)
 }
 
 // builder holds the seams that the tests use to stop a build at a chosen point.
 type builder struct {
 	out         string
+	now         func() time.Time
 	writeFile   func(path string, data []byte) error
 	afterRender func()
 }
 
-func (b builder) build(ctx context.Context, s *store.Store, proposalID *int64, now time.Time) (_ int64, err error) {
+func (b builder) build(ctx context.Context, s *store.Store, proposalID *int64) (_ int64, err error) {
 	unlock, err := b.lock()
 	if err != nil {
 		return 0, err
 	}
 	defer func() { err = errors.Join(err, unlock()) }()
-	return b.buildLocked(ctx, s, proposalID, now)
+	return b.buildLocked(ctx, s, proposalID)
 }
 
 // lock makes the out folder and takes its build lock.
@@ -71,7 +72,7 @@ func (b builder) lock() (unlock func() error, err error) {
 }
 
 // buildLocked is build for a caller that holds the lock.
-func (b builder) buildLocked(ctx context.Context, s *store.Store, proposalID *int64, now time.Time) (int64, error) {
+func (b builder) buildLocked(ctx context.Context, s *store.Store, proposalID *int64) (int64, error) {
 	cur, err := current(b.out)
 	if err != nil {
 		return 0, err
@@ -90,13 +91,13 @@ func (b builder) buildLocked(ctx context.Context, s *store.Store, proposalID *in
 	var g generation
 	if gen != cur {
 		b.afterRender()
-		if g, err = b.publishFolder(gen, parts, now); err != nil {
+		if g, err = b.publishFolder(gen, parts, b.now()); err != nil {
 			return 0, err
 		}
 	}
 	// One store write holds the write lock from the newest check to the record, so no commit (a
 	// forget too) lands between them.
-	err = s.Write(ctx, func(tx *sql.Tx) error { return b.publish(ctx, tx, gen, g, proposalID, now) })
+	err = s.Write(ctx, func(tx *sql.Tx) error { return b.publish(ctx, tx, gen, g, proposalID) })
 	if err != nil {
 		return 0, err
 	}
@@ -106,8 +107,7 @@ func (b builder) buildLocked(ctx context.Context, s *store.Store, proposalID *in
 // publish makes generation gen current and records it, unless the outputs rows record it as
 // current already. g is the generation folder as written, or zero when gen was current
 // already; then publish reads the folder again.
-func (b builder) publish(ctx context.Context, tx *sql.Tx, gen int64, g generation, proposalID *int64,
-	now time.Time) error {
+func (b builder) publish(ctx context.Context, tx *sql.Tx, gen int64, g generation, proposalID *int64) error {
 	newest, err := store.NewestGeneration(ctx, tx)
 	if err != nil {
 		return err
@@ -137,7 +137,9 @@ func (b builder) publish(ctx context.Context, tx *sql.Tx, gen int64, g generatio
 	if err := switchPointer(b.out, gen); err != nil {
 		return err
 	}
-	return record(ctx, tx, src, g, o.HoldsForgottenText, proposalID, now)
+	// The clock is read after the switch: cleanup counts the reader grace period from this
+	// time, and a slow build must not shorten it (§7.5 step 8).
+	return record(ctx, tx, src, g, o.HoldsForgottenText, proposalID, b.now())
 }
 
 // lock takes the build lock of the out folder and waits while another build holds it. The lock
@@ -212,12 +214,16 @@ type generation struct {
 	manifestHash string
 	// files holds the bytes of each file that matched the manifest.
 	files map[string][]byte
-	// changed lists the files that are missing or do not match the manifest, in name order.
+	// changed lists the files that are missing or do not match the manifest, and the files
+	// that the manifest does not name, in name order.
 	changed []string
+	// extra lists the files in the folder that the manifest does not name.
+	extra []string
 }
 
 // readGeneration reads the manifest in dir and every file that it names. A file that does not
-// match goes into changed; any other read error is returned.
+// match, or that the manifest does not name, goes into changed; any other read error is
+// returned.
 func readGeneration(dir string) (generation, error) {
 	m, data, err := readManifest(dir)
 	if err != nil {
@@ -235,6 +241,22 @@ func readGeneration(dir string) (generation, error) {
 		}
 		g.files[name] = b
 	}
+	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		name, err := filepath.Rel(dir, path)
+		name = filepath.ToSlash(name)
+		if _, ok := m.Files[name]; err == nil && !ok && name != manifestName {
+			g.extra = append(g.extra, name)
+		}
+		return err
+	})
+	if err != nil {
+		return generation{}, err
+	}
+	g.changed = append(g.changed, g.extra...)
+	slices.Sort(g.changed)
 	if len(g.changed) > 0 {
 		return g, fmt.Errorf("%s: %s: %w", dir, strings.Join(g.changed, ", "), ErrInconsistent)
 	}
@@ -261,6 +283,9 @@ func checkGeneration(out string, gen int64) (generation, error) {
 			files = []string{manifestName}
 		}
 		return generation{}, &ConflictError{Generation: gen, Files: files}
+	}
+	if err == nil && g.manifest.Generation != gen {
+		return generation{}, &ConflictError{Generation: gen, Files: []string{manifestName}}
 	}
 	return g, err
 }
