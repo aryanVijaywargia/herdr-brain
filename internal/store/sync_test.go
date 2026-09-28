@@ -56,7 +56,11 @@ func BenchmarkHookRun(b *testing.B) {
 					b.Fatal(err)
 				}
 				// Open leaves its connection idle in the pool, so the file stays open.
-				defer other.Close()
+				b.Cleanup(func() {
+					if err := other.Close(); err != nil {
+						b.Error(err)
+					}
+				})
 			}
 			b.ResetTimer()
 			for range b.N {
