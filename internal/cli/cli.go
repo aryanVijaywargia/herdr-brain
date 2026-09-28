@@ -84,6 +84,12 @@ func (c *Call) Close() error { return c.Store.Close() }
 // nothing (S64): Open returns an error. A failed repair is only a warning: the command's own
 // write does not need it, and the next call retries it.
 func (e Env) Open(ctx context.Context) (*Call, error) {
+	return e.open(ctx, true)
+}
+
+// open is Open. With repair false it does not repair the output: brain repair repairs it
+// itself, and shows each conflict once.
+func (e Env) open(ctx context.Context, repair bool) (*Call, error) {
 	open := func(ctx context.Context, dir string) (resolver.Store, error) {
 		s, err := store.Open(ctx, dir, busyTimeout)
 		if err != nil {
@@ -121,9 +127,11 @@ func (e Env) Open(ctx context.Context) (*Call, error) {
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("sync workspace map: %w", err), c.Close())
 	}
-	if err := output.Repair(ctx, c.Store, filepath.Join(r.Binding.Store, outDir), e.Now); err != nil {
-		if _, werr := fmt.Fprintf(e.Stderr, "brain: warning: output repair: %v (the next brain call retries)\n", err); werr != nil {
-			return nil, errors.Join(werr, c.Close())
+	if repair {
+		if err := output.Repair(ctx, c.Store, filepath.Join(r.Binding.Store, outDir), e.Now); err != nil {
+			if _, werr := fmt.Fprintf(e.Stderr, "brain: warning: output repair: %v (the next brain call retries)\n", err); werr != nil {
+				return nil, errors.Join(werr, c.Close())
+			}
 		}
 	}
 	// The pane can move to another workspace during the sync or the repair, so check it again

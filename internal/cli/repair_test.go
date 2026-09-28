@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
+	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
 func (f *fixture) repair(t *testing.T, args ...string) (string, error) {
@@ -82,6 +84,32 @@ func TestRepairCurrentConflict(t *testing.T) {
 	}
 	if cs := f.conflicts(t); len(cs) != 0 {
 		t.Errorf("Conflicts() after --confirm = %v, want none", cs)
+	}
+}
+
+// AC #119: brain repair shows each conflict once, on stdout and stderr together.
+func TestRepairShowsConflictOnce(t *testing.T) {
+	f := newFixture(t)
+	f.handEdit(t, 1)
+	// A commit with no build: the output is behind, so the repair tries to build and meets the
+	// conflict.
+	s := openStore(t, f.store)
+	write(t, s, func(tx *sql.Tx) error {
+		_, _, err := store.CreateItem(context.Background(), tx, store.Item{ClaimID: "c-new", Kind: store.KindFact, Created: testNow},
+			store.ItemRevision{Text: "new item", Scope: store.ScopeGlobal, State: store.StateActive,
+				Author: store.AuthorYou, Origin: store.OriginRemember, Created: testNow})
+		return err
+	})
+	closeStore(t, s)
+	var stdout, stderr bytes.Buffer
+	e := f.env(f.sock, "w14:p1", "w14", &stdout)
+	e.Stderr = &stderr
+	if err := Repair(context.Background(), e, nil); err != nil {
+		t.Fatalf("Repair() = %v", err)
+	}
+	const conflict = "output generation 1 changed outside Brain"
+	if n := strings.Count(stdout.String()+stderr.String(), conflict); n != 1 {
+		t.Errorf("Repair() shows the conflict %d times, want 1\nstdout: %q\nstderr: %q", n, stdout.String(), stderr.String())
 	}
 }
 
