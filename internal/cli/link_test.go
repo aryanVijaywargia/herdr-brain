@@ -130,6 +130,26 @@ func TestConflictMark(t *testing.T) {
 	}
 }
 
+// A workspace item that goes global loses its exception link, and undo brings it back.
+func TestPromoteDropsLink(t *testing.T) {
+	f := newFixture(t)
+	g, ws := f.linked(t)
+	f.mustReview(t, "--item", ws, "--exception-to", g)
+	f.mustReview(t, "--item", ws, "--edit", "use pnpm everywhere")
+	r := f.rows(t)
+	f.mustReview(t, fmt.Sprint(r.proposals[len(r.proposals)-1].ID), "--approve", "--scope", "global")
+	if _, rev := f.rows(t).item(t, 3); rev.Scope != store.ScopeGlobal || rev.ExceptionToItem != nil || rev.ExceptionToRevision != nil {
+		t.Errorf("promoted revision = %+v, want global with no exception link", rev)
+	}
+	if b := f.brief(t); strings.Contains(b, "(exception to") {
+		t.Errorf("brief = %q, want no exception mark", b)
+	}
+	f.mustUndo(t, ws)
+	if _, rev := f.rows(t).item(t, 3); rev.Scope != store.ScopeWorkspace || rev.ExceptionToItem == nil {
+		t.Errorf("after undo revision = %+v, want the workspace item with its link", rev)
+	}
+}
+
 func TestLinkErrors(t *testing.T) {
 	f := newFixture(t)
 	g, ws := f.linked(t)

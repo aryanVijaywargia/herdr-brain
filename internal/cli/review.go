@@ -304,7 +304,8 @@ func (cl caller) approved(r review, p store.Proposal, it store.Item, cur store.I
 		if it.Kind == store.KindHandoff {
 			return store.ItemRevision{}, errors.New("a handoff is a workspace item; it cannot go global")
 		}
-		next.Scope, next.WorkspaceKey = store.ScopeGlobal, nil
+		// An exception link is for a workspace item only (§7.4); undo of the promotion brings it back.
+		next.Scope, next.WorkspaceKey, next.ExceptionToItem, next.ExceptionToRevision = store.ScopeGlobal, nil, nil, nil
 	case store.ScopeWorkspace:
 		// The new target is the caller's own workspace, so it passes the scope check.
 		if cl.keyErr != nil {
