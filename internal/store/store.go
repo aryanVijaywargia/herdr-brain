@@ -84,12 +84,8 @@ func setup(ctx context.Context, db *sql.DB, busyTimeout time.Duration, ms []migr
 	if err := checkVersion(v, len(ms)); err != nil {
 		return err
 	}
-	var mode string
-	if err := db.QueryRowContext(ctx, "PRAGMA journal_mode=WAL").Scan(&mode); err != nil {
-		return fmt.Errorf("set WAL mode: %w", err)
-	}
-	if mode != "wal" {
-		return fmt.Errorf("set WAL mode: journal mode is %q", mode)
+	if err := setWAL(ctx, db, busyTimeout); err != nil {
+		return err
 	}
 	for _, m := range ms[v:] {
 		if err := migrate(ctx, db, busyTimeout, m, len(ms)); err != nil {
@@ -97,6 +93,35 @@ func setup(ctx context.Context, db *sql.DB, busyTimeout time.Duration, ms []migr
 		}
 	}
 	return nil
+}
+
+// walRetry is the pause between two tries to switch a new store to WAL. [NEW]
+const walRetry = 5 * time.Millisecond
+
+// setWAL switches the store to WAL mode. SQLite does not always call the busy handler for a
+// journal mode change, so two processes that open a new store at the same time can get
+// SQLITE_BUSY at once. setWAL tries again until the busy timeout ends, or the deadline of ctx
+// when that comes first.
+func setWAL(ctx context.Context, db *sql.DB, busyTimeout time.Duration) error {
+	end := time.Now().Add(busyTimeout)
+	for {
+		var mode string
+		err := db.QueryRowContext(ctx, "PRAGMA journal_mode=WAL").Scan(&mode)
+		if err == nil {
+			if mode != "wal" {
+				return fmt.Errorf("set WAL mode: journal mode is %q", mode)
+			}
+			return nil
+		}
+		if !errors.Is(busy(err), ErrBusy) || time.Now().Add(walRetry).After(end) {
+			return fmt.Errorf("set WAL mode: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return errors.Join(ctx.Err(), fmt.Errorf("set WAL mode: %w", err))
+		case <-time.After(walRetry):
+		}
+	}
 }
 
 // checkVersion refuses a store with a newer version than latest, the binary's version.
