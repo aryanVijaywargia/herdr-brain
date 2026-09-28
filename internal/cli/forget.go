@@ -4,11 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"flag"
 	"fmt"
-	"io"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -26,25 +23,8 @@ const settle = 350 * time.Millisecond
 // Forget runs `brain forget` with args after "forget" (§6.7, E4-S6). It removes the text of
 // one item and its derivatives from the store and the output, and keeps a tombstone with no
 // text. A second call on the same item only reports whether forget is done.
-func Forget(ctx context.Context, e Env, args []string) (err error) {
-	fs := flag.NewFlagSet("forget", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	if err := fs.Parse(args); err != nil {
-		return fmt.Errorf("%w\n%s", err, forgetUsage)
-	}
-	if fs.NArg() != 1 {
-		return fmt.Errorf("want one item id, got %d\n%s", fs.NArg(), forgetUsage)
-	}
-	id, err := strconv.ParseInt(fs.Arg(0), 10, 64)
-	if err != nil || id <= 0 {
-		return fmt.Errorf("bad item id %q\n%s", fs.Arg(0), forgetUsage)
-	}
-	c, err := e.Open(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, c.Close()) }()
-	return newCaller(e, c).forget(ctx, id)
+func Forget(ctx context.Context, e Env, args []string) error {
+	return onItem(ctx, e, "forget", forgetUsage, args, caller.forget)
 }
 
 // forgotten reports whether forget removed the text of the item whose current revision is cur:

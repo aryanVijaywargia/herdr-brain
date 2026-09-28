@@ -33,6 +33,16 @@ commands:
   hook      --profile <name> --event start: the agent start hook (prints the brief or nothing)
 `
 
+// commands are the store commands of internal/cli, by name.
+var commands = map[string]func(context.Context, cli.Env, []string) error{
+	"remember": cli.Remember,
+	"review":   cli.Review,
+	"pin":      cli.Pin,
+	"undo":     cli.Undo,
+	"forget":   cli.Forget,
+	"repair":   cli.Repair,
+}
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
@@ -56,18 +66,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = status(stdout)
 	case "setup":
 		err = setup(in, stdout)
-	case "remember":
-		err = command(cli.Remember, args[1:], stdout, stderr)
-	case "review":
-		err = command(cli.Review, args[1:], stdout, stderr)
-	case "pin":
-		err = command(cli.Pin, args[1:], stdout, stderr)
-	case "undo":
-		err = command(cli.Undo, args[1:], stdout, stderr)
-	case "forget":
-		err = command(cli.Forget, args[1:], stdout, stderr)
-	case "repair":
-		err = command(cli.Repair, args[1:], stdout, stderr)
+	case "remember", "review", "pin", "undo", "forget", "repair":
+		err = command(commands[args[0]], args[1:], stdout, stderr)
 	case "event":
 		err = event.Main(context.Background(), args[1:], os.Environ())
 	case "help", "-h", "--help":
