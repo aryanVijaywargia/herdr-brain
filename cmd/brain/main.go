@@ -31,6 +31,7 @@ commands:
   repair    [--confirm]: repair the output and list its conflicts; --confirm deletes them
   pane      review --proposal <id>: the review pane of one proposal (herdr runs it)
   event     workspace-closed: herdr's workspace.closed event (D4); marks the workspace closed
+  learn     on|off [--workspace <w> | --pane <p>]: record the learning switch; delivery stays on
   uninstall [--apply] [--data]: list what uninstall removes; --apply removes it, --data the stores too
   hook      --profile <name> --event start: the agent start hook (prints the brief or nothing)
 `
@@ -47,6 +48,7 @@ var commands = map[string]func(context.Context, cli.Env, []string) error{
 	"uninstall": cli.Uninstall,
 	"status":    cli.Status,
 	"doctor":    cli.Doctor,
+	"learn":     cli.Learn,
 }
 
 func main() {
@@ -70,7 +72,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "brain %s\n", version)
 	case "setup":
 		err = setup(context.Background(), osSetupDeps(os.Environ()), args[1:], in, stdout)
-	case "status", "doctor", "remember", "review", "pin", "undo", "forget", "repair", "pane", "uninstall":
+	case "status", "doctor", "remember", "review", "pin", "undo", "forget", "repair", "pane", "uninstall", "learn":
 		err = command(commands[args[0]], args[1:], in, stdout, stderr)
 	case "event":
 		err = event.Main(context.Background(), args[1:], os.Environ())

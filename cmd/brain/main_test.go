@@ -38,6 +38,9 @@ func TestRun(t *testing.T) {
 		{[]string{"help"}, 0, "pane      review --proposal <id>"},
 		{[]string{"uninstall", "--nope"}, 1, ""},
 		{[]string{"help"}, 0, "uninstall [--apply] [--data]"},
+		{[]string{"learn"}, 1, ""},
+		{[]string{"learn", "off"}, 1, ""}, // not in a herdr pane
+		{[]string{"help"}, 0, "learn     on|off [--workspace <w> | --pane <p>]"},
 	}
 	for _, c := range cases {
 		var out, errOut bytes.Buffer
