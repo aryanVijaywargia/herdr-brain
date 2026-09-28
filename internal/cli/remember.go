@@ -144,7 +144,7 @@ func saveDraft(ctx context.Context, s *store.Store, d draft, now time.Time) (int
 		// [NEW] the target names the brief part, and the diff of a new item is its text with "+ ".
 		pid, err = store.InsertProposal(ctx, tx, store.Proposal{ItemID: &item, BaseRevision: &base,
 			Text: d.text, Scope: d.scope, Target: d.target, Diff: "+ " + d.text,
-			Status: store.ProposalPending, Created: now})
+			PermissionWarning: permissionWords.MatchString(d.text), Status: store.ProposalPending, Created: now})
 		if err != nil {
 			return err
 		}
