@@ -116,7 +116,7 @@ func TestRepairKeepsHandEdit(t *testing.T) {
 	handEdit(t, out, old, globalName, "mine")
 	gen := mustRevise(t, s, id, 1, "two")
 
-	wantConflict(t, Repair(context.Background(), s, out, later), old, globalName)
+	wantConflict(t, Repair(context.Background(), s, out, testNow), old, globalName)
 	checkBytes(t, out, old, globalName, "mine")
 	checkPointer(t, out, old)
 	// The first check stops the build before it writes anything.
