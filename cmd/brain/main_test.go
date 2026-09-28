@@ -23,6 +23,8 @@ func TestRun(t *testing.T) {
 		{[]string{"remember"}, 1, ""},
 		{[]string{"review", "--nope"}, 1, ""},
 		{[]string{"pin"}, 1, ""},
+		{[]string{"undo"}, 1, ""},
+		{[]string{"help"}, 0, "undo      <item>"},
 		{[]string{"repair", "x"}, 1, ""},
 		{[]string{"help"}, 0, "repair    [--confirm]"},
 	}
