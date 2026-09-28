@@ -5,10 +5,10 @@
 package harness
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -31,7 +31,7 @@ const (
 	Detected   State = "detected"   // herdr reports the kind in some pane
 	Configured State = "configured" // the recorded Brain entry is in the hook file
 	Verified   State = "verified"   // a conformance pass matches the current values
-	Retest     State = "retest"     // the CLI version is not the tested version, or unreadable
+	Retest     State = "retest"     // an untested or unreadable CLI version
 )
 
 // Status is the state of one harness, with each part apart, so `brain status` can show a
@@ -96,15 +96,17 @@ func Check(ctx context.Context, h Panes, f Files, profiles []*adapter.Profile) (
 		s := Status{Kind: p.Kind, Detected: detected(panes, p.Kind)}
 		e, ok := rec.Entries[p.Kind]
 		if ok {
-			if s.Configured, err = configured(e); err != nil {
+			if s.Configured, err = configured(e, p.Events.Start); err != nil {
 				return nil, err
 			}
 		}
 		s.CLIVersion, s.VersionErr = cliVersion(ctx, p.Kind)
-		s.Retest = s.CLIVersion != p.TestedVersion
 		r, ok := last(results, p.Kind)
 		s.Verified = s.Configured && ok && s.VersionErr == nil && r.Result == Pass &&
 			r.CLIVersion == s.CLIVersion && r.ProfileSHA256 == p.SHA256 && r.EntrySHA256 == e.SHA256
+		// A pass on the current version tests that version (§8.5 "tested version"), so a
+		// verified CLI after an update needs no retest.
+		s.Retest = s.CLIVersion != p.TestedVersion && !s.Verified
 		out[i] = s
 	}
 	return out, nil
@@ -119,12 +121,10 @@ func detected(panes []herdr.Pane, kind string) bool {
 	return false
 }
 
-// configured reports whether the hook file holds the recorded entry, with the recorded hash.
-func configured(e install.Entry) (bool, error) {
-	sum := sha256.Sum256([]byte(e.Text))
-	if hex.EncodeToString(sum[:]) != e.SHA256 {
-		return false, nil
-	}
+// configured reports whether the start event array of the hook file holds a matcher group
+// with the recorded hash. The group must be there, not only somewhere in the file: only the
+// start event delivers the brief.
+func configured(e install.Entry, event string) (bool, error) {
 	data, err := os.ReadFile(e.Target)
 	// A deleted hook file holds no entry.
 	if errors.Is(err, fs.ErrNotExist) {
@@ -133,7 +133,21 @@ func configured(e install.Entry) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return bytes.Contains(data, []byte(e.Text)), nil
+	// RawMessage keeps the exact bytes of each group, as install hashed them.
+	var doc struct {
+		Hooks map[string][]json.RawMessage `json:"hooks"`
+	}
+	// A file of another shape holds no start hook that the CLI runs.
+	if json.Unmarshal(data, &doc) != nil {
+		return false, nil
+	}
+	for _, g := range doc.Hooks[event] {
+		sum := sha256.Sum256(g)
+		if hex.EncodeToString(sum[:]) == e.SHA256 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // cliVersion runs `<kind> --version` and returns the first version word of its output.

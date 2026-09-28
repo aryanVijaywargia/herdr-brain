@@ -140,6 +140,15 @@ func TestStates(t *testing.T) {
 			if s.State() != Retest || s.CLIVersion != "9.9.9" || s.Verified || !s.Configured {
 				t.Fatalf("new CLI version: %+v, want retest at 9.9.9, configured, not verified", s)
 			}
+			pass.CLIVersion, pass.RunID = "9.9.9", "run-2"
+			e.conformance(t, pass)
+			if s := check(t, e, seen, p); s.State() != Verified || s.Retest {
+				t.Fatalf("conformance pass on 9.9.9: %+v, want verified, no retest", s)
+			}
+			e.cli(t, tc.kind, strings.Replace(tc.version, p.TestedVersion, "9.9.10", 1))
+			if s := check(t, e, seen, p); s.State() != Retest {
+				t.Fatalf("second new CLI version: state %s, want retest", s.State())
+			}
 		})
 	}
 }
@@ -190,6 +199,16 @@ func TestNotVerified(t *testing.T) {
 	}
 }
 
+// rewrite returns a change that replaces the first old with new in the hook file.
+func rewrite(old, new string) func(t *testing.T, target string, data []byte) {
+	return func(t *testing.T, target string, data []byte) {
+		t.Helper()
+		if err := os.WriteFile(target, []byte(strings.Replace(string(data), old, new, 1)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // TestNotConfigured checks that the entry counts only while the hook file holds it unchanged.
 func TestNotConfigured(t *testing.T) {
 	tests := []struct {
@@ -201,12 +220,9 @@ func TestNotConfigured(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
-		{"entry edited", func(t *testing.T, target string, data []byte) {
-			edited := strings.Replace(string(data), `"timeout":5`, `"timeout":9`, 1)
-			if err := os.WriteFile(target, []byte(edited), 0o600); err != nil {
-				t.Fatal(err)
-			}
-		}},
+		{"entry edited", rewrite(`"timeout":5`, `"timeout":9`)},
+		{"entry moved to another event", rewrite(`"SessionStart"`, `"Stop"`)},
+		{"file not JSON", rewrite(`{`, `{{`)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
