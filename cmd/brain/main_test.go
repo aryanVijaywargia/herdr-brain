@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,6 +20,7 @@ func TestRun(t *testing.T) {
 		{[]string{"help"}, 0, "usage:"},
 		{nil, 2, ""},
 		{[]string{"nope"}, 2, ""},
+		{[]string{"remember"}, 1, ""},
 	}
 	for _, c := range cases {
 		var out, errOut bytes.Buffer
@@ -74,5 +76,26 @@ func TestHookErrorsExitZero(t *testing.T) {
 		if code := run(args, strings.NewReader("{}"), &out, &errOut); code != 0 || out.Len() != 0 || errOut.Len() != 0 {
 			t.Errorf("run(%q) = %d, stdout %q, stderr %q; want 0 and no output", args, code, out.String(), errOut.String())
 		}
+	}
+}
+
+// `brain remember` with a token writes nothing and prints the class, not the token (E4-S1 AC).
+func TestRememberSecret(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	token := "ghp_" + strings.Repeat("a1B2", 9)
+	var out, errOut bytes.Buffer
+	if got := run([]string{"remember", "token " + token}, strings.NewReader(""), &out, &errOut); got != 1 {
+		t.Errorf("run(remember token) = %d, want 1", got)
+	}
+	if !strings.Contains(errOut.String(), "github-token") || strings.Contains(errOut.String()+out.String(), token) {
+		t.Errorf("run(remember token) stderr = %q, stdout = %q; want the class and no token", errOut.String(), out.String())
+	}
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("run(remember token) wrote %v in HOME, want nothing", entries)
 	}
 }
