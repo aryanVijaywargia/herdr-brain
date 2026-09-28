@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -18,14 +19,27 @@ type marker struct {
 
 // MarkRetest records in dir that the hook input of harness kind had an unknown shape at time
 // at. The hook calls it, so it writes no store: the file is <dir>/<kind>.json. [NEW] the
-// folder and the file name.
-func MarkRetest(dir, kind string, at time.Time) error {
+// folder and the file name. Two hooks can mark at about the same time, so it holds
+// <dir>/<kind>.lock and keeps a newer marker that is already there (#118).
+func MarkRetest(dir, kind string, at time.Time) (err error) {
 	data, err := json.Marshal(marker{At: at})
 	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("retest marker: %w", err)
+	}
+	lock, err := os.OpenFile(filepath.Join(dir, kind+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("retest marker: %w", err)
+	}
+	defer func() { err = errors.Join(err, lock.Close()) }() // Close also drops the lock
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("retest marker: lock %s: %w", lock.Name(), err)
+	}
+	// An unreadable marker is replaced: the new one is valid.
+	if m, ok, err := readMarker(dir, kind); err == nil && ok && !m.At.Before(at) {
+		return nil
 	}
 	f, err := os.CreateTemp(dir, kind+".*.tmp")
 	if err != nil {

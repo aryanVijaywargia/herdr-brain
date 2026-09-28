@@ -256,6 +256,28 @@ func TestRetestMarker(t *testing.T) {
 	}
 }
 
+// TestRetestMarkerOlderLater checks that an older marker written after a newer one does not
+// replace it (#118): two hooks can fail to parse at about the same time, and the later write
+// can hold the older time.
+func TestRetestMarkerOlderLater(t *testing.T) {
+	t0 := time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC)
+	e := newEnv(t)
+	p := load(t, "claude")
+	e.cli(t, "claude", "2.1.283 (Claude Code)")
+	entry := e.install(t, p)
+	for _, at := range []time.Time{t0.Add(2 * time.Second), t0} {
+		if err := MarkRetest(e.files.Retest, "claude", at); err != nil {
+			t.Fatalf("MarkRetest(%s) = %v", at, err)
+		}
+	}
+	// A pass between the two marker times is older than the newer marker.
+	e.conformance(t, Result{Harness: "claude", CLIVersion: p.TestedVersion, ProfileSHA256: p.SHA256,
+		EntrySHA256: entry.SHA256, RunID: "run", Result: Pass, At: t0.Add(time.Second)})
+	if s := check(t, e, fakeHerdr{}, p); s.State() != Retest {
+		t.Errorf("pass between an older marker written last and a newer one: %+v, want retest", s)
+	}
+}
+
 // rewrite returns a change that replaces the first from with to in the hook file.
 func rewrite(from, to string) func(t *testing.T, target string, data []byte) {
 	return func(t *testing.T, target string, data []byte) {
