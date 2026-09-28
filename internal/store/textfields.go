@@ -63,6 +63,7 @@ func noItemTextFields() []Field {
 		{"applied_edits", "revisions_before"},
 		{"applied_edits", "revisions_after"},
 		{"deliveries", "profile"},
+		{"deliveries", "herdr_session"},
 		{"deliveries", "pane_id"},
 		{"deliveries", "agent_session_id"},
 		{"deliveries", "workspace_key"},
