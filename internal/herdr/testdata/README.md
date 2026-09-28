@@ -22,3 +22,9 @@ server` with a scratch HOME):
 - `pane-moved.json`: `herdr pane get w1:p2` after `herdr pane move w1:p2 --tab w2:t1 --split
   right`. herdr answers the old id with the moved pane and its new id `w2:p2`. A move to a
   new tab in the same workspace kept the id.
+
+Recorded on 2026-09-29 from a headless scratch server (`herdr --session t48-live server` with
+a scratch HOME), with the plugin folder shortened to `/tmp/brain-t0048/plug`:
+
+- `pane-process-info.json`: `herdr pane process-info --pane w1:p2` of the Brain review pane,
+  opened with `--env BRAIN_PROPOSAL_ID=7` (E5-S2)

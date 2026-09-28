@@ -53,8 +53,15 @@ func Remember(ctx context.Context, e Env, args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	// The review pane is E5; until then the draft waits in `brain review` (S53).
-	_, err = fmt.Fprintf(e.Stdout, "proposal %d: %s draft, waiting for your review (brain review)\n", id, d.target)
+	// The review pane opens beside the caller, an agent too (S52). When it cannot open, the
+	// draft waits in `brain review`, and one line says why (S53).
+	pane, err := openReviewPane(ctx, e, c, id)
+	if err != nil {
+		_, err = fmt.Fprintf(e.Stdout, "proposal %d: %s draft, waiting for your review (brain review); the review pane did not open: %s\n",
+			id, d.target, strings.ReplaceAll(err.Error(), "\n", "; "))
+		return err
+	}
+	_, err = fmt.Fprintf(e.Stdout, "proposal %d: %s draft, waiting for your review in pane %s (or brain review)\n", id, d.target, pane)
 	return err
 }
 

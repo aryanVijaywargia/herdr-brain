@@ -51,7 +51,8 @@ command = ["sh", "-c", "\"$HERDR_PLUGIN_ROOT/bin/brain\" review; printf 'Press E
 
 # E5-S1: the review pane of one proposal. E5-S2 opens it beside the caller with
 # `plugin pane open --plugin brain --entrypoint review --no-focus --env BRAIN_PROPOSAL_ID=<id>`,
-# so the id comes from --env, never from pane text. The pane closes when brain exits.
+# so the id comes from --env, never from pane text. The pane closes when brain exits. Keep the
+# exec: a close checks that herdr shows `brain pane review --proposal <id>` in the pane.
 [[panes]]
 id = "review"
 title = "Brain review"
