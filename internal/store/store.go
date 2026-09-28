@@ -84,12 +84,8 @@ func setup(ctx context.Context, db *sql.DB, busyTimeout time.Duration, ms []migr
 	if err := checkVersion(v, len(ms)); err != nil {
 		return err
 	}
-	var mode string
-	if err := db.QueryRowContext(ctx, "PRAGMA journal_mode=WAL").Scan(&mode); err != nil {
-		return fmt.Errorf("set WAL mode: %w", err)
-	}
-	if mode != "wal" {
-		return fmt.Errorf("set WAL mode: journal mode is %q", mode)
+	if err := setWAL(ctx, db, busyTimeout); err != nil {
+		return err
 	}
 	for _, m := range ms[v:] {
 		if err := migrate(ctx, db, busyTimeout, m, len(ms)); err != nil {
@@ -97,6 +93,47 @@ func setup(ctx context.Context, db *sql.DB, busyTimeout time.Duration, ms []migr
 		}
 	}
 	return nil
+}
+
+// walRetry is the pause between two tries to switch a new store to WAL. [NEW]
+const walRetry = 5 * time.Millisecond
+
+// setWAL switches the store to WAL mode. SQLite does not always call the busy handler for a
+// journal mode change, so two processes that open a new store at the same time can get
+// SQLITE_BUSY at once. setWAL tries again until the busy timeout ends, or the deadline of ctx
+// when that comes first. Each try waits only for the time that is left.
+func setWAL(ctx context.Context, db *sql.DB, busyTimeout time.Duration) (err error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("get connection: %w", err)
+	}
+	defer func() {
+		// Later reads on this connection get the full busy timeout again.
+		err = errors.Join(err, setBusyTimeout(context.WithoutCancel(ctx), conn, busyTimeout), conn.Close())
+	}()
+	end := time.Now().Add(busyTimeout)
+	for {
+		if err := setBusyTimeout(ctx, conn, max(0, time.Until(end))); err != nil {
+			return err
+		}
+		var mode string
+		err := conn.QueryRowContext(ctx, "PRAGMA journal_mode=WAL").Scan(&mode)
+		if err == nil {
+			if mode != "wal" {
+				return fmt.Errorf("set WAL mode: journal mode is %q", mode)
+			}
+			return nil
+		}
+		left := time.Until(end)
+		if !errors.Is(busy(err), ErrBusy) || left <= 0 {
+			return errors.Join(ctx.Err(), fmt.Errorf("set WAL mode: %w", err))
+		}
+		select {
+		case <-ctx.Done():
+			return errors.Join(ctx.Err(), fmt.Errorf("set WAL mode: %w", err))
+		case <-time.After(min(walRetry, left)):
+		}
+	}
 }
 
 // checkVersion refuses a store with a newer version than latest, the binary's version.
