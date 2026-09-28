@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/hook"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 )
 
@@ -19,6 +20,7 @@ commands:
   version   print the Brain version
   status    show Brain status
   setup     show the binary path and offer a ~/.local/bin/brain link
+  hook      --profile <name> --event start: the agent start hook (prints the brief or nothing)
 `
 
 func main() {
@@ -29,6 +31,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return 2
+	}
+	if args[0] == "hook" {
+		// The hook never fails a session start: on any error it prints nothing and exits 0 (§8.3).
+		_ = hook.Main(args[1:], os.Environ(), stdin, stdout)
+		return 0
 	}
 	in := bufio.NewReader(stdin)
 	var err error
