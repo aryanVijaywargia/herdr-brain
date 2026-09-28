@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"time"
 )
 
 // Pass is the result of a completed conformance run that passed. The other results are
@@ -28,6 +29,9 @@ type Result struct {
 	EntrySHA256   string `json:"entry_sha256"`   // install.Entry.SHA256
 	RunID         string `json:"run_id"`
 	Result        string `json:"result"` // pending, pass, fail or inconclusive
+	// At is the time the run completed. A retest marker after it invalidates the pass (S14).
+	// [NEW] the field.
+	At time.Time `json:"at"`
 }
 
 // readConformance reads the conformance results at path. No file is no results: no
