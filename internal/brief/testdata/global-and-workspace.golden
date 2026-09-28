@@ -1,0 +1,9 @@
+<!-- brain:begin v1 -->
+Precedence: for ordinary preferences, a workspace item wins over a global item. It never relaxes a global permission or safety rule. A "conflicts with" mark wins over this line.
+## Global (all workspaces)
+- [3] Use npm for installs.
+## This workspace
+- [15] Deploy with make deploy.
+  Never deploy on Fridays.
+- [20] The API server listens on port 8080.
+<!-- brain:end -->

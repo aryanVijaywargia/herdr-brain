@@ -1,0 +1,7 @@
+<!-- brain:begin v1 -->
+Precedence: for ordinary preferences, a workspace item wins over a global item. It never relaxes a global permission or safety rule. A "conflicts with" mark wins over this line.
+## Global (all workspaces)
+- [3] Use npm for installs.
+## This workspace
+- [9] Use pnpm in this repo. (exception to global item 3)
+<!-- brain:end -->
