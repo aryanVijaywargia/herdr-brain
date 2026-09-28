@@ -21,6 +21,8 @@ func TestRun(t *testing.T) {
 		{nil, 2, ""},
 		{[]string{"nope"}, 2, ""},
 		{[]string{"remember"}, 1, ""},
+		{[]string{"review", "--nope"}, 1, ""},
+		{[]string{"pin"}, 1, ""},
 	}
 	for _, c := range cases {
 		var out, errOut bytes.Buffer
