@@ -64,11 +64,14 @@ func open(ctx context.Context, dir string, busyTimeout time.Duration, fsys fs.FS
 
 // dsn turns on foreign keys for each connection and makes each transaction take the write
 // lock at BEGIN. A deferred transaction that upgrades from read to write gets SQLITE_BUSY at
-// once in WAL mode, without the busy timeout.
+// once in WAL mode, without the busy timeout. synchronous NORMAL lets a commit return without
+// a wait for the disk; in WAL mode a power loss can lose the last commits but cannot corrupt
+// the store.
 func dsn(path string, busyTimeout time.Duration) string {
 	q := url.Values{}
 	q.Add("_pragma", "busy_timeout("+strconv.FormatInt(busyTimeout.Milliseconds(), 10)+")")
 	q.Add("_pragma", "foreign_keys(1)")
+	q.Add("_pragma", "synchronous(NORMAL)")
 	q.Set("_txlock", "immediate")
 	u := url.URL{Scheme: "file", Path: path, RawQuery: q.Encode()}
 	return u.String()
