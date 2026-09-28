@@ -21,11 +21,12 @@ import (
 // The names in the out folder and in each generation folder. [NEW] all names except
 // out/gen-<n>/ and out/current, which come from §7.5 step 3.
 const (
-	pointerName  = "current"
-	lockName     = "lock"
-	manifestName = "manifest.json"
-	globalName   = "global.md"
-	workspaceDir = "workspaces"
+	pointerName   = "current"
+	lockName      = "lock"
+	stagingPrefix = "staging-" // out/staging-<n>/
+	manifestName  = "manifest.json"
+	globalName    = "global.md"
+	workspaceDir  = "workspaces"
 )
 
 // ErrInconsistent means that a file of a generation is missing or does not match the hash in
@@ -138,7 +139,31 @@ func readManifest(dir string) (Manifest, []byte, error) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return Manifest{}, nil, fmt.Errorf("%s: %w: %w", filepath.Join(dir, manifestName), ErrInconsistent, err)
 	}
+	if err := checkManifest(m); err != nil {
+		return Manifest{}, nil, fmt.Errorf("%s: %w: %w", filepath.Join(dir, manifestName), ErrInconsistent, err)
+	}
 	return m, b, nil
+}
+
+// checkManifest checks the structure that every build writes: a generation number, the global
+// part, and a hash and a revision list for each file. Valid JSON that lacks it is damaged, and
+// cannot show that a file holds no item revision.
+func checkManifest(m Manifest) error {
+	if m.Generation < 1 {
+		return fmt.Errorf("generation %d", m.Generation)
+	}
+	if _, ok := m.Files[globalName]; !ok {
+		return fmt.Errorf("no %s", globalName)
+	}
+	for name, f := range m.Files {
+		if _, err := hex.DecodeString(f.SHA256); err != nil || len(f.SHA256) != 2*sha256.Size {
+			return fmt.Errorf("%s: bad sha256", name)
+		}
+		if f.Revisions == nil {
+			return fmt.Errorf("%s: no revisions", name)
+		}
+	}
+	return nil
 }
 
 // readChecked reads the file name of the generation in dir and checks it against m.
