@@ -715,7 +715,7 @@ func TestCap(t *testing.T) {
 		name  string
 		setup func(f *fixture, h *Hook, release <-chan struct{}) (stdin io.Reader, stdout io.Writer)
 	}{
-		{"stdin held open", func(f *fixture, h *Hook, release <-chan struct{}) (io.Reader, io.Writer) {
+		{"stdin held open", func(_ *fixture, _ *Hook, release <-chan struct{}) (io.Reader, io.Writer) {
 			r, w := io.Pipe()
 			go func() {
 				<-release
@@ -732,7 +732,7 @@ func TestCap(t *testing.T) {
 			}
 			return strings.NewReader(input), &bytes.Buffer{}
 		}},
-		{"stalled output", func(f *fixture, h *Hook, release <-chan struct{}) (io.Reader, io.Writer) {
+		{"stalled output", func(_ *fixture, _ *Hook, _ <-chan struct{}) (io.Reader, io.Writer) {
 			return strings.NewReader(input), &blockedWriter{release: make(chan struct{}), started: make(chan struct{})}
 		}},
 	}
@@ -745,6 +745,7 @@ func TestCap(t *testing.T) {
 			release := make(chan struct{})
 			stdin, stdout := tt.setup(f, &h, release)
 			bw, stalledOut := stdout.(*blockedWriter)
+			buf, _ := stdout.(*bytes.Buffer)
 			if stalledOut {
 				// The stalled print ends with the test, as it ends with the process.
 				t.Cleanup(func() { close(bw.release) })
@@ -758,7 +759,7 @@ func TestCap(t *testing.T) {
 			} else {
 				close(release)
 				<-ended
-				if out := stdout.(*bytes.Buffer).String(); out != "" {
+				if out := buf.String(); out != "" {
 					t.Errorf("late print %q, want none", out)
 				}
 			}
