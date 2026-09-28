@@ -216,6 +216,10 @@ func TestPaneForgetDuringEdit(t *testing.T) {
 	if err != nil || !strings.Contains(screen, "already decided") {
 		t.Fatalf("submit after forget = %v\n%s", err, screen)
 	}
+	// The view shows at open and when e starts, never while you type after the forget.
+	if n := strings.Count(screen, "text:     use pnpm"); n != 2 {
+		t.Errorf("the proposal view shows %d times, want 2\n%s", n, screen)
+	}
 	it, rev := f.rows(t).item(t, item)
 	if !forgotten(rev) || it.CurrentRevision != 2 {
 		t.Errorf("item = %s %q at revision %d, want forgotten at revision 2", rev.State, rev.Text, it.CurrentRevision)
@@ -234,5 +238,19 @@ func TestParsePane(t *testing.T) {
 		if _, err := parsePane(args); err == nil || !strings.Contains(err.Error(), paneUsage) {
 			t.Errorf("parsePane(%q) = %v, want the usage", args, err)
 		}
+	}
+}
+
+// A forget while the pane waits for a key: the next screen reads the proposal again and
+// closes, and does not show the text again.
+func TestPaneForgetWhileOpen(t *testing.T) {
+	f := newFixture(t)
+	id := f.remember(t, "use pnpm")
+	item := *f.rows(t).proposal(t, id).ItemID
+	k := typed("sq")
+	k.before = map[int]func(){0: func() { f.mustForget(t, clock(), fmt.Sprint(item)) }}
+	screen, err := f.pane(t, id, k)
+	if err != nil || !strings.Contains(screen, "already decided") || strings.Count(screen, "text:     use pnpm") != 1 {
+		t.Errorf("pane after forget = %v\n%s", err, screen)
 	}
 }

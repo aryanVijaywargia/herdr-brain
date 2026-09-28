@@ -90,62 +90,71 @@ type reviewPane struct {
 	id     int64
 	keys   io.RuneReader
 	linger time.Duration
-	view   string      // the E4-S3 view of the proposal
+	view   string      // the E4-S3 view of the proposal, read before each screen
 	scope  store.Scope // "" keeps the proposed scope
 	pin    bool
 	msg    string // the result of the last key
 }
 
-// run shows the proposal and reads keys until a decision, q or the end of input.
+// run shows the proposal and reads keys until a decision, q or the end of input. It reads
+// the proposal again before each screen, so a forget or a decision in another surface while
+// the pane waits for a key never shows the old text again (E5-S1).
 func (p *reviewPane) run(ctx context.Context) error {
-	view, err := p.review(ctx)
-	if err != nil {
-		return p.close(ctx, err)
-	}
-	p.view = view
 	for {
-		p.draw("")
-		k, _, err := p.keys.ReadRune()
+		view, err := p.review(ctx)
 		if err != nil {
-			return nil // the input is gone: nothing more to decide
-		}
-		var args []string
-		switch k {
-		case 'a':
-			done, err := p.approve(ctx, nil)
-			if done || errors.Is(err, errDecided) {
-				return p.close(ctx, err)
-			}
-			continue
-		case 'e':
-			done, err := p.edit(ctx)
-			if done || errors.Is(err, errDecided) {
-				return p.close(ctx, err)
-			}
-			continue
-		case 'r':
-			args = []string{"--reject"}
-		case 'l':
-			args = []string{"--later"}
-		case 's':
-			p.scope = map[store.Scope]store.Scope{"": store.ScopeGlobal, store.ScopeGlobal: store.ScopeWorkspace}[p.scope]
-			p.msg = ""
-			continue
-		case 'p':
-			p.pin, p.msg = !p.pin, ""
-			continue
-		case 'q':
-			return nil
-		default:
-			continue
-		}
-		out, err := p.review(ctx, args...)
-		p.msg = out
-		if err == nil || errors.Is(err, errDecided) {
 			return p.close(ctx, err)
 		}
-		p.msg = err.Error()
+		p.view = view
+		p.draw("")
+		k, _, err := p.keys.ReadRune()
+		if errors.Is(err, io.EOF) {
+			return nil // the input is gone: nothing more to decide
+		}
+		if err != nil || k == 'q' {
+			return err
+		}
+		done, err := p.key(ctx, k)
+		if done || errors.Is(err, errDecided) {
+			return p.close(ctx, err)
+		}
 	}
+}
+
+// key runs the action of key k. done is true when the proposal is decided, or stays in the
+// queue with later. Any other error is on the screen, and the pane goes on.
+func (p *reviewPane) key(ctx context.Context, k rune) (done bool, err error) {
+	switch k {
+	case 'a':
+		return p.approve(ctx, nil)
+	case 'e':
+		return p.edit(ctx)
+	case 'r':
+		return p.decide(ctx, "--reject")
+	case 'l':
+		return p.decide(ctx, "--later")
+	case 's':
+		p.scope = map[store.Scope]store.Scope{"": store.ScopeGlobal, store.ScopeGlobal: store.ScopeWorkspace}[p.scope]
+		p.msg = ""
+	case 'p':
+		p.pin, p.msg = !p.pin, ""
+	}
+	return false, nil
+}
+
+// decide runs `brain review <id> args` and shows its output, or its error.
+func (p *reviewPane) decide(ctx context.Context, args ...string) (bool, error) {
+	return p.show(p.review(ctx, args...))
+}
+
+// show shows out, or err, and reports whether the call is done.
+func (p *reviewPane) show(out string, err error) (bool, error) {
+	p.msg = out
+	if err != nil {
+		p.msg = err.Error()
+		return false, err
+	}
+	return true, nil
 }
 
 // review runs `brain review <id> args` with surface pane and returns its output.
@@ -171,30 +180,35 @@ func (p *reviewPane) approve(ctx context.Context, edit *string) (done bool, err 
 		args = append(args, "--pin")
 	}
 	out, err := p.review(ctx, args...)
-	if errors.Is(err, errConfirm) {
-		p.draw("this may change a permission, an allow rule or a safety rule: press y to approve, another key to go back")
-		if k, _, rerr := p.keys.ReadRune(); rerr != nil || k != 'y' {
-			p.msg = "not approved"
-			return false, nil
-		}
-		out, err = p.review(ctx, append(args, "--confirm")...)
+	if !errors.Is(err, errConfirm) {
+		return p.show(out, err)
 	}
-	p.msg = out
-	if err != nil {
-		p.msg = err.Error()
-		return false, err
+	p.draw("this may change a permission, an allow rule or a safety rule: press y to approve, another key to go back")
+	k, _, rerr := p.keys.ReadRune()
+	if rerr != nil {
+		return false, rerr
 	}
-	return true, nil
+	if k != 'y' {
+		p.msg = "not approved"
+		return false, nil
+	}
+	return p.decide(ctx, append(args, "--confirm")...)
 }
 
 // edit reads a new text in the pane and approves the proposal with it. The text stays in
 // memory: no temp file, no $EDITOR (E5-S1). Esc goes back.
 func (p *reviewPane) edit(ctx context.Context) (bool, error) {
 	var text []rune
+	// Each key redraws only the text-entry line, from the saved cursor: the proposal can be
+	// forgotten while you type, and the pane must not show its text again.
+	p.draw("\x1b7")
 	for {
-		p.draw("new text (Enter approves, Esc goes back): " + string(text))
+		_, _ = io.WriteString(p.Stdout, "\x1b8\x1b[Jnew text (Enter approves, Esc goes back): "+string(text)) // as in draw
 		k, _, err := p.keys.ReadRune()
-		if err != nil || k == keyEsc {
+		if err != nil {
+			return false, err
+		}
+		if k == keyEsc {
 			p.msg = ""
 			return false, nil
 		}
@@ -208,7 +222,7 @@ func (p *reviewPane) edit(ctx context.Context) (bool, error) {
 			// The filter runs before E4 gets the text, and a refused text is dropped.
 			if err := secret.Check(s); err != nil {
 				p.msg = err.Error()
-				return false, nil
+				return false, err
 			}
 			return p.approve(ctx, &s)
 		case k == keyDel || k == keyBS:
