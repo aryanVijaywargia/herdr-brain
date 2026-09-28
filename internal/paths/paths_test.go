@@ -100,3 +100,10 @@ func TestBinaryPathIsAbsolute(t *testing.T) {
 		t.Errorf("BinaryPath = %q, want an absolute path", got)
 	}
 }
+
+// The workspace map sits in the store folder, next to the store that holds its keys.
+func TestWorkspaceMap(t *testing.T) {
+	if got, want := WorkspaceMap("/data/brain"), "/data/brain/workspaces.json"; got != want {
+		t.Errorf("WorkspaceMap(/data/brain) = %q, want %q", got, want)
+	}
+}
