@@ -144,6 +144,7 @@ The gap is real because each vendor's memory sees only its own CLI. herdr sees a
 - No cloud part of Brain. The store, the hook and all files stay on the machine. The extractor and agent delivery are separate cases (D9).
 - No subscription or quota routing. Brain does not know your plans or quotas. That goal stays deferred.
 - No token reading, copying or proxying. Only official, unmodified CLIs.
+  - The §8.1 hook-file snapshot may hold tokens that the file already holds. Brain never uses or sends them.
 
 ---
 
@@ -730,6 +731,9 @@ The rules are wide on purpose. The extractor removes the false positives.
 ### 7.3 Extractor
 
 - **What it is:** one headless call to an official CLI that you choose: `claude -p` or `codex exec`. No tools, no file access, and a fixed JSON output schema.
+  - "No tools" means no tool that reaches files, the shell, the network, MCP or agents.
+  - Codex is accepted as an extractor. It keeps its built-in code-mode `exec`/`wait` and `request_user_input_async`, because `codex exec` cannot turn them off (M0 FINDINGS, E13-S1).
+  - E13-S2 may set a time limit for the call.
 - **When:** once per finished session with signals (on `pane.exited`, or 10 minutes idle after work).
 - **Watermark:** each session has an extraction watermark. Later work in the same session goes into a later batch. Nothing is extracted twice.
 - **Commit (G3):** Brain runs the extractor outside any transaction and checks the returned batch. Then one transaction writes the evidence links, candidates, outcomes and the new watermark.
@@ -782,6 +786,8 @@ SQLite is the authority. Files are outputs.
 3. **Build:** the compiler takes one local lock file. It writes the new generation into its own folder `out/gen-<n>/`: the global part, the workspace parts and one manifest with the hash of each file. Then it replaces one pointer file `out/current` with a temp file and a rename. The switch is atomic, so a reader sees the whole old generation or the whole new one. [NEW]
 4. **Stale builds:** before it switches the pointer, the compiler checks that its generation is still the newest. An older build stops. It never replaces a newer pointer.
 5. **Own files only:** the compiler writes only Brain's own files in `~/.local/share/brain/`. It never writes a shared file (§8.1). Before it builds, it checks the files of the current generation against their manifest. If you edited a file by hand, it reports a **conflict** and asks before it replaces the generation.
+   - You confirm with `brain repair --confirm`. It deletes the hand-edited generation folder and builds it again.
+   - `brain status` and `brain doctor` show the conflict (E9-S2, E9-S3).
 6. **Repair:** on each `brain` call and in `brain doctor`, the compiler builds any output that is behind the store, with the same hash check.
 7. **Log:** each applied edit stores the file, the before and after content, the generation and the proposal id.
 8. **Old generations:** Brain deletes a generation only when it is not current, and the pointer moved away from it more than one hook time cap ago. This is a practical cleanup rule, not a guarantee: a stopped process can wake later. That is safe, because a hook that finds a file missing prints nothing. Forget deletes old generations the same way and reports "pending" until they are gone (§6.7).
@@ -1449,7 +1455,7 @@ M0 checks the facts that M1 needs first (marked **M1**). The others can stay **u
 10. **M1** The full hook time in the real CLI hook environment: process start, socket access, `herdr pane get`, manifest check and receipt, at normal and busy load. It sets the lookup deadline inside the 300 ms cap. A fast `pane get` alone is not enough. A slow answer withholds the whole brief (§8.3). **PARTIAL `[M0]`:** a Go hook took 5.4-10.7 ms in total, with `pane get` 4.5-10.2 ms, at normal load. Still open: busy load and the manifest check. **ANSWERED** (E7-S4, PR #89): the lookup deadline is 150 ms from the hook start (owner decision 2026-09-28). E7-S2 (#34) enforces the whole cap.
 11. **M1** That `herdr pane split --no-focus` and `pane close` work from a `brain` call, and that the review pane does not take focus. The plugin popup placement for a TUI review screen. **PASS `[M0]`** for `pane split --no-focus`, `pane close`, and a plugin `split` pane with `--no-focus`. Still open: the `popup` placement.
 12. That each CLI reads a skill file from an absolute path listed in the brief, when the skill is relevant (M3).
-13. That `codex exec` and `claude -p` can run with no tools and a JSON schema output for the extractor.
+13. That `codex exec` and `claude -p` can run with no tools and a JSON schema output for the extractor. **Decided (owner decision 2026-09-28):** see the "no tools" rule of §7.3.
 14. Hook payloads on the installed Claude and Codex: `UserPromptSubmit` text, `PostToolUse` command, cwd and exit data, `Stop`. That a `UserPromptSubmit` hook with no output leaves the prompt unchanged.
 15. That the Brain MCP server sees `HERDR_ENV` and returns an empty tool list outside herdr (M4).
 16. agy 1.2.11: that `PreInvocation` with `invocationNum == 0` and `injectSteps[].ephemeralMessage` reach the model; the hook file `~/.gemini/config/hooks.json`; the input JSON paths; a tool event.
@@ -1464,7 +1470,7 @@ M0 checks the facts that M1 needs first (marked **M1**). The others can stay **u
 25. **M1** That no other `brain` executable is on `PATH` (D1). **PASS `[M0]`.**
 26. Only if fallback B is ever built: that `herdr agent prompt` does not break an agent that is still starting.
 27. **M1** That a named test herdr session (`herdr --session <name>`) runs beside the main session with its own socket and workspace ids, and that its panes carry its own `HERDR_SOCKET_PATH`. `herdr session list --json` shows `socket_path` for each session (checked on 2026-09-27). The eval runner needs the rest (§12.1). Also: every runner command targets the test session even with the main session's variables inherited; a new test session does not start a listener for the main store; a session with a reused name gets a reset store. **PASS `[M0]`** for the session parts: `herdr --session brain-eval server` ran beside the default session with its own socket and workspace ids (`w1`), and its panes had `HERDR_SESSION=brain-eval` and their own `HERDR_SOCKET_PATH`. `herdr session stop <name>` and `herdr session delete <name>` affect only that session. The Brain parts wait for the runner.
-28. **M1** That the eval runner can read a full reply from Claude and Codex with `herdr agent read`. If the alternate screen hides it, the probe asks the agent to write the reply to a file in the scratch folder. **PASS for Claude `[M0]`:** `agent read --source recent-unwrapped --lines 200` returned all 150 lines of a reply. Codex: open.
+28. **M1** That the eval runner can read a full reply from Claude and Codex with `herdr agent read`. If the alternate screen hides it, the probe asks the agent to write the reply to a file in the scratch folder. **PASS for Claude `[M0]`:** `agent read --source recent-unwrapped --lines 200` returned all 150 lines of a reply. **PASS for Claude and Codex (E10-S4).**
 29. **M1** Whether the agent session id in the SessionStart hook input matches the live `agent_session` of the pane at that time. herdr may fill it in later. If it does not match reliably, the G1 check stays a target-pane check only (§8.3). **Answered `[M0]`:** herdr fills it in after the hook. The later value matches for Claude and Codex. The hook check stays a target-pane check. The next `brain` call checks the match (§8.3).
 30. **M1** That a CLI hook subprocess can open the herdr socket with its real permissions. Astra's sandboxed `herdr pane get` failed with `PermissionDenied` (2026-09-27). If a CLI sandbox blocks the socket, that CLI gets no brief, and `brain status` shows an adapter gap. **PASS `[M0]`** for Claude and Codex SessionStart hooks: the hook subprocess reached the socket.
 31. **M1** On herdr 0.9.1: what a restart keeps, and what a deletion and new start of session state keeps. Does herdr give a persistent session identity? Are workspace ids reused after state deletion? The continuity rule of §8.3 uses the answer. **Answered `[M0]`:** a restart keeps ids and `identity_cwd`. A deletion reuses `w1` for a new folder. There is no persistent session identity (§4.2).
