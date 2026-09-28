@@ -4,6 +4,7 @@ on:
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
 
 # A new push to a PR cancels the older run of that PR. Runs on main get a
 # group of their own (run_id), so they never cancel each other.
