@@ -33,7 +33,8 @@ import (
 const mapVersion = 1
 
 // Entry maps one (herdr session, workspace id) pair to a key. A remap keeps the old entry,
-// so that its items wait for a relink (§9.4, S83); ReplacedBy then names the new key.
+// so that its items wait for a relink (§9.4, S83); ReplacedBy then names the new key. A
+// close keeps the entry too, with Closed set: herdr can reuse the id after a restart (D4).
 type Entry struct {
 	Key         string `json:"key"`
 	Session     string `json:"session"`      // herdr session name
@@ -41,6 +42,7 @@ type Entry struct {
 	Label       string `json:"label"`
 	Project     string `json:"project"` // canonical project folder, recorded at the first mapping
 	ReplacedBy  string `json:"replaced_by,omitempty"`
+	Closed      bool   `json:"closed,omitempty"` // optional, so the map file stays version 1
 }
 
 type mapFile struct {
@@ -252,13 +254,40 @@ func (s Session) Remap(ctx context.Context, environ []string, st *store.Store, i
 		m.Entries = append(m.Entries, e)
 		res.New = e
 		for _, o := range m.Entries {
-			if o.Session == s.Name && o.WorkspaceID == id && o.ReplacedBy != "" {
+			if o.Session == s.Name && o.WorkspaceID == id && o.ReplacedBy != "" && !o.Closed {
 				res.Old = append(res.Old, o)
 			}
 		}
 		return true, nil
 	})
 	return res, err
+}
+
+// Close marks workspace id of s closed: each entry of the pair, the remapped ones too, and
+// their store rows. The items stay in the store, without delivery (§9.4). A later workspace
+// with the same id is then unmapped, and the next `brain` call gives it a new key (D4). An
+// unknown pair changes nothing.
+func (s Session) Close(ctx context.Context, st *store.Store, id string) error {
+	return s.update(func(m *mapFile) (bool, error) {
+		var keys []string
+		for i, e := range m.Entries {
+			if e.Session == s.Name && e.WorkspaceID == id && !e.Closed {
+				m.Entries[i].Closed = true
+				keys = append(keys, e.Key)
+			}
+		}
+		if len(keys) == 0 {
+			return false, nil
+		}
+		return true, st.Write(ctx, func(tx *sql.Tx) error {
+			for _, k := range keys {
+				if err := store.CloseWorkspace(ctx, tx, k); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	})
 }
 
 func (s Session) newEntry(ctx context.Context, environ []string, id, label, root string) (Entry, error) {
@@ -282,10 +311,11 @@ func newKey() (string, error) {
 	return "ws_" + hex.EncodeToString(b), nil
 }
 
-// current returns the index of the entry of the pair that no remap replaced.
+// current returns the index of the entry of the pair that no remap replaced and no close
+// ended.
 func (m *mapFile) current(session, id string) (int, bool) {
 	for i, e := range m.Entries {
-		if e.Session == session && e.WorkspaceID == id && e.ReplacedBy == "" {
+		if e.Session == session && e.WorkspaceID == id && e.ReplacedBy == "" && !e.Closed {
 			return i, true
 		}
 	}

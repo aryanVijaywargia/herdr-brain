@@ -25,3 +25,20 @@ func SeeWorkspace(ctx context.Context, tx *sql.Tx, key, label string, seen time.
 	}
 	return nil
 }
+
+// CloseWorkspace sets the status of the workspace with key to closed (§9.4 "Close", D4). Its
+// items stay. It returns sql.ErrNoRows when there is no such workspace.
+func CloseWorkspace(ctx context.Context, tx *sql.Tx, key string) error {
+	res, err := tx.ExecContext(ctx, `UPDATE workspaces SET status = ? WHERE key = ?`, WorkspaceClosed, key)
+	if err != nil {
+		return fmt.Errorf("close workspace %s: %w", key, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("close workspace %s: %w", key, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("close workspace %s: %w", key, sql.ErrNoRows)
+	}
+	return nil
+}

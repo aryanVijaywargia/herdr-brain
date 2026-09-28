@@ -31,3 +31,9 @@ id = "setup"
 title = "Brain setup"
 placement = "popup"
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" setup"]
+
+# D4 (E2-S6): a close marks the workspace closed, because herdr reuses a closed id after a
+# restart. herdr runs the command once for each event; there is no listener process.
+[[events]]
+on = "workspace.closed"
+command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" event workspace-closed"]
