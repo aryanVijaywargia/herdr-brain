@@ -11,7 +11,6 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/cli"
 	"github.com/aryanVijaywargia/herdr-brain/internal/event"
 	"github.com/aryanVijaywargia/herdr-brain/internal/hook"
-	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -45,6 +44,7 @@ var commands = map[string]func(context.Context, cli.Env, []string) error{
 	"repair":    cli.Repair,
 	"pane":      cli.Pane,
 	"uninstall": cli.Uninstall,
+	"status":    cli.Status,
 }
 
 func main() {
@@ -66,11 +66,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "version", "--version":
 		fmt.Fprintf(stdout, "brain %s\n", version)
-	case "status":
-		err = status(stdout)
 	case "setup":
 		err = setup(context.Background(), osSetupDeps(os.Environ()), args[1:], in, stdout)
-	case "remember", "review", "pin", "undo", "forget", "repair", "pane", "uninstall":
+	case "status", "remember", "review", "pin", "undo", "forget", "repair", "pane", "uninstall":
 		err = command(commands[args[0]], args[1:], stdout, stderr)
 	case "event":
 		err = event.Main(context.Background(), args[1:], os.Environ())
@@ -100,17 +98,4 @@ func command(fn func(context.Context, cli.Env, []string) error, args []string, s
 		return err
 	}
 	return fn(context.Background(), e, args)
-}
-
-func status(stdout io.Writer) error {
-	bin, err := paths.BinaryPath()
-	if err != nil {
-		return fmt.Errorf("binary path: %w", err)
-	}
-	data, err := paths.DataHome()
-	if err != nil {
-		return fmt.Errorf("data home: %w", err)
-	}
-	fmt.Fprintf(stdout, "brain %s: not set up yet\nbinary: %s\ndata: %s\n", version, bin, data)
-	return nil
 }

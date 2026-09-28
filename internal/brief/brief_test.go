@@ -160,3 +160,22 @@ func TestDeterministic(t *testing.T) {
 		t.Errorf("render changed its input: %+v", a)
 	}
 }
+
+// The sizes that brain status shows are the sizes that the budget counts: a full part is at
+// its limit.
+func TestSizes(t *testing.T) {
+	g, err := Global(fill(t, len(frame)+len(globalLabel), globalBudget))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := Workspace(fill(t, len(workspaceLabel), workspaceBudget))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if size, limit := GlobalSize(g); size != globalBudget || limit != globalBudget {
+		t.Errorf("GlobalSize(full) = %d, %d, want %d, %d", size, limit, globalBudget, globalBudget)
+	}
+	if size, limit := WorkspaceSize(w); size != workspaceBudget || limit != workspaceBudget {
+		t.Errorf("WorkspaceSize(full) = %d, %d, want %d, %d", size, limit, workspaceBudget, workspaceBudget)
+	}
+}

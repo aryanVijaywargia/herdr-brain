@@ -1,0 +1,26 @@
+data: <tmp>/data
+binding: herdr session "default", main store <tmp>/main
+herdr 0.9.1
+workspace w14 (shop): key ws_a14, project <tmp>/proj
+
+agent CLIs:
+  claude 2.1.283: none
+  codex 0.155.0: retest
+
+delivery to live agents:
+  claude: no live agent
+  codex: no live agent
+  sessions that ended before any Brain call are not measured in M1
+
+withheld history:
+  claude: none
+  codex: none
+
+review queue: empty
+
+brief: <tmp>/main/out/gen-1: global.md changed: output files do not match their manifest
+output conflicts: 1 (brain repair --confirm deletes them)
+  output generation 1 changed outside Brain: global.md
+forget pending: none
+
+relink: none

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
+	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
@@ -43,15 +44,28 @@ type Env struct {
 	// Sync refreshes the workspace map of s from herdr; tests replace it.
 	Sync func(ctx context.Context, s workspace.Session, st *store.Store) error
 	// Herdr returns the herdr calls of the review panes in session t; tests replace it.
-	Herdr  func(t herdr.Target) (PaneHerdr, error)
-	Now    func() time.Time
-	Stdout io.Writer
-	Stderr io.Writer // for warnings; the caller prints the error of a command
+	Herdr func(t herdr.Target) (PaneHerdr, error)
+	// StatusHerdr returns the herdr calls of brain status in session t; tests replace it.
+	StatusHerdr func(t herdr.Target) (StatusHerdr, error)
+	// Data is the data home; Adapters are its files that the adapter states come from.
+	Data     string
+	Adapters harness.Files
+	Now      func() time.Time
+	Stdout   io.Writer
+	Stderr   io.Writer // for warnings; the caller prints the error of a command
 }
 
 // NewEnv returns the Env of a command that runs with the process environment environ.
 func NewEnv(environ []string, stdout, stderr io.Writer) (Env, error) {
 	file, err := paths.BindingsFile()
+	if err != nil {
+		return Env{}, err
+	}
+	data, err := paths.DataHome()
+	if err != nil {
+		return Env{}, err
+	}
+	adapters, err := adapterFiles(data)
 	if err != nil {
 		return Env{}, err
 	}
@@ -69,9 +83,18 @@ func NewEnv(environ []string, stdout, stderr io.Writer) (Env, error) {
 			}
 			return c, nil
 		},
-		Now:    time.Now,
-		Stdout: stdout,
-		Stderr: stderr,
+		StatusHerdr: func(t herdr.Target) (StatusHerdr, error) {
+			c, err := herdr.New(environ, t)
+			if err != nil {
+				return nil, err
+			}
+			return c, nil
+		},
+		Data:     data,
+		Adapters: adapters,
+		Now:      time.Now,
+		Stdout:   stdout,
+		Stderr:   stderr,
 	}, nil
 }
 
@@ -115,7 +138,7 @@ func (e Env) open(ctx context.Context, repair bool) (*Call, error) {
 	var r *resolver.Resolved
 	switch v := res.(type) {
 	case *resolver.NoStore:
-		return nil, noStoreError(v)
+		return nil, &noStoreError{v}
 	case *resolver.Denied:
 		return nil, fmt.Errorf("herdr does not confirm pane %s in workspace %s (%s); nothing was written",
 			v.PaneID, v.WorkspaceID, v.Reason)
@@ -166,12 +189,18 @@ func (e Env) recheck(ctx context.Context, c *Call) error {
 	return nil
 }
 
-func noStoreError(n *resolver.NoStore) error {
+// noStoreError is the error of a call that gets no store. brain status explains an unbound
+// session instead of failing (§8.3 "Human diagnostics").
+type noStoreError struct{ *resolver.NoStore }
+
+func (n *noStoreError) Error() string {
 	if n.Err != nil {
-		return fmt.Errorf("no Brain store for this pane (%s: %w); nothing was written", n.Reason, n.Err)
+		return fmt.Sprintf("no Brain store for this pane (%s: %v); nothing was written", n.Reason, n.Err)
 	}
-	return fmt.Errorf("no Brain store for this pane (%s); nothing was written", n.Reason)
+	return fmt.Sprintf("no Brain store for this pane (%s); nothing was written", n.Reason)
 }
+
+func (n *noStoreError) Unwrap() error { return n.Err }
 
 // commandStore is the store of a command as the resolver sees it. A command passes no agent
 // session and writes no receipt; it only checks the earlier records of the calling pane

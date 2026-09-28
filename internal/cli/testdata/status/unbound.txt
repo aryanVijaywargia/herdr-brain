@@ -1,0 +1,3 @@
+data: <tmp>/data
+herdr session "scratch" has no Brain binding, so Brain gives its agents nothing.
+To bind it, run: brain setup --session scratch
