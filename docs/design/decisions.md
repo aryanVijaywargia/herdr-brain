@@ -193,3 +193,29 @@ $S/h session stop brain-e2s6; $S/h session delete brain-e2s6
 - **Conflict repair:** you confirm a conflict with `brain repair --confirm`. It deletes the hand-edited generation folder and builds it again. `brain status` and `brain doctor` show the conflict (E9-S2, E9-S3). HLD §7.5 step 5.
 - **Codex extractor (item 13):** Codex is accepted as an extractor. "No tools" means no tool that reaches files, the shell, the network, MCP or agents. Codex keeps its built-in code-mode `exec`/`wait` and `request_user_input_async`, because `codex exec` cannot turn them off (M0 FINDINGS, E13-S1). E13-S2 may set a time limit for the call. HLD §7.3, §17 item 13.
 - **`agent read` of a reply (item 28):** PASS for Claude and Codex (E10-S4). HLD §17 item 28.
+
+## E5-S3: popup placement and the plugin actions (#27)
+
+### D6. The `review` action opens the queue in a split
+
+**Decision:** `split`. The `review` action runs `plugin pane open --plugin brain --entrypoint queue`. The `queue` pane has `placement = "split"` and runs `brain review`, then waits for Enter.
+- `popup` stays for the `setup` pane only. `brain setup` resolves no caller.
+- The `remember` review pane (E5-S1, E5-S2) stays a no-focus split, as before. It is a separate `[[panes]]` entry.
+- The queue pane is a normal plugin split pane with focus, because you start it by hand. It is not a `review_panes` row.
+- In the herdr UI, you run the action with a key that you bind in your herdr `config.toml` (`[[keys.command]]`, `type = "plugin_action"`, `command = "brain.review"`). Brain does not write that file.
+
+**Reason: a popup gives no clear gain.**
+- A popup has no `HERDR_PANE_ID` and no `HERDR_WORKSPACE_ID`. `brain review` in a popup failed: "not in herdr: HERDR_PANE_ID is not set". A popup queue needs new code: resolve the caller from `HERDR_PLUGIN_CONTEXT_JSON` and apply the E4 scope check.
+- A popup takes all input while it is open. A split leaves the other panes usable.
+- A split pane has its own `HERDR_PANE_ID` in the caller's workspace. So `brain review` resolves the caller and applies the E4 scope check with no code change.
+- Both close when the process exits. `brain review` prints and exits, so the pane command waits for Enter.
+
+**Test** (herdr 0.9.1, 2026-09-28, scratch HOME, named session `brain-e5s3`, test binding; the main server and `default` were not touched). Full commands: `spike/m0/data/e5s3-popup-placement.txt`.
+
+| Step | Result |
+|---|---|
+| Probe popup | No pane id in the reply, not in `pane list`. Env: `HERDR_PLUGIN_CONTEXT_JSON` with `workspace_id` and `focused_pane_id`; no `HERDR_PANE_ID`, `HERDR_WORKSPACE_ID`. Takes all input; Esc does not close it; closes on exit. |
+| Popup `brain review` | FAIL: "no Brain store for this pane (not in herdr: HERDR_PANE_ID is not set)". |
+| Probe split | `HERDR_PANE_ID` of the new pane and `HERDR_WORKSPACE_ID` of the focused workspace. Closes on exit. |
+| `plugin action invoke brain.review` in B | Split `Brain queue` right of the focused pane, with focus. Lists the B and global proposals, not the A proposal. Enter closes it. |
+| UI key `prefix+y` in B, then in A | B: B + global. A: A + global. |
