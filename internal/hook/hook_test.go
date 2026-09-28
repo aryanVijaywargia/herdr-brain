@@ -9,9 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"syscall"
@@ -355,7 +357,7 @@ func TestRun(t *testing.T) {
 			name: "mapped workspace gets global and its part",
 			env:  func(f *fixture) []string { return environ(f.mainSock, "", "w14:p1", "w14") },
 			want: []string{mainGlobal, mainA14},
-			receipt: &store.Delivery{PaneID: "w14:p1", Result: store.ResultEmitted, WorkspaceKey: ptr("ws_a14"),
+			receipt: &store.Delivery{HerdrSession: ptr("default"), PaneID: "w14:p1", Result: store.ResultEmitted, WorkspaceKey: ptr("ws_a14"),
 				ItemRevisions: []store.RevisionRef{{Item: 1, Revision: 1}, {Item: 2, Revision: 1}}},
 		},
 		{
@@ -363,21 +365,21 @@ func TestRun(t *testing.T) {
 			name: "S79 other session same workspace id",
 			env:  func(f *fixture) []string { return environ(f.workSock, "work", "w14:p1", "w14") },
 			want: []string{mainGlobal},
-			receipt: &store.Delivery{PaneID: "w14:p1", Result: store.ResultEmitted, WorkspaceKey: ptr("ws_b14"),
+			receipt: &store.Delivery{HerdrSession: ptr("work"), PaneID: "w14:p1", Result: store.ResultEmitted, WorkspaceKey: ptr("ws_b14"),
 				ItemRevisions: []store.RevisionRef{{Item: 1, Revision: 1}}},
 		},
 		{
 			name: "S48 unmapped workspace gets global only",
 			env:  func(f *fixture) []string { return environ(f.mainSock, "", "w15:p1", "w15") },
 			want: []string{mainGlobal},
-			receipt: &store.Delivery{PaneID: "w15:p1", Result: store.ResultUnmapped,
+			receipt: &store.Delivery{HerdrSession: ptr("default"), PaneID: "w15:p1", Result: store.ResultUnmapped,
 				ItemRevisions: []store.RevisionRef{{Item: 1, Revision: 1}}},
 		},
 		{
 			name: "root outside project gets global only",
 			env:  func(f *fixture) []string { return environ(f.mainSock, "", "w16:p1", "w16") },
 			want: []string{mainGlobal},
-			receipt: &store.Delivery{PaneID: "w16:p1", Result: store.ResultWithheld, WithheldReason: ptr(reasonIdentity),
+			receipt: &store.Delivery{HerdrSession: ptr("default"), PaneID: "w16:p1", Result: store.ResultWithheld, WithheldReason: ptr(reasonIdentity),
 				WorkspaceKey: ptr("ws_a16"), ItemRevisions: []store.RevisionRef{{Item: 1, Revision: 1}}},
 		},
 		{
@@ -385,29 +387,29 @@ func TestRun(t *testing.T) {
 			env:     func(f *fixture) []string { return environ(f.testSock, "brain-eval", "w14:p1", "w14") },
 			want:    []string{testGlobal},
 			inTest:  true,
-			receipt: &store.Delivery{PaneID: "w14:p1", Result: store.ResultEmitted, WorkspaceKey: ptr("ws_t14"), ItemRevisions: []store.RevisionRef{{Item: 1, Revision: 1}}},
+			receipt: &store.Delivery{HerdrSession: ptr("brain-eval"), PaneID: "w14:p1", Result: store.ResultEmitted, WorkspaceKey: ptr("ws_t14"), ItemRevisions: []store.RevisionRef{{Item: 1, Revision: 1}}},
 		},
 		{
 			name:    "S63 closed pane",
 			env:     func(f *fixture) []string { return environ(f.mainSock, "", "w14:p7", "w14") },
-			receipt: &store.Delivery{PaneID: "w14:p7", Result: store.ResultWithheld, WithheldReason: ptr("pane not live"), ItemRevisions: []store.RevisionRef{}},
+			receipt: &store.Delivery{HerdrSession: ptr("default"), PaneID: "w14:p7", Result: store.ResultWithheld, WithheldReason: ptr("pane not live"), ItemRevisions: []store.RevisionRef{}},
 		},
 		{
 			name:    "S49 moved pane",
 			env:     func(f *fixture) []string { return environ(f.mainSock, "", "w14:p2", "w14") },
-			receipt: &store.Delivery{PaneID: "w14:p2", Result: store.ResultWithheld, WithheldReason: ptr("not a member"), ItemRevisions: []store.RevisionRef{}},
+			receipt: &store.Delivery{HerdrSession: ptr("default"), PaneID: "w14:p2", Result: store.ResultWithheld, WithheldReason: ptr("not a member"), ItemRevisions: []store.RevisionRef{}},
 		},
 		{
 			name:    "closed pane of the test session",
 			env:     func(f *fixture) []string { return environ(f.testSock, "brain-eval", "w14:p7", "w14") },
 			inTest:  true,
-			receipt: &store.Delivery{PaneID: "w14:p7", Result: store.ResultWithheld, WithheldReason: ptr("pane not live"), ItemRevisions: []store.RevisionRef{}},
+			receipt: &store.Delivery{HerdrSession: ptr("brain-eval"), PaneID: "w14:p7", Result: store.ResultWithheld, WithheldReason: ptr("pane not live"), ItemRevisions: []store.RevisionRef{}},
 		},
 		{
 			name:    "moved pane of the test session",
 			env:     func(f *fixture) []string { return environ(f.testSock, "brain-eval", "w14:p2", "w14") },
 			inTest:  true,
-			receipt: &store.Delivery{PaneID: "w14:p2", Result: store.ResultWithheld, WithheldReason: ptr("not a member"), ItemRevisions: []store.RevisionRef{}},
+			receipt: &store.Delivery{HerdrSession: ptr("brain-eval"), PaneID: "w14:p2", Result: store.ResultWithheld, WithheldReason: ptr("not a member"), ItemRevisions: []store.RevisionRef{}},
 		},
 		{
 			name: "S64 unbound session",
@@ -433,7 +435,7 @@ func TestRun(t *testing.T) {
 					return err
 				})
 			},
-			receipt: &store.Delivery{PaneID: "w14:p1", Result: store.ResultWithheld, WithheldReason: ptr(reasonForget),
+			receipt: &store.Delivery{HerdrSession: ptr("default"), PaneID: "w14:p1", Result: store.ResultWithheld, WithheldReason: ptr(reasonForget),
 				WorkspaceKey: ptr("ws_a14"), ItemRevisions: []store.RevisionRef{}},
 		},
 		{
@@ -446,7 +448,7 @@ func TestRun(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			receipt: &store.Delivery{PaneID: "w14:p1", Result: store.ResultWithheld, WithheldReason: ptr(reasonInconsistent),
+			receipt: &store.Delivery{HerdrSession: ptr("default"), PaneID: "w14:p1", Result: store.ResultWithheld, WithheldReason: ptr(reasonInconsistent),
 				WorkspaceKey: ptr("ws_a14"), ItemRevisions: []store.RevisionRef{}},
 		},
 	}
@@ -569,8 +571,9 @@ func TestForgetDuringRead(t *testing.T) {
 	if !strings.Contains(got, mainGlobal) || !strings.Contains(got, mainA14) {
 		t.Errorf("brief = %q, want the items of gen %d", got, f.gen)
 	}
-	checkReceipt(t, deliveries(t, f.mainStore), &store.Delivery{PaneID: "w14:p1", Result: store.ResultEmitted,
-		WorkspaceKey: ptr("ws_a14"), ItemRevisions: []store.RevisionRef{{Item: 1, Revision: 1}, {Item: 2, Revision: 1}}}, got, f.gen)
+	checkReceipt(t, deliveries(t, f.mainStore), &store.Delivery{HerdrSession: ptr("default"), PaneID: "w14:p1",
+		Result: store.ResultEmitted, WorkspaceKey: ptr("ws_a14"),
+		ItemRevisions: []store.RevisionRef{{Item: 1, Revision: 1}, {Item: 2, Revision: 1}}}, got, f.gen)
 }
 
 // TestOutsideHerdr: the hook reads no file and asks no herdr outside herdr (S61). The
@@ -685,5 +688,195 @@ func TestProfileArg(t *testing.T) {
 		if got != tt.want || (err == nil) != tt.ok {
 			t.Errorf("profileArg(%q) = %q, %v; want %q, ok %v", tt.args, got, err, tt.want, tt.ok)
 		}
+	}
+}
+
+// capSlack is how far past the cap a capped Run may return on a slow test machine. [NEW]
+const capSlack = 200 * time.Millisecond
+
+// blockedWriter stalls every write until release closes; then it fails the write.
+type blockedWriter struct {
+	release chan struct{}
+	started chan struct{}
+}
+
+func (w *blockedWriter) Write([]byte) (int, error) {
+	close(w.started)
+	<-w.release
+	return 0, errors.New("stalled output")
+}
+
+// TestCap (S50, E7-S4 FINDINGS): stdin held open, a stalled lookup and a stalled output each
+// end Run by the cap. The stalled step goes on after Run returns, as it would until the
+// process exits: it prints nothing late and writes no receipt.
+func TestCap(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(f *fixture, h *Hook, release <-chan struct{}) (stdin io.Reader, stdout io.Writer)
+	}{
+		{"stdin held open", func(_ *fixture, _ *Hook, release <-chan struct{}) (io.Reader, io.Writer) {
+			r, w := io.Pipe()
+			go func() {
+				<-release
+				_, _ = w.Write([]byte(input))
+				_ = w.Close()
+			}()
+			return r, &bytes.Buffer{}
+		}},
+		{"stalled lookup", func(f *fixture, h *Hook, release <-chan struct{}) (io.Reader, io.Writer) {
+			// This herdr ignores the lookup deadline.
+			h.Pane = func(_ context.Context, t herdr.Target, id string) (herdr.Pane, error) {
+				<-release
+				return f.herdr.pane(context.Background(), t, id)
+			}
+			return strings.NewReader(input), &bytes.Buffer{}
+		}},
+		{"stalled output", func(_ *fixture, _ *Hook, _ <-chan struct{}) (io.Reader, io.Writer) {
+			return strings.NewReader(input), &blockedWriter{release: make(chan struct{}), started: make(chan struct{})}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			h := f.hook(claude(t), environ(f.mainSock, "", "w14:p1", "w14"))
+			ended := make(chan struct{})
+			h.ended = func() { close(ended) }
+			release := make(chan struct{})
+			stdin, stdout := tt.setup(f, &h, release)
+			bw, stalledOut := stdout.(*blockedWriter)
+			buf, _ := stdout.(*bytes.Buffer)
+			err := h.Run(context.Background(), stdin, stdout)
+			if took := time.Since(h.Start); !errors.Is(err, errCapped) || took > hookCap+capSlack {
+				t.Fatalf("Run() = %v after %v, want %v by %v", err, took, errCapped, hookCap+capSlack)
+			}
+			if stalledOut {
+				<-bw.started // the print started before the cap and stalled
+				// In the process the exit ends the stalled print (TestProcessCap); here it ends
+				// before the fixture does.
+				close(bw.release)
+				<-ended
+			} else {
+				close(release)
+				<-ended
+				if out := buf.String(); out != "" {
+					t.Errorf("late print %q, want none", out)
+				}
+			}
+			if ds := deliveries(t, f.mainStore); len(ds) != 0 {
+				t.Errorf("receipts = %s, want none", show(ds[0]))
+			}
+		})
+	}
+}
+
+// TestReceiptFailsAfterPrint (S50): the brief is printed, and the failed receipt write leaves
+// no receipt, so status shows the delivery as unknown, not withheld.
+func TestReceiptFailsAfterPrint(t *testing.T) {
+	f := newFixture(t)
+	s := openStore(t, f.mainStore)
+	write(t, s, func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE TRIGGER no_receipt BEFORE INSERT ON deliveries BEGIN SELECT RAISE(ABORT, 'disk full'); END`)
+		return err
+	})
+	closeStore(t, s)
+	var out bytes.Buffer
+	err := f.hook(claude(t), environ(f.mainSock, "", "w14:p1", "w14")).Run(context.Background(), strings.NewReader(input), &out)
+	if err == nil {
+		t.Error("Run() = nil, want the receipt error")
+	}
+	if got := briefOf(t, out.String()); !strings.Contains(got, mainGlobal) || !strings.Contains(got, mainA14) {
+		t.Errorf("brief = %q, want the printed brief", got)
+	}
+	if ds := deliveries(t, f.mainStore); len(ds) != 0 {
+		t.Errorf("receipts = %s, want none", show(ds[0]))
+	}
+}
+
+// TestReceiptNamesPrintedRevision: with the store at revision 3 and the pointer on a
+// generation of revision 2, the receipt names revision 2, from the manifest.
+func TestReceiptNamesPrintedRevision(t *testing.T) {
+	f := newFixture(t)
+	s := openStore(t, f.mainStore)
+	revise := func(rev int64, text string) {
+		t.Helper()
+		write(t, s, func(tx *sql.Tx) error {
+			_, err := store.WriteRevision(context.Background(), tx, rev-1, store.ItemRevision{ItemID: 1, Text: text,
+				Scope: store.ScopeGlobal, State: store.StateActive, Author: store.AuthorYou, Origin: store.OriginRemember,
+				Created: testNow})
+			return err
+		})
+	}
+	revise(2, "global item at revision 2")
+	gen := build(t, s, f.mainStore)
+	revise(3, "global item at revision 3")
+	closeStore(t, s)
+
+	var out bytes.Buffer
+	if err := f.hook(claude(t), environ(f.mainSock, "", "w14:p1", "w14")).Run(context.Background(), strings.NewReader(input), &out); err != nil {
+		t.Fatalf("Run() = %v", err)
+	}
+	got := briefOf(t, out.String())
+	if !strings.Contains(got, "revision 2") || strings.Contains(got, "revision 3") {
+		t.Errorf("brief = %q, want revision 2 only", got)
+	}
+	checkReceipt(t, deliveries(t, f.mainStore), &store.Delivery{HerdrSession: ptr("default"), PaneID: "w14:p1",
+		Result: store.ResultEmitted, WorkspaceKey: ptr("ws_a14"),
+		ItemRevisions: []store.RevisionRef{{Item: 1, Revision: 2}, {Item: 2, Revision: 1}}}, got, gen)
+}
+
+// TestBudget: the lookup, the herdr pipe wait and the store busy wait fit inside the cap and
+// leave time for the file reads and the print.
+func TestBudget(t *testing.T) {
+	const herdrWaitDelay = 50 * time.Millisecond // waitDelay of internal/herdr
+	if left := hookCap - lookupDeadline - herdrWaitDelay - busyTimeout; left < 50*time.Millisecond {
+		t.Errorf("cap left for the reads and the print = %v, want at least 50ms", left)
+	}
+}
+
+// timingRuns is the number of hook runs that TestTiming times. [NEW]
+const timingRuns = 200
+
+// timingTarget is the hook time target of §8.3.
+const timingTarget = 100 * time.Millisecond
+
+// TestTiming times Main, the hook after the process start, against a store of the
+// E3-S1 schema: the stdin read, the bindings read, one `pane get` through a fake herdr
+// process, the workspace map, the manifest check, the print and the receipt (store open and
+// insert). It logs p50 and p99; run it with -v to see them. It checks the p99 against the
+// target. TestProcessTiming adds the process start and exit.
+func TestTiming(t *testing.T) {
+	if testing.Short() {
+		t.Skip("timing runs")
+	}
+	_, env := processSetup(t, answer)
+	args := []string{"--profile", "claude", "--event", "start"}
+	// The first start of a new executable can be slow on macOS (a lookup past its deadline
+	// withholds), so one untimed run comes first.
+	if err := Main(args, env, strings.NewReader(input), io.Discard); err != nil {
+		t.Fatalf("Main() = %v", err)
+	}
+	times := make([]time.Duration, timingRuns)
+	// A slow machine can stop a run at the cap; that is a bounded run, so it counts too.
+	emitted, capped := 0, 0
+	for i := range times {
+		var out bytes.Buffer
+		start := time.Now()
+		err := Main(args, env, strings.NewReader(input), &out)
+		times[i] = time.Since(start)
+		switch {
+		case errors.Is(err, errCapped):
+			capped++
+		case err != nil:
+			t.Fatalf("run %d: Main() = %v", i, err)
+		case strings.Contains(briefOf(t, out.String()), mainA14):
+			emitted++
+		}
+	}
+	slices.Sort(times)
+	t.Logf("in-process hook, %d runs (%d emitted, %d capped), %s/%s: p50 %v, p99 %v, max %v", timingRuns, emitted,
+		capped, runtime.GOOS, runtime.GOARCH, rank(times, 50), rank(times, 99), times[len(times)-1])
+	// One slow run on a busy machine is noise; the target is for the p99.
+	if p99 := rank(times, 99); p99 >= timingTarget {
+		t.Errorf("p99 = %v, want < %v", p99, timingTarget)
 	}
 }

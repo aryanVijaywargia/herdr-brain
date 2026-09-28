@@ -367,6 +367,7 @@ type RevisionRef struct {
 type Delivery struct {
 	ID               int64
 	Profile          string
+	HerdrSession     *string // the store binding: the herdr session of the binding
 	PaneID           string
 	AgentSessionID   *string
 	WorkspaceKey     *string
@@ -382,20 +383,21 @@ type Delivery struct {
 // InsertDelivery adds d and returns its new id. d.ID is ignored.
 func InsertDelivery(ctx context.Context, tx *sql.Tx, d Delivery) (int64, error) {
 	return insertRow(ctx, tx, "delivery", `INSERT INTO deliveries
-		(profile, pane_id, agent_session_id, workspace_key, brief_hash, output_generation,
+		(profile, herdr_session, pane_id, agent_session_id, workspace_key, brief_hash, output_generation,
 		item_revisions, cli_version, result, withheld_reason, at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		d.Profile, d.PaneID, d.AgentSessionID, d.WorkspaceKey, d.BriefHash, d.OutputGeneration,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		d.Profile, d.HerdrSession, d.PaneID, d.AgentSessionID, d.WorkspaceKey, d.BriefHash, d.OutputGeneration,
 		jsonList[RevisionRef](d.ItemRevisions), d.CLIVersion, d.Result, d.WithheldReason, timeArg(d.At))
 }
 
 // DeliveryByID reads the delivery with id. It returns sql.ErrNoRows when there is none.
 func DeliveryByID(ctx context.Context, tx *sql.Tx, id int64) (Delivery, error) {
 	var d Delivery
-	err := tx.QueryRowContext(ctx, `SELECT id, profile, pane_id, agent_session_id, workspace_key,
-		brief_hash, output_generation, item_revisions, cli_version, result, withheld_reason, at
+	err := tx.QueryRowContext(ctx, `SELECT id, profile, herdr_session, pane_id, agent_session_id,
+		workspace_key, brief_hash, output_generation, item_revisions, cli_version, result,
+		withheld_reason, at
 		FROM deliveries WHERE id = ?`, id).Scan(
-		&d.ID, &d.Profile, &d.PaneID, &d.AgentSessionID, &d.WorkspaceKey, &d.BriefHash,
+		&d.ID, &d.Profile, &d.HerdrSession, &d.PaneID, &d.AgentSessionID, &d.WorkspaceKey, &d.BriefHash,
 		&d.OutputGeneration, listDest[RevisionRef]{&d.ItemRevisions}, &d.CLIVersion, &d.Result,
 		&d.WithheldReason, timeDest{&d.At})
 	if err != nil {
