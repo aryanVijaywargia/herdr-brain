@@ -3,7 +3,8 @@
 # (model gpt-6-sol, reasoning effort low), herdr 0.9.1. No herdr session was made.
 # Scratch folder: /tmp/e13s1/work (not in a git repo, not in a project).
 # Schema: data/e13s1-schema.json (the HLD §7.3 claim fields, strict: additionalProperties false,
-# all fields required). Prompt: /tmp/e13s1/prompt.txt, shown below.
+# all fields required), copied to /tmp/e13s1/schema.json and /tmp/e13s1/work/schema.json.
+# Prompt: /tmp/e13s1/prompt.txt, shown below. "schema.json" in the argv below means that copy.
 # Codex source read for tool gates: github.com/openai/codex tag rust-v0.154.0 (6b9826e), read only.
 #
 # Env for every "clean" run (E = this prefix):
