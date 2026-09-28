@@ -245,17 +245,23 @@ func TestUninstallDryRun(t *testing.T) {
 	installBrain(t, home)
 	before := tree(t, home)
 
-	for _, args := range [][]string{nil, {"--data"}} {
-		out := runUninstall(t, "/tmp/main.sock", args...)
+	for _, tt := range []struct {
+		args []string
+		hint string // the apply command that the dry run tells you to run
+	}{
+		{nil, "Run brain uninstall --apply to do it."},
+		{[]string{"--data"}, "Run brain uninstall --apply --data to do it."},
+	} {
+		out := runUninstall(t, "/tmp/main.sock", tt.args...)
 		diffTrees(t, tree(t, home), before)
 		for _, want := range []string{
 			"would remove the Brain hook entry for claude in ",
 			"would remove the Brain hook entry for codex in ",
 			"would remove " + filepath.Join(home, ".local", "share", "brain", "install.json"),
-			"Dry run: nothing changed.",
+			"Dry run: nothing changed. " + tt.hint,
 		} {
 			if !strings.Contains(out, want) {
-				t.Errorf("dry run %q: output lacks %q:\n%s", args, want, out)
+				t.Errorf("dry run %q: output lacks %q:\n%s", tt.args, want, out)
 			}
 		}
 	}

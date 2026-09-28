@@ -170,7 +170,11 @@ func (u *uninstaller) summary(dataHome string, data bool) error {
 		}
 	}
 	if !u.apply {
-		return u.printf("Dry run: nothing changed. Run brain uninstall --apply to do it.\n")
+		cmd := "brain uninstall --apply"
+		if data {
+			cmd += " --data"
+		}
+		return u.printf("Dry run: nothing changed. Run %s to do it.\n", cmd)
 	}
 	return u.printf("Next: herdr plugin uninstall brain\n")
 }
