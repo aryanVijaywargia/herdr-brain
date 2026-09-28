@@ -92,7 +92,8 @@ func TestManifestReviewAction(t *testing.T) {
 }
 
 // E5-S1: the review pane is a split that runs `brain pane review` with the proposal id of its
-// --env, never an id from pane text.
+// --env, never an id from pane text. E5-S2: exec, so herdr shows brain as the pane's process,
+// and a close finds it (runsReview).
 func TestManifestReviewPane(t *testing.T) {
 	pane := findTable(manifestTables(t, "panes"), "review")
 	if pane == nil {
@@ -101,7 +102,7 @@ func TestManifestReviewPane(t *testing.T) {
 	if pane["placement"] != `"split"` {
 		t.Errorf("review pane placement = %s, want \"split\"", pane["placement"])
 	}
-	want := `$HERDR_PLUGIN_ROOT/bin/brain\" pane review --proposal \"$BRAIN_PROPOSAL_ID\"`
+	want := `exec \"$HERDR_PLUGIN_ROOT/bin/brain\" pane review --proposal \"$BRAIN_PROPOSAL_ID\"`
 	if !strings.Contains(pane["command"], want) {
 		t.Errorf("review pane command = %s, want it to contain %s", pane["command"], want)
 	}

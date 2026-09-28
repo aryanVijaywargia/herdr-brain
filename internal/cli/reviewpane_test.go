@@ -1,0 +1,256 @@
+package cli
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
+	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+)
+
+// fakeHerdr is the herdr of the fixture's session for the review pane calls.
+type fakeHerdr struct {
+	targets []herdr.Target // the targets that Env.Herdr got
+	openErr error
+	next    string // the id of the next opened pane
+	opened  []herdr.PluginPaneSpec
+	procs   map[string][]herdr.Process // by pane id; a missing pane is gone
+	asked   []string                   // the panes whose processes were read
+	closed  []string
+}
+
+func (h *fakeHerdr) OpenPluginPane(_ context.Context, s herdr.PluginPaneSpec) (herdr.PluginPane, error) {
+	h.opened = append(h.opened, s)
+	if h.openErr != nil {
+		return herdr.PluginPane{}, h.openErr
+	}
+	ws, _, _ := strings.Cut(h.next, ":")
+	return herdr.PluginPane{PluginID: s.Plugin, Entrypoint: s.Entrypoint,
+		Pane: herdr.Pane{ID: h.next, WorkspaceID: ws, TabID: ws + ":t1"}}, nil
+}
+
+func (h *fakeHerdr) PaneProcesses(_ context.Context, id string) ([]herdr.Process, error) {
+	h.asked = append(h.asked, id)
+	ps, ok := h.procs[id]
+	if !ok {
+		return nil, fmt.Errorf("pane %s: %w", id, herdr.ErrPaneNotFound)
+	}
+	return ps, nil
+}
+
+func (h *fakeHerdr) ClosePluginPane(_ context.Context, id string) error {
+	h.closed = append(h.closed, id)
+	delete(h.procs, id)
+	return nil
+}
+
+// reviewProc is the process that herdr shows in the review pane of proposal id.
+func reviewProc(id int64) []herdr.Process {
+	return []herdr.Process{{Name: "brain", Argv: []string{"/p/bin/brain", "pane", "review", "--proposal", fmt.Sprint(id)}}}
+}
+
+// reviewPanes reads every review_panes row.
+func (f *fixture) reviewPanes(t *testing.T) []store.ReviewPane {
+	t.Helper()
+	s := openStore(t, f.store)
+	defer closeStore(t, s)
+	var ps []store.ReviewPane
+	write(t, s, func(tx *sql.Tx) error {
+		for id := int64(1); ; id++ {
+			p, err := store.ReviewPaneByID(context.Background(), tx, id)
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			ps = append(ps, p)
+		}
+	})
+	return ps
+}
+
+// addReviewPane writes a review_panes row for proposal id.
+func (f *fixture) addReviewPane(t *testing.T, p store.ReviewPane) {
+	t.Helper()
+	s := openStore(t, f.store)
+	defer closeStore(t, s)
+	write(t, s, func(tx *sql.Tx) error {
+		_, err := store.InsertReviewPane(context.Background(), tx, p)
+		return err
+	})
+}
+
+// S52: an agent's `brain remember` opens the review pane beside that agent's pane, with no
+// focus, and records the pane with its binding and continuity identity.
+func TestRememberOpensReviewPane(t *testing.T) {
+	f := newFixture(t)
+	var out bytes.Buffer
+	if err := Remember(context.Background(), f.env(f.sock, "w14:p1", "w14", &out), []string{"use pnpm"}); err != nil {
+		t.Fatalf("Remember() = %v", err)
+	}
+	want := []herdr.PluginPaneSpec{{Plugin: "brain", Entrypoint: "review", Placement: "split", TargetPane: "w14:p1",
+		Env: []string{"BRAIN_PROPOSAL_ID=1"}}}
+	if !reflect.DeepEqual(f.herdr.opened, want) {
+		t.Errorf("opened %+v, want %+v", f.herdr.opened, want)
+	}
+	// The client always passes --no-focus (TestOpenPluginPane).
+	if ts := f.herdr.targets; len(ts) != 1 || ts[0] != (herdr.Target{Session: "default", Socket: f.sock}) {
+		t.Errorf("herdr targets = %+v, want the caller's session", ts)
+	}
+	key := "ws_a14"
+	wantRows := []store.ReviewPane{{ID: 1, HerdrSession: "default", SessionIdentity: &key, PaneID: "w14:p5",
+		BesidePaneID: "w14:p1", ProposalID: 1, Opened: testNow}}
+	if got := f.reviewPanes(t); !reflect.DeepEqual(got, wantRows) {
+		t.Errorf("review_panes = %+v, want %+v", got, wantRows)
+	}
+	if !strings.Contains(out.String(), "waiting for your review in pane w14:p5") {
+		t.Errorf("Remember printed %q, want the review pane", out.String())
+	}
+	if r := f.rows(t); r.items[1].State != store.StateDraft || r.proposals[0].Status != store.ProposalPending {
+		t.Errorf("item %s, proposal %s, want a pending draft until you act", r.items[1].State, r.proposals[0].Status)
+	}
+}
+
+// S53: when the pane cannot open, the draft waits in `brain review`, one line says so, and
+// nothing goes live.
+func TestRememberOpenFails(t *testing.T) {
+	f := newFixture(t)
+	before := f.rows(t).newest
+	f.herdr.openErr = errors.New("split failed")
+	var out bytes.Buffer
+	if err := Remember(context.Background(), f.env(f.sock, "w14:p1", "w14", &out), []string{"use pnpm"}); err != nil {
+		t.Fatalf("Remember() = %v, want nil: the draft is written", err)
+	}
+	want := "proposal 1: workspace w14 (shop) draft, waiting for your review (brain review); the review pane did not open: split failed\n"
+	if out.String() != want {
+		t.Errorf("Remember printed %q, want %q", out.String(), want)
+	}
+	r := f.rows(t)
+	if len(r.proposals) != 1 || r.proposals[0].Status != store.ProposalPending || r.items[1].State != store.StateDraft {
+		t.Errorf("proposals %+v, items %+v, want one pending draft", r.proposals, r.items)
+	}
+	if r.newest != before {
+		t.Errorf("newest generation %d, want %d: nothing goes live", r.newest, before)
+	}
+	if ps := f.reviewPanes(t); len(ps) != 0 {
+		t.Errorf("review_panes = %+v, want none", ps)
+	}
+	if list := f.mustReview(t); !strings.Contains(list, "1  workspace w14 (shop)  use pnpm") {
+		t.Errorf("brain review = %q, want the draft", list)
+	}
+}
+
+// A decision in `brain review` closes the review pane of the proposal, once herdr shows that
+// it still runs the review pane of that proposal.
+func TestReviewClosesPane(t *testing.T) {
+	for _, args := range [][]string{{"--approve"}, {"--reject"}, {"--later"}} {
+		t.Run(args[0], func(t *testing.T) {
+			f := newFixture(t)
+			id := f.remember(t, "use pnpm")
+			f.herdr.procs["w14:p5"] = reviewProc(id)
+			f.mustReview(t, append([]string{fmt.Sprint(id)}, args...)...)
+			if !reflect.DeepEqual(f.herdr.closed, []string{"w14:p5"}) {
+				t.Errorf("closed %v, want [w14:p5]", f.herdr.closed)
+			}
+			if ps := f.reviewPanes(t); ps[0].Closed != testNow {
+				t.Errorf("row closed = %v, want %v", ps[0].Closed, testNow)
+			}
+		})
+	}
+}
+
+// Brain closes no pane whose row fails a check. The row is invalid, so it is marked closed.
+func TestReviewKeepsOtherPanes(t *testing.T) {
+	old := "ws_old"
+	cases := []struct {
+		name      string
+		row       store.ReviewPane
+		procs     []herdr.Process // what herdr shows at the row's pane id; nil: no pane
+		wantAsked []string
+	}{
+		{
+			// S82: herdr session A has a review pane w14:p2. Session B ("default" here) has an
+			// agent at w14:p2. A decision in B does not touch B's w14:p2, nor read it.
+			name: "another session (S82)",
+			row: store.ReviewPane{HerdrSession: "a", SessionIdentity: ptr("ws_a14"), PaneID: "w14:p2",
+				BesidePaneID: "w14:p1", Opened: testNow},
+			procs: []herdr.Process{{Name: "claude", Argv: []string{"claude"}}},
+		},
+		{
+			name: "an agent at the pane id now",
+			row: store.ReviewPane{HerdrSession: "default", SessionIdentity: ptr("ws_a14"), PaneID: "w14:p2",
+				BesidePaneID: "w14:p1", Opened: testNow},
+			procs:     []herdr.Process{{Name: "claude", Argv: []string{"claude"}}},
+			wantAsked: []string{"w14:p2"},
+		},
+		{
+			name: "the review pane of another proposal",
+			row: store.ReviewPane{HerdrSession: "default", SessionIdentity: ptr("ws_a14"), PaneID: "w14:p2",
+				BesidePaneID: "w14:p1", Opened: testNow},
+			procs:     reviewProc(9),
+			wantAsked: []string{"w14:p2"},
+		},
+		{
+			name: "continuity lost",
+			row: store.ReviewPane{HerdrSession: "default", SessionIdentity: &old, PaneID: "w14:p2",
+				BesidePaneID: "w14:p1", Opened: testNow},
+			procs: reviewProc(1),
+		},
+		{
+			name: "the pane is gone",
+			row: store.ReviewPane{HerdrSession: "default", SessionIdentity: ptr("ws_a14"), PaneID: "w14:p2",
+				BesidePaneID: "w14:p1", Opened: testNow},
+			wantAsked: []string{"w14:p2"},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.herdr.openErr = errors.New("no pane") // only the row of the case
+			id := f.remember(t, "use pnpm")
+			c.row.ProposalID = id
+			f.addReviewPane(t, c.row)
+			if c.procs != nil {
+				f.herdr.procs["w14:p2"] = c.procs
+			}
+			f.mustReview(t, fmt.Sprint(id), "--reject")
+			if len(f.herdr.closed) != 0 {
+				t.Errorf("closed %v, want none", f.herdr.closed)
+			}
+			if !reflect.DeepEqual(f.herdr.asked, c.wantAsked) {
+				t.Errorf("read the processes of %v, want %v", f.herdr.asked, c.wantAsked)
+			}
+			wantClosed := c.row.HerdrSession == "default"
+			if got := f.reviewPanes(t)[0].Closed; got.IsZero() == wantClosed {
+				t.Errorf("row closed = %v, want marked closed %v", got, wantClosed)
+			}
+		})
+	}
+}
+
+// A decision in the review pane itself marks its row closed: the pane exits by itself, and
+// Brain makes no herdr call.
+func TestPaneDecisionMarksRow(t *testing.T) {
+	f := newFixture(t)
+	id := f.remember(t, "use pnpm")
+	f.herdr.procs["w14:p5"] = reviewProc(id)
+	f.panes["w14:p5"] = herdr.Pane{ID: "w14:p5", WorkspaceID: "w14", TabID: "w14:t1"}
+	var out bytes.Buffer
+	if err := runReview(context.Background(), f.env(f.sock, "w14:p5", "w14", &out), store.SurfacePane,
+		[]string{fmt.Sprint(id), "--reject"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.herdr.closed) != 0 || len(f.herdr.asked) != 0 {
+		t.Errorf("closed %v, asked %v, want no herdr call", f.herdr.closed, f.herdr.asked)
+	}
+	if f.reviewPanes(t)[0].Closed.IsZero() {
+		t.Error("the row is still open")
+	}
+}

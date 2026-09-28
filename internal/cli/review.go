@@ -73,12 +73,11 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 		return cl.listRetired(ctx)
 	case r.restore != 0:
 		return cl.restore(ctx, r.restore)
-	case r.approve:
-		return cl.approve(ctx, r)
-	case r.reject:
-		return cl.reject(ctx, r.id)
-	case r.later:
-		return cl.later(ctx, r.id)
+	case r.approve || r.reject || r.later:
+		if err := cl.decide(ctx, r); err != nil {
+			return err
+		}
+		return cl.closeReviewPanes(ctx, r.id)
 	case r.id != 0:
 		return cl.show(ctx, r.id)
 	}
@@ -262,6 +261,17 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	}
 	_, err = io.WriteString(cl.Stdout, b.String())
 	return err
+}
+
+// decide runs the approve, reject or later of r.
+func (cl caller) decide(ctx context.Context, r review) error {
+	switch {
+	case r.approve:
+		return cl.approve(ctx, r)
+	case r.reject:
+		return cl.reject(ctx, r.id)
+	}
+	return cl.later(ctx, r.id)
 }
 
 // approve makes the proposal's change the next revision of its item, with the edits of r

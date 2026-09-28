@@ -41,7 +41,9 @@ type Env struct {
 	Bindings string // the bindings file
 	Pane     resolver.PaneFunc
 	// Sync refreshes the workspace map of s from herdr; tests replace it.
-	Sync   func(ctx context.Context, s workspace.Session, st *store.Store) error
+	Sync func(ctx context.Context, s workspace.Session, st *store.Store) error
+	// Herdr returns the herdr calls of the review panes in session t; tests replace it.
+	Herdr  func(t herdr.Target) (PaneHerdr, error)
 	Now    func() time.Time
 	Stdout io.Writer
 	Stderr io.Writer // for warnings; the caller prints the error of a command
@@ -59,6 +61,13 @@ func NewEnv(environ []string, stdout, stderr io.Writer) (Env, error) {
 		Pane:     resolver.HerdrPane(environ),
 		Sync: func(ctx context.Context, s workspace.Session, st *store.Store) error {
 			return s.Sync(ctx, environ, st, time.Now())
+		},
+		Herdr: func(t herdr.Target) (PaneHerdr, error) {
+			c, err := herdr.New(environ, t)
+			if err != nil {
+				return nil, err
+			}
+			return c, nil
 		},
 		Now:    time.Now,
 		Stdout: stdout,

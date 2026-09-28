@@ -440,6 +440,29 @@ func TestRoundTrip(t *testing.T) {
 			got, err := ReviewPaneByID(ctx, tx, id)
 			return p, got, err
 		}},
+		{"open review panes", func(tx *sql.Tx) (any, any, error) {
+			// Only the open panes of the proposal in the asked herdr session (S82).
+			var want []ReviewPane
+			for _, p := range []ReviewPane{
+				{HerdrSession: "b", SessionIdentity: ptr("ws_b"), PaneID: "w1:p2", BesidePaneID: "w1:p1", ProposalID: f.proposal.ID, Opened: testNow},
+				{HerdrSession: "a", PaneID: "w1:p2", BesidePaneID: "w1:p1", ProposalID: f.proposal.ID, Opened: testNow},
+				{HerdrSession: "b", PaneID: "w1:p3", BesidePaneID: "w1:p1", ProposalID: f.proposal.ID, Opened: testNow},
+			} {
+				id, err := InsertReviewPane(ctx, tx, p)
+				if err != nil {
+					return nil, nil, err
+				}
+				p.ID = id
+				if p.HerdrSession == "b" {
+					want = append(want, p)
+				}
+			}
+			if err := CloseReviewPane(ctx, tx, want[1].ID, testNow); err != nil {
+				return nil, nil, err
+			}
+			got, err := OpenReviewPanes(ctx, tx, "b", f.proposal.ID)
+			return want[:1], got, err
+		}},
 		{"tombstones", func(tx *sql.Tx) (any, any, error) {
 			want := []Tombstone{
 				{ClaimID: "c9", SourceKeys: []string{"s1"}, ForgottenAt: testNow},

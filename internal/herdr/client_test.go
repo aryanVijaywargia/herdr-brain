@@ -585,3 +585,32 @@ func TestPanes(t *testing.T) {
 		})
 	}
 }
+
+func TestPaneProcesses(t *testing.T) {
+	cmd := "pane process-info --pane w1:p2"
+	info := fixture(t, "pane-process-info.json")
+	c, _ := fakeClient(t, map[string]reply{cmd: {Stdout: info}})
+	got, err := c.PaneProcesses(deadline(t), "w1:p2")
+	want := []Process{{Name: "brain", Argv: []string{"/tmp/brain-t0048/plug/bin/brain", "pane", "review", "--proposal", "7"}}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("PaneProcesses() = %+v, %v, want %+v, nil", got, err, want)
+	}
+
+	for field, out := range map[string]string{
+		"process_info.pane_id":                      strings.Replace(info, `"pane_id":"w1:p2"`, `"pane_id":"w1:p3"`, 1),
+		"process_info.foreground_processes[0].name": strings.Replace(info, `"name":"brain",`, "", 1),
+		"process_info":                              `{"result":{"type":"pane_process_info"}}`,
+	} {
+		c, _ := fakeClient(t, map[string]reply{cmd: {Stdout: out}})
+		got, err := c.PaneProcesses(deadline(t), "w1:p2")
+		wantShape(t, err, field)
+		if got != nil {
+			t.Errorf("PaneProcesses() = %+v, want nil", got)
+		}
+	}
+
+	c, _ = fakeClient(t, map[string]reply{cmd: {Stderr: fixture(t, "error-pane-not-found.json"), Code: 1}})
+	if _, err := c.PaneProcesses(deadline(t), "w1:p2"); !errors.Is(err, ErrPaneNotFound) {
+		t.Errorf("PaneProcesses(closed pane) = %v, want ErrPaneNotFound", err)
+	}
+}

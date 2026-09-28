@@ -482,6 +482,39 @@ func ReviewPaneByID(ctx context.Context, tx *sql.Tx, id int64) (ReviewPane, erro
 	return p, nil
 }
 
+// OpenReviewPanes reads the review panes of proposal proposalID that Brain opened in herdr
+// session session and has not marked closed, oldest first.
+func OpenReviewPanes(ctx context.Context, tx *sql.Tx, session string, proposalID int64) ([]ReviewPane, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT id, herdr_session, session_identity, pane_id, beside_pane_id,
+		proposal_id, opened, closed FROM review_panes
+		WHERE herdr_session = ? AND proposal_id = ? AND closed IS NULL ORDER BY id`, session, proposalID)
+	if err != nil {
+		return nil, fmt.Errorf("read review panes of proposal %d: %w", proposalID, err)
+	}
+	defer rows.Close() //nolint:errcheck // read-only: rows.Err reports the read errors
+	var ps []ReviewPane
+	for rows.Next() {
+		var p ReviewPane
+		if err := rows.Scan(&p.ID, &p.HerdrSession, &p.SessionIdentity, &p.PaneID, &p.BesidePaneID, &p.ProposalID,
+			timeDest{&p.Opened}, timeDest{&p.Closed}); err != nil {
+			return nil, fmt.Errorf("read review panes of proposal %d: %w", proposalID, err)
+		}
+		ps = append(ps, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read review panes of proposal %d: %w", proposalID, err)
+	}
+	return ps, nil
+}
+
+// CloseReviewPane marks the review pane with id closed at now.
+func CloseReviewPane(ctx context.Context, tx *sql.Tx, id int64, now time.Time) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE review_panes SET closed = ? WHERE id = ?`, timeArg(now), id); err != nil {
+		return fmt.Errorf("close review pane %d: %w", id, err)
+	}
+	return nil
+}
+
 // Tombstone is what forget keeps of a claim, so the same evidence does not come back (§6.7).
 // It holds no text.
 type Tombstone struct {

@@ -32,6 +32,7 @@ type fixture struct {
 	file, sock, store string
 	panes             map[string]herdr.Pane // the panes that herdr has
 	syncs             int
+	herdr             *fakeHerdr
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -41,6 +42,7 @@ func newFixture(t *testing.T) *fixture {
 		file:  filepath.Join(dir, "data", "bindings.json"),
 		sock:  filepath.Join(dir, "herdr", "herdr.sock"),
 		store: filepath.Join(dir, "main"),
+		herdr: &fakeHerdr{next: "w14:p5", procs: map[string][]herdr.Process{}},
 	}
 	proj := filepath.Join(dir, "proj")
 	for _, d := range []string{filepath.Dir(f.sock), f.store, proj} {
@@ -109,6 +111,10 @@ func (f *fixture) env(socket, paneID, workspaceID string, stdout *bytes.Buffer) 
 			f.syncs++
 			return s.Refresh(ctx, nil, st, []herdr.Workspace{{ID: "w14", Label: "shop"}, {ID: "w15", Label: "blog"},
 				{ID: "w16", Label: "new"}}, testNow)
+		},
+		Herdr: func(t herdr.Target) (PaneHerdr, error) {
+			f.herdr.targets = append(f.herdr.targets, t)
+			return f.herdr, nil
 		},
 		Now:    now,
 		Stdout: stdout,
