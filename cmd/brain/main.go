@@ -3,10 +3,12 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/event"
 	"github.com/aryanVijaywargia/herdr-brain/internal/hook"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 )
@@ -20,6 +22,7 @@ commands:
   version   print the Brain version
   status    show Brain status
   setup     show the binary path and offer a ~/.local/bin/brain link
+  event     workspace-closed: herdr's workspace.closed event (D4); marks the workspace closed
   hook      --profile <name> --event start: the agent start hook (prints the brief or nothing)
 `
 
@@ -46,6 +49,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = status(stdout)
 	case "setup":
 		err = setup(in, stdout)
+	case "event":
+		err = event.Main(context.Background(), args[1:], os.Environ())
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
 	default:

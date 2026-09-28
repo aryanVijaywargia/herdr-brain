@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -164,5 +165,13 @@ func TestWorkspaceClosedNoBindings(t *testing.T) {
 	env := []string{"HERDR_SOCKET_PATH=/s/herdr.sock", "HERDR_PLUGIN_EVENT_JSON=" + eventJSON}
 	if err := WorkspaceClosed(context.Background(), env, filepath.Join(t.TempDir(), "bindings.json")); err != nil {
 		t.Errorf("WorkspaceClosed: %v", err)
+	}
+}
+
+func TestMainUsage(t *testing.T) {
+	for _, args := range [][]string{nil, {"workspace-renamed"}, {"workspace-closed", "x"}} {
+		if err := Main(context.Background(), args, nil); err == nil || !strings.Contains(err.Error(), "usage") {
+			t.Errorf("Main(%q) = %v, want a usage error", args, err)
+		}
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
+	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
 )
@@ -19,6 +20,19 @@ import (
 // busyTimeout is how long the close waits for the store lock. [NEW] 5 s: the event runs
 // after the close, so nobody waits for it.
 const busyTimeout = 5 * time.Second
+
+// Main runs `brain event <name>` with args after "event". environ is the process
+// environment that herdr gives the event command.
+func Main(ctx context.Context, args, environ []string) error {
+	if len(args) != 1 || args[0] != "workspace-closed" {
+		return fmt.Errorf("usage: brain event workspace-closed")
+	}
+	bf, err := paths.BindingsFile()
+	if err != nil {
+		return err
+	}
+	return WorkspaceClosed(ctx, environ, bf)
+}
 
 // Closed is the part of a workspace.closed event that Brain uses.
 type Closed struct {
