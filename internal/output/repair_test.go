@@ -605,3 +605,37 @@ func TestConfirmEndsPendingForget(t *testing.T) {
 		t.Errorf("%d applied edits hold the forgotten text, want 0", n)
 	}
 }
+
+// Review finding: a confirm whose build switched the pointer and stopped before its record
+// leaves the rows on the deleted generation. The next confirm still repairs the output.
+func TestConfirmAfterStoppedRecord(t *testing.T) {
+	s, out := newStore(t)
+	addItem(t, s, "", "one")
+	old := mustBuild(t, s, out)
+	handEdit(t, out, old, globalName)
+	stmt := func(q string) { write(t, s, func(tx *sql.Tx) error { _, err := tx.Exec(q); return err }) }
+	stmt("CREATE TRIGGER fail BEFORE INSERT ON applied_edits BEGIN SELECT RAISE(ABORT, 'stop'); END")
+	if _, err := Confirm(context.Background(), s, out, at(testNow)); err == nil {
+		t.Fatal("Confirm() with a failing record = nil, want an error")
+	}
+	gen, err := current(out)
+	if err != nil || gen <= old {
+		t.Fatalf("pointer = %d, %v, want the new generation", gen, err)
+	}
+	stmt("DROP TRIGGER fail")
+
+	mustConfirm(t, s, out, testNow)
+	checkPointer(t, out, gen)
+	mustRepair(t, s, out, later)
+	if cs := mustConflicts(t, out); len(cs) != 0 {
+		t.Errorf("Conflicts() = %v, want none", cs)
+	}
+	var recorded int64
+	write(t, s, func(tx *sql.Tx) (err error) {
+		recorded, err = store.CurrentGeneration(context.Background(), tx)
+		return err
+	})
+	if recorded != gen {
+		t.Errorf("current row = %d, want %d", recorded, gen)
+	}
+}

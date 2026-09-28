@@ -51,8 +51,8 @@ type builder struct {
 	now         func() time.Time
 	writeFile   func(path string, data []byte) error
 	afterRender func()
-	// replace is the hand-edited generation that you confirmed to replace (Confirm), or 0.
-	replace int64
+	// replace lists the hand-edited generations that you confirmed to replace (Confirm).
+	replace []int64
 }
 
 func (b builder) build(ctx context.Context, s *store.Store, proposalID *int64) (_ int64, err error) {
@@ -274,11 +274,11 @@ func readSource(out string, cur int64) (generation, error) {
 	return checkGeneration(out, cur)
 }
 
-// source reads generation gen, the source of a build, as readSource does. The generation that
+// source reads generation gen, the source of a build, as readSource does. A generation that
 // you confirmed to replace counts as no generation: its files are your edit, so the log of the
 // build keeps none of them.
 func (b builder) source(gen int64) (generation, error) {
-	if gen == b.replace {
+	if slices.Contains(b.replace, gen) {
 		return generation{}, nil
 	}
 	return readSource(b.out, gen)

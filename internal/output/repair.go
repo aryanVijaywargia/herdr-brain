@@ -72,10 +72,14 @@ func Confirm(ctx context.Context, s *store.Store, out string, now func() time.Ti
 	if err != nil {
 		return nil, err
 	}
+	// Every conflict counts as no source, also one that the outputs rows still record as current
+	// after a build that switched the pointer and stopped before its record.
+	for _, c := range cs {
+		b.replace = append(b.replace, c.Generation)
+	}
 	// The pointer leaves the hand-edited generation before its folder goes, so it never names
 	// a folder that is not there (§7.5 step 9).
-	if slices.ContainsFunc(cs, func(c ConflictError) bool { return c.Generation == cur }) {
-		b.replace = cur
+	if slices.Contains(b.replace, cur) {
 		if err := s.Write(ctx, func(tx *sql.Tx) error { return newGeneration(ctx, tx, cur) }); err != nil {
 			return nil, err
 		}
