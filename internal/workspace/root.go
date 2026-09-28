@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -105,19 +106,51 @@ func within(parent, path string) (bool, error) {
 
 // projectFolder returns the project folder of the canonical root: the git top-level of root,
 // or root itself outside git. Only a first mapping or a remap runs it, never the hook.
+//
+// root is outside git when neither root nor a folder above it holds a .git entry. Git then
+// does not run. Inside git, any git error fails the mapping: a broken repository is not a
+// folder outside git, and a known mapping never runs git again.
 func projectFolder(ctx context.Context, environ []string, root string) (string, error) {
+	inGit, err := hasGitAbove(root)
+	if err != nil || !inGit {
+		return root, err
+	}
 	cmd := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", "--show-toplevel")
-	cmd.Env = environ
+	cmd.Env = withoutGitVars(environ)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
-	var exit *exec.ExitError
-	// git exits 128 outside a work tree, for example "not a git repository".
-	if errors.As(err, &exit) && exit.ExitCode() == 128 {
-		return root, nil
-	}
 	if err != nil {
 		return "", fmt.Errorf("git top-level of %s: %w: %s", root, err, strings.TrimSpace(stderr.String()))
 	}
 	return filepath.EvalSymlinks(strings.TrimSpace(string(out)))
+}
+
+// hasGitAbove reports whether root or a folder above it holds a .git entry (a folder, or the
+// file of a worktree).
+func hasGitAbove(root string) (bool, error) {
+	for p := root; ; p = filepath.Dir(p) {
+		_, err := os.Lstat(filepath.Join(p, ".git"))
+		if err == nil {
+			return true, nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return false, err
+		}
+		if filepath.Dir(p) == p {
+			return false, nil
+		}
+	}
+}
+
+// withoutGitVars returns environ without the GIT_ variables. The caller's GIT_DIR or
+// GIT_WORK_TREE would otherwise choose the repository, not the saved root.
+func withoutGitVars(environ []string) []string {
+	var env []string
+	for _, kv := range environ {
+		if !strings.HasPrefix(kv, "GIT_") {
+			env = append(env, kv)
+		}
+	}
+	return env
 }

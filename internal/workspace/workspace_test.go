@@ -396,6 +396,57 @@ func TestProjectOutsideGit(t *testing.T) {
 	}
 }
 
+// The caller's GIT_DIR and GIT_WORK_TREE do not choose the project folder: the saved root does.
+func TestGitVarsIgnored(t *testing.T) {
+	parent := t.TempDir()
+	a, b := filepath.Join(parent, "a"), filepath.Join(parent, "b")
+	for _, dir := range []string{a, b} {
+		if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
+			t.Fatalf("git init: %v: %s", err, out)
+		}
+	}
+	s := newSession(t, "default")
+	save(t, s, map[string]string{"w1": a})
+	env := append(os.Environ(), "GIT_DIR="+filepath.Join(a, ".git"), "GIT_WORK_TREE="+parent)
+	if err := s.Refresh(deadline(t), env, s.st, []herdr.Workspace{w("w1", "a")}, testNow); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if got := mapped(t, s, "w1"); got.Project != canon(t, a) {
+		t.Errorf("project = %q, want %q", got.Project, canon(t, a))
+	}
+	save(t, s, map[string]string{"w1": b})
+	if m := lookup(t, s, "w1"); m.State != Withheld {
+		t.Errorf("state in a sibling repository = %q, want %q", m.State, Withheld)
+	}
+}
+
+// A broken repository is not a folder outside git: the mapping fails and waits for a later
+// call, which records the real top-level once the repository works.
+func TestBrokenGitFailsMapping(t *testing.T) {
+	dir := t.TempDir()
+	mkdir(t, filepath.Join(dir, "sub"))
+	gitFile := filepath.Join(dir, ".git")
+	writeFile(t, gitFile, "gitdir: "+filepath.Join(dir, "missing")+"\n")
+	s := newSession(t, "default")
+	save(t, s, map[string]string{"w1": filepath.Join(dir, "sub")})
+	if err := s.Refresh(deadline(t), os.Environ(), s.st, []herdr.Workspace{w("w1", "broken")}, testNow); err == nil {
+		t.Fatal("Refresh with a broken .git: no error")
+	}
+	if m := lookup(t, s, "w1"); m.State != Unmapped {
+		t.Fatalf("state = %q, want %q", m.State, Unmapped)
+	}
+	if err := os.Remove(gitFile); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	refresh(t, s, w("w1", "repaired"))
+	if got := mapped(t, s, "w1"); got.Project != canon(t, dir) {
+		t.Errorf("project = %q, want %q", got.Project, canon(t, dir))
+	}
+}
+
 // Git runs only at the first mapping: a known pair needs no git, even for a rename.
 func TestGitOnlyAtFirstMapping(t *testing.T) {
 	repo := gitRepo(t)
