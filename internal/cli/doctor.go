@@ -174,21 +174,27 @@ func (d *doctorCall) entry(inst *install.Installer, p *adapter.Profile) error {
 	if err != nil {
 		return err
 	}
-	if old.Command == want.Command {
+	if old.Command == want.Command && old.Target == want.Target {
 		return nil
 	}
 	bin := entryBinary(old.Command, p.Kind)
-	why := "another brain binary"
-	if _, err := os.Stat(bin); err != nil {
-		why = "a missing binary"
+	if old.Target != want.Target {
+		// The home changed since the install: the CLI reads another hook file.
+		d.w.printf("%s: the Brain hook is in %s, but %s reads %s\n", p.Kind, old.Target, p.Kind, want.Target)
+	} else {
+		why := "another brain binary"
+		if _, err := os.Stat(bin); err != nil {
+			why = "a missing binary"
+		}
+		d.w.printf("%s: the Brain hook in %s runs %s (%s), not %s\n", p.Kind, old.Target, bin, why, inst.Binary)
 	}
-	d.w.printf("%s: the Brain hook in %s runs %s (%s), not %s\n", p.Kind, old.Target, bin, why, inst.Binary)
 	ok, err := d.ask(fmt.Sprintf("Replace it with this entry?\n  %s\n[y/N] ", want.Text))
 	if err != nil {
 		return err
 	}
 	if !ok {
-		d.fail("%s: the Brain hook runs %s; fix: run brain doctor again and answer y, or brain setup", p.Kind, bin)
+		d.fail("%s: the Brain hook in %s runs %s; fix: run brain doctor again and answer y, or brain setup",
+			p.Kind, old.Target, bin)
 		return nil
 	}
 	st, err := inst.Uninstall(p)
@@ -277,12 +283,15 @@ func (d *doctorCall) receipts(ctx context.Context, kind string) error {
 	if err != nil || len(missing) == 0 {
 		return err
 	}
-	fix := "start a new session; if it gets no receipt either, the CLI sandbox may block the herdr socket"
+	// The herdr pane list shows no prompt. Claude runs the hook at start, so no receipt is a
+	// failure; Codex runs it at the first prompt (M0 item 1), so the line names that condition.
+	when, fix := "", "start a new session; if it gets no receipt either, the CLI sandbox may block the herdr socket"
 	if kind == trustKind {
+		when = " (Codex runs the hook at the first prompt; an agent with no prompt yet has no receipt)"
 		fix = "trust the hook (/hooks in Codex); if it is trusted, the CLI sandbox may block the herdr socket"
 	}
-	d.fail("%s: hook not trusted or not firing: %d live agent(s) with no Brain receipt after the first prompt (%s); fix: %s",
-		kind, len(missing), strings.Join(missing, ", "), fix)
+	d.fail("%s: hook not trusted or not firing: %d live agent(s) with no Brain receipt (%s)%s; fix: %s",
+		kind, len(missing), strings.Join(missing, ", "), when, fix)
 	return nil
 }
 

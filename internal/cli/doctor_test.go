@@ -229,6 +229,40 @@ func TestDoctorMissingBinary(t *testing.T) {
 	}
 }
 
+// AC: the Brain hook is in the hook file of another home (the home changed after the
+// install). Doctor offers the guarded reinstall into the file that the CLI reads.
+func TestDoctorOtherTarget(t *testing.T) {
+	f := newDoctorFixture(t)
+	bin, err := paths.BinaryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := adapter.Load("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.installer(bin).Uninstall(p); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(filepath.Dir(f.store), "old-home")
+	if err := os.MkdirAll(filepath.Join(old, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	in := f.installer(bin)
+	in.Home = old
+	if _, err := in.Install(p); err != nil {
+		t.Fatal(err)
+	}
+	f.failed(t, "n\n", "claude: the Brain hook is in "+filepath.Join(old, ".claude", "settings.json")+
+		", but claude reads "+filepath.Join(f.home, ".claude", "settings.json"))
+	if out, err := f.doctor(t, f.sock, "y\n"); err != nil {
+		t.Errorf("Doctor(y) = %v\n%s", err, out)
+	}
+	if s := files(t, f.home)[filepath.Join(f.home, ".claude", "settings.json")]; !strings.Contains(s, bin) {
+		t.Errorf("settings.json after yes:\n%s\nwant the Brain entry", s)
+	}
+}
+
 // AC: the Codex trust states. Doctor reads config.toml and never writes it.
 func TestDoctorCodexTrust(t *testing.T) {
 	tests := []struct {
@@ -269,8 +303,10 @@ func TestDoctorNoReceipt(t *testing.T) {
 	f := newDoctorFixture(t)
 	f.herdr.panes = []herdr.Pane{agent("w14:p1", "codex", "s-1"), agent("w14:p2", "codex", "s-2"),
 		agent("w14:p3", "claude", "")}
-	f.failed(t, "", "codex: hook not trusted or not firing: 2 live agent(s) with no Brain receipt after the first prompt (w14:p1, w14:p2)",
-		"fix: trust the hook (/hooks in Codex)")
+	f.failed(t, "", "codex: hook not trusted or not firing: 2 live agent(s) with no Brain receipt (w14:p1, w14:p2) "+
+		"(Codex runs the hook at the first prompt; an agent with no prompt yet has no receipt); fix: trust the hook (/hooks in Codex)")
+	f.herdr.panes = []herdr.Pane{agent("w14:p1", "claude", "s-1")}
+	f.failed(t, "", "claude: hook not trusted or not firing: 1 live agent(s) with no Brain receipt (w14:p1); fix: start a new session")
 }
 
 // AC S66: an output conflict fails with brain repair --confirm.
