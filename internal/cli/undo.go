@@ -69,11 +69,11 @@ func (cl caller) undo(ctx context.Context, id int64) error {
 		_, err = fmt.Fprintf(cl.Stdout, "item %d: revision %d is undone already; nothing to do\n", id, undone)
 		return err
 	}
-	if _, err := fmt.Fprintf(cl.Stdout, "item %d: revision %d undone; the item is %s at revision %d (%s)\n",
-		id, *next.UndoesRevision, next.State, next.Revision, cl.target(next.Scope)); err != nil {
-		return err
-	}
-	return cl.deliver(ctx, nil)
+	_, err = fmt.Fprintf(cl.Stdout, "item %d: revision %d undone; the item is %s at revision %d (%s)\n",
+		id, *next.UndoesRevision, next.State, next.Revision, cl.target(next.Scope))
+	// The build runs even when the message fails: the commit is done, and the next hook must
+	// print it (E4 post-commit build).
+	return errors.Join(err, cl.deliver(ctx, nil))
 }
 
 // undone is the revision that undoes cur. It copies the fields of the revision before cur:
