@@ -26,6 +26,7 @@ commands:
   remember  "<text>" [--global | --workspace <w>] [--kind <k>]: draft an item for your review
   review    [<id> [--approve | --reject | --later]]: the queue of proposals (brain review --help)
   pin       [--off] <item>: pin an active item, so it never ages
+  repair    [--confirm]: repair the output and list its conflicts; --confirm deletes them
   event     workspace-closed: herdr's workspace.closed event (D4); marks the workspace closed
   hook      --profile <name> --event start: the agent start hook (prints the brief or nothing)
 `
@@ -59,6 +60,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = command(cli.Review, args[1:], stdout, stderr)
 	case "pin":
 		err = command(cli.Pin, args[1:], stdout, stderr)
+	case "repair":
+		err = command(cli.Repair, args[1:], stdout, stderr)
 	case "event":
 		err = event.Main(context.Background(), args[1:], os.Environ())
 	case "help", "-h", "--help":

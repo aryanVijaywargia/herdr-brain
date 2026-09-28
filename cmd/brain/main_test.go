@@ -23,6 +23,8 @@ func TestRun(t *testing.T) {
 		{[]string{"remember"}, 1, ""},
 		{[]string{"review", "--nope"}, 1, ""},
 		{[]string{"pin"}, 1, ""},
+		{[]string{"repair", "x"}, 1, ""},
+		{[]string{"help"}, 0, "repair    [--confirm]"},
 	}
 	for _, c := range cases {
 		var out, errOut bytes.Buffer

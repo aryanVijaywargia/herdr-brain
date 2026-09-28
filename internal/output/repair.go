@@ -31,8 +31,12 @@ func Repair(ctx context.Context, s *store.Store, out string, now func() time.Tim
 		return err
 	}
 	defer func() { err = errors.Join(err, unlock()) }()
+	return b.repair(ctx, s)
+}
 
-	cur, err := current(out)
+// repair is Repair for a caller that holds the lock.
+func (b builder) repair(ctx context.Context, s *store.Store) error {
+	cur, err := current(b.out)
 	if err != nil {
 		return err
 	}
@@ -44,7 +48,62 @@ func Repair(ctx context.Context, s *store.Store, out string, now func() time.Tim
 	if behind {
 		_, buildErr = b.buildLocked(ctx, s, nil)
 	}
-	return errors.Join(buildErr, cleanup(ctx, s, out, now))
+	return errors.Join(buildErr, cleanup(ctx, s, b.out, b.now))
+}
+
+// Confirm resolves the open output conflicts in out: you confirm them with brain repair
+// --confirm (§7.5 step 5, D5). Under the lock, it builds a new generation in place of a
+// hand-edited current generation, deletes every conflict folder (the current one and the
+// retired ones that cleanup kept), and then repairs as Repair does. It returns the conflicts
+// that it deleted, in generation order. now is the clock.
+func Confirm(ctx context.Context, s *store.Store, out string, now func() time.Time) (_ []ConflictError, err error) {
+	b := builder{out: out, now: now, writeFile: writeFile, afterRender: func() {}}
+	unlock, err := b.lock()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
+
+	cs, err := Conflicts(out)
+	if err != nil {
+		return nil, err
+	}
+	cur, err := current(out)
+	if err != nil {
+		return nil, err
+	}
+	// Every conflict counts as no source, also one that the outputs rows still record as current
+	// after a build that switched the pointer and stopped before its record.
+	for _, c := range cs {
+		b.replace = append(b.replace, c.Generation)
+	}
+	// The pointer leaves the hand-edited generation before its folder goes, so it never names
+	// a folder that is not there (§7.5 step 9).
+	if slices.Contains(b.replace, cur) {
+		if err := s.Write(ctx, func(tx *sql.Tx) error { return newGeneration(ctx, tx, cur) }); err != nil {
+			return nil, err
+		}
+		if _, err := b.buildLocked(ctx, s, nil); err != nil {
+			return nil, err
+		}
+	}
+	for _, c := range cs {
+		if err := os.RemoveAll(filepath.Join(out, folder(c.Generation))); err != nil {
+			return nil, err
+		}
+	}
+	return cs, b.repair(ctx, s)
+}
+
+// newGeneration records one more output generation when the store has none newer than cur, so
+// that the build that replaces generation cur has a new number. Only commits record one
+// otherwise (§7.5 step 2).
+func newGeneration(ctx context.Context, tx *sql.Tx, cur int64) error {
+	newest, err := store.NewestGeneration(ctx, tx)
+	if err != nil || newest > cur {
+		return err
+	}
+	return store.InsertOutput(ctx, tx, store.Output{Generation: newest + 1, Folder: folder(newest + 1)})
 }
 
 // behind reports whether the store records a generation newer than cur, the pointer, or the
