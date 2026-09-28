@@ -183,3 +183,13 @@ $S/h session stop brain-e2s6; $S/h session delete brain-e2s6
 | 3. restart | `workspace list`: `w3` only. The new workspace E (in `rootA`, like the closed `w4` D) got **`w4`**. |
 | 4. `pane close` of the only pane | The workspace closed, and `workspace.closed` ran for `w5`. |
 | cleanup | `session stop` and `session delete` of `brain-e2s6`. No process left. The plugin link lived only in the scratch `HOME`. |
+
+## Owner decisions of 2026-09-28
+
+### D5. Owner decisions of 2026-09-28
+
+**Decisions** (owner, 2026-09-28; no test, docs only):
+- **E8-S2 snapshot (#39):** the hook-file snapshot is the full file, original bytes, for `~/.claude/settings.json` and `~/.codex/hooks.json`. It may hold tokens that the file already holds. There is no secret filter for the snapshot. Brain never uses or sends the tokens. HLD §1.4 has this exception line; §8.1 has no change.
+- **Conflict repair:** you confirm a conflict with `brain repair --confirm`. It deletes the hand-edited generation folder and builds it again. `brain status` and `brain doctor` show the conflict (E9-S2, E9-S3). HLD §7.5 step 5.
+- **Codex extractor (item 13):** Codex is accepted as an extractor. "No tools" means no tool that reaches files, the shell, the network, MCP or agents. Codex keeps its built-in code-mode `exec`/`wait` and `request_user_input_async`, because `codex exec` cannot turn them off (M0 FINDINGS, E13-S1). E13-S2 may set a time limit for the call. HLD §7.3, §17 item 13.
+- **`agent read` of a reply (item 28):** PASS for Claude and Codex (E10-S4). HLD §17 item 28.
