@@ -8,17 +8,30 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
+
+// ErrPaneNotFound means that herdr has no pane with the asked id: the pane closed.
+var ErrPaneNotFound = errors.New("pane not found")
+
+// waitDelay is how long run waits for herdr's output pipes after herdr exits or the
+// deadline kills it. A child of herdr that keeps a pipe open must not hold a Brain call
+// past its deadline. [NEW] 50 ms: well inside the 300 ms hook cap (HLD §8.3).
+const waitDelay = 50 * time.Millisecond
 
 // Target is the one herdr session that every call of a Client goes to. The resolver gives
 // it. The client never uses the UI-focused session and never lets a child call pick its own.
+// The socket decides: the client runs herdr with HERDR_SOCKET_PATH and no --session flag,
+// because with --session herdr derives the socket from the name and the config folder under
+// HOME, and Socket would have no effect (TestLiveTarget). So HOME does not change the target.
 type Target struct {
-	Session string // session name; "default" for the default session
-	Socket  string // API socket path of that session, from `herdr session list --json`
+	Session string // session name; "default" for the default session; goes to HERDR_SESSION
+	Socket  string // API socket path of that session, from the binding
 }
 
 // Client runs herdr commands against one Target.
@@ -29,7 +42,7 @@ type Client struct {
 }
 
 // New returns a client for target t. environ is the parent environment (os.Environ()). The
-// binary is $HERDR_BIN_PATH, else herdr on PATH.
+// binary is $HERDR_BIN_PATH, else herdr on the PATH of environ.
 func New(environ []string, t Target) (*Client, error) {
 	if t.Session == "" {
 		return nil, errors.New("herdr target: no session name")
@@ -37,15 +50,29 @@ func New(environ []string, t Target) (*Client, error) {
 	if !filepath.IsAbs(t.Socket) {
 		return nil, fmt.Errorf("herdr target: socket path %q is not absolute", t.Socket)
 	}
-	bin := lookup(environ, "HERDR_BIN_PATH")
-	if bin == "" {
-		p, err := exec.LookPath("herdr")
-		if err != nil {
-			return nil, err
-		}
-		bin = p
+	bin, err := binary(environ)
+	if err != nil {
+		return nil, err
 	}
 	return &Client{bin: bin, target: t, env: childEnv(environ, t)}, nil
+}
+
+// binary returns $HERDR_BIN_PATH, else the first herdr on the PATH of environ. It skips a
+// relative PATH entry, as exec.LookPath does, so the working folder cannot supply herdr.
+func binary(environ []string) (string, error) {
+	if bin := lookup(environ, "HERDR_BIN_PATH"); bin != "" {
+		return bin, nil
+	}
+	for _, dir := range filepath.SplitList(lookup(environ, "PATH")) {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		p := filepath.Join(dir, "herdr")
+		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0 {
+			return p, nil
+		}
+	}
+	return "", errors.New("herdr not found: HERDR_BIN_PATH is not set and herdr is not on PATH")
 }
 
 func lookup(environ []string, key string) string {
@@ -60,7 +87,8 @@ func lookup(environ []string, key string) string {
 
 // childEnv sets HERDR_SESSION and HERDR_SOCKET_PATH to the target. herdr 0.9.1 picks the
 // session from --session first, then HERDR_SOCKET_PATH, then HERDR_SESSION, so inherited
-// values of another session must never reach the child.
+// values of another session must never reach the child. HERDR_SESSION is set too, so that
+// the child's two variables never disagree.
 func childEnv(environ []string, t Target) []string {
 	env := slices.DeleteFunc(slices.Clone(environ), func(kv string) bool {
 		k, _, _ := strings.Cut(kv, "=")
@@ -69,11 +97,15 @@ func childEnv(environ []string, t Target) []string {
 	return append(env, "HERDR_SESSION="+t.Session, "HERDR_SOCKET_PATH="+t.Socket)
 }
 
-// run runs `herdr --session <target> args...` and returns its stdout. The caller gives the
-// deadline in ctx: herdr is on the path of every Brain call, so no call may wait forever.
-// herdr 0.9.1 takes the last --session in the whole command line, so run refuses any
-// argument that would change the target.
 func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
+	return run(ctx, c.bin, c.env, args...)
+}
+
+// run runs `herdr args...` with env and returns its stdout. The caller gives the deadline in
+// ctx: herdr is on the path of every Brain call, so no call may wait forever. herdr 0.9.1
+// takes the last --session in the whole command line, and that flag wins over
+// HERDR_SOCKET_PATH, so run refuses any argument that would change the target.
+func run(ctx context.Context, bin string, env []string, args ...string) ([]byte, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		return nil, errors.New("context has no deadline")
 	}
@@ -82,16 +114,16 @@ func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
 			return nil, fmt.Errorf("argument %q would change the herdr target", a)
 		}
 	}
-	cmd := exec.CommandContext(ctx, c.bin, append([]string{"--session", c.target.Session}, args...)...)
-	cmd.Env = c.env
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = env
+	cmd.WaitDelay = waitDelay
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
-	if err != nil {
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, failure(err, stderr.Bytes())
 	}
 	return stdout.Bytes(), nil
@@ -107,6 +139,9 @@ func failure(err error, stderr []byte) error {
 		} `json:"error"`
 	}
 	if json.Unmarshal(stderr, &reply) == nil && reply.Error.Code != "" {
+		if reply.Error.Code == "pane_not_found" {
+			return fmt.Errorf("%s: %w", reply.Error.Message, ErrPaneNotFound)
+		}
 		return fmt.Errorf("%s (%s)", reply.Error.Message, reply.Error.Code)
 	}
 	if msg := bytes.TrimSpace(stderr); len(msg) > 0 {
@@ -162,6 +197,11 @@ func (c *Client) ServerVersion(ctx context.Context) (string, error) {
 	s := req(&ck, r.Snapshot, "snapshot")
 	v := req(&ck, s.Version, "snapshot.version")
 	req(&ck, s.Protocol, "snapshot.protocol")
+	if ck.err == nil {
+		if _, _, err := parseVersion(v); err != nil {
+			ck.fail("snapshot.version", err.Error())
+		}
+	}
 	if ck.err != nil {
 		return "", fmt.Errorf("herdr api snapshot: %w", ck.err)
 	}
@@ -182,7 +222,10 @@ func (c *Client) ClientVersion(ctx context.Context) (string, error) {
 	return v, nil
 }
 
-// Pane returns the pane with id, from `herdr pane get`.
+// Pane returns the pane with id, from `herdr pane get`. It returns ErrPaneNotFound when the
+// pane closed. The returned ID can differ from id: herdr 0.9.1 answers the old id of a pane
+// that moved to another workspace with that pane and its new id (testdata/pane-moved.json).
+// The caller compares the ids; a pane that stays in its workspace keeps its id.
 func (c *Client) Pane(ctx context.Context, id string) (Pane, error) {
 	if err := checkPaneID(id); err != nil {
 		return Pane{}, fmt.Errorf("herdr pane get: %w", err)
@@ -229,9 +272,14 @@ func (c *Client) Workspaces(ctx context.Context) ([]Workspace, error) {
 	return ws, nil
 }
 
-// Sessions returns every herdr session, from `herdr session list --json`.
-func (c *Client) Sessions(ctx context.Context) ([]Session, error) {
-	out, err := c.run(ctx, "session", "list", "--json")
+// Sessions returns every herdr session, from `herdr session list --json`. It needs no
+// Target: the list is the same from every session. environ is as for New.
+func Sessions(ctx context.Context, environ []string) ([]Session, error) {
+	bin, err := binary(environ)
+	if err != nil {
+		return nil, err
+	}
+	out, err := run(ctx, bin, environ, "session", "list", "--json")
 	if err != nil {
 		return nil, fmt.Errorf("herdr session list: %w", err)
 	}
