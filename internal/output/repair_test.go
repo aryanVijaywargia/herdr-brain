@@ -414,9 +414,9 @@ func TestHolds(t *testing.T) {
 		want bool
 	}{
 		{"manifest without the item", func(string, int64) error { return nil }, false},
-		{"text without a manifest pair", func(out string, gen int64) error {
+		{"changed file without a manifest pair", func(out string, gen int64) error {
 			return os.WriteFile(filepath.Join(out, folder(gen), globalName), []byte("item 99"), 0o600)
-		}, false},
+		}, true},
 		{"staging folder", func(out string, _ int64) error {
 			return os.Mkdir(filepath.Join(out, stagingPrefix+"9"), 0o700)
 		}, true},
@@ -447,6 +447,26 @@ func TestHolds(t *testing.T) {
 	mustBuild(t, s, out)
 	if !mustHolds(t, out, id) {
 		t.Errorf("Holds(%d) of an item in a workspace part = false, want true", id)
+	}
+}
+
+// Forget deletes a staging folder before its commit: no outputs row can mark it, so the hook
+// would deliver while it holds the text (review E4-S6).
+func TestForgetDropsStaging(t *testing.T) {
+	s, out := newStore(t)
+	id := addItem(t, s, "", "secret plan")
+	dir := filepath.Join(out, stagingPrefix+"9")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, globalName), []byte("secret plan"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Forget(context.Background(), s, out, id, func(*sql.Tx) error { return nil }); err != nil {
+		t.Fatalf("Forget() = %v", err)
+	}
+	if exists(t, dir) || mustHolds(t, out, id) {
+		t.Errorf("staging folder after Forget(): still there or held, want it deleted")
 	}
 }
 

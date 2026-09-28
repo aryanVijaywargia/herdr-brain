@@ -129,10 +129,8 @@ func cleanup(ctx context.Context, s *store.Store, out string, now func() time.Ti
 	if err != nil {
 		return err
 	}
-	for _, name := range staging {
-		if err := os.RemoveAll(filepath.Join(out, name)); err != nil {
-			return err
-		}
+	if err := dropStaging(out, staging); err != nil {
+		return err
 	}
 	cur, err := current(out)
 	if err != nil {
@@ -211,8 +209,8 @@ func Conflicts(out string) ([]ConflictError, error) {
 // (§6.7). The forget flow reports "done" only when it is false. A generation counts by the
 // (item id, revision) pairs in its manifest, never by a text search. A staging folder, a
 // generation with a missing or invalid manifest, or a file that the manifest does not name may
-// hold anything, so it counts too, until cleanup removes it. A kept conflict folder counts by
-// its manifest like any other.
+// hold anything, so it counts too, until cleanup removes it. A kept conflict folder counts
+// too: a file that fails its hash may hold any text, whatever its manifest names.
 func Holds(out string, item int64) (bool, error) {
 	gens, staging, err := holding(out, item)
 	return staging || len(gens) > 0, err
@@ -230,8 +228,8 @@ func holding(out string, item int64) (gens []int64, staging bool, err error) {
 		if err != nil && !errors.Is(err, ErrInconsistent) {
 			return nil, false, err
 		}
-		// A manifest that did not read leaves a zero generation number.
-		if g.manifest.Generation != gen || len(g.extra) > 0 || holdsItem(g.manifest, item) {
+		// err is ErrInconsistent here. A manifest that did not read leaves a zero generation number.
+		if err != nil || g.manifest.Generation != gen || len(g.extra) > 0 || holdsItem(g.manifest, item) {
 			gens = append(gens, gen)
 		}
 	}
@@ -251,7 +249,8 @@ func holdsItem(m Manifest, item int64) bool {
 // marks each generation in out that holds item with outputs.holds_forgotten_text, so the hook
 // withholds the brief until cleanup deletes them, and a build from one of them logs no old
 // bytes (§6.7). With the lock held, no build writes a generation between the check and the
-// mark.
+// mark. Forget first deletes the staging folders: no outputs row can mark them, so a
+// staging folder left after the commit would hold the text while the hook delivers.
 func Forget(ctx context.Context, s *store.Store, out string, item int64, erase func(tx *sql.Tx) error) (err error) {
 	b := builder{out: out}
 	unlock, err := b.lock()
@@ -259,6 +258,13 @@ func Forget(ctx context.Context, s *store.Store, out string, item int64, erase f
 		return err
 	}
 	defer func() { err = errors.Join(err, unlock()) }()
+	_, staging, err := folders(out)
+	if err != nil {
+		return err
+	}
+	if err := dropStaging(out, staging); err != nil {
+		return err
+	}
 	gens, _, err := holding(out, item)
 	if err != nil {
 		return err
@@ -269,6 +275,17 @@ func Forget(ctx context.Context, s *store.Store, out string, item int64, erase f
 		}
 		return store.MarkForgotten(ctx, tx, gens)
 	})
+}
+
+// dropStaging deletes the staging folders names in out. The caller holds the lock, so no
+// build writes one now, and a staging folder was never published: it has no reader.
+func dropStaging(out string, names []string) error {
+	for _, name := range names {
+		if err := os.RemoveAll(filepath.Join(out, name)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // folders lists the generation folders in out, in generation order, and the names of the

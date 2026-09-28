@@ -363,3 +363,39 @@ func TestForgetScopeAndUndo(t *testing.T) {
 		t.Error("Forget(x) = nil, want a usage error")
 	}
 }
+
+// A kept conflict keeps forget pending even when its manifest does not name the item: the
+// changed bytes may hold anything (review E4-S6). A repair then lets forget report done.
+func TestForgetPendingOnConflictWithoutItem(t *testing.T) {
+	const marker = "marker-unnamed"
+	f := newFixture(t)
+	id := f.approved(t, marker)
+	if _, err := f.undo(t, fmt.Sprint(id)); err != nil { // retires the item: no output names it
+		t.Fatalf("Undo() = %v", err)
+	}
+	gen := f.rows(t).newest
+	if err := os.WriteFile(filepath.Join(f.genDir(gen), "global.md"), []byte(marker), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	now := clock()
+	if out := f.mustForget(t, now, fmt.Sprint(id)); !strings.Contains(out, "pending") || strings.Contains(out, "done") {
+		t.Errorf("Forget() printed %q, want pending", out)
+	}
+	if !f.forgetPending(t) {
+		t.Error("ForgetPending() = false, want true: the hook must withhold the brief")
+	}
+
+	var buf bytes.Buffer
+	e := f.env(f.sock, "w14:p1", "w14", &buf)
+	e.Now = now
+	if err := Repair(context.Background(), e, []string{"--confirm"}); err != nil {
+		t.Fatalf("Repair(--confirm) = %v", err)
+	}
+	if out := f.mustForget(t, now, fmt.Sprint(id)); !strings.HasSuffix(out, "done\n") {
+		t.Errorf("Forget() after repair printed %q, want done", out)
+	}
+	if found := f.scan(t, marker); len(found) > 0 {
+		t.Errorf("after repair the marker is in %v, want nowhere", found)
+	}
+}
