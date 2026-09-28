@@ -71,15 +71,20 @@ func RepairConflicts(ctx context.Context, s *store.Store, out string, now func()
 	if err := errors.Join(buildErr, cleanup(ctx, s, b.out, b.now)); err != nil {
 		return nil, err
 	}
+	beforeScan()
 	return Conflicts(out)
 }
+
+// beforeScan runs just before RepairConflicts reads the conflicts; a test checks the lock
+// there.
+var beforeScan = func() {}
 
 // Confirm resolves the open output conflicts in out: you confirm them with brain repair
 // --confirm (§7.5 step 5, D5). Under the lock, it builds a new generation in place of a
 // hand-edited current generation, deletes every conflict folder (the current one and the
-// retired ones that cleanup kept), and then repairs as Repair does. After it switches the
-// pointer, it waits one hookCap before the deletes, so a hook that read the old pointer still
-// reads its folder (§7.5 step 8). It returns the conflicts that it deleted, in generation
+// retired ones that cleanup kept), and then repairs as Repair does. Before the deletes, it
+// waits until the pointer left them more than one hookCap ago, so a hook that read the old
+// pointer still reads its folder (§7.5 step 8). It returns the conflicts that it deleted, in generation
 // order. now is the clock.
 func Confirm(ctx context.Context, s *store.Store, out string, now func() time.Time) (_ []ConflictError, err error) {
 	b := builder{out: out, now: now, writeFile: writeFile, afterRender: func() {}}
@@ -111,7 +116,11 @@ func Confirm(ctx context.Context, s *store.Store, out string, now func() time.Ti
 		if _, err := b.buildLocked(ctx, s, nil); err != nil {
 			return nil, err
 		}
-		time.Sleep(hookCap)
+	}
+	if len(cs) > 0 {
+		if err := waitReaders(ctx, s, out, now); err != nil {
+			return nil, err
+		}
 	}
 	for _, c := range cs {
 		if err := os.RemoveAll(filepath.Join(out, folder(c.Generation))); err != nil {
@@ -119,6 +128,31 @@ func Confirm(ctx context.Context, s *store.Store, out string, now func() time.Ti
 		}
 	}
 	return cs, b.repair(ctx, s)
+}
+
+// sleep is time.Sleep; a test replaces it.
+var sleep = time.Sleep
+
+// waitReaders waits until the pointer left every generation that is not current more than
+// hookCap ago, so no hook still reads their folders (§7.5 step 8). With no record of the last
+// switch it waits one full hookCap.
+func waitReaders(ctx context.Context, s *store.Store, out string, now func() time.Time) error {
+	cur, err := current(out)
+	if err != nil {
+		return err
+	}
+	left, err := switchedAt(ctx, s, cur)
+	if err != nil {
+		return err
+	}
+	wait := hookCap
+	if !left.IsZero() {
+		wait = min(hookCap, hookCap-now().Sub(left))
+	}
+	if wait > 0 {
+		sleep(wait)
+	}
+	return nil
 }
 
 // newGeneration records one more output generation when the store has none newer than cur, so
