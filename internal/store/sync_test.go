@@ -16,11 +16,10 @@ func hookRun(ctx context.Context, dir, sync string) error {
 	if err != nil {
 		return err
 	}
-	if sync != "" {
-		// The store keeps one connection, so the pragma holds for the write below.
-		if _, err := s.db.ExecContext(ctx, "PRAGMA synchronous = "+sync); err != nil {
-			return err
-		}
+	// The store keeps one connection, so the pragma holds for the write below. Every variant
+	// runs it, so the variants differ only in the mode.
+	if _, err := s.db.ExecContext(ctx, "PRAGMA synchronous = "+sync); err != nil {
+		return err
 	}
 	err = s.Write(ctx, func(tx *sql.Tx) error {
 		_, err := InsertDelivery(ctx, tx, Delivery{Profile: "claude", PaneID: "p1", Result: ResultEmitted, At: time.Now()})
@@ -42,8 +41,8 @@ func BenchmarkHookRun(b *testing.B) {
 		holdOpen   bool
 	}{
 		{"full", "FULL", false},
-		{"normal", "", false},
-		{"normal-no-close-checkpoint", "", true},
+		{"normal", "NORMAL", false},
+		{"normal-no-close-checkpoint", "NORMAL", true},
 	} {
 		b.Run(c.name, func(b *testing.B) {
 			ctx := context.Background()
@@ -76,7 +75,7 @@ func TestReopenReadsCommits(t *testing.T) {
 	dir := t.TempDir()
 	const runs = 20 // [NEW]
 	for range runs {
-		if err := hookRun(ctx, dir, ""); err != nil {
+		if err := hookRun(ctx, dir, "NORMAL"); err != nil {
 			t.Fatal(err)
 		}
 	}
