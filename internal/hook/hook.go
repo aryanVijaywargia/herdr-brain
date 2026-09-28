@@ -19,6 +19,7 @@ import (
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/brief"
+	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
@@ -44,6 +45,8 @@ const (
 	busyTimeout = 50 * time.Millisecond
 	// outDir is the out folder of a store (§7.5 step 3). [NEW] its place in the store folder.
 	outDir = "out"
+	// retestDir is the folder of the retest markers in the data home (S14). [NEW] its place.
+	retestDir = "retest"
 )
 
 // The reasons of the withheld receipts that the hook writes itself (§8.5 "Receipts"). The
@@ -73,7 +76,12 @@ func Main(args, environ []string, stdin io.Reader, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	h := Hook{Profile: p, Environ: environ, Bindings: file, Pane: resolver.HerdrPane(environ), Start: start, Now: time.Now}
+	data, err := paths.DataHome()
+	if err != nil {
+		return err
+	}
+	h := Hook{Profile: p, Environ: environ, Bindings: file, Retest: filepath.Join(data, retestDir),
+		Pane: resolver.HerdrPane(environ), Start: start, Now: time.Now}
 	return h.Run(context.Background(), stdin, stdout)
 }
 
@@ -90,6 +98,7 @@ type Hook struct {
 	Profile  *adapter.Profile
 	Environ  []string
 	Bindings string // the bindings file
+	Retest   string // the folder of the retest markers (harness.MarkRetest)
 	Pane     resolver.PaneFunc
 	Start    time.Time // the hook start; the lookup deadline counts from it
 	Now      func() time.Time
@@ -139,6 +148,11 @@ func (h Hook) run(ctx context.Context, stdin io.Reader, stdout io.Writer) (err e
 	in, err := h.Profile.Parse(raw)
 	if errors.Is(err, adapter.ErrNotStart) {
 		return nil
+	}
+	// Input of an unknown shape sets the adapter state to retest (S14). The marker is a file
+	// outside every store, so the run still writes the store at most once.
+	if errors.Is(err, adapter.ErrRetest) {
+		return errors.Join(err, harness.MarkRetest(h.Retest, h.Profile.Kind, h.Now()))
 	}
 	if err != nil {
 		return err

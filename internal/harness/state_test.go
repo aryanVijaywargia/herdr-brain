@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
@@ -38,9 +39,10 @@ func newEnv(t *testing.T) env {
 	home := t.TempDir()
 	data := filepath.Join(home, ".local", "share", "brain")
 	e := env{
-		home:  home,
-		files: Files{Install: filepath.Join(data, "install.json"), Conformance: filepath.Join(data, "conformance.json")},
-		bin:   filepath.Join(home, "bin"),
+		home: home,
+		files: Files{Install: filepath.Join(data, "install.json"), Conformance: filepath.Join(data, "conformance.json"),
+			Retest: filepath.Join(data, "retest")},
+		bin: filepath.Join(home, "bin"),
 	}
 	if err := os.MkdirAll(e.bin, 0o700); err != nil {
 		t.Fatal(err)
@@ -199,6 +201,56 @@ func TestNotVerified(t *testing.T) {
 	}
 }
 
+// TestRetestMarker checks that hook input of an unknown shape sets retest on the tested CLI
+// version, and that only a pass that completed after the marker clears it (S14).
+func TestRetestMarker(t *testing.T) {
+	t0 := time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC)
+	at := func(m int) time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+	e := newEnv(t)
+	p := load(t, "claude")
+	e.cli(t, "claude", "2.1.283 (Claude Code)")
+	entry := e.install(t, p)
+	pass := func(m int) Result {
+		return Result{Harness: "claude", CLIVersion: p.TestedVersion, ProfileSHA256: p.SHA256,
+			EntrySHA256: entry.SHA256, RunID: "run", Result: Pass, At: at(m)}
+	}
+	mark := func(m int) {
+		t.Helper()
+		if err := MarkRetest(e.files.Retest, "claude", at(m)); err != nil {
+			t.Fatalf("MarkRetest() = %v", err)
+		}
+	}
+	steps := []struct {
+		name string
+		do   func()
+		want State
+	}{
+		{"marker, no pass", func() { mark(1) }, Retest},
+		{"pass before the marker", func() { e.conformance(t, pass(0)) }, Retest},
+		{"pass at the marker time", func() { e.conformance(t, pass(1)) }, Retest},
+		{"pass after the marker", func() { e.conformance(t, pass(2)) }, Verified},
+		{"newer marker", func() { mark(3) }, Retest},
+		{"fail after the marker", func() {
+			r := pass(4)
+			r.Result = "fail"
+			e.conformance(t, pass(2), r)
+		}, Retest},
+		{"pass after the newer marker", func() { e.conformance(t, pass(5)) }, Verified},
+	}
+	for _, st := range steps {
+		st.do()
+		s := check(t, e, fakeHerdr{}, p)
+		if s.State() != st.want || s.CLIVersion != p.TestedVersion || s.Retest != (st.want == Retest) {
+			t.Fatalf("%s: %+v, want %s at %s", st.name, s, st.want, p.TestedVersion)
+		}
+	}
+	// The marker of one harness leaves the others alone.
+	e.cli(t, "codex", "codex-cli "+load(t, "codex").TestedVersion)
+	if s := check(t, e, fakeHerdr{}, load(t, "codex")); s.Retest {
+		t.Errorf("codex with a claude marker: %+v, want no retest", s)
+	}
+}
+
 // rewrite returns a change that replaces the first from with to in the hook file.
 func rewrite(from, to string) func(t *testing.T, target string, data []byte) {
 	return func(t *testing.T, target string, data []byte) {
@@ -287,6 +339,14 @@ func TestCheckErrors(t *testing.T) {
 				t.Fatal(err)
 			}
 		}, want: "conformance results"},
+		{name: "bad retest marker", setup: func(t *testing.T, e env) {
+			if err := os.MkdirAll(e.files.Retest, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(e.files.Retest, "claude.json"), []byte("{"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, want: "retest marker"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -299,5 +359,16 @@ func TestCheckErrors(t *testing.T) {
 				t.Errorf("Check() = %v, want an error with %q", err, tt.want)
 			}
 		})
+	}
+}
+
+// TestMarkRetestError checks that a marker that cannot be written is an error.
+func TestMarkRetestError(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkRetest(filepath.Join(file, "retest"), "claude", time.Now()); err == nil || !strings.Contains(err.Error(), "retest marker") {
+		t.Errorf("MarkRetest(under a file) = %v, want a retest marker error", err)
 	}
 }
