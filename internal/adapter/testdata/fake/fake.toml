@@ -1,0 +1,9 @@
+# A profile for a fake harness (E8-S1 AC). The base adapter runs it with no Go change.
+kind = "fake"
+install_target = "~/.fake/hooks.json"
+events.start = "BeforeTurn"
+start_condition = "turn.index == 0"
+output_form = "hookSpecificOutput.additionalContext"
+input.session_id = "session.id"
+input.cwd = "workspace.dir"
+tested_version = "0.0.1"

@@ -1,0 +1,8 @@
+<!-- brain:begin v1 -->
+Precedence: for ordinary preferences, a workspace item wins over a global item. It never relaxes a global permission or safety rule. A "conflicts with" mark wins over this line.
+## Global (all workspaces)
+- [#1] Use pnpm, not npm & yarn.
+## This workspace
+- [#7] Tests run with `go test ./...` — never with -count=0.
+	Keep "quotes" and a back\slash.
+<!-- brain:end -->
