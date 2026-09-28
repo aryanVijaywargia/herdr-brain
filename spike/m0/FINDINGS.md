@@ -190,7 +190,7 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
 | `visible` | 116-150 | 116-150 | 116-150 | 116-150 |
 
 - Codex 0.154 prints the reply inline in the normal screen, not in the alternate screen. So the scrollback holds the whole reply, as for Claude. The file fallback of HLD §17 item 28 is not needed.
-- `--lines N` counts from the bottom of the pane and includes the Codex footer (5 lines: blank lines, the input prompt, the status line). So the runner must read more lines than the reply length. When `N` is larger than the history, herdr returns the whole history (179 lines here), with no error.
+- `--lines N` counts from the bottom of the pane and includes the Codex footer (5 lines: blank lines, the input prompt, the status line). So `--lines 150` gave only 145 reply lines. The runner must read enough lines for the reply and the pane text below it, and then check that the whole reply is there. A partial read is `reply incomplete`. When `N` is larger than the history, herdr returns the whole history (179 lines here), with no error.
 - `visible` gives only the screen (40 rows). A reply longer than the screen is `reply incomplete` with this source.
 - **Limits.** One reply of 150 short lines, one pane size, one run. Long wrapped lines and replies longer than the herdr scrollback were not tested.
 
@@ -207,6 +207,6 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
 - Item 10: answered by E7-S4. The lookup deadline (150 ms, [NEW]) waits for the owner to accept it in the HLD.
 - Item 11: the plugin `popup` placement.
 - Item 21: the conformance test (built in M1).
-- Item 28: answered by E10-S4. `agent read --source recent-unwrapped` with `--lines` larger than the reply returns a full Codex reply.
+- Item 28: answered by E10-S4. `agent read --source recent-unwrapped` returns a full Codex reply when `--lines` covers the reply and the pane text below it. The runner must still check that the whole reply is there; a partial read is `reply incomplete`.
 - Plugin `[[events]]` delivery: `workspace.renamed` ran in a scratch session (E2-S5). Other events and timing are not tested.
 - The eval delivery and exclusion stages (scripts plus the owner's check).
