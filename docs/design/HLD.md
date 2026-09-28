@@ -521,7 +521,7 @@ sequenceDiagram
 
 - The extractor finds a new correction with the same claim id as an active item. Brain keeps this evidence before it drops the duplicate proposal (§7.3).
 - The evidence must be new and valid. The model's `same_as` guess alone is not proof. An uncertain match is stored as **uncertain**.
-- Brain checks the "emitted" receipts for that session. Their manifests name the item revisions. Which revision did the session get?
+- Brain checks the receipts for that session (emitted, unmapped or withheld). Their manifests name the item revisions. Which revision did the session get?
   - The current revision: Brain records a **comeback** for that revision.
   - An older revision: the comeback counts against the old revision only.
   - No receipt: Brain records **delivery unknown**, not a comeback. It checks the adapter first.
@@ -862,7 +862,7 @@ Rules:
 
 **Session bindings and the resolver** (F1) [NEW]
 - There is one **main store**. `brain setup` binds your default herdr session to it. `brain setup --session <name>` binds another real herdr session to the same main store. So global items reach every workspace in every real herdr session.
-- A **test binding** has its own store: `brain setup --session <name> --test <folder>`. The eval test session is the only such binding (§12.1).
+- A **test binding** has its own store: `brain setup --session <name> --test <folder>`. There are two: the eval test session (§12.1), with learning off, and the M2 exit session (§13), with learning on.
 - The bindings live in one small config file outside every store. A binding names the herdr session, its socket path and its store folder.
 - Setup refuses a test store that resolves to, holds or sits inside the main store or another test store, after it resolves links and aliases. A real herdr session can never bind to a test store.
 - A bad test binding does not stop the other sessions. The resolver drops a test binding that fails its checks or conflicts with a main binding (two conflicting test bindings: both), and that session gets no store. A bad main binding, or main bindings that disagree, stop every session.

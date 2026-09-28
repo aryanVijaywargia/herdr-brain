@@ -83,5 +83,10 @@ func noItemTextFields() []Field {
 		{"tombstones", "claim_id"},
 		{"tombstones", "source_keys"},
 		{"tombstones", "forgotten_at"},
+		{"learning_settings", "scope"},
+		{"learning_settings", "herdr_session"},
+		{"learning_settings", "target"}, // A workspace key or a herdr pane id.
+		{"learning_settings", "learning"},
+		{"learning_settings", "changed"},
 	}
 }

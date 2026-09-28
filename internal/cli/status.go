@@ -153,6 +153,11 @@ func (s *statusCall) run(ctx context.Context) {
 			return err
 		}
 		s.output(pending)
+		line, err := learningLine(ctx, tx, s.Binding)
+		if err != nil {
+			return err
+		}
+		s.w.printf("\n%s\n", line)
 		return nil
 	}))
 	s.relinks()
