@@ -19,7 +19,7 @@
 | 21 | Conformance test | OPEN | |
 | 25 | No `brain` on PATH | PASS | `command -v brain` finds nothing. |
 | 27 | Named test session | PASS (session parts) | `herdr --session brain-eval server` (background) ran beside `default` with its own socket. Its first workspace was `w1`. Its panes had `HERDR_SESSION=brain-eval` and their own `HERDR_SOCKET_PATH`. `herdr session stop brain-eval` and `herdr session delete brain-eval` touched only that session. |
-| 28 | `agent read` of a reply | PASS for Claude | A 150-line reply: `--lines 80` gave lines 80-150, `--lines 200` gave all 150. Codex: open. |
+| 28 | `agent read` of a reply | PASS for Claude and Codex | Claude, a 150-line reply: `--lines 80` gave lines 80-150, `--lines 200` gave all 150. Codex (E10-S4), a 150-line reply: `--lines 80` gave lines 76-150, `--lines 200` gave all 150. See "Codex long reply (E10-S4)". |
 | 29 | Agent session id match | PASS, with a timing limit | See "Session id timing". |
 | 30 | Socket reach from a hook subprocess | PASS | `HERDR_PANE_ID`, `HERDR_SOCKET_PATH` and `HERDR_BIN_PATH` reach the hook. `pane get` works in 5-10 ms. |
 | 31 | Restart versus state deletion, session identity | PASS | Restart: `w1` came back with the same `identity_cwd`. Deletion: a new workspace in `/private/tmp` got `w1` again. `session.json` (version 3) has no session id. |
@@ -176,10 +176,29 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
   - One machine, one short run per level.
 - **Side result (test setup).** Claude ran with the real HOME (for its login) inside the scratch session. The hook's `herdr --session brain-spike-e7s4 pane get` then failed: herdr resolves `--session` from HOME and uses it before `HERDR_SOCKET_PATH`. The hook withheld, which is correct. The fix for the test was `HOME=<scratch>` in the hook command. A binding test with a scratch HOME must give the hook the server's HOME.
 
+## Codex long reply (E10-S4, item 28)
+
+- Date: 2026-09-28. herdr 0.9.1, codex-cli 0.154.0, model `gpt-6-sol` with reasoning effort low. Commands and the full read: `data/e10s4-codex-long-reply.txt`.
+- **Setup.** Named session `brain-spike-e10s4` beside `default`. One workspace in the scratch folder `/tmp/e10s4/work`, pane `w1:p1` with 40 visible rows. `herdr agent start cx --kind codex --pane w1:p1 -- -m gpt-6-sol -c 'model_reasoning_effort="low"'`. In the TUI: trust the folder, and "Continue without trusting" for the hooks. The real HOME was used for the Codex login.
+- **Prompt** (`agent prompt ... --wait`): "Reply with exactly 150 lines of plain text and nothing else. Line N must be: LINE N kest-7731 (N from 1 to 150). ..."
+- **Result: PASS.** `agent read w1:p1 --source recent-unwrapped --lines 200` returned lines 1-150 of the reply, in order, each once.
+
+| `--source` | `--lines 80` | `--lines 150` | `--lines 200` | `--lines 400` |
+|---|---|---|---|---|
+| `recent` | 76-150 | 6-150 | 1-150 (all) | 1-150 (all) |
+| `recent-unwrapped` | 76-150 | 6-150 | 1-150 (all) | 1-150 (all) |
+| `visible` | 116-150 | 116-150 | 116-150 | 116-150 |
+
+- Codex 0.154 prints the reply inline in the normal screen, not in the alternate screen. So the scrollback holds the whole reply, as for Claude. The file fallback of HLD §17 item 28 is not needed.
+- `--lines N` counts from the bottom of the pane and includes the Codex footer (5 lines: blank lines, the input prompt, the status line). So `--lines 150` gave only 145 reply lines. The runner must read enough lines for the reply and the pane text below it, and then check that the whole reply is there. A partial read is `reply incomplete`. When `N` is larger than the history, herdr returns the whole history (179 lines here), with no error.
+- `visible` gives only the screen (40 rows). A reply longer than the screen is `reply incomplete` with this source.
+- **Limits.** One reply of 150 short lines, one pane size, one run. Long wrapped lines and replies longer than the herdr scrollback were not tested.
+
 ## Cleanup done
 
 - E2-S5: the scratch session `brain-spike-e2s5` is stopped and deleted. Its plugin link lived only in the scratch HOME. The main session was not touched.
 - E7-S4: the scratch session `brain-spike-e7s4` is stopped and deleted. Its 33 panes and their load loops ended with it. No hook was installed in `~/.claude` or `~/.codex`.
+- E10-S4: the scratch session `brain-spike-e10s4` is stopped and deleted, and the Codex process ended with it. Codex added `[projects."/private/tmp/e10s4/work"] trust_level = "trusted"` to `~/.codex/config.toml`; that entry is removed (the file is the same as before the test). No hook was trusted or installed.
 - Test panes `w14:p2P`, `w14:p2Q`, `w14:p2R` and `w14:p2S` are closed. The spike plugin is unlinked. The `brain-eval` session is stopped and deleted.
 
 ## Open items
@@ -188,6 +207,6 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
 - Item 10: answered by E7-S4. The lookup deadline (150 ms, [NEW]) waits for the owner to accept it in the HLD.
 - Item 11: the plugin `popup` placement.
 - Item 21: the conformance test (built in M1).
-- Item 28: Codex long reply.
+- Item 28: answered by E10-S4. `agent read --source recent-unwrapped` returns a full Codex reply when `--lines` covers the reply and the pane text below it. The runner must still check that the whole reply is there; a partial read is `reply incomplete`.
 - Plugin `[[events]]` delivery: `workspace.renamed` ran in a scratch session (E2-S5). Other events and timing are not tested.
 - The eval delivery and exclusion stages (scripts plus the owner's check).

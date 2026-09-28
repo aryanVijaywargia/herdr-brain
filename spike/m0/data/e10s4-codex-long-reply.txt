@@ -1,0 +1,208 @@
+# E10-S4: Codex long reply read with herdr agent read
+# Date: 2026-09-28. herdr 0.9.1, codex-cli 0.154.0 (model gpt-6-sol, reasoning effort low).
+# Session: brain-spike-e10s4 (named, beside default). Pane w1:p1, 40 visible rows. Scratch folder /tmp/e10s4/work.
+#
+# Commands (h = herdr --session brain-spike-e10s4):
+#   h workspace create --cwd /tmp/e10s4/work --label e10s4 --no-focus
+#   h agent start cx --kind codex --pane w1:p1 --timeout 60000 -- -m gpt-6-sol -c 'model_reasoning_effort="low"'
+#   (TUI: trust the folder: 1; hooks: 3 "Continue without trusting")
+#   h agent prompt w1:p1 "Reply with exactly 150 lines of plain text and nothing else. Line N must be: LINE N kest-7731 (N from 1 to 150). Do not use tools, code blocks or lists." --wait
+#   h agent read w1:p1 --source <src> --lines <n>
+#
+# Results (matches = lines that end in 'kest-7731'):
+#   --source recent --lines 80: output lines=80, reply lines=75, first=76, last=150
+#   --source recent --lines 150: output lines=150, reply lines=145, first=6, last=150
+#   --source recent --lines 200: output lines=180, reply lines=150, first=1, last=150
+#   --source recent --lines 400: output lines=180, reply lines=150, first=1, last=150
+#   --source recent-unwrapped --lines 80: output lines=79, reply lines=75, first=76, last=150
+#   --source recent-unwrapped --lines 150: output lines=149, reply lines=145, first=6, last=150
+#   --source recent-unwrapped --lines 200: output lines=179, reply lines=150, first=1, last=150
+#   --source recent-unwrapped --lines 400: output lines=179, reply lines=150, first=1, last=150
+#   --source visible --lines 80: output lines=40, reply lines=35, first=116, last=150
+#   --source visible --lines 150: output lines=40, reply lines=35, first=116, last=150
+#   --source visible --lines 200: output lines=40, reply lines=35, first=116, last=150
+#   --source visible --lines 400: output lines=40, reply lines=35, first=116, last=150
+# recent-unwrapped --lines 200: reply lines 1-150 in order, each once.
+#
+# Full output of: h agent read w1:p1 --source recent-unwrapped --lines 200
+# (the first line is an error from the tester's own .zshrc, not from herdr or Codex)
+/Users/aryanvijaywargia/.zshrc:31: command not found: ng
+(base) aryanvijaywargia@192 work % codex -m gpt-6-sol -c 'model_reasoning_effort="low"'
+
+╭─────────────────────────────────────────────────╮
+│ ✨ Update available! 0.154.0 -> 0.158.0         │
+│ Run npm install -g @openai/codex to update.     │
+│                                                 │
+│ See full release notes:                         │
+│ https://github.com/openai/codex/releases/latest │
+╰─────────────────────────────────────────────────╯
+
+╭─────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.154.0)                  │
+│                                             │
+│ model:     gpt-6-sol low   /model to change │
+│ directory: /private/tmp/e10s4/work          │
+╰─────────────────────────────────────────────╯
+
+  Tip: New Build faster with the Desktop app. Run 'codex app' or visit https://chatgpt.com/codex?app-landing-page=true
+
+
+› Reply with exactly 150 lines of plain text and nothing else. Line N must be: LINE N kest-7731 (N from 1 to 150). Do
+  not use tools, code blocks or lists.
+
+
+• LINE 1 kest-7731
+  LINE 2 kest-7731
+  LINE 3 kest-7731
+  LINE 4 kest-7731
+  LINE 5 kest-7731
+  LINE 6 kest-7731
+  LINE 7 kest-7731
+  LINE 8 kest-7731
+  LINE 9 kest-7731
+  LINE 10 kest-7731
+  LINE 11 kest-7731
+  LINE 12 kest-7731
+  LINE 13 kest-7731
+  LINE 14 kest-7731
+  LINE 15 kest-7731
+  LINE 16 kest-7731
+  LINE 17 kest-7731
+  LINE 18 kest-7731
+  LINE 19 kest-7731
+  LINE 20 kest-7731
+  LINE 21 kest-7731
+  LINE 22 kest-7731
+  LINE 23 kest-7731
+  LINE 24 kest-7731
+  LINE 25 kest-7731
+  LINE 26 kest-7731
+  LINE 27 kest-7731
+  LINE 28 kest-7731
+  LINE 29 kest-7731
+  LINE 30 kest-7731
+  LINE 31 kest-7731
+  LINE 32 kest-7731
+  LINE 33 kest-7731
+  LINE 34 kest-7731
+  LINE 35 kest-7731
+  LINE 36 kest-7731
+  LINE 37 kest-7731
+  LINE 38 kest-7731
+  LINE 39 kest-7731
+  LINE 40 kest-7731
+  LINE 41 kest-7731
+  LINE 42 kest-7731
+  LINE 43 kest-7731
+  LINE 44 kest-7731
+  LINE 45 kest-7731
+  LINE 46 kest-7731
+  LINE 47 kest-7731
+  LINE 48 kest-7731
+  LINE 49 kest-7731
+  LINE 50 kest-7731
+  LINE 51 kest-7731
+  LINE 52 kest-7731
+  LINE 53 kest-7731
+  LINE 54 kest-7731
+  LINE 55 kest-7731
+  LINE 56 kest-7731
+  LINE 57 kest-7731
+  LINE 58 kest-7731
+  LINE 59 kest-7731
+  LINE 60 kest-7731
+  LINE 61 kest-7731
+  LINE 62 kest-7731
+  LINE 63 kest-7731
+  LINE 64 kest-7731
+  LINE 65 kest-7731
+  LINE 66 kest-7731
+  LINE 67 kest-7731
+  LINE 68 kest-7731
+  LINE 69 kest-7731
+  LINE 70 kest-7731
+  LINE 71 kest-7731
+  LINE 72 kest-7731
+  LINE 73 kest-7731
+  LINE 74 kest-7731
+  LINE 75 kest-7731
+  LINE 76 kest-7731
+  LINE 77 kest-7731
+  LINE 78 kest-7731
+  LINE 79 kest-7731
+  LINE 80 kest-7731
+  LINE 81 kest-7731
+  LINE 82 kest-7731
+  LINE 83 kest-7731
+  LINE 84 kest-7731
+  LINE 85 kest-7731
+  LINE 86 kest-7731
+  LINE 87 kest-7731
+  LINE 88 kest-7731
+  LINE 89 kest-7731
+  LINE 90 kest-7731
+  LINE 91 kest-7731
+  LINE 92 kest-7731
+  LINE 93 kest-7731
+  LINE 94 kest-7731
+  LINE 95 kest-7731
+  LINE 96 kest-7731
+  LINE 97 kest-7731
+  LINE 98 kest-7731
+  LINE 99 kest-7731
+  LINE 100 kest-7731
+  LINE 101 kest-7731
+  LINE 102 kest-7731
+  LINE 103 kest-7731
+  LINE 104 kest-7731
+  LINE 105 kest-7731
+  LINE 106 kest-7731
+  LINE 107 kest-7731
+  LINE 108 kest-7731
+  LINE 109 kest-7731
+  LINE 110 kest-7731
+  LINE 111 kest-7731
+  LINE 112 kest-7731
+  LINE 113 kest-7731
+  LINE 114 kest-7731
+  LINE 115 kest-7731
+  LINE 116 kest-7731
+  LINE 117 kest-7731
+  LINE 118 kest-7731
+  LINE 119 kest-7731
+  LINE 120 kest-7731
+  LINE 121 kest-7731
+  LINE 122 kest-7731
+  LINE 123 kest-7731
+  LINE 124 kest-7731
+  LINE 125 kest-7731
+  LINE 126 kest-7731
+  LINE 127 kest-7731
+  LINE 128 kest-7731
+  LINE 129 kest-7731
+  LINE 130 kest-7731
+  LINE 131 kest-7731
+  LINE 132 kest-7731
+  LINE 133 kest-7731
+  LINE 134 kest-7731
+  LINE 135 kest-7731
+  LINE 136 kest-7731
+  LINE 137 kest-7731
+  LINE 138 kest-7731
+  LINE 139 kest-7731
+  LINE 140 kest-7731
+  LINE 141 kest-7731
+  LINE 142 kest-7731
+  LINE 143 kest-7731
+  LINE 144 kest-7731
+  LINE 145 kest-7731
+  LINE 146 kest-7731
+  LINE 147 kest-7731
+  LINE 148 kest-7731
+  LINE 149 kest-7731
+  LINE 150 kest-7731
+
+
+› Ask Codex to do anything
+
+  master · gpt-6-sol low · Context 2% used · 258K window · Approve for me
