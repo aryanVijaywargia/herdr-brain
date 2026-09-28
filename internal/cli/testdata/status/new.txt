@@ -1,0 +1,28 @@
+data: <tmp>/data
+binding: herdr session "default", main store <tmp>/main
+herdr 0.9.1
+workspace w14 (shop): key ws_a14, project <tmp>/proj
+
+agent CLIs:
+  claude 2.1.283: none
+  codex 0.155.0: retest
+
+delivery to live agents:
+  claude: no live agent
+  codex: no live agent
+  sessions that ended before any Brain call are not measured in M1
+
+withheld history:
+  claude: none
+  codex: none
+
+review queue: empty
+
+brief (output generation 1):
+  global: 270 of 3800 bytes
+  workspace ws_a14: 18 of 5700 bytes
+output conflicts: none
+forget pending: none
+
+relink: old workspaces with the same root: 1
+  ws_a14 (w14 shop): same root as ws_a15 (w15 blog)

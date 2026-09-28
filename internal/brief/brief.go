@@ -70,6 +70,13 @@ func Workspace(items []Item) (string, error) {
 	return part("workspace", workspaceLabel, 0, workspaceBudget, items)
 }
 
+// GlobalSize returns the size of a rendered global part as its budget counts it, with the
+// frame, and the budget (§8.1).
+func GlobalSize(global string) (size, limit int) { return len(frame) + len(global), globalBudget }
+
+// WorkspaceSize returns the size of a rendered workspace part and its budget (§8.1).
+func WorkspaceSize(workspace string) (size, limit int) { return len(workspace), workspaceBudget }
+
 // Text puts the frame around the two parts and returns the whole brief.
 func Text(global, workspace string) string {
 	return beginMarker + "\n" + precedence + "\n" + global + workspace + endMarker

@@ -263,6 +263,57 @@ func (s Session) Remap(ctx context.Context, environ []string, st *store.Store, i
 	return res, err
 }
 
+// Relink is an old entry whose items wait for a relink, and the current entry that it could
+// link to (§9.4).
+type Relink struct {
+	Old, New Entry
+}
+
+// Relinks lists the old entries of s whose items wait for a relink, in map order: each entry
+// that a remap replaced (S83), and each closed entry with the project folder of a current
+// entry (S20). Brain links nothing by itself; `brain status` only lists them. It reads the map
+// file only.
+func (s Session) Relinks() ([]Relink, error) {
+	m, err := readMap(s.MapFile)
+	if err != nil {
+		return nil, err
+	}
+	var cur []Entry
+	byKey := map[string]Entry{}
+	for _, e := range m.Entries {
+		byKey[e.Key] = e
+		if e.Session == s.Name && e.ReplacedBy == "" && !e.Closed {
+			cur = append(cur, e)
+		}
+	}
+	var rs []Relink
+	for _, e := range m.Entries {
+		switch {
+		case e.Session != s.Name:
+		case e.Closed:
+			for _, c := range cur {
+				if c.Project == e.Project {
+					rs = append(rs, Relink{Old: e, New: c})
+					break
+				}
+			}
+		case e.ReplacedBy != "":
+			rs = append(rs, Relink{Old: e, New: byKey[e.ReplacedBy]})
+		}
+	}
+	// A new herdr id with the project folder of an older current entry (§9.4): the map
+	// appends entries, so the older one comes first.
+	for i, e := range cur {
+		for _, old := range cur[:i] {
+			if old.Project == e.Project {
+				rs = append(rs, Relink{Old: old, New: e})
+				break
+			}
+		}
+	}
+	return rs, nil
+}
+
 // Close marks workspace id of s closed: each entry of the pair, the remapped ones too, and
 // their store rows. The items stay in the store, without delivery (§9.4). A later workspace
 // with the same id is then unmapped, and the next `brain` call gives it a new key (D4). An

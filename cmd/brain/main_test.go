@@ -10,13 +10,15 @@ import (
 
 func TestRun(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("HERDR_ENV", "") // the test can run in a herdr pane
 	cases := []struct {
 		args      []string
 		code      int
 		stdoutHas string
 	}{
 		{[]string{"version"}, 0, "brain dev"},
-		{[]string{"status"}, 0, "not set up"},
+		{[]string{"status"}, 0, "not in a herdr pane"},
+		{[]string{"status", "x"}, 1, ""},
 		{[]string{"help"}, 0, "usage:"},
 		{nil, 2, ""},
 		{[]string{"nope"}, 2, ""},
@@ -49,6 +51,7 @@ func TestRun(t *testing.T) {
 func TestStatusDataHomeSameInPluginAndHookEnv(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("HERDR_ENV", "")
 	dataLine := func() string {
 		var out, errOut bytes.Buffer
 		if code := run([]string{"status"}, strings.NewReader(""), &out, &errOut); code != 0 {

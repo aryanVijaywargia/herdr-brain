@@ -1,0 +1,34 @@
+data: <tmp>/data
+binding: herdr session "default", main store <tmp>/main
+herdr 0.9.1
+workspace w14 (shop): key ws_a14, project <tmp>/proj
+
+agent CLIs:
+  claude 2.1.283: detected, no Brain hook
+  codex 0.155.0: retest
+  opencode: no start-time delivery; live panes: 1
+
+delivery to live agents:
+  claude: 6 live: 1 emitted, 1 unmapped, 1 withheld, 3 unknown
+    w14:p2 unmapped
+    w14:p3 withheld: not a member
+    w14:p4 unknown: no receipt for its agent session
+    w14:p5 unknown: no receipt for its agent session
+    w14:p6 unknown: herdr shows no agent session id
+  codex: 1 live: 1 emitted
+  sessions that ended before any Brain call are not measured in M1
+
+withheld history:
+  claude: 2 (not a member 1, pane not live 1)
+  codex: none
+
+review queue: 1 pending, the oldest 3h old
+
+brief (output generation 1):
+  global: 270 of 3800 bytes
+  workspace ws_a14: 18 of 5700 bytes
+output conflicts: none
+forget pending: none
+
+relink: old workspaces with the same root: 1
+  ws_a14 (w14 shop): same root as ws_a15 (w15 blog)
