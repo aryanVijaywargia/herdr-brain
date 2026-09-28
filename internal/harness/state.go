@@ -31,7 +31,7 @@ const (
 	Detected   State = "detected"   // herdr reports the kind in some pane
 	Configured State = "configured" // the recorded Brain entry is in the hook file
 	Verified   State = "verified"   // a conformance pass matches the current values
-	Retest     State = "retest"     // an untested or unreadable CLI version
+	Retest     State = "retest"     // an untested or unreadable CLI version, or hook input of an unknown shape
 )
 
 // Status is the state of one harness, with each part apart, so `brain status` can show a
@@ -70,6 +70,7 @@ type Panes interface {
 type Files struct {
 	Install     string // <data home>/install.json (paths.InstallFile)
 	Conformance string // <data home>/conformance.json (paths.ConformanceFile)
+	Retest      string // the folder of the retest markers that the hook writes (MarkRetest)
 }
 
 // versionRe matches a version word in `<cli> --version`: "2.1.283 (Claude Code)" and
@@ -77,7 +78,7 @@ type Files struct {
 var versionRe = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
 // Check returns the status of each profile, in order. It finds each CLI by its profile kind on
-// the PATH.
+// the PATH. A retest marker sets retest until a conformance pass that completed after it.
 func Check(ctx context.Context, h Panes, f Files, profiles []*adapter.Profile) ([]Status, error) {
 	panes, err := h.Panes(ctx)
 	if err != nil {
@@ -101,12 +102,22 @@ func Check(ctx context.Context, h Panes, f Files, profiles []*adapter.Profile) (
 			}
 		}
 		s.CLIVersion, s.VersionErr = cliVersion(ctx, p.Kind)
+		m, marked, err := readMarker(f.Retest, p.Kind)
+		if err != nil {
+			return nil, err
+		}
 		r, ok := last(results, p.Kind)
-		s.Verified = s.Configured && ok && s.VersionErr == nil && r.Result == Pass &&
+		current := s.Configured && ok && s.VersionErr == nil && r.Result == Pass &&
 			r.CLIVersion == s.CLIVersion && r.ProfileSHA256 == p.SHA256 && r.EntrySHA256 == e.SHA256
+		// Hook input of an unknown shape after the pass invalidates it (S14). Only a pass on
+		// the current values that completed after the marker clears the marker.
+		if current && r.At.After(m.At) {
+			marked = false
+		}
+		s.Verified = current && !marked
 		// A pass on the current version tests that version (§8.5 "tested version"), so a
 		// verified CLI after an update needs no retest.
-		s.Retest = s.CLIVersion != p.TestedVersion && !s.Verified
+		s.Retest = (s.CLIVersion != p.TestedVersion || marked) && !s.Verified
 		out[i] = s
 	}
 	return out, nil

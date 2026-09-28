@@ -146,7 +146,8 @@ func newFixture(t *testing.T) *fixture {
 }
 
 func (f *fixture) hook(p *adapter.Profile, environ []string) Hook {
-	return Hook{Profile: p, Environ: environ, Bindings: f.file, Pane: f.herdr.pane, Start: time.Now(),
+	return Hook{Profile: p, Environ: environ, Bindings: f.file, Retest: filepath.Join(f.dir, "data", "retest"),
+		Pane: f.herdr.pane, Start: time.Now(),
 		Now: func() time.Time { return testNow }}
 }
 
@@ -601,7 +602,7 @@ func TestOutsideHerdr(t *testing.T) {
 }
 
 // TestStartCondition: hook input that fails the profile's start condition prints nothing and
-// asks no herdr; input of an unknown shape prints nothing.
+// asks no herdr; input of an unknown shape prints nothing and writes the retest marker (S14).
 func TestStartCondition(t *testing.T) {
 	p, err := adapter.LoadFS(fstest.MapFS{"agy.toml": {Data: []byte(`kind = "agy"
 install_target = "~/x"
@@ -628,6 +629,13 @@ tested_version = "1"
 		err := f.hook(p, environ(f.mainSock, "", "w14:p1", "w14")).Run(context.Background(), strings.NewReader(tt.input), &out)
 		if !errors.Is(err, tt.wantErr) || out.Len() != 0 || f.herdr.calls != 0 {
 			t.Errorf("Run(%s) = %v, output %q, %d herdr calls; want %v, none, 0", tt.input, err, out.String(), f.herdr.calls, tt.wantErr)
+		}
+		marker, err := os.ReadFile(filepath.Join(f.dir, "data", "retest", "agy.json"))
+		switch {
+		case tt.wantErr == nil && !errors.Is(err, os.ErrNotExist):
+			t.Errorf("Run(%s): retest marker %q, %v; want none", tt.input, marker, err)
+		case tt.wantErr != nil && (err != nil || !strings.Contains(string(marker), testNow.Format(time.RFC3339Nano))):
+			t.Errorf("Run(%s): retest marker %q, %v; want one at %s", tt.input, marker, err, testNow)
 		}
 	}
 	f := newFixture(t)
