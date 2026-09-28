@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -134,7 +135,7 @@ func newFixture(t *testing.T) *fixture {
 				"w16:p1": pane("w16:p1", "w16"),
 			},
 			f.workSock: {"w14:p1": pane("w14:p1", "w14")},
-			f.testSock: {"w14:p1": pane("w14:p1", "w14")},
+			f.testSock: {"w14:p1": pane("w14:p1", "w14"), "w14:p2": pane("w20:p2", "w20")},
 		},
 		slow: map[string]bool{"w14:p9": true},
 	}
@@ -403,6 +404,12 @@ func TestRun(t *testing.T) {
 			receipt: &store.Delivery{PaneID: "w14:p7", Result: store.ResultWithheld, WithheldReason: ptr("pane not live"), ItemRevisions: []store.RevisionRef{}},
 		},
 		{
+			name:    "moved pane of the test session",
+			env:     func(f *fixture) []string { return environ(f.testSock, "brain-eval", "w14:p2", "w14") },
+			inTest:  true,
+			receipt: &store.Delivery{PaneID: "w14:p2", Result: store.ResultWithheld, WithheldReason: ptr("not a member"), ItemRevisions: []store.RevisionRef{}},
+		},
+		{
 			name: "S64 unbound session",
 			env: func(f *fixture) []string {
 				return environ(filepath.Join(f.dir, "other.sock"), "other", "w14:p1", "w14")
@@ -506,6 +513,64 @@ func show(d store.Delivery) string {
 		return err.Error()
 	}
 	return string(b)
+}
+
+// TestForgetDuringRead: a forget that starts while the hook reads the output waits for the
+// receipt, so the hook never prints text after forget became pending (§6.7). The global part
+// is a FIFO, so the hook stops in its read until the test writes the checked bytes.
+func TestForgetDuringRead(t *testing.T) {
+	f := newFixture(t)
+	name := filepath.Join(f.mainStore, outDir, fmt.Sprintf("gen-%d", f.gen), "global.md")
+	global, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(name); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(name, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- f.hook(claude(t), environ(f.mainSock, "", "w14:p1", "w14")).Run(context.Background(), strings.NewReader(input), &out)
+	}()
+	// The open returns when the hook opens the FIFO to read it.
+	w, err := os.OpenFile(name, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := store.Open(context.Background(), f.mainStore, 50*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forget := func(tx *sql.Tx) error {
+		_, err := tx.Exec(`UPDATE outputs SET holds_forgotten_text = 1`)
+		return err
+	}
+	if err := s.Write(context.Background(), forget); !errors.Is(err, store.ErrBusy) {
+		t.Errorf("forget during the hook read = %v, want %v", err, store.ErrBusy)
+	}
+	if _, err := w.Write(global); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("Run() = %v, want nil", err)
+	}
+	if err := s.Write(context.Background(), forget); err != nil {
+		t.Errorf("forget after the hook = %v, want nil", err)
+	}
+	closeStore(t, s)
+	got := briefOf(t, out.String())
+	if !strings.Contains(got, mainGlobal) || !strings.Contains(got, mainA14) {
+		t.Errorf("brief = %q, want the items of gen %d", got, f.gen)
+	}
+	checkReceipt(t, deliveries(t, f.mainStore), &store.Delivery{PaneID: "w14:p1", Result: store.ResultEmitted,
+		WorkspaceKey: ptr("ws_a14"), ItemRevisions: []store.RevisionRef{{Item: 1, Revision: 1}, {Item: 2, Revision: 1}}}, got, f.gen)
 }
 
 // TestOutsideHerdr: the hook reads no file and asks no herdr outside herdr (S61). The

@@ -163,29 +163,34 @@ func (h Hook) deliver(ctx context.Context, rc *receipts, r *resolver.Resolved, s
 		d = withheld(d, reasonIdentity)
 		d.WorkspaceKey = &m.Entry.Key
 	}
-	pending, err := rc.forgetPending(ctx)
-	if err != nil {
-		return err
-	}
-	if pending {
-		return rc.write(ctx, withheld(d, reasonForget))
-	}
-	b, err := output.Read(filepath.Join(r.Binding.Store, outDir), key)
-	if errors.Is(err, output.ErrInconsistent) {
-		return rc.write(ctx, withheld(d, reasonInconsistent))
-	}
-	if err != nil {
-		return err
-	}
-	// The brief is made from the same bytes that passed the manifest check (S65).
-	text := brief.Text(b.Global, b.Workspace)
-	if err := h.Profile.Write(stdout, text); err != nil {
-		return err
-	}
-	sum := sha256.Sum256([]byte(text))
-	briefHash := hex.EncodeToString(sum[:])
-	d.BriefHash, d.OutputGeneration, d.ItemRevisions = &briefHash, &b.Generation, b.Revisions
-	return rc.write(ctx, d)
+	// The forget check, the read, the print and the receipt are one write transaction. A forget
+	// marks the outputs in a write transaction, so it commits before the check or after the
+	// receipt, never between them (§6.7).
+	return rc.s.Write(ctx, func(tx *sql.Tx) error {
+		pending, err := store.ForgetPending(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if pending {
+			return rc.insert(ctx, tx, withheld(d, reasonForget))
+		}
+		b, err := output.Read(filepath.Join(r.Binding.Store, outDir), key)
+		if errors.Is(err, output.ErrInconsistent) {
+			return rc.insert(ctx, tx, withheld(d, reasonInconsistent))
+		}
+		if err != nil {
+			return err
+		}
+		// The brief is made from the same bytes that passed the manifest check (S65).
+		text := brief.Text(b.Global, b.Workspace)
+		if err := h.Profile.Write(stdout, text); err != nil {
+			return err
+		}
+		sum := sha256.Sum256([]byte(text))
+		briefHash := hex.EncodeToString(sum[:])
+		d.BriefHash, d.OutputGeneration, d.ItemRevisions = &briefHash, &b.Generation, b.Revisions
+		return rc.insert(ctx, tx, d)
+	})
 }
 
 func withheld(d store.Delivery, reason string) store.Delivery {
@@ -234,19 +239,12 @@ func (rc *receipts) SetAgentCheck(context.Context, string, string, string, resol
 
 func (rc *receipts) Close() error { return rc.s.Close() }
 
-func (rc *receipts) forgetPending(ctx context.Context) (bool, error) {
-	var pending bool
-	err := rc.s.Write(ctx, func(tx *sql.Tx) (err error) {
-		pending, err = store.ForgetPending(ctx, tx)
-		return err
-	})
-	return pending, err
+func (rc *receipts) write(ctx context.Context, d store.Delivery) error {
+	return rc.s.Write(ctx, func(tx *sql.Tx) error { return rc.insert(ctx, tx, d) })
 }
 
-func (rc *receipts) write(ctx context.Context, d store.Delivery) error {
+func (rc *receipts) insert(ctx context.Context, tx *sql.Tx, d store.Delivery) error {
 	d.Profile, d.AgentSessionID, d.At = rc.profile, &rc.agentSession, rc.now()
-	return rc.s.Write(ctx, func(tx *sql.Tx) error {
-		_, err := store.InsertDelivery(ctx, tx, d)
-		return err
-	})
+	_, err := store.InsertDelivery(ctx, tx, d)
+	return err
 }
