@@ -301,12 +301,20 @@ func TestDoctorRetest(t *testing.T) {
 // hook not trusted or not firing.
 func TestDoctorNoReceipt(t *testing.T) {
 	f := newDoctorFixture(t)
-	f.herdr.panes = []herdr.Pane{agent("w14:p1", "codex", "s-1"), agent("w14:p2", "codex", "s-2"),
-		agent("w14:p3", "claude", "")}
-	f.failed(t, "", "codex: hook not trusted or not firing: 2 live agent(s) with no Brain receipt (w14:p1, w14:p2) "+
-		"(Codex runs the hook at the first prompt; an agent with no prompt yet has no receipt); fix: trust the hook (/hooks in Codex)")
-	f.herdr.panes = []herdr.Pane{agent("w14:p1", "claude", "s-1")}
+	f.herdr.panes = []herdr.Pane{agent("w14:p1", "claude", "s-1"), agent("w14:p2", "claude", "")}
 	f.failed(t, "", "claude: hook not trusted or not firing: 1 live agent(s) with no Brain receipt (w14:p1); fix: start a new session")
+}
+
+// AC: a Codex agent with no receipt is a note, not a failed check: Codex runs the hook at the
+// first prompt, and the trust check fails an untrusted hook. Doctor exits 0 when all else passes.
+func TestDoctorCodexNoReceiptNote(t *testing.T) {
+	f := newDoctorFixture(t)
+	f.herdr.panes = []herdr.Pane{agent("w14:p1", "codex", "s-1"), agent("w14:p2", "codex", "s-2")}
+	out, err := f.doctor(t, f.sock, "")
+	want := "note: codex: 2 live agent(s) with no Brain receipt (w14:p1, w14:p2); Codex runs the hook at the first prompt."
+	if err != nil || !strings.Contains(out, want) || !strings.HasSuffix(out, "all checks passed\n") {
+		t.Errorf("Doctor() = %v\n%s\nwant the note and all checks passed", err, out)
+	}
 }
 
 // AC S66: an output conflict fails with brain repair --confirm.

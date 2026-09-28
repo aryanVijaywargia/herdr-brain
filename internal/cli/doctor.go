@@ -284,14 +284,16 @@ func (d *doctorCall) receipts(ctx context.Context, kind string) error {
 		return err
 	}
 	// The herdr pane list shows no prompt. Claude runs the hook at start, so no receipt is a
-	// failure; Codex runs it at the first prompt (M0 item 1), so the line names that condition.
-	when, fix := "", "start a new session; if it gets no receipt either, the CLI sandbox may block the herdr socket"
+	// failure. Codex runs it at the first prompt (M0 item 1), so no receipt is only a note:
+	// the trust check above already fails an untrusted Codex hook.
 	if kind == trustKind {
-		when = " (Codex runs the hook at the first prompt; an agent with no prompt yet has no receipt)"
-		fix = "trust the hook (/hooks in Codex); if it is trusted, the CLI sandbox may block the herdr socket"
+		d.w.printf("note: codex: %d live agent(s) with no Brain receipt (%s); Codex runs the hook at the first prompt. "+
+			"If an agent had a prompt, the hook is not trusted or not firing: trust it (/hooks in Codex); "+
+			"if it is trusted, the CLI sandbox may block the herdr socket\n", len(missing), strings.Join(missing, ", "))
+		return nil
 	}
-	d.fail("%s: hook not trusted or not firing: %d live agent(s) with no Brain receipt (%s)%s; fix: %s",
-		kind, len(missing), strings.Join(missing, ", "), when, fix)
+	d.fail("%s: hook not trusted or not firing: %d live agent(s) with no Brain receipt (%s); fix: start a new session; "+
+		"if it gets no receipt either, the CLI sandbox may block the herdr socket", kind, len(missing), strings.Join(missing, ", "))
 	return nil
 }
 
