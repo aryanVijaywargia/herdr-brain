@@ -21,6 +21,7 @@ const usage = `usage: brain <command>
 commands:
   version   print the Brain version
   status    show Brain status
+  doctor    check the Brain setup and print the fix of each failed check
   setup     [--session <name> [--test <folder>]]: bind a herdr session, add the agent hooks
   remember  "<text>" [--global | --workspace <w>] [--kind <k>]: draft an item for your review
   review    [<id> [--approve | --reject | --later]]: the queue of proposals (brain review --help)
@@ -45,6 +46,7 @@ var commands = map[string]func(context.Context, cli.Env, []string) error{
 	"pane":      cli.Pane,
 	"uninstall": cli.Uninstall,
 	"status":    cli.Status,
+	"doctor":    cli.Doctor,
 }
 
 func main() {
@@ -68,8 +70,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "brain %s\n", version)
 	case "setup":
 		err = setup(context.Background(), osSetupDeps(os.Environ()), args[1:], in, stdout)
-	case "status", "remember", "review", "pin", "undo", "forget", "repair", "pane", "uninstall":
-		err = command(commands[args[0]], args[1:], stdout, stderr)
+	case "status", "doctor", "remember", "review", "pin", "undo", "forget", "repair", "pane", "uninstall":
+		err = command(commands[args[0]], args[1:], in, stdout, stderr)
 	case "event":
 		err = event.Main(context.Background(), args[1:], os.Environ())
 	case "help", "-h", "--help":
@@ -92,10 +94,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 }
 
 // command runs a store command of internal/cli with the process environment.
-func command(fn func(context.Context, cli.Env, []string) error, args []string, stdout, stderr io.Writer) error {
+func command(fn func(context.Context, cli.Env, []string) error, args []string, in io.Reader, stdout, stderr io.Writer) error {
 	e, err := cli.NewEnv(os.Environ(), stdout, stderr)
 	if err != nil {
 		return err
 	}
+	e.Stdin = in
 	return fn(context.Background(), e, args)
 }

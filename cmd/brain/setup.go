@@ -44,6 +44,7 @@ const codexTrust = `Codex runs a new hook only after you trust it:
   6. Later, type /hooks in Codex to see the trust state or to trust the hook.
   7. Trust again after a Brain update that changes the hook command or timeout.
   codex exec does not show the review screen. It skips an untrusted hook with no warning.
+  Run ` + "`brain doctor`" + ` to check.
 `
 
 const firstUse = `First use:
