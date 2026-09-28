@@ -27,6 +27,7 @@ commands:
   review    [<id> [--approve | --reject | --later]]: the queue of proposals (brain review --help)
   pin       [--off] <item>: pin an active item, so it never ages
   undo      <item>: undo the latest revision of an item
+  forget    <item>: remove the text of an item from the store and the output
   repair    [--confirm]: repair the output and list its conflicts; --confirm deletes them
   event     workspace-closed: herdr's workspace.closed event (D4); marks the workspace closed
   hook      --profile <name> --event start: the agent start hook (prints the brief or nothing)
@@ -63,6 +64,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = command(cli.Pin, args[1:], stdout, stderr)
 	case "undo":
 		err = command(cli.Undo, args[1:], stdout, stderr)
+	case "forget":
+		err = command(cli.Forget, args[1:], stdout, stderr)
 	case "repair":
 		err = command(cli.Repair, args[1:], stdout, stderr)
 	case "event":

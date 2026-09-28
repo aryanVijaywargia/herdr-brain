@@ -1,0 +1,365 @@
+package cli
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/aryanVijaywargia/herdr-brain/internal/output"
+	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+)
+
+// clock returns a clock that moves one minute on each read, so the cleanup of a later call
+// finds every old generation past the hook time cap (§7.5 step 8).
+func clock() func() time.Time {
+	t := testNow
+	return func() time.Time {
+		t = t.Add(time.Minute)
+		return t
+	}
+}
+
+// forget runs brain forget from pane w14:p1 with the clock of the fixture's calls.
+func (f *fixture) forget(t *testing.T, now func() time.Time, args ...string) (string, error) {
+	t.Helper()
+	var out bytes.Buffer
+	e := f.env(f.sock, "w14:p1", "w14", &out)
+	e.Now = now
+	err := Forget(context.Background(), e, args)
+	return out.String(), err
+}
+
+func (f *fixture) mustForget(t *testing.T, now func() time.Time, args ...string) string {
+	t.Helper()
+	out, err := f.forget(t, now, args...)
+	if err != nil {
+		t.Fatalf("Forget(%q) = %v", args, err)
+	}
+	return out
+}
+
+// approved remembers text in workspace w14, approves it, and returns the item id.
+func (f *fixture) approved(t *testing.T, text string) int64 {
+	t.Helper()
+	p := f.remember(t, text)
+	f.mustReview(t, fmt.Sprint(p), "--approve")
+	return *f.rows(t).proposal(t, p).ItemID
+}
+
+// scan returns every store field (table.column) and every file in the out folder that holds
+// marker: all columns of all tables, not only the listed text fields (S47).
+func (f *fixture) scan(t *testing.T, marker string) []string {
+	t.Helper()
+	ctx := context.Background()
+	s := openStore(t, f.store)
+	defer closeStore(t, s)
+	var found []string
+	write(t, s, func(tx *sql.Tx) error {
+		var fields [][2]string
+		rows, err := tx.QueryContext(ctx, `SELECT m.name, c.name FROM sqlite_master m, pragma_table_info(m.name) c
+			WHERE m.type = 'table'`)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var tc [2]string
+			if err := rows.Scan(&tc[0], &tc[1]); err != nil {
+				return err
+			}
+			fields = append(fields, tc)
+		}
+		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+			return err
+		}
+		for _, tc := range fields {
+			var n int
+			q := fmt.Sprintf(`SELECT COUNT(*) FROM "%s" WHERE instr(CAST("%s" AS TEXT), ?) > 0`, tc[0], tc[1])
+			if err := tx.QueryRowContext(ctx, q, marker).Scan(&n); err != nil {
+				return err
+			}
+			if n > 0 {
+				found = append(found, tc[0]+"."+tc[1])
+			}
+		}
+		return nil
+	})
+	err := filepath.WalkDir(filepath.Join(f.store, outDir), func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(path)
+		if err == nil && bytes.Contains(b, []byte(marker)) {
+			found = append(found, path)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return found
+}
+
+// forgetPending reads the mark that makes the hook withhold the brief (E7).
+func (f *fixture) forgetPending(t *testing.T) bool {
+	t.Helper()
+	s := openStore(t, f.store)
+	defer closeStore(t, s)
+	var pending bool
+	write(t, s, func(tx *sql.Tx) (err error) {
+		pending, err = store.ForgetPending(context.Background(), tx)
+		return err
+	})
+	return pending
+}
+
+// AC S47 (item part): a unique marker in two revisions, a proposal and the applied edits of
+// two builds. After forget and its rebuild, no store field and no output file holds it; the
+// item keeps its ids and a tombstone, and forget reports done.
+func TestForgetScan(t *testing.T) {
+	const marker = "marker-s47 use pnpm"
+	f := newFixture(t)
+	id := f.approved(t, marker)
+	if _, err := f.pin(t, fmt.Sprint(id)); err != nil { // one more revision and build that hold the marker
+		t.Fatalf("Pin() = %v", err)
+	}
+	if found := f.scan(t, marker); len(found) == 0 {
+		t.Fatal("no copy of the marker before forget")
+	}
+
+	out := f.mustForget(t, clock(), fmt.Sprint(id))
+	if !strings.HasSuffix(out, fmt.Sprintf("forget item %d: done\n", id)) {
+		t.Errorf("Forget() printed %q, want done", out)
+	}
+	if found := f.scan(t, marker); len(found) > 0 {
+		t.Errorf("after forget the marker is in %v, want nowhere", found)
+	}
+	if f.forgetPending(t) {
+		t.Error("ForgetPending() = true after done, want false: the hook would withhold")
+	}
+	if b := f.brief(t); !strings.Contains(b, liveText) {
+		t.Errorf("brief = %q, want the other items still delivered", b)
+	}
+
+	ctx := context.Background()
+	s := openStore(t, f.store)
+	defer closeStore(t, s)
+	write(t, s, func(tx *sql.Tx) error {
+		it, err := store.ItemByID(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if it.State != store.StateRetired {
+			t.Errorf("item = %+v, want retired", it)
+		}
+		ts, err := store.TombstonesByClaim(ctx, tx, it.ClaimID)
+		if err != nil {
+			return err
+		}
+		if len(ts) != 1 {
+			t.Errorf("tombstones of claim %s = %v, want one", it.ClaimID, ts)
+		}
+		// The audit rows keep their metadata; the forget build logged no old bytes.
+		edits, err := store.AppliedEditsWithItem(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if len(edits) < 2 {
+			t.Errorf("applied edits of item %d = %v, want the approve and forget builds", id, edits)
+		}
+		for _, e := range edits {
+			ae, err := store.AppliedEditByID(ctx, tx, e)
+			if err != nil {
+				return err
+			}
+			if ae.File == "" || ae.ContentHash == "" || ae.Generation == 0 {
+				t.Errorf("applied edit %d = %+v, want its file, generation and hash", e, ae)
+			}
+		}
+		return nil
+	})
+}
+
+// AC (audit rule with E6): while the forget is open, the build logs a metadata-only row for a
+// file that held the item: no old bytes, but its file, generation, hash and revisions.
+func TestForgetBuildLogsNoOldBytes(t *testing.T) {
+	f := newFixture(t)
+	id := f.approved(t, "marker-audit")
+	before := f.rows(t).newest
+	f.mustForget(t, clock(), fmt.Sprint(id))
+
+	ctx := context.Background()
+	s := openStore(t, f.store)
+	defer closeStore(t, s)
+	write(t, s, func(tx *sql.Tx) error {
+		ids, err := store.AppliedEditsWithItem(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		var forgetRow *store.AppliedEdit
+		for _, e := range ids {
+			ae, err := store.AppliedEditByID(ctx, tx, e)
+			if err != nil {
+				return err
+			}
+			if ae.Generation > before {
+				forgetRow = &ae
+			}
+		}
+		switch {
+		case forgetRow == nil:
+			t.Errorf("no applied edit of the forget build (generation > %d)", before)
+		case forgetRow.ContentBefore != nil || forgetRow.File != "workspaces/ws_a14.md" || forgetRow.ContentHash == "" ||
+			len(forgetRow.RevisionsBefore) == 0:
+			t.Errorf("forget build row = %+v, want workspaces/ws_a14.md with its hash and revisions and no old bytes", *forgetRow)
+		}
+		return nil
+	})
+}
+
+// AC S77: a hand edit blocks the compile, so forget reports pending, names the conflict, and
+// the hook withholds the brief.
+func TestForgetPendingOnHandEdit(t *testing.T) {
+	f := newFixture(t)
+	id := f.approved(t, "marker-s77")
+	f.handEdit(t, f.rows(t).newest)
+
+	out := f.mustForget(t, clock(), fmt.Sprint(id))
+	for _, want := range []string{"pending", "conflict: output generation", "brain repair --confirm"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Forget() printed %q, want %q", out, want)
+		}
+	}
+	if strings.Contains(out, "done") {
+		t.Errorf("Forget() printed %q, want no done", out)
+	}
+	if !f.forgetPending(t) {
+		t.Error("ForgetPending() = false, want true: the hook must withhold the brief")
+	}
+	// The store part is done already; only the output holds the text.
+	if found := f.scan(t, "marker-s77"); len(found) == 0 || slicesAnyStore(found) {
+		t.Errorf("marker in %v, want only in output files", found)
+	}
+}
+
+// slicesAnyStore reports whether one of found is a store field, not a file path.
+func slicesAnyStore(found []string) bool {
+	for _, s := range found {
+		if !filepath.IsAbs(s) {
+			return true
+		}
+	}
+	return false
+}
+
+// AC: the same scan after a blocked compile and a later repair: brain repair --confirm
+// replaces the hand-edited generation, and a second forget reports done, with no copy left.
+func TestForgetAfterBlockedCompile(t *testing.T) {
+	const marker = "marker-blocked"
+	f := newFixture(t)
+	id := f.approved(t, marker)
+	f.handEdit(t, f.rows(t).newest)
+	now := clock()
+	if out := f.mustForget(t, now, fmt.Sprint(id)); !strings.Contains(out, "pending") {
+		t.Fatalf("Forget() printed %q, want pending", out)
+	}
+
+	var buf bytes.Buffer
+	e := f.env(f.sock, "w14:p1", "w14", &buf)
+	e.Now = now
+	if err := Repair(context.Background(), e, []string{"--confirm"}); err != nil {
+		t.Fatalf("Repair(--confirm) = %v", err)
+	}
+	out := f.mustForget(t, now, fmt.Sprint(id))
+	if !strings.HasSuffix(out, fmt.Sprintf("forget item %d: done\n", id)) {
+		t.Errorf("second Forget() printed %q, want done", out)
+	}
+	if found := f.scan(t, marker); len(found) > 0 {
+		t.Errorf("after repair the marker is in %v, want nowhere", found)
+	}
+	if f.forgetPending(t) {
+		t.Error("ForgetPending() = true after done, want false")
+	}
+}
+
+// AC: a copy of the same claim in another scope is listed first and kept, and it is still
+// delivered; the selected item's revisions and derivatives are gone, and forget reports done.
+func TestForgetKeepsCopies(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	s := openStore(t, f.store)
+	ids := map[string]int64{}
+	write(t, s, func(tx *sql.Tx) error {
+		for _, key := range []string{"", "ws_a14", "ws_a15"} {
+			r := store.ItemRevision{Text: "dup " + key, Scope: store.ScopeGlobal, State: store.StateActive,
+				Author: store.AuthorYou, Origin: store.OriginRemember, Created: testNow}
+			if key != "" {
+				r.Scope, r.WorkspaceKey = store.ScopeWorkspace, ptr(key)
+			}
+			id, _, err := store.CreateItem(ctx, tx, store.Item{ClaimID: "c-dup", Kind: store.KindFact, Created: testNow}, r)
+			if err != nil {
+				return err
+			}
+			ids[key] = id
+		}
+		return nil
+	})
+	if _, err := output.Build(ctx, s, filepath.Join(f.store, outDir), nil, now); err != nil {
+		t.Fatalf("Build() = %v", err)
+	}
+	closeStore(t, s)
+
+	out := f.mustForget(t, clock(), fmt.Sprint(ids["ws_a14"]))
+	want := fmt.Sprintf("kept: item %d, a copy of the same claim (global)\n"+
+		"kept: item %d, a copy of the same claim (another workspace)\n"+
+		"item %d: its text is removed from the store\n"+
+		"forget item %d: done\n", ids[""], ids["ws_a15"], ids["ws_a14"], ids["ws_a14"])
+	if out != want {
+		t.Errorf("Forget() printed\n%s\nwant\n%s", out, want)
+	}
+	if found := f.scan(t, "dup ws_a14"); len(found) > 0 {
+		t.Errorf("the forgotten copy is in %v, want nowhere", found)
+	}
+	for _, key := range []string{"", "ws_a15"} {
+		if found := f.scan(t, "dup "+key); len(found) == 0 {
+			t.Errorf("the copy in %q is gone, want it kept", key)
+		}
+	}
+	b, err := output.Read(filepath.Join(f.store, outDir), "ws_a15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.Global, "dup ") || !strings.Contains(b.Workspace, "dup ws_a15") {
+		t.Errorf("brief of ws_a15 = %q + %q, want both copies still delivered", b.Global, b.Workspace)
+	}
+}
+
+// The E4 scope check: an item of another workspace is not found, with no text. A forgotten
+// item cannot come back with undo.
+func TestForgetScopeAndUndo(t *testing.T) {
+	f := newFixture(t)
+	other := f.addActive(t, ptr("ws_a15"), "blog secret")
+	out, err := f.forget(t, clock(), fmt.Sprint(other))
+	if !errors.Is(err, errNotFound) || strings.Contains(out+err.Error(), "blog secret") {
+		t.Errorf("Forget(other workspace) = %q, %v; want not found with no text", out, err)
+	}
+	if found := f.scan(t, "blog secret"); len(found) == 0 {
+		t.Error("the item of the other workspace is gone, want it kept")
+	}
+
+	id := f.approved(t, "gone soon")
+	f.mustForget(t, clock(), fmt.Sprint(id))
+	if _, err := f.undo(t, fmt.Sprint(id)); err == nil || !strings.Contains(err.Error(), "forgotten") {
+		t.Errorf("Undo(forgotten) = %v, want refused", err)
+	}
+	if _, err := f.forget(t, clock(), "x"); err == nil {
+		t.Error("Forget(x) = nil, want a usage error")
+	}
+}

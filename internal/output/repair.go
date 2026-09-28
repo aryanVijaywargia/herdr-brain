@@ -139,16 +139,19 @@ func cleanup(ctx context.Context, s *store.Store, out string, now func() time.Ti
 		return err
 	}
 	left, err := switchedAt(ctx, s, cur)
-	if err != nil || left.IsZero() || now().Sub(left) <= hookCap {
+	if err != nil {
 		return err
 	}
+	var kept []int64
 	for _, gen := range gens {
-		if gen == cur {
+		if gen == cur || left.IsZero() || now().Sub(left) <= hookCap {
+			kept = append(kept, gen)
 			continue
 		}
 		_, err := checkGeneration(out, gen)
 		var ce *ConflictError
 		if errors.As(err, &ce) {
+			kept = append(kept, gen)
 			continue
 		}
 		if err != nil {
@@ -158,7 +161,9 @@ func cleanup(ctx context.Context, s *store.Store, out string, now func() time.Ti
 			return err
 		}
 	}
-	return nil
+	// A deleted generation holds no forgotten text any more, so the hook stops withholding for
+	// it (§6.7).
+	return s.Write(ctx, func(tx *sql.Tx) error { return store.ClearForgotten(ctx, tx, kept) })
 }
 
 // switchedAt returns the time of the last pointer switch, to generation cur: its outputs row
@@ -209,29 +214,61 @@ func Conflicts(out string) ([]ConflictError, error) {
 // hold anything, so it counts too, until cleanup removes it. A kept conflict folder counts by
 // its manifest like any other.
 func Holds(out string, item int64) (bool, error) {
-	gens, staging, err := folders(out)
+	gens, staging, err := holding(out, item)
+	return staging || len(gens) > 0, err
+}
+
+// holding returns the generations in out that may hold the text of item, as Holds counts
+// them, and whether a staging folder is there.
+func holding(out string, item int64) (gens []int64, staging bool, err error) {
+	all, stagings, err := folders(out)
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
-	if len(staging) > 0 {
-		return true, nil
-	}
-	for _, gen := range gens {
+	for _, gen := range all {
 		g, err := readGeneration(filepath.Join(out, folder(gen)))
 		if err != nil && !errors.Is(err, ErrInconsistent) {
-			return false, err
+			return nil, false, err
 		}
 		// A manifest that did not read leaves a zero generation number.
-		if g.manifest.Generation != gen || len(g.extra) > 0 {
-			return true, nil
-		}
-		for _, f := range g.manifest.Files {
-			if slices.ContainsFunc(f.Revisions, func(r store.RevisionRef) bool { return r.Item == item }) {
-				return true, nil
-			}
+		if g.manifest.Generation != gen || len(g.extra) > 0 || holdsItem(g.manifest, item) {
+			gens = append(gens, gen)
 		}
 	}
-	return false, nil
+	return gens, len(stagings) > 0, nil
+}
+
+func holdsItem(m Manifest, item int64) bool {
+	for _, f := range m.Files {
+		if slices.ContainsFunc(f.Revisions, func(r store.RevisionRef) bool { return r.Item == item }) {
+			return true
+		}
+	}
+	return false
+}
+
+// Forget runs erase, the store write that forgets item, under the build lock. The same write
+// marks each generation in out that holds item with outputs.holds_forgotten_text, so the hook
+// withholds the brief until cleanup deletes them, and a build from one of them logs no old
+// bytes (§6.7). With the lock held, no build writes a generation between the check and the
+// mark.
+func Forget(ctx context.Context, s *store.Store, out string, item int64, erase func(tx *sql.Tx) error) (err error) {
+	b := builder{out: out}
+	unlock, err := b.lock()
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
+	gens, _, err := holding(out, item)
+	if err != nil {
+		return err
+	}
+	return s.Write(ctx, func(tx *sql.Tx) error {
+		if err := erase(tx); err != nil {
+			return err
+		}
+		return store.MarkForgotten(ctx, tx, gens)
+	})
 }
 
 // folders lists the generation folders in out, in generation order, and the names of the

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 )
 
 // ForgetPending reports whether an output generation still holds the text of an item with an
@@ -17,4 +18,143 @@ func ForgetPending(ctx context.Context, tx *sql.Tx) (bool, error) {
 		return false, fmt.Errorf("read forget state: %w", err)
 	}
 	return pending, nil
+}
+
+// itemRows is the WHERE clause of the rows of item ?1 in each table of ItemTextFields: the
+// item, its revisions, its proposals, and the applied edits whose file held it at any
+// revision (AppliedEditsWithItem). Forget finds them by id, never by a text search (§6.7).
+var itemRows = map[string]string{
+	"items":          `id = ?1`,
+	"item_revisions": `item_id = ?1`,
+	"proposals":      `item_id = ?1`,
+	"applied_edits":  appliedEditsWithItem,
+}
+
+// blanks is the value that forget writes into a field of ItemTextFields; any other field gets
+// "". A nullable field gets NULL, and a list field an empty list.
+var blanks = map[Field]string{
+	{"items", "anchors"}:                `'[]'`,
+	{"proposals", "change_request"}:     `NULL`,
+	{"applied_edits", "content_before"}: `NULL`,
+	{"applied_edits", "content_after"}:  `NULL`,
+}
+
+// sideRows is the WHERE clause of the applied edits whose content field held item ?1: the
+// side whose revisions list holds it. The forget build writes a row with the item in its
+// revisions_before and new bytes without the item in content_after; that field holds no text
+// of the item, so ItemTextLeft checks each side on its own.
+var sideRows = map[Field]string{
+	{"applied_edits", "content_before"}: `EXISTS (SELECT 1 FROM json_each(revisions_before) WHERE json_extract(value, '$.item') = ?1)`,
+	{"applied_edits", "content_after"}:  `EXISTS (SELECT 1 FROM json_each(revisions_after) WHERE json_extract(value, '$.item') = ?1)`,
+}
+
+func blank(f Field) string {
+	if b, ok := blanks[f]; ok {
+		return b
+	}
+	return `''`
+}
+
+// rowsOf is the WHERE clause of the rows of item in the table of f.
+func rowsOf(f Field) string {
+	w, ok := itemRows[f.Table]
+	if !ok {
+		panic(fmt.Sprintf("store: forget has no rows of an item in %s", f.Table))
+	}
+	return w
+}
+
+// EraseItem removes the text of item and of its derivatives from every field in
+// ItemTextFields, and supersedes its pending proposals, so no blank proposal waits in the
+// queue (§6.7). The rows and their ids stay. now is the decision time of those proposals.
+func EraseItem(ctx context.Context, tx *sql.Tx, item int64, now time.Time) error {
+	for _, f := range ItemTextFields() {
+		// The table and column names come from ItemTextFields, not from input.
+		q := fmt.Sprintf(`UPDATE %s SET %s = %s WHERE %s`, f.Table, f.Column, blank(f), rowsOf(f))
+		if _, err := tx.ExecContext(ctx, q, item); err != nil {
+			return fmt.Errorf("erase %s.%s of item %d: %w", f.Table, f.Column, item, err)
+		}
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE proposals SET status = ?, decided = ? WHERE item_id = ? AND status = ?`,
+		ProposalSuperseded, timeArg(now), item, ProposalPending)
+	if err != nil {
+		return fmt.Errorf("supersede proposals of item %d: %w", item, err)
+	}
+	return nil
+}
+
+// ItemTextLeft returns the fields of ItemTextFields that still hold text of item or of its
+// derivatives, in list order. Forget is done in the store when it is empty (§6.7).
+func ItemTextLeft(ctx context.Context, tx *sql.Tx, item int64) ([]Field, error) {
+	var left []Field
+	for _, f := range ItemTextFields() {
+		var has bool
+		w, ok := sideRows[f]
+		if !ok {
+			w = rowsOf(f)
+		}
+		q := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE (%s) AND %s IS NOT %s)`, f.Table, w, f.Column, blank(f))
+		if err := tx.QueryRowContext(ctx, q, item).Scan(&has); err != nil {
+			return nil, fmt.Errorf("read %s.%s of item %d: %w", f.Table, f.Column, item, err)
+		}
+		if has {
+			left = append(left, f)
+		}
+	}
+	return left, nil
+}
+
+// ClaimCopies reads the other items with the same claim id as item, in id order: the copies
+// of the claim in other scopes, which forget lists and keeps (§6.7).
+func ClaimCopies(ctx context.Context, tx *sql.Tx, item int64) ([]Item, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT c.id FROM items c JOIN items i ON c.claim_id = i.claim_id
+		WHERE i.id = ? AND c.id != i.id ORDER BY c.id`, item)
+	if err != nil {
+		return nil, fmt.Errorf("read copies of item %d: %w", item, err)
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("read copies of item %d: %w", item, err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("read copies of item %d: %w", item, err)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read copies of item %d: %w", item, err)
+	}
+	var its []Item
+	for _, id := range ids {
+		it, err := ItemByID(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+		its = append(its, it)
+	}
+	return its, nil
+}
+
+// MarkForgotten sets outputs.holds_forgotten_text on each of generations: their folders hold
+// the text of an item that forget removed from the store (§6.7).
+func MarkForgotten(ctx context.Context, tx *sql.Tx, generations []int64) error {
+	_, err := tx.ExecContext(ctx, `UPDATE outputs SET holds_forgotten_text = 1
+		WHERE generation IN (SELECT value FROM json_each(?))`, jsonList[int64](generations))
+	if err != nil {
+		return fmt.Errorf("mark output generations %v: %w", generations, err)
+	}
+	return nil
+}
+
+// ClearForgotten clears outputs.holds_forgotten_text on every generation that is not in
+// kept, the generation folders that are still on disk: a deleted folder holds no text.
+func ClearForgotten(ctx context.Context, tx *sql.Tx, kept []int64) error {
+	_, err := tx.ExecContext(ctx, `UPDATE outputs SET holds_forgotten_text = 0
+		WHERE holds_forgotten_text = 1 AND generation NOT IN (SELECT value FROM json_each(?))`, jsonList[int64](kept))
+	if err != nil {
+		return fmt.Errorf("clear forget marks: %w", err)
+	}
+	return nil
 }

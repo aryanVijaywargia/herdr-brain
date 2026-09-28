@@ -48,6 +48,9 @@ func (cl caller) undo(ctx context.Context, id int64) error {
 		if err != nil {
 			return err
 		}
+		if forgotten(cur) {
+			return fmt.Errorf("item %d is forgotten: undo has no text to restore", id)
+		}
 		if it.State == store.StateDraft {
 			return fmt.Errorf("item %d is a draft: decide its proposal with brain review", id)
 		}
