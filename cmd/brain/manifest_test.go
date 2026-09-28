@@ -72,3 +72,37 @@ func TestManifestClosedEvent(t *testing.T) {
 		t.Errorf("event command = %s, want it to run bin/brain event workspace-closed", events[0]["command"])
 	}
 }
+
+// D6 (E5-S3): the review action opens the queue split, and the queue runs `brain review`.
+func TestManifestReviewAction(t *testing.T) {
+	action := findTable(manifestTables(t, "actions"), "review")
+	if action == nil {
+		t.Fatal("no [[actions]] with id review")
+	}
+	if !strings.Contains(action["command"], `plugin pane open --plugin brain --entrypoint queue`) {
+		t.Errorf("review action command = %s, want it to open the queue pane", action["command"])
+	}
+	queue := findTable(manifestTables(t, "panes"), "queue")
+	if queue == nil {
+		t.Fatal("no [[panes]] with id queue")
+	}
+	if queue["placement"] != `"split"` || !strings.Contains(queue["command"], `$HERDR_PLUGIN_ROOT/bin/brain\" review;`) {
+		t.Errorf("queue pane = %v, want a split that runs bin/brain review", queue)
+	}
+}
+
+// E5-S1: the review pane is a split that runs `brain pane review` with the proposal id of its
+// --env, never an id from pane text.
+func TestManifestReviewPane(t *testing.T) {
+	pane := findTable(manifestTables(t, "panes"), "review")
+	if pane == nil {
+		t.Fatal("no [[panes]] with id review")
+	}
+	if pane["placement"] != `"split"` {
+		t.Errorf("review pane placement = %s, want \"split\"", pane["placement"])
+	}
+	want := `$HERDR_PLUGIN_ROOT/bin/brain\" pane review --proposal \"$BRAIN_PROPOSAL_ID\"`
+	if !strings.Contains(pane["command"], want) {
+		t.Errorf("review pane command = %s, want it to contain %s", pane["command"], want)
+	}
+}

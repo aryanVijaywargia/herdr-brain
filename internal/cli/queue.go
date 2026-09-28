@@ -18,6 +18,9 @@ import (
 // it, not even its text (E4 scope check).
 var errNotFound = errors.New("not found in this workspace")
 
+// errDecided: a surface decided the proposal already, for example in another process.
+var errDecided = errors.New("conflict")
+
 // permissionWords finds text that may change a permission, an allow rule or a safety rule
 // (§7.4). [NEW] the list is a guess (E4-S3); proposals.permission_warning records how often
 // it fires in M1.
@@ -29,13 +32,14 @@ var permissionWords = regexp.MustCompile(`(?i)allow|permission|sandbox|--dangero
 type caller struct {
 	Env
 	*Call
-	key    string // the Brain key of the calling workspace; "" when it has none
-	label  string
-	keyErr error // why key is ""
+	key     string // the Brain key of the calling workspace; "" when it has none
+	label   string
+	keyErr  error         // why key is ""
+	surface store.Surface // where a decision of this call is made
 }
 
 func newCaller(e Env, c *Call) caller {
-	cl := caller{Env: e, Call: c}
+	cl := caller{Env: e, Call: c, surface: store.SurfaceCLI}
 	// A workspace with no key has no items of its own: it sees the global items only, as the
 	// hook gives it the global part only (S48). keyErr says why, for --scope workspace.
 	cl.key, cl.label, cl.keyErr = c.WorkspaceKey()
@@ -82,7 +86,7 @@ func (cl caller) proposal(ctx context.Context, tx *sql.Tx, id int64) (store.Prop
 func (cl caller) pending(ctx context.Context, tx *sql.Tx, id int64) (store.Proposal, store.Item, store.ItemRevision, error) {
 	p, it, rev, err := cl.proposal(ctx, tx, id)
 	if err == nil && p.Status != store.ProposalPending {
-		err = fmt.Errorf("proposal %d: conflict: it is %s already", id, p.Status)
+		err = fmt.Errorf("proposal %d: %w: it is %s already", id, errDecided, p.Status)
 	}
 	return p, it, rev, err
 }
