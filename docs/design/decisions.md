@@ -237,7 +237,8 @@ $S/h session stop brain-e2s6; $S/h session delete brain-e2s6
 - HLD §6.2 needs one read at a time for each pane, in event order, and the last read in memory. A long process gives this.
 - `[[events]]` runs one new process for each event. A burst of 10 changes gave 10 processes at the same time, with 3 s hooks. Nothing orders them, and none keeps state. Each call would need a lock and a state file.
 - The `[[events]]` payload has no time and no event id. So a late process cannot tell that its event is old.
-- herdr runs `[[startup]]` after the API socket is ready. A long startup process is allowed: two ran for 12 minutes with no kill.
+- The herdr plugin docs say that `[[startup]]` runs after the API socket is ready. The probe did not connect to the socket at startup, so this is not tested. `brained` retries the first connect.
+- A long startup process is allowed: two ran for 12 minutes with no kill.
 
 **Test** (herdr 0.9.1, 2026-09-29, scratch HOME, named sessions `brain-e11s1` and `brain-e11s1b` and a scratch-HOME `default`; the main server and the real `default` were not touched). Probe: `spike/m0/e11probe/`. Raw log: `spike/m0/data/e11s1-hosting.txt`.
 

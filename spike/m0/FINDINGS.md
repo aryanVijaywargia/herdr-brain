@@ -15,7 +15,7 @@
 | 2 | Codex size limit | PASS, no limit seen | `codex exec` returned both markers at 10,500, 30,000 and 100,000 characters. |
 | 4 | Workspace root | ANSWERED (E2-S5), owner decision open | The API has no root. `workspace_cwd` is the focused pane's live folder. `identity_cwd` is the root pane's folder at the last save. Both follow `cd`. See "Workspace root folder source". |
 | 8 | Event delay after a state change | PASS (E11-S1) | Claude 2.1.284, 7 real changes: the socket `pane.agent_status_changed` came 0.14-0.42 s after the matching Claude hook or key press. A fake `pane report-agent` change: 0.03-0.10 s to the socket and to an `[[events]]` hook. The event has no time and no id. See "brained hosting and capture (E11-S1)". |
-| 9 | Alternate-screen loss, user message at turn start | PASS for Claude, OPEN live for Codex (E11-S1) | Claude draws in the alternate screen. While `working` or `blocked`, only the screen (37 rows here) can be read; rows that scroll off are gone until idle. At idle herdr scroll-captures the full history (138 of 138 lines). The user prompt line is on the screen at turn start. Codex draws inline (source, E10-S4), so rows go to normal scrollback. |
+| 9 | Alternate-screen loss, user message at turn start | PASS for Claude, OPEN live for Codex (E11-S1) | Claude draws in the alternate screen. While `working` or `blocked`, only the screen (37 rows here) can be read; rows that scroll off are gone until idle. At idle herdr can scroll-capture the full history (138 of 138 lines), but most idle reads with `--lines` above the history size returned only the screen, with exit 0 (6 of 6, then 15 of 19). The user prompt line is on the screen at turn start. Codex draws inline (source, E10-S4), so rows go to normal scrollback. |
 | 10 | Hook timing | PASS (E7-S4) | Normal load (M0): whole hook 5.4-10.7 ms. E7-S4, with the manifest check and a SQLite receipt, 100 runs per level: whole hook p95 7.6 ms idle, 8.1 ms with output bursts, 16.5 ms with a flood (max 80.9 ms, from one slow `pane get`). Manifest check ≤ 0.6 ms. Proposed lookup deadline: 150 ms from hook start [NEW]. See "Hook under load and manifest check (E7-S4)". |
 | 11 | Pane split with no focus, then close | PASS | `pane split --no-focus` kept focus. A plugin `split` pane with `--no-focus --env BRAIN_REVIEW=1` kept focus and got the env. `plugin pane close` closed it. `plugin pane close` on a normal pane returned `plugin_pane_not_found` and left it open. `popup` placement: tested in E5-S3; M1 keeps `split` (see "Popup placement and plugin actions (E5-S3)"). |
 | 13 | Headless extractor call, no tools, JSON schema | PASS for no file, shell, network, MCP or hook access; PARTIAL for literal "no tools" (E13-S1) | Claude 2.1.283 and codex-cli 0.154.0 both return schema-valid JSON. Claude keeps only `StructuredOutput`. Codex 0.154 with `gpt-6-sol` keeps code-mode `exec`/`wait` (V8, no nested tools) and `request_user_input_async`; no flag removes them. When the output cannot fit, Claude can exit 0 with no structured output; Codex bends a bad prompt to the schema and fails only for an unsatisfiable schema. See "Headless extractor call (E13-S1)". |
@@ -194,7 +194,7 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
 | `recent-unwrapped` | 76-150 | 6-150 | 1-150 (all) | 1-150 (all) |
 | `visible` | 116-150 | 116-150 | 116-150 | 116-150 |
 
-- Codex 0.154 prints the reply inline in the normal screen, not in the alternate screen. So the scrollback holds the whole reply, as for Claude. The file fallback of HLD §17 item 28 is not needed.
+- Codex 0.154 prints the reply inline in the normal screen, not in the alternate screen. So the scrollback holds the whole reply. (Claude differs: it draws in the alternate screen, and herdr reads its history by scrolling at idle; see E11-S1.) The file fallback of HLD §17 item 28 is not needed.
 - `--lines N` counts from the bottom of the pane and includes the Codex footer (5 lines: blank lines, the input prompt, the status line). So `--lines 150` gave only 145 reply lines. The runner must read enough lines for the reply and the pane text below it, and then check that the whole reply is there. A partial read is `reply incomplete`. When `N` is larger than the history, herdr returns the whole history (179 lines here), with no error.
 - `visible` gives only the screen (40 rows). A reply longer than the screen is `reply incomplete` with this source.
 - **Limits.** One reply of 150 short lines, one pane size, one run. Long wrapped lines and replies longer than the herdr scrollback were not tested.
@@ -276,7 +276,7 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
 | working → idle (run 2) | `Stop` hook start | idle | 0.25 s |
 
 - A fake `pane report-agent` change reached an `[[events]]` hook in 0.03 s and the socket in 0.09 s.
-- One sample is only a guide. A delay under 0.5 s means that a read at the event sees the turn end.
+- One sample is only a guide. The probe made no read at the event, so these numbers do not show that a read at an `idle` event sees the whole reply. A state change does not prove that a reply is complete (HLD §6.2).
 
 ### Alternate-screen loss and reads while busy (items 9, 20)
 
