@@ -30,6 +30,17 @@ func BindingsFile() (string, error) {
 	return filepath.Join(dir, "bindings.json"), nil
 }
 
+// InstallFile returns ~/.local/share/brain/install.json, the install record (HLD §11, E8). It
+// sits in the data home but outside every store folder, because the CLI hook files are shared
+// by all bindings.
+func InstallFile() (string, error) {
+	dir, err := DataHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "install.json"), nil
+}
+
 // LinkPath returns ~/.local/bin/brain, the symlink that `brain setup` offers to make.
 func LinkPath() (string, error) {
 	home, err := homeDir()

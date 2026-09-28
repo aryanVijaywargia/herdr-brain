@@ -10,3 +10,6 @@ input.session_id = "session_id"
 input.cwd = "cwd"
 # The version of the M0 test (spike/m0/FINDINGS.md).
 tested_version = "0.154.0"
+# The hook entry sets additionalContextLimit 0, so Codex sends the whole brief inline, not a
+# preview of a saved file (E8 epic, official Codex hooks docs).
+additional_context_limit = 0
