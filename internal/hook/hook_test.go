@@ -244,7 +244,7 @@ func addItem(t *testing.T, s *store.Store, key, text string) {
 
 func build(t *testing.T, s *store.Store, dir string) int64 {
 	t.Helper()
-	gen, err := output.Build(context.Background(), s, filepath.Join(dir, outDir), nil, testNow)
+	gen, err := output.Build(context.Background(), s, filepath.Join(dir, outDir), nil, func() time.Time { return testNow })
 	if err != nil {
 		t.Fatalf("Build() = %v", err)
 	}
