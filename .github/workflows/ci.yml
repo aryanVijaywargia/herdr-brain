@@ -3,12 +3,21 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# A new push to a PR cancels the older run of that PR. Runs on main get a
+# group of their own (run_id), so they never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # macOS minutes count 10x, so macOS runs only on PRs that are ready
+        # for review. Drafts and pushes to main run on ubuntu only.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && !github.event.pull_request.draft && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
