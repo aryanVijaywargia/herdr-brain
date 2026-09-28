@@ -31,7 +31,9 @@ import (
 // lookup, the file reads, the receipt and the print. The lookup ends by lookupDeadline, plus
 // the 50 ms that the herdr client waits for herdr's pipes; a receipt waits at most busyTimeout
 // for the store lock. That is 250 ms, so at least 50 ms of the cap is left for the file reads
-// and the print, which took under 1 ms in M0 (E7-S4 FINDINGS).
+// and the print, which took under 1 ms in M0 (E7-S4 FINDINGS). The agent check of earlier
+// records (§8.3 limit) adds one read before the print, which takes no lock; its updates join
+// the receipt transaction, so the hook still waits for the store lock once.
 const (
 	// hookCap is the total cap of one hook run (§8.3 "Time limits"). [NEW] 300 ms, no source.
 	hookCap = 300 * time.Millisecond
@@ -54,9 +56,6 @@ const (
 
 // errCapped: the hook cap stopped the hook. It printed nothing and wrote nothing (S50).
 var errCapped = errors.New("hook cap reached")
-
-// errAgentRecords: the store has no table for (pane, agent session id) records yet.
-var errAgentRecords = errors.New("agent session records are not in the store yet (E7-S3)")
 
 // Main runs the hook for the frozen command `brain hook --profile <name> --event start` with
 // the process environment environ. The caller prints nothing on the error and exits 0.
@@ -151,9 +150,9 @@ func (h Hook) run(ctx context.Context, stdin io.Reader, stdout io.Writer) (err e
 		}
 		return &receipts{s: s, profile: h.Profile.Kind, agentSession: in.SessionID, now: h.Now}, nil
 	}
-	// The agent session id is not passed: the resolver would record it, and that record is
-	// E7-S3. The receipts carry it instead.
-	res, err := resolver.New(h.Bindings, open, h.pane).Resolve(ctx, h.Environ, "")
+	// The resolver checks the earlier records of the pane and records this agent session; the
+	// receipt of this run holds the record (§8.3 limit).
+	res, err := resolver.New(h.Bindings, open, h.pane).Resolve(ctx, h.Environ, in.SessionID)
 	if err != nil {
 		return err
 	}
@@ -256,6 +255,17 @@ type receipts struct {
 	profile      string
 	agentSession string
 	now          func() time.Time
+	// recorded: the resolver recorded the agent session, so the receipt of this run holds the
+	// (pane, agent session id) record, with its check still pending.
+	recorded bool
+	// checks are the agent checks of earlier records. They join the receipt transaction.
+	checks []agentCheck
+}
+
+// agentCheck is one check of an earlier (pane, agent session id) record.
+type agentCheck struct {
+	session, paneID, agentSession string
+	check                         resolver.AgentCheck
 }
 
 // WriteWithheld writes the receipt of a pane that failed the live check (S49, S63).
@@ -263,19 +273,23 @@ func (rc *receipts) WriteWithheld(ctx context.Context, w resolver.Withheld) erro
 	return rc.write(ctx, withheld(store.Delivery{HerdrSession: &w.Session, PaneID: w.PaneID}, string(w.Reason)))
 }
 
-// RecordAgentSession is E7-S3; the hook does not pass an agent session to the resolver.
+// RecordAgentSession writes nothing now: the receipt of this run, which has the same herdr
+// session, pane and agent session, holds the record. At hook time herdr does not show the new
+// agent yet, so the next brain call for the pane checks it (§17 item 29).
 func (rc *receipts) RecordAgentSession(context.Context, string, string, string) error {
-	return errAgentRecords
+	rc.recorded = true
+	return nil
 }
 
-// UncheckedAgentSessions returns none: the store records no agent sessions until E7-S3.
-func (rc *receipts) UncheckedAgentSessions(context.Context, string, string) ([]string, error) {
-	return nil, nil
+func (rc *receipts) UncheckedAgentSessions(ctx context.Context, session, paneID string) ([]string, error) {
+	return rc.s.AgentSessions(ctx, session, paneID, string(resolver.AgentPending))
 }
 
-// SetAgentCheck is E7-S3.
-func (rc *receipts) SetAgentCheck(context.Context, string, string, string, resolver.AgentCheck) error {
-	return errAgentRecords
+// SetAgentCheck writes nothing now: the receipt transaction writes the check, so a hook run
+// takes the store lock once. The write changes only a record that is still pending.
+func (rc *receipts) SetAgentCheck(_ context.Context, session, paneID, agentSession string, c resolver.AgentCheck) error {
+	rc.checks = append(rc.checks, agentCheck{session, paneID, agentSession, c})
+	return nil
 }
 
 func (rc *receipts) Close() error { return rc.s.Close() }
@@ -285,7 +299,17 @@ func (rc *receipts) write(ctx context.Context, d store.Delivery) error {
 }
 
 func (rc *receipts) insert(ctx context.Context, tx *sql.Tx, d store.Delivery) error {
+	for _, c := range rc.checks {
+		if err := store.SetAgentCheck(ctx, tx, c.session, c.paneID, c.agentSession,
+			string(resolver.AgentPending), string(c.check)); err != nil {
+			return err
+		}
+	}
 	d.Profile, d.AgentSessionID, d.At = rc.profile, &rc.agentSession, rc.now()
+	if rc.recorded {
+		pending := string(resolver.AgentPending)
+		d.AgentCheck = &pending
+	}
 	_, err := store.InsertDelivery(ctx, tx, d)
 	return err
 }

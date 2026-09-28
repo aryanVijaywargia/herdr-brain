@@ -49,7 +49,7 @@ func (s *fakeStore) WriteWithheld(_ context.Context, w Withheld) error {
 
 func (s *fakeStore) RecordAgentSession(_ context.Context, session, paneID, agentSession string) error {
 	s.d.calls = append(s.d.calls, "RecordAgentSession")
-	s.d.records[s.dir] = append(s.d.records[s.dir], record{session, paneID, agentSession, AgentUnknown})
+	s.d.records[s.dir] = append(s.d.records[s.dir], record{session, paneID, agentSession, AgentPending})
 	return nil
 }
 
@@ -57,7 +57,7 @@ func (s *fakeStore) UncheckedAgentSessions(_ context.Context, session, paneID st
 	s.d.calls = append(s.d.calls, "UncheckedAgentSessions")
 	var ids []string
 	for _, r := range s.d.records[s.dir] {
-		if r.session == session && r.paneID == paneID && r.check == AgentUnknown {
+		if r.session == session && r.paneID == paneID && r.check == AgentPending {
 			ids = append(ids, r.agentSession)
 		}
 	}
@@ -464,9 +464,8 @@ func TestAgentCheck(t *testing.T) {
 		f.herdr.panes[f.mainSock]["w1:p1"] = a
 	}
 
-	// At hook time herdr shows no agent session yet: the record stays unknown.
+	// At hook time herdr shows no agent session yet: the record stays pending.
 	resolve(parent)
-	resolve("")
 	// Later herdr shows the parent's agent session. A nested `claude -p` in that pane sees it
 	// too at its hook time, so the hook only records its own id.
 	setAgent(parent)
@@ -491,12 +490,10 @@ func TestAgentCheckUnknownWithoutAgent(t *testing.T) {
 			t.Fatalf("Resolve() = %#v, %v, want Resolved", res, err)
 		}
 	}
+	// The next call sees no agent session in the pane: the record is unknown.
 	want := []record{{"default", "w1:p1", "agent-1", AgentUnknown}}
 	if got := f.data.records[f.mainStore]; !slices.Equal(got, want) {
 		t.Errorf("records = %+v, want %+v", got, want)
-	}
-	if slices.Contains(f.data.calls, "SetAgentCheck") {
-		t.Errorf("store calls = %q, want no SetAgentCheck while herdr shows no agent", f.data.calls)
 	}
 }
 
@@ -607,7 +604,7 @@ func TestAgentCheckStaysInItsSession(t *testing.T) {
 	f.herdr.panes[f.workSock]["w1:p1"] = a
 	resolve(f.workSock, "work", "")
 
-	want := []record{{"default", "w1:p1", "default-agent", AgentUnknown}}
+	want := []record{{"default", "w1:p1", "default-agent", AgentPending}}
 	if got := f.data.records[f.mainStore]; !slices.Equal(got, want) {
 		t.Errorf("records = %+v, want %+v", got, want)
 	}

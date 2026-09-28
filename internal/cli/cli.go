@@ -6,6 +6,7 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -155,8 +156,9 @@ func noStoreError(n *resolver.NoStore) error {
 	return fmt.Errorf("no Brain store for this pane (%s); nothing was written", n.Reason)
 }
 
-// commandStore is the store of a command as the resolver sees it. The resolver writes through
-// it only on a hook call: a command passes no agent session and writes no receipt.
+// commandStore is the store of a command as the resolver sees it. A command passes no agent
+// session and writes no receipt; it only checks the earlier records of the calling pane
+// against the agent that herdr shows now (§8.3 limit, §17 item 29).
 type commandStore struct{ *store.Store }
 
 func (commandStore) WriteWithheld(context.Context, resolver.Withheld) error { return errNoReceipts }
@@ -165,13 +167,14 @@ func (commandStore) RecordAgentSession(context.Context, string, string, string) 
 	return errNoReceipts
 }
 
-// UncheckedAgentSessions returns none: the store records no agent sessions until E7-S3.
-func (commandStore) UncheckedAgentSessions(context.Context, string, string) ([]string, error) {
-	return nil, nil
+func (cs commandStore) UncheckedAgentSessions(ctx context.Context, session, paneID string) ([]string, error) {
+	return cs.AgentSessions(ctx, session, paneID, string(resolver.AgentPending))
 }
 
-func (commandStore) SetAgentCheck(context.Context, string, string, string, resolver.AgentCheck) error {
-	return errNoReceipts
+func (cs commandStore) SetAgentCheck(ctx context.Context, session, paneID, agentSession string, c resolver.AgentCheck) error {
+	return cs.Write(ctx, func(tx *sql.Tx) error {
+		return store.SetAgentCheck(ctx, tx, session, paneID, agentSession, string(resolver.AgentPending), string(c))
+	})
 }
 
 // WorkspaceKey returns the Brain key of the calling pane's workspace, and its label. A

@@ -378,16 +378,19 @@ type Delivery struct {
 	Result           Result
 	WithheldReason   *string
 	At               time.Time
+	// AgentCheck is the deferred session-id check (§8.3 limit): "pending", "unknown", "match"
+	// or "not this pane's agent". nil when the receipt holds no (pane, agent session id) record.
+	AgentCheck *string
 }
 
 // InsertDelivery adds d and returns its new id. d.ID is ignored.
 func InsertDelivery(ctx context.Context, tx *sql.Tx, d Delivery) (int64, error) {
 	return insertRow(ctx, tx, "delivery", `INSERT INTO deliveries
 		(profile, herdr_session, pane_id, agent_session_id, workspace_key, brief_hash, output_generation,
-		item_revisions, cli_version, result, withheld_reason, at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		item_revisions, cli_version, result, withheld_reason, at, agent_check)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		d.Profile, d.HerdrSession, d.PaneID, d.AgentSessionID, d.WorkspaceKey, d.BriefHash, d.OutputGeneration,
-		jsonList[RevisionRef](d.ItemRevisions), d.CLIVersion, d.Result, d.WithheldReason, timeArg(d.At))
+		jsonList[RevisionRef](d.ItemRevisions), d.CLIVersion, d.Result, d.WithheldReason, timeArg(d.At), d.AgentCheck)
 }
 
 // DeliveryByID reads the delivery with id. It returns sql.ErrNoRows when there is none.
@@ -395,15 +398,52 @@ func DeliveryByID(ctx context.Context, tx *sql.Tx, id int64) (Delivery, error) {
 	var d Delivery
 	err := tx.QueryRowContext(ctx, `SELECT id, profile, herdr_session, pane_id, agent_session_id,
 		workspace_key, brief_hash, output_generation, item_revisions, cli_version, result,
-		withheld_reason, at
+		withheld_reason, at, agent_check
 		FROM deliveries WHERE id = ?`, id).Scan(
 		&d.ID, &d.Profile, &d.HerdrSession, &d.PaneID, &d.AgentSessionID, &d.WorkspaceKey, &d.BriefHash,
 		&d.OutputGeneration, listDest[RevisionRef]{&d.ItemRevisions}, &d.CLIVersion, &d.Result,
-		&d.WithheldReason, timeDest{&d.At})
+		&d.WithheldReason, timeDest{&d.At}, &d.AgentCheck)
 	if err != nil {
 		return Delivery{}, fmt.Errorf("read delivery %d: %w", id, err)
 	}
 	return d, nil
+}
+
+// AgentSessions returns the agent session ids of the receipts of paneID in herdr session
+// whose agent check is check, each id once. It reads outside a write transaction: in WAL mode
+// a read takes no write lock, so the hook waits for the lock once only, in its receipt.
+func (s *Store) AgentSessions(ctx context.Context, session, paneID, check string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT agent_session_id FROM deliveries
+		WHERE herdr_session = ? AND pane_id = ? AND agent_check = ? AND agent_session_id IS NOT NULL
+		ORDER BY agent_session_id`, session, paneID, check)
+	if err != nil {
+		return nil, fmt.Errorf("read agent sessions of pane %s: %w", paneID, err)
+	}
+	defer rows.Close() //nolint:errcheck // read-only: rows.Err reports the read errors
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("read agent sessions of pane %s: %w", paneID, err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read agent sessions of pane %s: %w", paneID, err)
+	}
+	return ids, nil
+}
+
+// SetAgentCheck changes the agent check of the receipts of (session, paneID, agentSession)
+// from from to to.
+func SetAgentCheck(ctx context.Context, tx *sql.Tx, session, paneID, agentSession, from, to string) error {
+	_, err := tx.ExecContext(ctx, `UPDATE deliveries SET agent_check = ?
+		WHERE herdr_session = ? AND pane_id = ? AND agent_session_id = ? AND agent_check = ?`,
+		to, session, paneID, agentSession, from)
+	if err != nil {
+		return fmt.Errorf("set agent check of pane %s: %w", paneID, err)
+	}
+	return nil
 }
 
 // ReviewPane is one review pane that Brain opened. Brain closes or targets only a pane whose

@@ -73,6 +73,7 @@ func noItemTextFields() []Field {
 		{"deliveries", "result"},
 		{"deliveries", "withheld_reason"},
 		{"deliveries", "at"},
+		{"deliveries", "agent_check"},
 		{"review_panes", "herdr_session"},
 		{"review_panes", "session_identity"},
 		{"review_panes", "pane_id"},
