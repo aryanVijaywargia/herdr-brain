@@ -406,7 +406,8 @@ func TestRoundTrip(t *testing.T) {
 		}},
 		{"applied edit", func(tx *sql.Tx) (any, any, error) {
 			e := AppliedEdit{ProposalID: &f.proposal.ID, File: "global.md", Generation: 4,
-				ContentBefore: ptr(""), ContentHash: "h", Applied: testNow, RolledBack: later}
+				ContentBefore: ptr(""), ContentHash: "h", Applied: testNow, RolledBack: later,
+				RevisionsBefore: []RevisionRef{}, RevisionsAfter: []RevisionRef{{Item: f.item.ID, Revision: 1}}}
 			id, err := InsertAppliedEdit(ctx, tx, e)
 			if err != nil {
 				return nil, nil, err
