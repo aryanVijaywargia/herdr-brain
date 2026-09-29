@@ -152,6 +152,8 @@ func noItemTextFields() []Field {
 		{"extraction_batches", "status"},
 		{"extraction_batches", "reason"}, // A fixed reason of Brain; no model text.
 		{"extraction_batches", "at"},
+		{"extraction_calls", "workspace_key"},
+		{"extraction_calls", "at"},
 		{"extraction_watermarks", "workspace_key"},
 		{"extraction_watermarks", "capture_identity"},
 		{"extractor_settings", "workspace_key"},

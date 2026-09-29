@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
@@ -70,8 +71,9 @@ func (d Day) Full() string {
 
 // order puts jobs in round robin order across workspace keys (§7.3 queue): the first job of
 // each key, then the second of each key, and so on. The jobs of a key come oldest first. The
-// key whose last call (from last) is oldest comes first, a key with no call before all, so
-// under the call cap each key gets its turn over the passes.
+// key whose last call (from last, which covers the whole store) is oldest comes first, a key
+// with no call before all, so under the call cap each key gets its turn over the passes, also
+// against the keys of another herdr session that shares the store.
 func order(jobs []job, last map[string]time.Time) []job {
 	byKey := map[string][]job{}
 	var keys []string
@@ -101,18 +103,40 @@ func order(jobs []job, last map[string]time.Time) []job {
 }
 
 // fit cuts run so that the excerpts of its refs rs fit in the input cap (§7.3): the cut part
-// goes into a later batch, after the watermark moves. The first ref always stays, so one long
-// excerpt does not stop its session.
-func (p Pass) fit(run []store.SignalInput, rs []ref) ([]store.SignalInput, []ref) {
+// goes into a later batch, after the watermark moves. The cut never splits a signal of sigs
+// that starts in run: all its observations stay on one side, so the later batch still sees
+// the whole signal. A run that no such cut makes fit stays whole, so one long signal does not
+// stop its session.
+func (p Pass) fit(run []store.SignalInput, rs []ref, sigs []signal.Signal) ([]store.SignalInput, []ref) {
 	size := 0
-	for i, r := range rs {
+	for _, r := range rs {
 		size += len(r.excerpt)
-		if i > 0 && size > p.caps().InputBytes {
-			cut := slices.IndexFunc(run, func(o store.SignalInput) bool { return o.ID >= r.obs })
-			return run[:cut], rs[:i]
+		if size <= p.caps().InputBytes {
+			continue
 		}
+		cut := split(r.obs, run[0].ID, sigs)
+		i := slices.IndexFunc(run, func(o store.SignalInput) bool { return o.ID >= cut })
+		if i <= 0 {
+			return run, rs
+		}
+		return run[:i], slices.DeleteFunc(slices.Clone(rs), func(r ref) bool { return r.obs >= cut })
 	}
 	return run, rs
+}
+
+// split moves the cut before observation cut back until no signal of sigs that starts at or
+// after first has observations on both sides of it.
+func split(cut, first int64, sigs []signal.Signal) int64 {
+	for moved := true; moved; {
+		moved = false
+		for _, s := range sigs {
+			lo, hi := slices.Min(s.Observations), slices.Max(s.Observations)
+			if lo >= first && lo < cut && cut <= hi {
+				cut, moved = lo, true
+			}
+		}
+	}
+	return cut
 }
 
 // Waiting is the extraction work of one workspace key that waits in the queue (§7.3).

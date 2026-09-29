@@ -200,11 +200,17 @@ func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, i
 	switch cli {
 	case store.ExtractorClaude, store.ExtractorCodex:
 	case "", "none":
+		// A stored choice is cleared: none means no call (D4, D9).
+		if cur.CLI != "" {
+			if err := writeExtractor(ctx, dir, "", "", d.now()); err != nil {
+				return err
+			}
+		}
 		fmt.Fprintln(stdout, "No extractor CLI chosen: Brain makes no extractor call, and brain status says so. "+
 			"To choose one later: brain setup --extractor")
 		return nil
 	default:
-		fmt.Fprintf(stdout, "Unknown answer %q: no extractor CLI chosen. To choose one: brain setup --extractor\n", answer)
+		fmt.Fprintf(stdout, "Unknown answer %q: the extractor choice stays as it was. To choose one: brain setup --extractor\n", answer)
 		return nil
 	}
 	if _, err := d.lookPath(string(cli)); err != nil {
@@ -214,27 +220,28 @@ func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, i
 	if err != nil {
 		return err
 	}
+	if err := writeExtractor(ctx, dir, cli, model, d.now()); err != nil {
+		return err
+	}
+	x, err := readExtractor(ctx, dir)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Extractor: %s, %s.\n", cli, cmp.Or(model, "its default model"))
+	if !x.On {
+		fmt.Fprintln(stdout, "Extraction stays off for the whole store, as you set it: brain extract on turns it on.")
+	}
+	return nil
+}
+
+// writeExtractor records cli and model in the store in folder dir; cli "" clears the choice.
+func writeExtractor(ctx context.Context, dir string, cli store.ExtractorCLI, model string, now time.Time) error {
 	s, err := store.Open(ctx, dir, setupBusyTimeout)
 	if err != nil {
 		return err
 	}
-	var on bool
-	err = s.Write(ctx, func(tx *sql.Tx) error {
-		if err := store.SetExtractorCLI(ctx, tx, cli, model, d.now()); err != nil {
-			return err
-		}
-		x, err := store.Extractor(ctx, tx)
-		on = x.On
-		return err
-	})
-	if err := errors.Join(err, s.Close()); err != nil {
-		return err
-	}
-	fmt.Fprintf(stdout, "Extractor: %s, %s.\n", cli, cmp.Or(model, "its default model"))
-	if !on {
-		fmt.Fprintln(stdout, "Extraction stays off for the whole store, as you set it: brain extract on turns it on.")
-	}
-	return nil
+	err = s.Write(ctx, func(tx *sql.Tx) error { return store.SetExtractorCLI(ctx, tx, cli, model, now) })
+	return errors.Join(err, s.Close())
 }
 
 // readExtractor returns the extractor setting of the store in folder dir. A folder with no

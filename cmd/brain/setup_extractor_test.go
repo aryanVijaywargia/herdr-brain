@@ -73,6 +73,19 @@ func TestSetupExtractor(t *testing.T) {
 	if x := extractorOf(t, home); x.CLI != store.ExtractorCodex || x.Model != "" || !x.On {
 		t.Errorf("extractor after --extractor = %+v, want codex, default model, on", x)
 	}
+
+	if code, out, errOut = runSetup(t, "gemini\n", "--extractor"); code != 0 {
+		t.Fatalf("setup --extractor = %d: %s\n%s", code, errOut, out)
+	}
+	if x := extractorOf(t, home); x.CLI != store.ExtractorCodex {
+		t.Errorf("extractor after an unknown answer = %+v, want codex kept", x)
+	}
+	if code, out, errOut = runSetup(t, "none\n", "--extractor"); code != 0 {
+		t.Fatalf("setup --extractor = %d: %s\n%s", code, errOut, out)
+	}
+	if x := extractorOf(t, home); x.CLI != "" || x.Model != "" {
+		t.Errorf("extractor after none = %+v, want no CLI: no call", x)
+	}
 }
 
 // No CLI, an unknown answer, or no binding: setup chooses no CLI and makes no store file.

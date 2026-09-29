@@ -194,7 +194,7 @@ func uncovered(obs []store.SignalInput, wm map[string]int64) [][]store.SignalInp
 
 // job returns the job of run r, cut to the input cap.
 func (p Pass) job(r pending, sigs []signal.Signal, byID map[int64]store.SignalInput) job {
-	run, rs := p.fit(r.obs, refs(r.obs, sigs, byID))
+	run, rs := p.fit(r.obs, refs(r.obs, sigs, byID), sigs)
 	last := run[len(run)-1]
 	return job{session: r.s, refs: rs, batch: store.Batch{SessionID: r.s.ID, WorkspaceKey: last.WorkspaceKey,
 		FirstCapture: run[0].CaptureIdentity, LastCapture: last.CaptureIdentity, StartWatermark: r.start,
@@ -479,10 +479,6 @@ func candidateKind(c Claim) store.CandidateKind {
 // through store.ProposeCandidate. Its draft item gets the scope and workspace key of the
 // candidate. E13-S5 adds the rest of the §7.4 fields.
 func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now time.Time) error {
-	// Over the daily cap, the candidate keeps its evidence and waits for its next evidence (§7.3 caps).
-	if d, err := p.Day(ctx, tx); err != nil || d.Proposals >= d.Caps.Proposals {
-		return err
-	}
 	cand, err := store.CandidateByID(ctx, tx, id)
 	if err != nil || !p.gates().Reached(cand) {
 		return err

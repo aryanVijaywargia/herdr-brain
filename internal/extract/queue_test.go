@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
@@ -242,8 +243,8 @@ func TestSignedOutCLI(t *testing.T) {
 	}
 }
 
-// The proposal cap stops the calls that follow, and a batch over the cap keeps the evidence of
-// its extra candidate with no proposal.
+// The proposal cap stops the calls that follow. A batch that crosses the cap commits all its
+// proposals, so no candidate at its gate is left with no proposal.
 func TestProposalCap(t *testing.T) {
 	f := newFixture(t)
 	f.session("a", true, line{"ws-A", pnpm, t0}, line{"ws-A", "no, use tabs in go files", t0},
@@ -258,28 +259,36 @@ func TestProposalCap(t *testing.T) {
 		return claudeReply(map[string]any{"claims": []any{claim("use pnpm", "e1", "e3"), claim("use tabs", "e2", "e4")}})
 	}
 	p := f.pass()
-	p.Caps = Caps{Calls: 10, Proposals: 1, InputBytes: 1 << 10}
+	p.Caps = Caps{Calls: 10, Proposals: 1, InputBytes: 1 << 10} // [NEW] test limits: a cap of 1 proposal
 	if err := p.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if n := f.count(`SELECT COUNT(*) FROM proposals`); n != 1 {
-		t.Errorf("proposals = %d, want the cap 1", n)
+	if n := f.count(`SELECT COUNT(*) FROM proposals`); n != 2 {
+		t.Errorf("proposals = %d, want both of the batch that crossed the cap", n)
 	}
-	if n := f.count(`SELECT COUNT(*) FROM candidates WHERE count = 2 AND status = 'open'`); n != 1 {
-		t.Errorf("open candidates with 2 evidence = %d, want 1 that waits", n)
+	if n := f.count(`SELECT COUNT(*) FROM candidates WHERE status = 'open'`); n != 0 {
+		t.Errorf("open candidates = %d, want 0", n)
 	}
 	if f.cli.calls() != 1 || f.calls("ws-B") != 0 {
 		t.Errorf("calls = %d, calls of ws-B = %d, want 1 and 0", f.cli.calls(), f.calls("ws-B"))
+	}
+	f.now = f.now.Add(day + time.Minute)
+	if err := p.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if f.calls("ws-B") != 1 {
+		t.Errorf("calls of ws-B the next day = %d, want 1: the work waited", f.calls("ws-B"))
 	}
 }
 
 // The input cap cuts a batch: the rest goes into the next batch, after the watermark moves.
 func TestInputCap(t *testing.T) {
 	f := newFixture(t)
-	sid, obs := f.session("a", true, line{"ws-A", pnpm, t0}, line{"ws-A", pnpm, t0}, line{"ws-A", pnpm, t0})
+	texts := []string{pnpm, "wrong, run make lint first", "no, use tabs in go files"}
+	sid, obs := f.session("a", true, line{"ws-A", texts[0], t0}, line{"ws-A", texts[1], t0}, line{"ws-A", texts[2], t0})
 	f.cli.reply = noClaims
 	p := f.pass()
-	p.Caps = Caps{Calls: 10, Proposals: 5, InputBytes: len(pnpm) + 1}
+	p.Caps = Caps{Calls: 10, Proposals: 5, InputBytes: len(pnpm) + 1} // [NEW] test limits: one excerpt a call
 	for i := range 3 {
 		if err := p.Run(context.Background()); err != nil {
 			t.Fatal(err)
@@ -289,11 +298,62 @@ func TestInputCap(t *testing.T) {
 		}
 	}
 	for i, prompt := range f.cli.prompts {
-		if strings.Count(prompt, pnpm) != 1 {
-			t.Errorf("prompt %d holds %d excerpts, want 1", i+1, strings.Count(prompt, pnpm))
+		if !strings.Contains(prompt, texts[i]) || strings.Contains(prompt, "[e2]") {
+			t.Errorf("prompt %d = %q, want only %q", i+1, prompt, texts[i])
 		}
 	}
 	if f.cli.calls() != 3 {
 		t.Errorf("calls = %d, want 3", f.cli.calls())
+	}
+}
+
+// The input cap never splits a signal: a command chain that spans the cut moves the cut before
+// it, and a run that is one signal stays whole.
+func TestFitKeepsSignals(t *testing.T) {
+	var run []store.SignalInput
+	for id := range int64(4) {
+		var o store.SignalInput
+		o.ID = id + 1
+		run = append(run, o)
+	}
+	rs := []ref{{id: "e1", obs: 1, excerpt: "aaaa"}, {id: "e2", obs: 2, excerpt: "bbbb"},
+		{id: "e3", obs: 3, excerpt: "cccc"}, {id: "e4", obs: 4, excerpt: "dddd"}}
+	p := Pass{Caps: Caps{Calls: 1, Proposals: 1, InputBytes: 10}} // [NEW] test limits: two excerpts
+	chain := signal.Signal{Kind: signal.CommandChain, Observations: []int64{2, 3, 4}}
+	for _, tc := range []struct {
+		name string
+		sigs []signal.Signal
+		want int // the observations that stay
+	}{
+		{"no signal spans", nil, 2},
+		{"a chain spans the cut", []signal.Signal{chain}, 1},
+		{"one signal", []signal.Signal{{Kind: signal.CommandChain, Observations: []int64{1, 2, 3, 4}}}, 4},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gotRun, gotRefs := p.fit(run, rs, tc.sigs)
+			if len(gotRun) != tc.want || len(gotRefs) != tc.want {
+				t.Errorf("fit = %d observations, %d refs, want %d", len(gotRun), len(gotRefs), tc.want)
+			}
+		})
+	}
+}
+
+// The daily call cap counts each call at its dispatch time: a batch retried on a later day
+// counts only its new call there.
+func TestCallsCountByDispatch(t *testing.T) {
+	f := newFixture(t)
+	f.session("a", true, line{"ws-A", pnpm, t0})
+	f.cli.reply = func(context.Context, string) ([]byte, error) { return nil, errors.New("claude: exit status 1") }
+	f.mustRun()
+	f.now = f.now.Add(day + time.Hour)
+	f.mustRun()
+	var d Day
+	f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
+		d, err = f.pass().Day(ctx, tx)
+		return err
+	})
+	if bs := f.batches(); f.cli.calls() != 2 || len(bs) != 1 || bs[0].ModelCalls != 2 || d.Calls != 1 {
+		t.Errorf("calls %d, batches %+v, calls in the last day %d; want 2 calls of one batch, 1 in the last day",
+			f.cli.calls(), bs, d.Calls)
 	}
 }
