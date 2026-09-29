@@ -1,0 +1,141 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"maps"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+)
+
+// extractorOf returns the extractor setting of the main store of home.
+func extractorOf(t *testing.T, home string) store.ExtractorSetting {
+	t.Helper()
+	ctx := context.Background()
+	s, err := store.Open(ctx, filepath.Join(home, ".local", "share", "brain", "main"), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := s.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	var x store.ExtractorSetting
+	if err := s.Write(ctx, func(tx *sql.Tx) (err error) {
+		x, err = store.Extractor(ctx, tx)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return x
+}
+
+// AC: setup explains where the excerpts go (D9), asks which CLI extracts and its model (D4),
+// and stores the choice with extraction on. A second setup keeps it and asks nothing;
+// --extractor asks again.
+func TestSetupExtractor(t *testing.T) {
+	home := setupHome(t, "0.9.1")
+	code, out, errOut := runSetup(t, "y\ny\ny\ny\nclaude\nsonnet\n")
+	if code != 0 {
+		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
+	}
+	for _, want := range []string{"Step 5: the extractor CLI.", "sends short", "to the provider that this CLI is set up for",
+		"brain extract off [--workspace <id>]", "Extractor: claude, sonnet.", "Step 6: trust the hook in Codex."} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output does not contain %q:\n%s", want, out)
+		}
+	}
+	if x := extractorOf(t, home); x.CLI != store.ExtractorClaude || x.Model != "sonnet" || !x.On {
+		t.Errorf("extractor = %+v, want claude, sonnet, on", x)
+	}
+
+	first := snapshot(t, home)
+	code, out, errOut = runSetup(t, "")
+	if code != 0 {
+		t.Fatalf("second setup = %d: %s\n%s", code, errOut, out)
+	}
+	if strings.Contains(out, "Which CLI") || !strings.Contains(out, "Extractor: claude, sonnet. To change it: brain setup --extractor") {
+		t.Errorf("the second setup asked for the extractor, or did not show it:\n%s", out)
+	}
+	if second := snapshot(t, home); !maps.Equal(first, second) {
+		t.Errorf("the second setup changed files")
+	}
+
+	if code, out, errOut = runSetup(t, "codex\n\n", "--extractor"); code != 0 {
+		t.Fatalf("setup --extractor = %d: %s\n%s", code, errOut, out)
+	}
+	if x := extractorOf(t, home); x.CLI != store.ExtractorCodex || x.Model != "" || !x.On {
+		t.Errorf("extractor after --extractor = %+v, want codex, default model, on", x)
+	}
+
+	if code, out, errOut = runSetup(t, "gemini\n", "--extractor"); code != 0 {
+		t.Fatalf("setup --extractor = %d: %s\n%s", code, errOut, out)
+	}
+	if x := extractorOf(t, home); x.CLI != store.ExtractorCodex {
+		t.Errorf("extractor after an unknown answer = %+v, want codex kept", x)
+	}
+	if code, out, errOut = runSetup(t, "none\n", "--extractor"); code != 0 {
+		t.Fatalf("setup --extractor = %d: %s\n%s", code, errOut, out)
+	}
+	if x := extractorOf(t, home); x.CLI != "" || x.Model != "" {
+		t.Errorf("extractor after none = %+v, want no CLI: no call", x)
+	}
+}
+
+// No CLI, an unknown answer, or no binding: setup chooses no CLI and makes no store file.
+// Brain never picks one by itself.
+func TestSetupExtractorNone(t *testing.T) {
+	for name, answers := range map[string]string{
+		"none":       "y\ny\ny\ny\nnone\n",
+		"no answer":  "y\ny\ny\ny\n",
+		"unknown":    "y\ny\ny\ny\ngemini\n",
+		"no binding": "n\ny\ny\ny\nclaude\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := setupHome(t, "0.9.1")
+			code, out, errOut := runSetup(t, answers)
+			if code != 0 {
+				t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
+			}
+			if _, err := os.Stat(filepath.Join(home, ".local", "share", "brain", "main", store.FileName)); !os.IsNotExist(err) {
+				t.Errorf("store file: %v, want none", err)
+			}
+			if strings.Contains(out, "Extractor: ") {
+				t.Errorf("setup chose an extractor:\n%s", out)
+			}
+		})
+	}
+}
+
+// A store whose extraction you turned off keeps it off when setup records the CLI.
+func TestSetupExtractorKeepsSwitch(t *testing.T) {
+	home := setupHome(t, "0.9.1")
+	if code, out, errOut := runSetup(t, "y\ny\ny\ny\n"); code != 0 {
+		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
+	}
+	dir := filepath.Join(home, ".local", "share", "brain", "main")
+	ctx := context.Background()
+	s, err := store.Open(ctx, dir, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Write(ctx, func(tx *sql.Tx) error { return store.SetExtraction(ctx, tx, "", false, time.Now()) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := runSetup(t, "claude\n\n")
+	if code != 0 || !strings.Contains(out, "Extraction stays off for the whole store") {
+		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
+	}
+	if x := extractorOf(t, home); x.CLI != store.ExtractorClaude || x.On {
+		t.Errorf("extractor = %+v, want claude and off", x)
+	}
+}

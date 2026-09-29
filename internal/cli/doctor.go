@@ -10,13 +10,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
+	"github.com/aryanVijaywargia/herdr-brain/internal/extract"
 	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
+	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
 const doctorUsage = `usage: brain doctor`
@@ -88,6 +91,9 @@ func (d *doctorCall) run(ctx context.Context) {
 	if d.panesErr != nil && !errors.Is(d.panesErr, d.versionErr) {
 		d.fail("herdr pane list: %v; fix: check that the herdr server of session %q runs, then run brain doctor again",
 			d.panesErr, d.Binding.Session)
+	}
+	if err := d.extraction(ctx); err != nil {
+		d.fail("extraction: %v", err)
 	}
 	ps, err := loadProfiles()
 	if err != nil {
@@ -347,4 +353,35 @@ func (d *doctorCall) ask(question string) (bool, error) {
 	d.w.printf("\n")
 	a := strings.ToLower(strings.TrimSpace(answer))
 	return a == "y" || a == "yes", nil
+}
+
+// extraction checks the extraction queue of this herdr session (S15): signals wait while no
+// extractor CLI is chosen, or after a failed call. Brain never inspects credentials; the stored
+// reason is what the official CLI reported.
+func (d *doctorCall) extraction(ctx context.Context) error {
+	p := extract.Pass{HerdrSession: d.Binding.Session, DefaultOn: learningDefault(d.Binding), Now: d.Now}
+	var ws []extract.Waiting
+	var cli store.ExtractorCLI
+	err := d.Store.Write(ctx, func(tx *sql.Tx) (err error) {
+		if ws, err = p.Waiting(ctx, tx); err != nil {
+			return err
+		}
+		s, err := store.Extractor(ctx, tx)
+		cli = s.CLI
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if slices.ContainsFunc(ws, func(w extract.Waiting) bool { return w.NoCLI }) {
+		d.fail("extraction: signals wait, and no extractor CLI is chosen; fix: brain setup")
+	}
+	for _, w := range ws {
+		if w.Failed != "" {
+			d.fail("extraction: the last extractor call for workspace %s failed (%s), so its signals wait; "+
+				"fix: run %s in a terminal and check that it works and is signed in; Brain tries again later",
+				w.WorkspaceKey, w.Failed, cli)
+		}
+	}
+	return nil
 }
