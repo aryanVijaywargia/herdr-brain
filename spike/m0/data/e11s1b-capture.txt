@@ -1,0 +1,137 @@
+E11-S1b raw log: Codex live capture (codex-cli 0.154.0, gpt-6-astra, herdr 0.9.1, macOS). HLD §17 items 9, 14, 20.
+Date: 2026-09-29. Session brain-spike-e11b (real HOME, clean env via env -i, minimal PATH, no plugin linked).
+Workspace w1, pane w1:p1 (40 rows), agent cwd /private/tmp/e11s1b/agent (a new git repo with notes-kx.txt and sub/).
+Herdr wrapper /tmp/e11s1b/ht:
+  env -i HOME=$HOME PATH=<node bin>:/usr/bin:/bin:/usr/sbin:/sbin TERM=xterm-256color LANG=en_US.UTF-8 herdr --session brain-spike-e11b "$@"
+Socket subscriber: e11probe/sub.py with pane.agent_status_changed@w1:p1, pane.agent_detected, pane.exited, pane.closed, pane.created.
+
+== Codex launch commands (trust on the command line only; nothing written to ~/.codex)
+try 0: codex -c 'projects."/private/tmp/e11s1b/agent".trust_level="trusted"'
+  -> update dialog (herdr: blocked), "2" = Skip; then the folder-trust dialog still showed. "2" = No, quit.
+  Cause (source, config/src/overrides.rs:22): a -c key is split on every '.', and the quotes stay in the
+  segment, so the key is `"/private/tmp/e11s1b/agent"` with quotes and it matches no project.
+  Quit sets a flag only (tui/src/onboarding/trust_directory.rs:172-175); nothing is written.
+run 1 (/tmp/e11s1b/cx): codex -c 'projects={"/private/tmp/e11s1b/agent"={trust_level="trusted"}}' -c check_for_update_on_startup=false
+  -> no folder-trust dialog. "Hooks need review: 3 hooks are new or changed" (user-level hooks; herdr integration
+     status says codex v8 is installed). "3" = Continue without trusting (writes nothing:
+     tui/src/startup_hooks_review.rs:139-141). Mode shown: "Approve for me", model gpt-6-astra high.
+run 2 (/tmp/e11s1b/cx2): run 1 flags plus
+  -c model_reasoning_effort='"low"' -a on-request -c approvals_reviewer='"user"'
+  -c 'notify=["/tmp/e11s1b/hooks/notify.sh"]'
+  -c 'hooks={UserPromptSubmit=[{hooks=[{type="command",command="/tmp/e11s1b/hooks/log.sh ups",timeout=5}]}],Stop=[{hooks=[{type="command",command="/tmp/e11s1b/hooks/log.sh stop",timeout=5}]}]}'
+  (a first start with -a untrusted failed: 0.154 accepts only on-request|never.)
+  -> "Hooks need review: 5 hooks are new or changed" (3 user hooks + the 2 -c hooks). "3" = Continue without trusting.
+~/.codex/config.toml mtime and size (stat only, not read): before 1790582550 10659, after both runs 1790582550 10659.
+
+== drive.log (my send times)
+1790669791.482 codex run1 started
+1790669889.288 codex run1 started (cx)
+1790669918.448 prompt1 sent
+1790669948.206 prompt1 enter re-sent
+1790670038.680 /exit sent run1
+1790670060.069 codex run2 started (cx2)
+1790670097.771 codex run2 started (cx2)
+1790670128.455 prompt2 enter sent
+1790670166.248 approve y sent
+1790670210.823 prompt3 text pasted
+1790670216.852 prompt3 enter sent
+1790670236.917 prompt4 text pasted
+1790670242.954 prompt4 enter sent
+1790670291.805 /exit sent run2
+Notes: 1790669918.448 prompt1 text + Enter: the Enter did not submit (the text stayed in the composer); a second
+Enter at 1790669948.206 submitted it. 1790670060.069 is the failed -a untrusted start. Prompt 2 text was pasted
+at about 1790670122 (not logged), Enter at 1790670128.455.
+
+== tsub.log (socket subscriber)
+1790669782.141 {"id":"e11sub","result":{"type":"subscription_started"}}
+1790669791.752 {"data":{"agent":"codex","pane_id":"w1:p1","type":"pane_agent_detected","workspace_id":"w1"},"event":"pane_agent_detected"}
+1790669795.157 {"data":{"agent":"codex","agent_status":"blocked","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790669826.367 {"data":{"agent":"codex","agent_status":"idle","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790669878.600 {"data":{"agent":"codex","final_status":"idle","pane_id":"w1:p1","released":true,"type":"pane_agent_detected","workspace_id":"w1"},"event":"pane_agent_detected"}
+1790669878.907 {"data":{"agent_status":"unknown","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790669889.912 {"data":{"agent":"codex","pane_id":"w1:p1","type":"pane_agent_detected","workspace_id":"w1"},"event":"pane_agent_detected"}
+1790669893.325 {"data":{"agent":"codex","agent_status":"idle","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790669905.951 {"data":{"agent":"codex","agent_status":"working","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790669907.728 {"data":{"agent":"codex","agent_status":"idle","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790669948.513 {"data":{"agent":"codex","agent_status":"working","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790669981.191 {"data":{"agent":"codex","agent_status":"idle","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790670039.690 {"data":{"agent":"codex","final_status":"idle","pane_id":"w1:p1","released":true,"type":"pane_agent_detected","workspace_id":"w1"},"event":"pane_agent_detected"}
+1790670040.000 {"data":{"agent_status":"unknown","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790670098.226 {"data":{"agent":"codex","pane_id":"w1:p1","type":"pane_agent_detected","workspace_id":"w1"},"event":"pane_agent_detected"}
+1790670101.543 {"data":{"agent":"codex","agent_status":"idle","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790670111.821 {"data":{"agent":"codex","agent_status":"working","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790670114.518 {"data":{"agent":"codex","agent_status":"idle","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790670128.720 {"data":{"agent":"codex","agent_status":"working","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790670139.898 {"data":{"agent":"codex","agent_status":"blocked","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790670166.476 {"data":{"agent":"codex","agent_status":"working","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790670183.451 {"data":{"agent":"codex","agent_status":"idle","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790670216.894 {"data":{"agent":"codex","agent_status":"working","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790670224.760 {"data":{"agent":"codex","agent_status":"idle","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790670243.231 {"data":{"agent":"codex","agent_status":"working","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790670246.250 {"data":{"agent":"codex","agent_status":"idle","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+1790670293.070 {"data":{"agent":"codex","final_status":"idle","pane_id":"w1:p1","released":true,"type":"pane_agent_detected","workspace_id":"w1"},"event":"pane_agent_detected"}
+1790670293.393 {"data":{"agent_status":"unknown","pane_id":"w1:p1","workspace_id":"w1"},"event":"pane.agent_status_changed"}
+
+== idle reads, run 1 (after turn 1; history = 142 lines: 2 shell lines, header, prompt, 120 rows, footer)
+lines=300 try=1 rc=0 count=142 markers=121
+lines=300 try=2 rc=0 count=142 markers=121
+lines=300 try=3 rc=0 count=142 markers=121
+lines=1000 try=1 rc=0 count=142 markers=121
+lines=1000 try=2 rc=0 count=142 markers=121
+lines=1000 try=3 rc=0 count=142 markers=121
+lines=5000 try=1 rc=0 count=142 markers=121
+lines=5000 try=2 rc=0 count=142 markers=121
+lines=5000 try=3 rc=0 count=142 markers=121
+recent 300:      142 markers=121
+visible:       40 markers=35
+== full idle read --lines 300, head 16 and tail 8
+192:agent aryanvijaywargia$ codex -c 'projects."/private/tmp/e11s1b/agent".trust_level="trusted"'
+192:agent aryanvijaywargia$ /tmp/e11s1b/cx
+
+╭────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.154.0)                     │
+│                                                │
+│ model:     gpt-6-astra high   /model to change │
+│ directory: /private/tmp/e11s1b/agent           │
+╰────────────────────────────────────────────────╯
+
+  Tip: New Build faster with the Desktop app. Run 'codex app' or visit https://chatgpt.com/codex?app-landing-page=true
+
+
+› Reply with exactly 120 lines of plain text and nothing else. Line N must be: ROW N mq-8823 (N from 1 to 120). Do not
+  use any tool.
+
+...
+  ROW 118 mq-8823
+  ROW 119 mq-8823
+  ROW 120 mq-8823
+
+
+› Ask Codex to do anything
+
+  master · gpt-6-astra high · Context 2% used · 258K window · Approve for me
+== agent get
+{"id":"cli:agent:get","result":{"agent":{"agent":"codex","agent_session":{"agent":"codex","kind":"id","source":"herdr:codex","value":"01a0ec3e-5e95-7253-aa8d-e7d232139183"},"agent_status":"idle","cwd":"/private/tmp/e11s1b/agent","focused":true,"foreground_cwd":"/private/tmp/e11s1b/agent","pane_id":"w1:p1","revision":70,"state_change_seq":8,"tab_id":"w1:t1","terminal_id":"term_65c9acb584b091","terminal_title":"Generate 120 mq-8823 rows | agent","terminal_title_stripped":"Generate 120 mq-8823 rows | agent","workspace_id":"w1"},"type":"agent_info"}}
+== process-info
+unknown option: w1:p1
+== process-info run1
+shell_pid 18634 pgid 21984 [(22054, 'codex'), (21984, 'node')]
+
+== idle reads, run 2 (after turn 4; the pane scrollback still holds run 1: 122 mq-8823 lines = 120 rows,
+== the run 1 prompt and the run 1 "codex resume" title line)
+lines=300 rc=0 count=208 run1_rows=122 run2_marker=2 run1_header_line=2:192:agent aryanvijaywargia$ /tmp/e11s1b/cx
+lines=1000 rc=0 count=208 run1_rows=122 run2_marker=2 run1_header_line=2:192:agent aryanvijaywargia$ /tmp/e11s1b/cx
+== agent get
+{"id":"cli:agent:get","result":{"agent":{"agent":"codex","agent_session":{"agent":"codex","kind":"id","source":"herdr:codex","value":"01a0ec41-83c7-7463-a232-9faa89066336"},"agent_status":"idle","cwd":"/private/tmp/e11s1b/agent","focused":true,"foreground_cwd":"/private/tmp/e11s1b/agent","pane_id":"w1:p1","revision":161,"state_change_seq":20,"tab_id":"w1:t1","terminal_id":"term_65c9acb584b091","terminal_title":"Run command with approval | agent","terminal_title_stripped":"Run command with approval | agent","workspace_id":"w1"},"type":"agent_info"}}
+== process-info run2
+shell_pid 18634 pgid 34687 [(34689, 'codex'), (34687, 'node')]
+
+== identity
+run 1: agent_session.value 01a0ec3e-5e95-7253-aa8d-e7d232139183 (source herdr:codex), state_change_seq 8,
+       codex pid 22054 (node wrapper 21984 = foreground process group), shell pid 18634, terminal_id term_65c9acb584b091.
+       Exit text: "codex resume 01a0ec3e-5e95-7253-aa8d-e7d232139183" = the same id.
+run 2: before the first prompt agent_session is absent (agent get: None, seq 11).
+       After turn 2: agent_session.value 01a0ec41-83c7-7463-a232-9faa89066336 = notify thread-id = "codex resume" id.
+       state_change_seq 16, later 20. codex pid 34689 (node 34687), shell pid 18634, terminal_id term_65c9acb584b091.
+After /exit (both runs): pane_agent_detected {"final_status":"idle","released":true}, then status "unknown" 0.31 s later;
+       agent get = agent_not_found; foreground = the shell (pid 18634).

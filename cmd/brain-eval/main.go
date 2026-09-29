@@ -3,9 +3,9 @@
 // brain-eval test herdr session against the test store, and never touches the real store,
 // a real pane, the CLI config files or the install record.
 //
-// This story (E10-S1) gives the runner frame and its isolation rules. The probe files and the
-// results come in E10-S2, the M1 stages and conformance.json in E10-S3. Until then one ad-hoc
-// case comes from the flags, for a hand test.
+// E10-S1 gave the runner frame and its isolation rules, E10-S2 the probe files, the labels and
+// the results file. The M1 stages and conformance.json come in E10-S3. The cases come from
+// --probes, or one ad-hoc case from the other flags, for a hand test.
 package main
 
 import (
@@ -17,14 +17,20 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
+	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-const usage = `usage: brain-eval [--step <shell command>]... [--probe claude|codex]... [--prompt <text>]
+const usage = `usage: brain-eval --probes <file or folder>
+       brain-eval [--step <shell command>]... [--probe claude|codex]... [--prompt <text>]
 
-Runs one ad-hoc case in the brain-eval test session: each --step in a shell pane of a fresh
+With --probes, runs each probe of the probe file, or of each *.toml file of the folder, and
+its control. It writes the results to eval-results.json in the test store folder.
+
+Else runs one ad-hoc case in the brain-eval test session: each --step in a shell pane of a fresh
 scratch git folder, then --prompt to a fresh CLI of each --probe. "{{marker}}" in a step or the
 prompt is the fresh marker of the case. With no step and no probe, it only runs the checks.
 Set up first: brain setup, and brain setup --session brain-eval --test <folder>.
@@ -64,6 +70,9 @@ func run(args, environ []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "--- %s\n%s\n", rep.Harness, rep.Text)
 		}
 	}
+	for _, res := range results(cases, out, nil) { // the line shows no CLI version
+		fmt.Fprintln(stdout, resultLine(res))
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "brain-eval: %v\n", err)
 		return 1
@@ -78,11 +87,18 @@ func parse(args []string) ([]Case, error) {
 	flags.Var(&steps, "step", "")
 	flags.Var(&probes, "probe", "")
 	prompt := flags.String("prompt", "", "")
+	probeFiles := flags.String("probes", "", "")
 	if err := flags.Parse(args); err != nil {
 		return nil, err
 	}
 	if flags.NArg() != 0 {
 		return nil, fmt.Errorf("unexpected argument %q", flags.Arg(0))
+	}
+	if *probeFiles != "" {
+		if len(steps) > 0 || len(probes) > 0 || *prompt != "" {
+			return nil, errors.New("--probes goes with no other flag")
+		}
+		return loadProbes(*probeFiles)
 	}
 	if (len(probes) == 0) != (*prompt == "") {
 		return nil, errors.New("--probe and --prompt go together")
@@ -98,6 +114,25 @@ func parse(args []string) ([]Case, error) {
 		c.Probes = append(c.Probes, Probe{Harness: p, Prompt: *prompt})
 	}
 	return []Case{c}, nil
+}
+
+// resultLine is the one-line form of a result: the case, the CLI, the status and the label.
+func resultLine(res store.EvalResult) string {
+	id := res.Case
+	if res.Control {
+		id += " (control)"
+	}
+	line := fmt.Sprintf("%s %s: %s", id, res.Harness, res.Status)
+	if res.Label != "" {
+		line += fmt.Sprintf(", %s (%s)", res.Label, res.Rule)
+	}
+	if res.ControlPass {
+		line += ", control_pass"
+	}
+	if res.Why != "" {
+		line += "; " + res.Why
+	}
+	return line
 }
 
 // newRunner returns the Runner of a real run with the process environment environ.
@@ -121,7 +156,11 @@ func newRunner(environ []string, stdout io.Writer) (*Runner, error) {
 		},
 		Alive:    alive,
 		Timeouts: defaultTimeouts,
-		Stdout:   stdout,
+		Now:      time.Now,
+		Version: func(ctx context.Context, harness string) (string, error) {
+			return cliVersion(ctx, environ, harness)
+		},
+		Stdout: stdout,
 	}
 	for _, f := range []struct {
 		dst *string

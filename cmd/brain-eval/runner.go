@@ -35,6 +35,7 @@ type Herdr interface {
 	StartAgent(ctx context.Context, name, kind, id string) error
 	PromptAgent(ctx context.Context, target, text string, timeout time.Duration) error
 	ReadAgent(ctx context.Context, target string, lines int) (string, error)
+	ReadAgentVisible(ctx context.Context, target string) (string, error)
 }
 
 // Server is a herdr server that the runner started. *herdr.Server is one.
@@ -81,6 +82,8 @@ type Runner struct {
 	StartServer func(ctx context.Context, name string) (Server, error)
 	Alive       func(pid int) bool // reports whether process pid still runs
 	Timeouts    Timeouts
+	Now         func() time.Time
+	Version     func(ctx context.Context, harness string) (string, error) // the CLI version of harness
 	Stdout      io.Writer
 }
 
@@ -90,9 +93,11 @@ var errSetup = errors.New("not set up for an eval run")
 
 // Run runs cases one after the other and returns the outcome of each finished case. It
 // writes nothing before the setup checks pass. It stops at the first failed case: the next
-// case never starts on a state that the runner could not confirm.
+// case never starts on a state that the runner could not confirm. Once the session is up, it
+// writes the result of each probe to the results file of the test store, also after a failed
+// case: the probes of the cases that did not run are skipped there.
 func (r *Runner) Run(ctx context.Context, cases []Case) (out []Outcome, err error) {
-	b, err := r.check(cases)
+	b, skip, err := r.check(cases)
 	if err != nil {
 		return nil, err
 	}
@@ -112,33 +117,48 @@ func (r *Runner) Run(ctx context.Context, cases []Case) (out []Outcome, err erro
 		defer cancel()
 		err = errors.Join(err, stop(cctx))
 	}()
+	started := r.Now()
+	versions := r.versions(ctx, cases, skip)
+	defer func() {
+		err = errors.Join(err, writeResults(b.Store, started, r.Now(), results(cases, out, versions)))
+	}()
 	for _, c := range cases {
-		o, err := r.runCase(ctx, h, c)
+		o, err := r.runCase(ctx, h, c, skip)
+		if o.CaseID != "" {
+			out = append(out, o) // also a partial outcome: its finished probes keep their results
+		}
 		if err != nil {
 			return out, fmt.Errorf("case %s: %w", c.ID, err)
 		}
-		out = append(out, o)
 	}
 	return out, nil
 }
 
-// check runs the setup checks and returns the test binding. It only reads.
-func (r *Runner) check(cases []Case) (bindings.Binding, error) {
+// check runs the setup checks and returns the test binding, and the reason to skip each
+// harness whose Brain hook is missing: its probes cannot show a delivery. It only reads.
+func (r *Runner) check(cases []Case) (bindings.Binding, map[string]string, error) {
 	rec, err := install.Read(r.Install)
 	if err != nil {
-		return bindings.Binding{}, err
+		return bindings.Binding{}, nil, err
 	}
 	if len(rec.Entries) == 0 {
-		return bindings.Binding{}, fmt.Errorf("%w: no Brain hook is installed; run `brain setup` first", errSetup)
+		return bindings.Binding{}, nil, fmt.Errorf("%w: no Brain hook is installed; run `brain setup` first", errSetup)
 	}
+	skip := map[string]string{}
 	for _, c := range cases {
 		for _, p := range c.Probes {
-			if err := r.hookInstalled(p.Harness); err != nil {
-				return bindings.Binding{}, err
+			if _, done := skip[p.Harness]; done {
+				continue
+			}
+			if err := r.hookInstalled(p.Harness); errors.Is(err, errSetup) {
+				skip[p.Harness] = err.Error()
+			} else if err != nil {
+				return bindings.Binding{}, nil, err
 			}
 		}
 	}
-	return r.testBinding()
+	b, err := r.testBinding()
+	return b, skip, err
 }
 
 // hookInstalled checks that the hook file of harness still holds the recorded Brain entry: a

@@ -161,6 +161,55 @@ func (s *statusCall) run(ctx context.Context) {
 		return nil
 	}))
 	s.relinks()
+	s.w.printf("\n%s\n", evalLine(s.Bindings, s.Now()))
+}
+
+// evalSession is the herdr session of the eval runner, whose test store holds the results of
+// the last eval run (HLD §12.1).
+const evalSession = "brain-eval"
+
+// evalLabels are the answer labels in the order that the eval line counts them.
+var evalLabels = []string{"PASS", "STALE", "INVENTED", "MISS", "UNSURE"}
+
+// evalLine is the one line of the last eval run (E10-S2): its age and the count of each label,
+// of the skipped probes and of the control passes. It only reads.
+func evalLine(bindingsFile string, now time.Time) string {
+	kept, _, err := bindings.Read(bindingsFile)
+	if err != nil {
+		return fmt.Sprintf("evals: %v", err)
+	}
+	i := slices.IndexFunc(kept, func(b bindings.Binding) bool { return b.Session == evalSession && b.Kind == bindings.KindTest })
+	if i < 0 {
+		return "evals: no run yet"
+	}
+	run, err := store.ReadEvalRun(paths.EvalResults(kept[i].Store))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "evals: no run yet"
+	}
+	if err != nil {
+		return fmt.Sprintf("evals: %v", err)
+	}
+	counts := map[string]int{}
+	for _, r := range run.Results {
+		switch {
+		case r.Label != "":
+			counts[r.Label]++
+		case r.Status == "skipped":
+			counts["skipped"]++
+		default:
+			counts["no label"]++
+		}
+		if r.ControlPass {
+			counts["control_pass"]++
+		}
+	}
+	var parts []string
+	for _, k := range slices.Concat(evalLabels, []string{"no label", "skipped", "control_pass"}) {
+		if counts[k] > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", counts[k], k))
+		}
+	}
+	return fmt.Sprintf("evals: last run %s ago, %d results: %s", age(now.Sub(run.Finished)), len(run.Results), strings.Join(parts, ", "))
 }
 
 func (s *statusCall) fail(err error) {

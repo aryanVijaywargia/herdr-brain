@@ -133,3 +133,10 @@ func homeDir() (string, error) {
 func WorkspaceMap(store string) string {
 	return filepath.Join(store, "workspaces.json")
 }
+
+// EvalResults returns <store>/eval-results.json, the results of the last eval run in the test
+// store folder store (HLD §12.1, E10-S2). The eval runner writes it and keeps it through its
+// store reset; `brain status` reads it. [NEW] name.
+func EvalResults(store string) string {
+	return filepath.Join(store, "eval-results.json")
+}

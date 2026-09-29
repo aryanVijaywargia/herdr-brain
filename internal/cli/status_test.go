@@ -16,6 +16,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
+	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/resolver"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
@@ -364,5 +365,37 @@ func TestStatusPaneListFailsCLIUnknown(t *testing.T) {
 	f.herdr.panesErr = errors.New("herdr pane list: timeout")
 	if out := f.mustStatus(t); !strings.Contains(out, "  claude 2.1.283: unknown\n") {
 		t.Errorf("status:\n%s\nwant claude unknown", out)
+	}
+}
+
+// E10-S2: brain status shows the last eval run of the brain-eval test store as one line.
+func TestStatusEvalLine(t *testing.T) {
+	dir := t.TempDir()
+	file, testStore := filepath.Join(dir, "bindings.json"), filepath.Join(dir, "test")
+	if err := os.MkdirAll(testStore, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := testNow.Add(3 * time.Hour)
+	if got := evalLine(file, now); got != "evals: no run yet" {
+		t.Errorf("no bindings file: %q", got)
+	}
+	if err := bindings.Write(file, []bindings.Binding{{Session: evalSession, Socket: filepath.Join(dir, "herdr.sock"),
+		Store: testStore, Kind: bindings.KindTest, Created: testNow}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := evalLine(file, now); got != "evals: no run yet" {
+		t.Errorf("no results file: %q", got)
+	}
+	run := store.EvalRun{Started: testNow, Finished: testNow.Add(time.Hour), Results: []store.EvalResult{
+		{Case: "a", Label: "PASS", ControlPass: true}, {Case: "a", Control: true, Label: "PASS"},
+		{Case: "b", Label: "UNSURE", Status: "reply incomplete"}, {Case: "c", Status: "skipped"},
+		{Case: "d", Status: "not delivered"},
+	}}
+	if err := store.WriteEvalRun(paths.EvalResults(testStore), run); err != nil {
+		t.Fatal(err)
+	}
+	want := "evals: last run 2h ago, 5 results: 2 PASS, 1 UNSURE, 1 no label, 1 skipped, 1 control_pass"
+	if got := evalLine(file, now); got != want {
+		t.Errorf("evalLine() = %q, want %q", got, want)
 	}
 }

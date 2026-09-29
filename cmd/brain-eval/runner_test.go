@@ -20,6 +20,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
+	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 )
 
 const (
@@ -52,6 +53,16 @@ type fakeHerdr struct {
 	nextWS  int
 	labels  map[string]string // workspace id to label
 	stuck   bool              // a closed pane's processes keep running
+	// answer, when set, is the reply of an agent to prompt: the screen then shows the prompt
+	// and the reply only.
+	answer   func(p *fakePane, prompt string) string
+	onStart  func(pane, kind string) // runs when an agent starts: its hook
+	onRun    func()                  // runs when a pane runs a command: a Brain call of a step
+	notReady map[string]bool         // agent kinds that do not get ready
+	notIdle  bool                    // a read finds the agent still working
+	scrolled bool                    // the ask scrolled off the screen of a read
+	badAsk   string                  // the agent kind whose prompt fails
+	visible  int                     // the count of visible reads
 }
 
 func newFake(store string) *fakeHerdr {
@@ -146,6 +157,9 @@ func (f *fakeHerdr) RunInPane(_ context.Context, id, command string) error {
 		return err
 	}
 	p.ran = append(p.ran, command)
+	if f.onRun != nil {
+		f.onRun()
+	}
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Dir = p.cwd
 	out, err := cmd.CombinedOutput()
@@ -175,6 +189,12 @@ func (f *fakeHerdr) StartAgent(_ context.Context, name, kind, id string) error {
 	if err != nil {
 		return err
 	}
+	if f.notReady[kind] {
+		return errors.New("agent start: the agent did not get ready (agent_not_ready)")
+	}
+	if f.onStart != nil {
+		f.onStart(id, kind)
+	}
 	p.pane.Agent = &kind
 	p.fg = append(p.fg, herdr.Process{Name: kind, PID: f.pid()})
 	f.agents[name] = id
@@ -186,6 +206,9 @@ func (f *fakeHerdr) PromptAgent(_ context.Context, target, text string, _ time.D
 	if err != nil {
 		return err
 	}
+	if p.pane.Agent != nil && *p.pane.Agent == f.badAsk {
+		return errors.New("agent prompt: the pane is gone (pane_not_found)")
+	}
 	p.prompts = append(p.prompts, text)
 	return nil
 }
@@ -195,7 +218,22 @@ func (f *fakeHerdr) ReadAgent(_ context.Context, target string, _ int) (string, 
 	if err != nil {
 		return "", err
 	}
+	if f.notIdle {
+		return "", errors.New("agent read: the agent is working (agent_not_idle)")
+	}
+	if f.answer != nil {
+		last := p.prompts[len(p.prompts)-1]
+		if f.scrolled {
+			return f.answer(p, last) + "\n", nil
+		}
+		return fmt.Sprintf("> %s\n%s\n", last, f.answer(p, last)), nil
+	}
 	return fmt.Sprintf("prompt: %s\nstore: %s\nscratch: %s\n", strings.Join(p.prompts, " | "), dump(f.store), dump(p.cwd)), nil
+}
+
+func (f *fakeHerdr) ReadAgentVisible(ctx context.Context, target string) (string, error) {
+	f.visible++
+	return f.ReadAgent(ctx, target, 0)
 }
 
 // dump lists the files under dir with their text, except .git.
@@ -269,6 +307,8 @@ func newEnv(t *testing.T) *env {
 		},
 		Alive:    func(pid int) bool { return e.fake.alive[pid] },
 		Timeouts: Timeouts{Call: 5 * time.Second, Start: 5 * time.Second, Prompt: 5 * time.Second, Step: 5 * time.Second, Exit: 50 * time.Millisecond, Poll: time.Millisecond},
+		Now:      func() time.Time { return time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC) },
+		Version:  func(context.Context, string) (string, error) { return "2.1.283", nil },
 		Stdout:   io.Discard,
 	}
 	return e
@@ -384,7 +424,7 @@ func TestS74RealStoreAndPanesUntouched(t *testing.T) {
 	if len(other.ran) != 0 || len(other.prompts) != 0 || other.closed {
 		t.Errorf("the other pane got %v and %v (closed %v), want nothing", other.ran, other.prompts, other.closed)
 	}
-	if len(out) != 1 || len(out[0].Replies) != 2 || !strings.Contains(out[0].Replies[0].Text, "remember "+out[0].Marker) {
+	if len(out) != 1 || len(out[0].Replies) != 2 || !strings.Contains(out[0].Replies[0].Screen, "remember "+out[0].Marker) {
 		t.Fatalf("outcome %+v, want two replies to the marked prompt", out)
 	}
 	if !strings.Contains(out[0].Replies[0].Text, "[note.txt "+out[0].Marker+"]") {
@@ -404,7 +444,7 @@ func TestS74RealStoreAndPanesUntouched(t *testing.T) {
 // not its scratch files, not its marker.
 func TestS78NothingCrossesCases(t *testing.T) {
 	e := newEnv(t)
-	seed := fmt.Sprintf("echo {{marker}} > seed.txt; echo {{marker}} > %s/brain.db; mkdir -p %s/out/gen-1", e.testStore, e.testStore)
+	seed := fmt.Sprintf("echo {{marker}} > seed.txt; echo {{marker}} > %s/rows.txt; mkdir -p %s/out/gen-1", e.testStore, e.testStore)
 	cases := []Case{
 		{ID: "one", Setup: []string{seed}, Probes: []Probe{{Harness: "claude", Prompt: "one {{marker}}"}}},
 		{ID: "two", Probes: []Probe{{Harness: "claude", Prompt: "two {{marker}}"}}},
@@ -420,7 +460,7 @@ func TestS78NothingCrossesCases(t *testing.T) {
 	if first.Marker == second.Marker {
 		t.Errorf("both cases have marker %s, want a fresh one", first.Marker)
 	}
-	if !strings.Contains(first.Replies[0].Text, "[brain.db "+first.Marker+"]") {
+	if !strings.Contains(first.Replies[0].Text, "[rows.txt "+first.Marker+"]") {
 		t.Errorf("case one reply %q, want its own store row", first.Replies[0].Text)
 	}
 	two := second.Replies[0].Text
@@ -444,13 +484,6 @@ func TestSetupMissing(t *testing.T) {
 	}{
 		{"no install record", func(t *testing.T, e *env) { rm(t, filepath.Join(e.data, "install.json")) }, nil, "run `brain setup` first"},
 		{"empty install record", func(t *testing.T, e *env) { write(t, filepath.Join(e.data, "install.json"), `{"entries":{}}`) }, nil, "run `brain setup` first"},
-		{"no hook of a probe", func(t *testing.T, e *env) {
-			rm(t, filepath.Join(e.data, "install.json"))
-			e.install(t, "claude")
-		}, []Case{{ID: "c", Probes: []Probe{{Harness: "codex", Prompt: "p"}}}}, "hook of codex is not installed"},
-		{"hook taken out of its file", func(t *testing.T, e *env) {
-			write(t, filepath.Join(e.home, ".codex", "hooks.json"), `{}`)
-		}, []Case{{ID: "c", Probes: []Probe{{Harness: "codex", Prompt: "p"}}}}, "hook of codex is not installed"},
 		{"no bindings file", func(t *testing.T, e *env) { rm(t, filepath.Join(e.data, "bindings.json")) }, nil, "brain setup --session brain-eval --test <folder>"},
 		{"main binding", func(t *testing.T, e *env) { e.bind(t, bindings.KindMain) }, nil, "not a test store"},
 		{"store folder gone", func(t *testing.T, e *env) { rm(t, e.testStore) }, nil, "is refused"},
@@ -531,7 +564,9 @@ func TestLiveWriterBlocksReset(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "no reset") {
 				t.Errorf("Run() = %v, want a refused reset", err)
 			}
-			if d := diff(store, tree(t, e.testStore)); len(d) != 0 {
+			after := tree(t, e.testStore)
+			delete(after, paths.EvalResults(e.testStore)) // the results of the run, which did not run the case
+			if d := diff(store, after); len(d) != 0 {
 				t.Errorf("test store changed at %v, want no reset", d)
 			}
 			if left.closed || len(e.fake.panes) != 1 {
@@ -547,16 +582,16 @@ func TestUnconfirmedExitStopsRun(t *testing.T) {
 	e := newEnv(t)
 	e.fake.stuck = true
 	cases := []Case{
-		{ID: "one", Setup: []string{fmt.Sprintf("echo one > %s/brain.db", e.testStore)}, Probes: []Probe{{Harness: "claude", Prompt: "p"}}},
+		{ID: "one", Setup: []string{fmt.Sprintf("echo one > %s/rows.txt", e.testStore)}, Probes: []Probe{{Harness: "claude", Prompt: "p"}}},
 		{ID: "two", Setup: []string{"echo two"}},
 	}
 	_, err := e.r.Run(context.Background(), cases)
 	if !errors.Is(err, errExitUnconfirmed) {
 		t.Fatalf("Run() = %v, want errExitUnconfirmed", err)
 	}
-	data, rerr := os.ReadFile(filepath.Join(e.testStore, "brain.db"))
+	data, rerr := os.ReadFile(filepath.Join(e.testStore, "rows.txt"))
 	if rerr != nil || string(data) != "one\n" {
-		t.Errorf("test store brain.db = %q, %v; want case one's data, not a reset", data, rerr)
+		t.Errorf("test store rows.txt = %q, %v; want case one's data, not a reset", data, rerr)
 	}
 	if e.fake.nextWS != 1 {
 		t.Errorf("the run opened %d workspaces, want only case one's", e.fake.nextWS)
