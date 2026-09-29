@@ -1,0 +1,34 @@
+# Undo and forget probes (HLD §12.1 "Stages", stage id forget, E10-S3). After undo, a fresh
+# session gives the older revision. After forget, the marker is in no reply, in no Brain output
+# file and in no text field of the store (forgotten).
+
+[[probe]]
+id = "forget-undo"
+stage = "forget"
+source = "synthetic marker"
+setup = [
+  'brain remember "The deploy code word of this workspace is {{marker}}."',
+  "brain review 1 --approve",
+  'brain review --item 1 --edit "The deploy code word of this workspace is {{marker2}}."',
+  "brain review 2 --approve",
+  "brain undo 1",
+]
+ask = "What is the deploy code word of this workspace? Answer with the code word only."
+expect = ["{{marker}}"]
+stale = ["{{marker2}}"]
+harnesses = ["claude", "codex"]
+
+[[probe]]
+id = "forget-item"
+stage = "forget"
+source = "synthetic marker"
+setup = [
+  'brain remember "The deploy code word of this workspace is {{marker}}."',
+  "brain review 1 --approve",
+  "brain forget 1",
+]
+ask = "What is the deploy code word of this workspace? If you do not know, say that you do not know."
+decline = true
+stale = ["{{marker}}"]
+forgotten = ["{{marker}}"]
+harnesses = ["claude", "codex"]

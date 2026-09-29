@@ -1,0 +1,74 @@
+# Exclusion probes (HLD §12.1 "Stages", E10-S3). Each one calls `brain hook` directly in the
+# case's shell pane with test start input, in one herdr state (hook):
+#   no-herdr-env     HERDR_ENV is not set
+#   closed-pane      HERDR_PANE_ID names a pane that the runner opened and closed
+#   no-herdr-answer  herdr answers after the hook's lookup deadline
+#   unbound-session  HERDR_SOCKET_PATH is a socket with no binding
+#   other-workspace  another workspace on the same checkout, which has no map entry
+# expect is the markers that the hook must print; it must print no other marker of the case.
+
+[[probe]]
+id = "exclusion-no-herdr-env"
+stage = "exclusion"
+source = "synthetic marker"
+hook = "no-herdr-env"
+setup = [
+  'brain remember "The deploy code word of all projects is {{marker}}." --global',
+  'brain remember "The build code word of this workspace is {{marker2}}."',
+  "brain review 1 --approve",
+  "brain review 2 --approve",
+]
+harnesses = ["claude", "codex"]
+
+[[probe]]
+id = "exclusion-closed-pane"
+stage = "exclusion"
+source = "synthetic marker"
+hook = "closed-pane"
+setup = [
+  'brain remember "The deploy code word of all projects is {{marker}}." --global',
+  'brain remember "The build code word of this workspace is {{marker2}}."',
+  "brain review 1 --approve",
+  "brain review 2 --approve",
+]
+harnesses = ["claude", "codex"]
+
+[[probe]]
+id = "exclusion-no-herdr-answer"
+stage = "exclusion"
+source = "synthetic marker"
+hook = "no-herdr-answer"
+setup = [
+  'brain remember "The deploy code word of all projects is {{marker}}." --global',
+  'brain remember "The build code word of this workspace is {{marker2}}."',
+  "brain review 1 --approve",
+  "brain review 2 --approve",
+]
+harnesses = ["claude", "codex"]
+
+[[probe]]
+id = "exclusion-unbound-session"
+stage = "exclusion"
+source = "synthetic marker"
+hook = "unbound-session"
+setup = [
+  'brain remember "The deploy code word of all projects is {{marker}}." --global',
+  'brain remember "The build code word of this workspace is {{marker2}}."',
+  "brain review 1 --approve",
+  "brain review 2 --approve",
+]
+harnesses = ["claude", "codex"]
+
+[[probe]]
+id = "exclusion-other-workspace"
+stage = "exclusion"
+source = "synthetic marker"
+hook = "other-workspace"
+setup = [
+  'brain remember "The deploy code word of all projects is {{marker}}." --global',
+  'brain remember "The build code word of this workspace is {{marker2}}."',
+  "brain review 1 --approve",
+  "brain review 2 --approve",
+]
+expect = ["{{marker}}"]
+harnesses = ["claude", "codex"]

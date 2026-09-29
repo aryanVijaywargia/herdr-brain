@@ -24,7 +24,10 @@ func TestParse(t *testing.T) {
 		{[]string{"--prompt", "hi"}, nil, "go together"},
 		{[]string{"--probe", "gemini", "--prompt", "hi"}, nil, "want claude or codex"},
 		{[]string{"x"}, nil, "unexpected argument"},
-		{[]string{"--probes", "../../evals/probes", "--step", "a"}, nil, "--probes goes with no other flag"},
+		{[]string{"--probes", "../../evals/probes", "--step", "a"}, nil, "--probes goes only with --stage and --harness"},
+		{[]string{"--stage", "delivery"}, nil, "go with --probes"},
+		{[]string{"--probes", "../../evals/probes", "--stage", "nope"}, nil, `--stage "nope"`},
+		{[]string{"--probes", "../../evals/probes", "--harness", "gemini"}, nil, `--harness "gemini"`},
 		{[]string{"--probes", "no-such-folder"}, nil, "no-such-folder"},
 	}
 	for _, tt := range tests {
@@ -45,6 +48,23 @@ func TestParseProbes(t *testing.T) {
 	cases, err := parse([]string{"--probes", "../../evals/probes"})
 	if err != nil || len(cases) < 2 || !cases[1].Control {
 		t.Errorf("parse(--probes) = %+v, %v; want the probes of evals/probes and their controls", cases, err)
+	}
+}
+
+func TestParseFilter(t *testing.T) {
+	cases, err := parse([]string{"--probes", "../../evals/probes", "--stage", "delivery", "--harness", "codex"})
+	if err != nil || len(cases) == 0 {
+		t.Fatalf("parse(--stage delivery --harness codex) = %v, %v", cases, err)
+	}
+	for _, c := range cases {
+		if c.Stage != "delivery" {
+			t.Errorf("case %s has stage %q, want delivery", c.ID, c.Stage)
+		}
+		for _, p := range c.Probes {
+			if p.Harness != "codex" {
+				t.Errorf("case %s has a %s probe, want codex only", c.ID, p.Harness)
+			}
+		}
 	}
 }
 

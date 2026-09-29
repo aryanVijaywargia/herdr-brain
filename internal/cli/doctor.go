@@ -133,7 +133,7 @@ func (d *doctorCall) hooks(ctx context.Context, ps []*adapter.Profile) error {
 				version = "(version unknown)"
 			}
 			d.fail("%s %s: needs a retest: tested on %s, or the hook input changed its shape (S14); "+
-				"fix: run the conformance test (the eval delivery stage) for %s", p.Kind, version, p.TestedVersion, p.Kind)
+				"fix: run the conformance test in the brain repo: go run ./cmd/brain-eval --probes evals/probes --stage delivery --harness %s", p.Kind, version, p.TestedVersion, p.Kind)
 		}
 		if p.Kind == trustKind {
 			if err := d.trust(inst.Record, p); err != nil {

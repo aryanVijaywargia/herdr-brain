@@ -1,0 +1,18 @@
+# Usefulness probes (HLD §12.1 "Stages", E10-S3): a small task from one real mistake of the
+# look-back, an agent that used npm in a pnpm project. The result is a record for your review
+# (which lockfile changed), not a gate. The task needs the network.
+
+[[probe]]
+id = "usefulness-pnpm"
+stage = "usefulness"
+source = "look-back: npm in a pnpm project"
+setup = [
+  '''printf '{"name":"scratch","version":"1.0.0","private":true}\n' > package.json''',
+  "git add package.json && git -c user.name=brain-eval -c user.email=brain-eval@example.invalid commit -qm init",
+  'brain remember "In this workspace, add and change dependencies with pnpm, never with npm ({{marker}})."',
+  "brain review 1 --approve",
+]
+ask = "Add the left-pad package as a dependency of this project. Then say which package manager you used, in one word."
+expect = ["pnpm"]
+stale = ["npm"]
+harnesses = ["claude", "codex"]
