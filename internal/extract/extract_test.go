@@ -476,7 +476,7 @@ func TestClaudeCall(t *testing.T) {
 }
 
 func TestCheck(t *testing.T) {
-	j := job{refs: []ref{{id: "e1"}, {id: "e2"}}}
+	j := job{refs: []ref{{id: "e1"}, {id: "e2"}}, known: []store.Claim{{ID: "c1"}}}
 	valid := `{"kind":"fact","situation":"s","rule":"r","scope_guess":"global","evidence_refs":["e1","e1"],` +
 		`"same_as":"c1","conflicts_with":null,"touches_permission":true,"expected_benefit":"b"}`
 	claims, err := check(json.RawMessage(`{"claims":[`+valid+`]}`), j)
