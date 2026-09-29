@@ -20,6 +20,10 @@ func ItemTextFields() []Field {
 		{"proposals", "change_request"},
 		{"applied_edits", "content_before"},
 		{"applied_edits", "content_after"},
+		// The claim key text (§7.2): forget removes it from the claim of the item, and the
+		// claim id stays.
+		{"claims", "situation"},
+		{"claims", "rule"},
 	}
 }
 
@@ -118,5 +122,22 @@ func noItemTextFields() []Field {
 		{"command_records", "argv"},
 		{"command_records", "cwd"},
 		{"forgotten_captures", "capture_identity"}, // No text (§6.4).
+		{"claims", "id"},                           // The claim id holds no text (§7.2).
+		{"claims", "same_as"},
+		{"claims", "same_as_status"},
+		{"claims", "created"},
+		{"candidates", "claim_id"},
+		{"candidates", "scope"},
+		{"candidates", "workspace_key"},
+		{"candidates", "kind"},
+		{"candidates", "harnesses"},
+		{"candidates", "first_seen"},
+		{"candidates", "last_seen"},
+		{"candidates", "status"},
+		{"evidence_links", "capture_identity"},
+		{"evidence_links", "workspace_key"},
+		{"evidence_links", "harness"},
+		{"evidence_links", "sender"},
+		{"evidence_links", "at"},
 	}
 }

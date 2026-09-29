@@ -61,6 +61,10 @@ func eligible(k Kind, s store.Sender) bool {
 	return slices.Contains(senders[k], s)
 }
 
+// Supports reports whether an observation of sender s can support a candidate of kind k: the
+// same table as for a signal of that kind (§6.5). It is the check of store.Attach.
+func Supports(k store.CandidateKind, s store.Sender) bool { return eligible(Kind(k), s) }
+
 // Find returns the signals in ins, the observations in time order (store.SignalInputs). It
 // skips gaps and Brain-origin text. The text rules also skip observations that do not count
 // (§6.4): a replay, or a hook record that only adds detail to a pane read.

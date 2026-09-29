@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
+	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
@@ -419,7 +420,13 @@ func TestForgetSession(t *testing.T) {
 	ctx := context.Background()
 	const marker = "zq-forget-session-marker"
 	s := openStore(t, f.store)
-	write(t, s, func(tx *sql.Tx) error {
+	var claim string
+	write(t, s, func(tx *sql.Tx) (err error) {
+		claim, err = store.ClaimID(ctx, tx, store.ClaimKey{Situation: "go build", Rule: "run go mod tidy first"}, testNow)
+		if err != nil {
+			return err
+		}
+		cand := store.Candidate{ClaimID: claim, Scope: store.ScopeWorkspace, WorkspaceKey: "ws_a14", Kind: store.CandidateFailure}
 		for i, herdrSession := range []string{"default", "other"} {
 			key := store.SessionKey{HerdrSession: herdrSession, Harness: "claude", Kind: store.KeyCapture, ID: "cap-1"}
 			id, err := store.OpenSession(ctx, tx, key, "w14:p1", "ws_a14", testNow)
@@ -438,6 +445,9 @@ func TestForgetSession(t *testing.T) {
 					SegmentID: seg, Event: "tool", Excerpt: herdrSession + " " + marker, Status: store.ObservationComplete,
 					Sender: store.SenderTool, Counts: true, At: testNow})
 				if err != nil {
+					return err
+				}
+				if _, err := store.Attach(ctx, tx, cand, o, store.DefaultGates(), signal.Supports); err != nil {
 					return err
 				}
 				if src == store.SourceHook {
@@ -459,9 +469,13 @@ func TestForgetSession(t *testing.T) {
 		t.Error("forget of an unknown session = nil, want an error")
 	}
 	var listed []string
+	links := -1
 	out := &onWrite{fn: func(p string) {
 		if strings.HasPrefix(p, "session ") {
 			listed = f.scan(t, "default "+marker) // AC: the list shows before anything is deleted
+		}
+		if strings.HasPrefix(p, "candidate ") {
+			links = sessionLinks(t, f, 1) // AC: the candidate list shows before the delete
 		}
 	}}
 	e := f.env(f.sock, "w14:p1", "w14", &bytes.Buffer{})
@@ -469,8 +483,9 @@ func TestForgetSession(t *testing.T) {
 	if err := Forget(ctx, e, []string{"--session", "agent-1"}); err != nil {
 		t.Fatalf("forget --session = %v", err)
 	}
-	want := "session 1: claude in pane w14:p1, capture id cap-1, agent session \"agent-1\": 2 observations, 1 command records\n" +
-		"no item or candidate uses capture evidence yet: nothing else to keep or forget\n" +
+	want := "session 1: claude in pane w14:p1, capture id cap-1, agent session \"agent-1\": 2 observations, 1 command records, 2 evidence links\n" +
+		"candidate 1: workspace failure of claim " + claim + ", 4 occurrences in 2 sessions: its links to this evidence go, and it is counted again\n" +
+		"1 candidates use this evidence; no item uses capture evidence yet: nothing else to keep or forget\n" +
 		"forget session agent-1: done; its text is deleted, and new text is captured as usual\n"
 	if out.String() != want {
 		t.Errorf("forget --session printed\n%s\nwant\n%s", out.String(), want)
@@ -478,6 +493,22 @@ func TestForgetSession(t *testing.T) {
 	if len(listed) != 2 {
 		t.Errorf("at the list the text was in %v, want observations and command records", listed)
 	}
+	if links != 2 {
+		t.Errorf("at the candidate list the session had %d evidence links, want 2", links)
+	}
+	// AC: no evidence link of the session stays, and the candidate keeps the other session's.
+	if got := sessionLinks(t, f, 1); got != 0 {
+		t.Errorf("after the forget the session has %d evidence links, want 0", got)
+	}
+	s = openStore(t, f.store)
+	write(t, s, func(tx *sql.Tx) error {
+		c, err := store.CandidateByID(ctx, tx, 1)
+		if err == nil && (c.Count != 2 || c.Sessions != 1) {
+			t.Errorf("after the forget the candidate is %+v, want 2 occurrences in 1 session", c)
+		}
+		return err
+	})
+	closeStore(t, s)
 	// AC: a scan of every table finds no text of the session.
 	if got := f.scan(t, "default "+marker); len(got) != 0 {
 		t.Errorf("after the forget %v hold the text of the session", got)
@@ -488,4 +519,16 @@ func TestForgetSession(t *testing.T) {
 	if got := f.scan(t, liveText); len(got) == 0 {
 		t.Error("the forget of a session removed an item")
 	}
+}
+
+// sessionLinks is the number of evidence links of capture session id.
+func sessionLinks(t *testing.T, f *fixture, id int64) int {
+	t.Helper()
+	s := openStore(t, f.store)
+	defer closeStore(t, s)
+	var n int
+	write(t, s, func(tx *sql.Tx) error {
+		return tx.QueryRow(`SELECT count(*) FROM evidence_links WHERE session_id = ?`, id).Scan(&n)
+	})
+	return n
 }
