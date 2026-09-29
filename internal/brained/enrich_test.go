@@ -114,6 +114,40 @@ func TestCaptureS35(t *testing.T) {
 			t.Errorf("%d enriched rows in %+v, want 1: a hook enriches one pane row", n, obs)
 		}
 	})
+	t.Run("same correction", func(t *testing.T) {
+		k := newCapture(t, "s1", t.TempDir())
+		k.pane("w1:p1", "claude", "")
+		k.reads(t, "w1:p1", "claude-s40-1-idle.txt")
+		// The next read is the idle fixture with a new prompt (a correction) and its reply
+		// above the input box.
+		idle := k.f.reads["w1:p1"][0]
+		box := strings.LastIndex(idle[:strings.LastIndex(idle, "\n❯")], "\n") + 1
+		correction := "No, use tabs in hi.txt, not spaces."
+		k.f.reads["w1:p1"] = append(k.f.reads["w1:p1"],
+			idle[:box]+"❯ "+correction+"\n\n⏺ Done. hi.txt uses tabs.\n\n"+idle[box:])
+		k.must(t, Baseline, "w1:p1", "", GapNone)
+		prompt := k.hookRecord(t, "prompt", store.SenderUnconfirmed, correction, k.clock)
+		k.must(t, Change, "w1:p1", "idle", GapNone)
+		stop := k.hookRecord(t, "stop", store.SenderAssistant, "Done. hi.txt uses tabs.", k.clock)
+		obs := k.rows(t).obs
+		row := paneRow(t, obs, "❯ "+correction)
+		if row.Sender != store.SenderUnconfirmed || row.EnrichedBy != prompt || hookRow(t, obs, prompt).Counts {
+			t.Errorf("pane prompt %+v, hook %+v: want the prompt enriched by the hook, and the hook not counted",
+				row, hookRow(t, obs, prompt))
+		}
+		if reply := paneRow(t, obs, "⏺ Done. hi.txt uses tabs."); reply.EnrichedBy != stop || hookRow(t, obs, stop).Counts {
+			t.Errorf("pane reply %+v, hook %+v: want the reply enriched by the stop", reply, hookRow(t, obs, stop))
+		}
+		n := 0
+		for _, o := range obs {
+			if o.Counts && strings.Contains(o.Excerpt, correction) {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("%d counted rows hold the correction in %+v, want 1 occurrence", n, obs)
+		}
+	})
 }
 
 // A tool hook matches the tool call line of the pane; a cut pane text matches the start of the

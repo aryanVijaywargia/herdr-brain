@@ -162,8 +162,9 @@ func (d *doctorCall) installer() (*install.Installer, error) {
 
 // entry checks that the recorded hook entry of p runs this brain binary. An entry of a
 // missing binary (a moved or removed plugin, E1-S2) or of another binary gets the offer of a
-// new entry. On yes it takes out the old entry and adds the new one, each with the install
-// guard; on no it changes no file.
+// new entry. The offer shows each recorded entry of p: the start entry and the hook record
+// entries (E11-S5). On yes it replaces each entry on its own, with the install guard, so an
+// entry that you edited stays and the others still get the new binary; on no it changes no file.
 func (d *doctorCall) entry(inst *install.Installer, p *adapter.Profile) error {
 	rec, err := install.Read(inst.Record)
 	if err != nil {
@@ -188,7 +189,23 @@ func (d *doctorCall) entry(inst *install.Installer, p *adapter.Profile) error {
 		}
 		d.w.printf("%s: the Brain hook in %s runs %s (%s), not %s\n", p.Kind, old.Target, bin, why, inst.Binary)
 	}
-	ok, err := d.ask(fmt.Sprintf("Replace it with this entry?\n  %s\n[y/N] ", want.Text))
+	hooks := []adapter.Hook{p.Hooks()[0]}
+	q := "Replace it with this entry?\n  " + want.Text + "\n"
+	for _, h := range p.Hooks()[1:] {
+		if !rec.Has(p.Kind, h) {
+			continue
+		}
+		e, _, err := inst.WouldInstallHook(p, h)
+		if err != nil {
+			return err
+		}
+		if len(hooks) == 1 {
+			q = "Replace it and the hook record entries with these entries?\n  " + want.Text + "\n"
+		}
+		hooks = append(hooks, h)
+		q += fmt.Sprintf("  %s: %s\n", h.CLIEvent, e.Text)
+	}
+	ok, err := d.ask(q + "[y/N] ")
 	if err != nil {
 		return err
 	}
@@ -197,19 +214,27 @@ func (d *doctorCall) entry(inst *install.Installer, p *adapter.Profile) error {
 			p.Kind, old.Target, bin)
 		return nil
 	}
-	st, err := inst.Uninstall(p)
-	if err != nil {
-		return err
+	return d.replace(inst, p, hooks, old.Target)
+}
+
+// replace takes out the recorded entry of each of hooks in target and adds the new one, one
+// entry at a time. An entry that you edited stays, and the other entries still get replaced.
+func (d *doctorCall) replace(inst *install.Installer, p *adapter.Profile, hooks []adapter.Hook, target string) error {
+	for _, h := range hooks {
+		st, err := inst.UninstallHook(p, h)
+		if err != nil {
+			return err
+		}
+		if st != install.Removed {
+			d.fail("%s: %s holds the Brain %s entry that you edited (%s); Brain keeps it; fix: edit it by hand to run %s",
+				p.Kind, target, h.CLIEvent, st, inst.Binary)
+			continue
+		}
+		if _, err := inst.InstallHook(p, h); err != nil {
+			return err
+		}
+		d.w.printf("Replaced the Brain %s entry for %s.\n", h.CLIEvent, p.Kind)
 	}
-	if st != install.Removed {
-		d.fail("%s: %s holds a Brain hook entry that you edited (%s); Brain keeps it; fix: edit it by hand to run %s",
-			p.Kind, old.Target, st, inst.Binary)
-		return nil
-	}
-	if _, err := inst.Install(p); err != nil {
-		return err
-	}
-	d.w.printf("Replaced the Brain hook for %s.\n", p.Kind)
 	return nil
 }
 

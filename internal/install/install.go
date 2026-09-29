@@ -146,24 +146,11 @@ func (in *Installer) Uninstall(p *adapter.Profile) (Status, error) {
 	}
 	st := NotInstalled
 	for _, h := range recorded(rec, p) {
-		e, _ := rec.entry(p.Kind, h)
-		old, out, s, err := removal(h.CLIEvent, p, e)
+		s, err := in.uninstall(&rec, p, h)
 		if err != nil {
 			return "", err
 		}
 		st = worse(st, s)
-		if s == Edited {
-			continue
-		}
-		if s == Removed {
-			if err := in.check(old); err != nil {
-				return "", err
-			}
-			if err := writeFile(old, out); err != nil {
-				return "", err
-			}
-		}
-		rec.drop(p.Kind, h)
 	}
 	if st == NotInstalled {
 		return st, nil
@@ -171,6 +158,51 @@ func (in *Installer) Uninstall(p *adapter.Profile) (Status, error) {
 	if err := write(in.Record, rec); err != nil {
 		return "", err
 	}
+	return st, nil
+}
+
+// UninstallHook is Uninstall for the one entry of hook h of profile p. It returns the status
+// of that entry only. `brain doctor` repairs each recorded entry with it and InstallHook.
+func (in *Installer) UninstallHook(p *adapter.Profile, h adapter.Hook) (Status, error) {
+	lk, err := lock(in.Record)
+	if err != nil {
+		return "", err
+	}
+	defer lk.Close() //nolint:errcheck // the close only drops the lock; the file holds no data
+	rec, err := Read(in.Record)
+	if err != nil {
+		return "", err
+	}
+	if !rec.Has(p.Kind, h) {
+		return NotInstalled, nil
+	}
+	st, err := in.uninstall(&rec, p, h)
+	if err != nil {
+		return "", err
+	}
+	if err := write(in.Record, rec); err != nil {
+		return "", err
+	}
+	return st, nil
+}
+
+// uninstall removes the recorded entry of hook h from its hook file and from rec, unless you
+// edited it. The caller holds the lock and writes rec.
+func (in *Installer) uninstall(rec *Record, p *adapter.Profile, h adapter.Hook) (Status, error) {
+	e, _ := rec.entry(p.Kind, h)
+	old, out, st, err := removal(h.CLIEvent, p, e)
+	if err != nil || st == Edited {
+		return st, err
+	}
+	if st == Removed {
+		if err := in.check(old); err != nil {
+			return "", err
+		}
+		if err := writeFile(old, out); err != nil {
+			return "", err
+		}
+	}
+	rec.drop(p.Kind, h)
 	return st, nil
 }
 
