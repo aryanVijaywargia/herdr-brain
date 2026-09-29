@@ -69,6 +69,7 @@ type capturePane struct {
 	workspace string   // the herdr workspace id of the last read
 	base      Learning // the learning state of the last baseline
 	lines     []string // the last read, without noise and blank lines
+	back      []string // the read before lines
 	ok        bool     // lines is a usable base
 }
 
@@ -133,7 +134,7 @@ func (c *Capture) baseline(ctx context.Context, s Step, gap string) error {
 		}
 		c.panes[s.PaneID] = cp
 	}
-	cp.workspace, cp.base, cp.lines, cp.ok, cp.segment = r.pane.WorkspaceID, s.Learning, r.lines, true, 0
+	cp.workspace, cp.base, cp.lines, cp.back, cp.ok, cp.segment = r.pane.WorkspaceID, s.Learning, r.lines, nil, true, 0
 	return c.write(ctx, s, func(tx *sql.Tx, now time.Time, learning Learning) error {
 		if old != nil && old.session != 0 && !c.held(old.key, s.PaneID) {
 			if err := store.EndSession(ctx, tx, old.key, now); err != nil {
@@ -163,7 +164,7 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 		// Another agent or another run: its text never joins the old session (S33).
 		return c.baseline(ctx, s, gapSession)
 	}
-	added, status := newPart(cp.lines, r)
+	added, status := newPart(cp.lines, cp.back, r)
 	err = c.write(ctx, s, func(tx *sql.Tx, now time.Time, learning Learning) error {
 		if !sameLearning(learning, cp.base) {
 			// Learning switched since the base: drop the read, and it is the new base.
@@ -202,7 +203,7 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 	if err != nil {
 		return err
 	}
-	cp.native, cp.lines = native, r.lines
+	cp.native, cp.lines, cp.back = native, r.lines, cp.lines
 	return nil
 }
 
@@ -255,7 +256,7 @@ func (c *Capture) lose(ctx context.Context, s Step, cp *capturePane, err error) 
 		}
 		return nil
 	}
-	cp.ok, cp.lines = false, nil
+	cp.ok, cp.lines, cp.back = false, nil, nil
 	if cp.segment != 0 {
 		werr := c.write(ctx, s, func(tx *sql.Tx, now time.Time, learning Learning) error {
 			if !sameLearning(learning, cp.base) || !learning.On {
@@ -387,8 +388,18 @@ func (c *Capture) lines(harness, text string) []string {
 // a rewrap, so it is not new (S38) [NEW, design choice]. The part is complete when the read
 // starts inside the old text or holds the whole history; else text may be lost between the
 // reads, and it is partial.
-func newPart(old []string, r read) ([]string, store.ObservationStatus) {
+//
+// A dialog hides the top of a screen, and the text comes back when the dialog closes. So
+// the lines above the first old line are not new when the read back, before old, holds them
+// all [NEW, real Claude read, testdata/claude-s31-3-working.txt].
+func newPart(old, back []string, r read) ([]string, store.ObservationStatus) {
 	matched := lcs(old, r.lines)
+	if first := slices.Index(matched, true); first > 0 &&
+		!slices.ContainsFunc(r.lines[:first], func(l string) bool { return !slices.Contains(back, l) }) {
+		for i := range first {
+			matched[i] = true
+		}
+	}
 	oldText := squash(strings.Join(old, ""))
 	var added, block []string
 	// A rewrap splits lines anew, so a block with its text in the old read and a line that

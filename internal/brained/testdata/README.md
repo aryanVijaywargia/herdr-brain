@@ -1,26 +1,79 @@
 # Pane-read fixtures (E11-S3)
 
-The text of `pane.read` replies, as herdr 0.9.1 gives it with `format` text and `strip_ansi`.
+The files are the text of real `pane.read` replies, as herdr gives it with `format` text and
+`strip_ansi` true. The fake herdr of the tests gives them back in order.
 
-Codex, `recent_unwrapped` (the fake herdr gives the last `lines` lines):
+## Recording
 
-- `codex-run1-idle.txt`: the full idle read of run 1 in `spike/m0/data/e11s1b-capture.txt`
-  (142 lines). The head and the tail are recorded; the 120 rows between them are the rows that
-  the prompt asked for and the counts of the log confirm.
-- `codex-run2-*.txt`: run 2 in the same pane, whose history still holds run 1 (M0 E11-S1b),
-  through the recorded status order idle, working, blocked, working, idle. The screen parts
-  (the header, the composer, the footer, the spinner, the approval box) have the recorded
-  shape; the prompt and the reply text are made for the test.
-- `codex-repeat-*.txt`: the same prompt in two real turns (S40), in the same shape.
+- Date: 2026-09-29.
+- herdr 0.9.1, Claude Code 2.1.284 (`claude-haiku-4-5-20251001`), codex-cli 0.154.0
+  (gpt-6-astra high).
+- A test herdr session `brain-rec-e11s3`, not `default`, with a clean environment:
 
-Claude, `visible` (M0 E11-S1: the alternate screen):
+  ```sh
+  env -i HOME="$HOME" PATH="$HOME/.nvm/versions/node/v24.15.0/bin:$HOME/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+    TERM=xterm-256color LANG=en_US.UTF-8 herdr --session brain-rec-e11s3 "$@"
+  ```
 
-- `claude-visible-1.txt`: one turn on the screen, 80 columns.
-- `claude-visible-1-repaint.txt`: the same screen, drawn again.
-- `claude-visible-1-narrow.txt`: the same turn after a resize to 60 columns: the text wraps
-  again.
-- `claude-visible-2-scrolled.txt`: a long answer that pushed the turn off the screen.
+  The session was stopped and deleted after the recording.
+- Claude in pane `w1:p1`, cwd `/private/tmp/e11s1/agent`:
+  `herdr pane run w1:p1 claude --model claude-haiku-4-5-20251001`. Read: `visible`.
+- Codex in pane `w2:p1`, cwd `/private/tmp/e11s3rec/agent` (a git repo with `notes.txt`,
+  `sub/data.csv` and `blob.bin`). The folder trust is on the command line only, and nothing
+  was written to `~/.codex`:
 
-`noise/codex.toml` is `adapters/codex.toml` with test `noise_lines`. The shipped profiles have
-none, so their hash and their conformance results stay the same.
-- `claude-visible-empty.txt`: an empty screen, as after an alternate screen closes (S38).
+  ```sh
+  codex -c 'projects={"/private/tmp/e11s3rec/agent"={trust_level="trusted"}}' \
+    -c check_for_update_on_startup=false -a on-request -c approvals_reviewer='"user"'
+  ```
+
+  At "Hooks need review" the answer was 3, "Continue without trusting". Read:
+  `recent_unwrapped`, 120 lines.
+- Each read was one socket call, as `herdr.Socket.Read` makes it:
+  `{"method": "pane.read", "params": {"pane_id": ..., "source": ..., "lines": ..., "format": "text", "strip_ansi": true}}`.
+  Prompts and approvals went in with `herdr pane send-text` and `herdr pane send-keys`. Brain
+  sends no keys; the recording did.
+- Private data is replaced: the user name is `user` in the `ls -la` lines, and the host name
+  is `host`. No tokens or e-mail addresses were on the screens.
+
+The test Claude loads the global Claude hooks of the machine. One hook asked it to run a
+progress-report command. The answer to that approval was 3 (No), and the next prompt said
+"Skip any progress report." That turn is in the history above the Claude S31 reads.
+
+## Files
+
+Codex, `recent_unwrapped`:
+
+- `codex-s31-*.txt` (S31): prompt "Run touch made.txt and request escalated permissions for
+  it.", after the turn "Delete blob.bin with rm, then list the files with ls -la.". The reads
+  in status order: `0-base` (the end of the first turn), `1-working`, `2-blocked` (the
+  approval dialog), `3-working` (after `y`), `4-done`. Codex gives the status `done`, not
+  `idle`. The dialog goes away after the approval, and "• Running" becomes "• Ran".
+- `codex-s40-*.txt` (S40): the prompt "Reply with only the word ready." two times. `0-base`
+  is the first turn at work; `1-done` and `2-done` are the ends of the two turns.
+
+Claude, `visible` (40 rows):
+
+- `claude-s31-*.txt` (S31): prompt "Skip any progress report. Only create the file hi.txt
+  with the text hi.". `0-base`, `1-working` (only the spinner changes), `2-blocked` (the
+  "Do you want to create hi.txt?" dialog hides the top of the screen), `3-working` (after
+  `1`; the hidden text shows again), `4-idle`.
+- `claude-s38-*.txt` (S38): prompt "Write the numbers 1 to 50, one per line, and nothing
+  else.". `0-base` (the turn at work), `1-idle` (the answer pushed the prompt and the numbers
+  1 to 18 off the screen), `2-repaint` (a later read of the same screen, byte for byte).
+- `claude-s40-*.txt` (S40): the prompt "Reply with only the word ready." two times, as for
+  Codex. The time lines differ ("Sautéed for 1s", "Crunched for 1s").
+- `claude-visible-empty.txt` (S38): made for the test, not recorded. It is an empty screen,
+  as after an alternate screen closes.
+
+No resize read is recorded. A headless herdr (no client) does not resize the pane terminal:
+after `herdr pane split w1:p1 --direction right --ratio 0.6` and `herdr pane resize --pane
+w1:p1 --direction left --amount 0.2`, the layout gave 48 columns, but the reads kept 119
+columns.
+
+## Noise profiles
+
+`noise/codex.toml` and `noise/claude.toml` are `adapters/codex.toml` and
+`adapters/claude.toml` with test `noise_lines`: the screen lines of the reads above that
+change on each read (the spinner, the tip, the composer or prompt box, and the footer). The
+shipped profiles have none, so their hash and their conformance results stay the same.

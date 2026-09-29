@@ -1,0 +1,40 @@
+  31
+  32
+  33
+  34
+  35
+  36
+  37
+  38
+  39
+  40
+  41
+  42
+  43
+  44
+  45
+  46
+  47
+  48
+  49
+  50
+
+✻ Cogitated for 5s · done 4:18 PM
+
+❯ Create the file hi.txt with the text hi.
+
+  Ran 1 shell command
+  ⎿  Interrupted · What should Claude do instead?
+
+✻ Brewed for 2s · done 4:19 PM
+
+❯ Skip any progress report. Only create the file hi.txt with the text hi.
+
+✽ Zigzagging…
+  ⎿  Tip: Use git worktrees to run multiple Claude sessions in parallel.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Haiku 4.5 | ctx:26%/200k
+  ⏸ manual mode on · ← 1 agent

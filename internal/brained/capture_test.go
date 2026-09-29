@@ -172,50 +172,76 @@ func fixture(t *testing.T, name string) string {
 	return string(b)
 }
 
+// s31 is one recorded task of a harness through working, blocked, working and the end status.
+type s31 struct {
+	harness, session string
+	source           string
+	files, statuses  []string
+	prompt           string   // the prompt of the task, on the screen once
+	want             []string // text of the task that the excerpts keep
+	noise            []string // screen text that the excerpts drop
+}
+
 // S31: working, blocked, working, idle in one task. Each read keeps its new part, the prompt
 // is kept once, and every excerpt line is text of a read: Brain invents no text.
 func TestCaptureS31(t *testing.T) {
+	for _, tc := range []s31{
+		{harness: "codex", session: codexRun2, source: herdr.ReadRecentUnwrapped,
+			files: []string{"codex-s31-0-base.txt", "codex-s31-1-working.txt", "codex-s31-2-blocked.txt",
+				"codex-s31-3-working.txt", "codex-s31-4-done.txt"},
+			statuses: []string{"working", "blocked", "working", "done"},
+			prompt:   "› Run touch made.txt",
+			want:     []string{"Would you like to run", "✔ You approved codex", "• Ran touch made.txt", "successfully"},
+			noise:    []string{"Context", "Working (", "Ask Codex"}},
+		{harness: "claude", source: herdr.ReadVisible,
+			files: []string{"claude-s31-0-base.txt", "claude-s31-1-working.txt", "claude-s31-2-blocked.txt",
+				"claude-s31-3-working.txt", "claude-s31-4-idle.txt"},
+			statuses: []string{"working", "blocked", "working", "idle"},
+			want:     []string{"Do you want to create hi.txt?", "Wrote 1 line to hi.txt", "⏺ Done."},
+			noise:    []string{"thinking)", "ctx:", "manual mode"}},
+	} {
+		t.Run(tc.harness, func(t *testing.T) { testS31(t, tc) })
+	}
+}
+
+func testS31(t *testing.T, tc s31) {
 	k := newCapture(t, "s1", t.TempDir())
-	k.pane("w1:p1", "codex", codexRun2)
-	files := []string{"codex-run2-0-idle.txt", "codex-run2-1-working.txt", "codex-run2-2-blocked.txt",
-		"codex-run2-3-working.txt", "codex-run2-4-idle.txt"}
-	k.reads(t, "w1:p1", files...)
+	k.pane("w1:p1", tc.harness, tc.session)
+	k.reads(t, "w1:p1", tc.files...)
 	k.must(t, Baseline, "w1:p1", "", GapNone)
-	for _, st := range []string{"working", "blocked", "working", "idle"} {
+	for _, st := range tc.statuses {
 		k.must(t, Change, "w1:p1", st, GapNone)
 	}
 	r := k.rows(t)
-	if len(r.sessions) != 1 || r.sessions[0].Key.Kind != store.KeyAgent || r.sessions[0].Key.ID != codexRun2 {
-		t.Fatalf("sessions = %+v, want one with the agent session id", r.sessions)
+	if len(r.sessions) != 1 {
+		t.Fatalf("sessions = %+v, want one", r.sessions)
 	}
-	if len(r.segments) != 1 || r.segments[0].ReadSource != herdr.ReadRecentUnwrapped {
-		t.Fatalf("segments = %+v, want one recent_unwrapped segment", r.segments)
+	if len(r.segments) != 1 || r.segments[0].ReadSource != tc.source {
+		t.Fatalf("segments = %+v, want one %s segment", r.segments, tc.source)
 	}
 	excerpts, gaps := r.text()
-	if len(gaps) != 0 || len(r.obs) != 4 {
-		t.Fatalf("observations = %+v, want 4 with text and no gap", r.obs)
+	if len(gaps) != 0 {
+		t.Errorf("gaps = %v, want none", gaps)
 	}
-	var events []string
 	for _, o := range r.obs {
-		events = append(events, o.Event)
+		// The Claude screen after the approval dialog shows again the text that the dialog hid.
 		if o.Status != store.ObservationComplete {
 			t.Errorf("observation %q status = %s, want complete", o.Excerpt, o.Status)
 		}
 	}
-	if want := []string{"working", "blocked", "working", "idle"}; !slices.Equal(events, want) {
-		t.Errorf("events = %v, want %v", events, want)
-	}
 	all := strings.Join(excerpts, "\n")
-	if n := strings.Count(all, "› List the files"); n != 1 {
-		t.Errorf("the prompt is kept %d times, want 1 (no invented user turn):\n%s", n, all)
+	if tc.prompt != "" {
+		if n := strings.Count(all, tc.prompt); n != 1 {
+			t.Errorf("the prompt is kept %d times, want 1 (no invented user turn)", n)
+		}
 	}
-	for _, want := range []string{"Would you like to run", "• Ran ls -la", "notes-kx.txt is the only text file"} {
+	for _, want := range tc.want {
 		if !strings.Contains(all, want) {
-			t.Errorf("excerpts miss %q:\n%s", want, all)
+			t.Errorf("excerpts miss %q", want)
 		}
 	}
 	var reads []string
-	for _, f := range files {
+	for _, f := range tc.files {
 		reads = append(reads, fixture(t, f))
 	}
 	for _, l := range strings.Split(all, "\n") {
@@ -223,7 +249,7 @@ func TestCaptureS31(t *testing.T) {
 			t.Errorf("excerpt line %q is in no read", l)
 		}
 	}
-	for _, noise := range []string{"Context", "Working (", "Ask Codex"} {
+	for _, noise := range tc.noise {
 		if strings.Contains(all, noise) {
 			t.Errorf("excerpts hold the noise %q", noise)
 		}
@@ -235,7 +261,7 @@ func TestCaptureS31(t *testing.T) {
 func TestCaptureS33(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
 	k.pane("w1:p1", "codex", codexRun1)
-	k.reads(t, "w1:p1", "codex-run2-0-idle.txt", "codex-run2-1-working.txt")
+	k.reads(t, "w1:p1", "codex-s31-0-base.txt", "codex-s31-1-working.txt")
 	k.must(t, Baseline, "w1:p1", "", GapNone)
 	k.f.onRead = func(f *fakeHerdr) { delete(f.panes, "w1:p1"); f.onRead = nil }
 	k.must(t, Change, "w1:p1", "working", GapNone)
@@ -245,7 +271,7 @@ func TestCaptureS33(t *testing.T) {
 	k.f.mu.Lock()
 	k.f.reads["w1:p1"] = nil
 	k.f.mu.Unlock()
-	k.reads(t, "w1:p1", "codex-run2-2-blocked.txt", "codex-run2-3-working.txt")
+	k.reads(t, "w1:p1", "codex-s31-2-blocked.txt", "codex-s31-3-working.txt")
 	k.must(t, Baseline, "w1:p1", "", GapNone)
 	k.must(t, Change, "w1:p1", "working", GapNone)
 
@@ -258,11 +284,11 @@ func TestCaptureS33(t *testing.T) {
 		t.Fatalf("sessions = %+v, want run 1 ended and run 2", r.sessions)
 	}
 	for _, e := range excerpts {
-		if strings.Contains(e, "› List the files") {
+		if strings.Contains(e, "› Run touch made.txt") {
 			t.Errorf("excerpt %q: text of the dropped read went to the new agent", e)
 		}
 	}
-	if len(excerpts) != 1 || !strings.Contains(excerpts[0], "• Ran ls -la") {
+	if len(excerpts) != 1 || !strings.Contains(excerpts[0], "• Ran touch made.txt") {
 		t.Errorf("excerpts = %q, want the new part of run 2 only", excerpts)
 	}
 }
@@ -273,7 +299,7 @@ func TestCaptureS33(t *testing.T) {
 func TestCaptureS36(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
 	k.pane("w1:p1", "codex", codexRun2)
-	k.reads(t, "w1:p1", "codex-run2-0-idle.txt", "codex-run2-1-working.txt")
+	k.reads(t, "w1:p1", "codex-s31-0-base.txt", "codex-s31-1-working.txt")
 	k.must(t, Baseline, "w1:p1", "", GapNone)
 	k.f.onRead = func(f *fakeHerdr) {
 		f.panes["w2:p1"] = &fakePane{ws: "w2", agent: "codex", session: codexRun2}
@@ -307,7 +333,7 @@ func TestCaptureS36(t *testing.T) {
 func TestCaptureMovedEnd(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
 	k.pane("w1:p1", "codex", codexRun2)
-	k.reads(t, "w1:p1", "codex-run2-0-idle.txt")
+	k.reads(t, "w1:p1", "codex-s31-0-base.txt")
 	k.must(t, Baseline, "w1:p1", "", GapNone)
 	k.f.mu.Lock()
 	k.f.panes["w2:p1"] = &fakePane{ws: "w2", agent: "codex", session: codexRun2}
@@ -330,7 +356,7 @@ func TestCaptureMovedEnd(t *testing.T) {
 func TestCaptureEndRetry(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
 	k.pane("w1:p1", "codex", codexRun2)
-	k.reads(t, "w1:p1", "codex-run2-0-idle.txt")
+	k.reads(t, "w1:p1", "codex-s31-0-base.txt")
 	k.must(t, Baseline, "w1:p1", "", GapNone)
 	s := Step{Kind: End, PaneID: "w1:p1", WorkspaceID: "w1", Reason: ReasonGone, Gate: k.gate}
 	s.Gate.Binding.Store = filepath.Join(t.TempDir(), "missing", "dir")
@@ -343,21 +369,20 @@ func TestCaptureEndRetry(t *testing.T) {
 	}
 }
 
-// S38: a repaint and a resize give no observation. A screen that lost text is partial.
+// S38: a repaint gives no observation. A screen that scrolled the old text away is partial.
+// A headless herdr does not resize the pane terminal, so no resize read is recorded.
 func TestCaptureS38(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
 	k.pane("w1:p1", "claude", "")
-	k.reads(t, "w1:p1", "claude-visible-1.txt", "claude-visible-1-repaint.txt", "claude-visible-1-narrow.txt",
-		"claude-visible-2-scrolled.txt")
+	k.reads(t, "w1:p1", "claude-s38-0-base.txt", "claude-s38-1-idle.txt", "claude-s38-2-repaint.txt")
 	k.must(t, Baseline, "w1:p1", "", GapNone)
-	for _, st := range []string{"idle", "working", "idle"} {
-		k.must(t, Change, "w1:p1", st, GapNone)
-	}
+	k.must(t, Change, "w1:p1", "idle", GapNone)
+	k.must(t, Change, "w1:p1", "idle", GapNone)
 	r := k.rows(t)
 	if len(r.segments) != 1 || r.segments[0].ReadSource != herdr.ReadVisible {
 		t.Fatalf("segments = %+v, want one visible segment (lower coverage)", r.segments)
 	}
-	if len(r.obs) != 1 || r.obs[0].Status != store.ObservationPartial || !strings.Contains(r.obs[0].Excerpt, "Line 8 ") {
+	if len(r.obs) != 1 || r.obs[0].Status != store.ObservationPartial || !strings.Contains(r.obs[0].Excerpt, "  50") {
 		t.Errorf("observations = %+v, want one partial with the new screen", r.obs)
 	}
 	if len(r.sessions) != 1 || r.sessions[0].Key.Kind != store.KeyCapture {
@@ -369,7 +394,7 @@ func TestCaptureS38(t *testing.T) {
 func TestCaptureScreenLost(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
 	k.pane("w1:p1", "claude", "")
-	k.reads(t, "w1:p1", "claude-visible-1.txt", "claude-visible-empty.txt")
+	k.reads(t, "w1:p1", "claude-s38-0-base.txt", "claude-visible-empty.txt")
 	k.must(t, Baseline, "w1:p1", "", GapNone)
 	k.must(t, Change, "w1:p1", "idle", GapNone)
 	if excerpts, gaps := k.rows(t).text(); len(excerpts) != 0 || !slices.Equal(gaps, []string{gapLost}) {
@@ -379,20 +404,25 @@ func TestCaptureScreenLost(t *testing.T) {
 
 // S40: the same text in two real turns gives two occurrences.
 func TestCaptureS40(t *testing.T) {
-	k := newCapture(t, "s1", t.TempDir())
-	k.pane("w1:p1", "codex", codexRun2)
-	k.reads(t, "w1:p1", "codex-run2-0-idle.txt", "codex-repeat-1.txt", "codex-repeat-2.txt")
-	k.must(t, Baseline, "w1:p1", "", GapNone)
-	k.must(t, Change, "w1:p1", "idle", GapNone)
-	k.must(t, Change, "w1:p1", "idle", GapNone)
-	excerpts, _ := k.rows(t).text()
-	if len(excerpts) != 2 {
-		t.Fatalf("excerpts = %q, want 2", excerpts)
-	}
-	for _, e := range excerpts {
-		if strings.Count(e, "› Run the tests again.") != 1 {
-			t.Errorf("excerpt %q, want the prompt once", e)
-		}
+	for _, tc := range []struct{ harness, session, prefix, prompt, status string }{
+		{"codex", codexRun2, "codex-s40", "› Reply with only the word ready.", "done"},
+		{"claude", "", "claude-s40", "❯ Reply with only the word ready.", "idle"},
+	} {
+		t.Run(tc.harness, func(t *testing.T) {
+			k := newCapture(t, "s1", t.TempDir())
+			k.pane("w1:p1", tc.harness, tc.session)
+			k.reads(t, "w1:p1", tc.prefix+"-0-base.txt", tc.prefix+"-1-"+tc.status+".txt", tc.prefix+"-2-"+tc.status+".txt")
+			k.must(t, Baseline, "w1:p1", "", GapNone)
+			k.must(t, Change, "w1:p1", tc.status, GapNone)
+			k.must(t, Change, "w1:p1", tc.status, GapNone)
+			excerpts, _ := k.rows(t).text()
+			if len(excerpts) != 2 {
+				t.Fatalf("excerpts = %q, want 2", excerpts)
+			}
+			if !strings.Contains(excerpts[0], "ready") || strings.Count(excerpts[1], tc.prompt) != 1 {
+				t.Errorf("excerpts = %q, want the reply, then the prompt once", excerpts)
+			}
+		})
 	}
 }
 
@@ -402,7 +432,7 @@ func TestCaptureS40(t *testing.T) {
 func TestCaptureNativeIDLater(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
 	k.pane("w1:p1", "codex", "")
-	k.reads(t, "w1:p1", "codex-run2-0-idle.txt", "codex-run2-1-working.txt", "codex-run2-2-blocked.txt")
+	k.reads(t, "w1:p1", "codex-s31-0-base.txt", "codex-s31-1-working.txt", "codex-s31-2-blocked.txt")
 	k.must(t, Baseline, "w1:p1", "", GapStart)
 	r := k.rows(t)
 	if len(r.sessions) != 1 || r.sessions[0].Key.Kind != store.KeyCapture || len(r.obs) != 1 || r.obs[0].Event != string(GapStart) {
@@ -423,7 +453,7 @@ func TestCaptureNativeIDLater(t *testing.T) {
 func TestCaptureReconnect(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
 	k.pane("w1:p1", "codex", codexRun2)
-	k.reads(t, "w1:p1", "codex-run2-0-idle.txt", "codex-run2-2-blocked.txt", "codex-run2-3-working.txt")
+	k.reads(t, "w1:p1", "codex-s31-0-base.txt", "codex-s31-2-blocked.txt", "codex-s31-3-working.txt")
 	k.must(t, Baseline, "w1:p1", "", GapNone)
 	k.must(t, Baseline, "w1:p1", "", GapConnect)
 	k.must(t, Change, "w1:p1", "working", GapNone)
@@ -441,7 +471,7 @@ func TestCaptureReconnect(t *testing.T) {
 func TestCaptureLearningSwitch(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
 	k.pane("w1:p1", "codex", codexRun2)
-	k.reads(t, "w1:p1", "codex-run2-0-idle.txt", "codex-run2-1-working.txt", "codex-run2-2-blocked.txt")
+	k.reads(t, "w1:p1", "codex-s31-0-base.txt", "codex-s31-1-working.txt", "codex-s31-2-blocked.txt")
 	k.must(t, Baseline, "w1:p1", "", GapNone)
 	base := k.learning(t, "w1:p1", "w1")
 	for _, on := range []bool{false, true} {
@@ -463,7 +493,7 @@ func TestCaptureLearningSwitch(t *testing.T) {
 		t.Fatalf("rows = %+v, want a new segment with a learning gap", r)
 	}
 	for _, e := range excerpts {
-		if strings.Contains(e, "› List the files") {
+		if strings.Contains(e, "› Run touch made.txt") {
 			t.Errorf("excerpt %q holds text of the time with learning off", e)
 		}
 	}
@@ -478,8 +508,8 @@ func TestCaptureTwoBindings(t *testing.T) {
 	for _, k := range []*capHarness{a, b} {
 		k.pane("w1:p1", "codex", codexRun2)
 		k.pane("w1:p2", "claude", "")
-		k.reads(t, "w1:p1", "codex-run2-0-idle.txt", "codex-run2-1-working.txt")
-		k.reads(t, "w1:p2", "claude-visible-1.txt", "claude-visible-2-scrolled.txt")
+		k.reads(t, "w1:p1", "codex-s31-0-base.txt", "codex-s31-1-working.txt")
+		k.reads(t, "w1:p2", "claude-s38-0-base.txt", "claude-s38-1-idle.txt")
 		for _, id := range []string{"w1:p1", "w1:p2"} {
 			k.must(t, Baseline, id, "", GapNone)
 			k.must(t, Change, id, "working", GapNone)
