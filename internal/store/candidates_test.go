@@ -362,30 +362,69 @@ func TestForgetSessionEvidence(t *testing.T) {
 }
 
 // Forget of an item removes the claim key text of its claim, and the claim id stays (§6.7).
+// While another scope uses the claim, through an item or a candidate, the key text stays: it is
+// that scope's kept copy, not text left of the item.
 func TestEraseItemClaimText(t *testing.T) {
 	ctx := context.Background()
-	e := newEvidenceStore(t)
-	claim := e.claim(t, "use pnpm")
-	write(t, e.Store, func(tx *sql.Tx) error {
-		id, err := InsertItem(ctx, tx, Item{ClaimID: claim, CurrentRevision: 1, Kind: KindFact, Scope: ScopeGlobal,
-			State: StateActive, Anchors: []string{}, Created: testNow})
-		if err != nil {
-			return err
-		}
-		if err := EraseItem(ctx, tx, id, testNow); err != nil {
-			return err
-		}
-		left, err := ItemTextLeft(ctx, tx, id)
-		if err != nil {
-			return err
-		}
-		if len(left) != 0 {
-			t.Errorf("ItemTextLeft = %v, want none", left)
-		}
-		c, err := ClaimByID(ctx, tx, claim)
-		if err == nil && c.Key != (ClaimKey{}) {
-			t.Errorf("claim %s keeps its key %+v after the forget", claim, c.Key)
-		}
-		return err
-	})
+	for _, tc := range []struct {
+		name  string
+		other func(t *testing.T, e *evidenceStore, claim string) // another use of the claim
+		kept  bool
+	}{
+		{"no other use", func(*testing.T, *evidenceStore, string) {}, false},
+		{"a global item", func(t *testing.T, e *evidenceStore, claim string) {
+			write(t, e.Store, func(tx *sql.Tx) error {
+				_, err := InsertItem(ctx, tx, Item{ClaimID: claim, CurrentRevision: 1, Kind: KindFact, Scope: ScopeGlobal,
+					State: StateActive, Anchors: []string{}, Created: testNow})
+				return err
+			})
+		}, true},
+		{"a candidate in workspace B", func(t *testing.T, e *evidenceStore, claim string) {
+			e.mustAttach(t, Candidate{ClaimID: claim, Scope: ScopeWorkspace, WorkspaceKey: "kb", Kind: CandidateCorrection},
+				e.observe(t, "codex", "b1", "kb", SenderUnconfirmed, testNow))
+		}, true},
+		{"a candidate in the same workspace", func(t *testing.T, e *evidenceStore, claim string) {
+			e.mustAttach(t, Candidate{ClaimID: claim, Scope: ScopeWorkspace, WorkspaceKey: "ka", Kind: CandidateCorrection},
+				e.observe(t, "claude", "a1", "ka", SenderUnconfirmed, testNow))
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEvidenceStore(t)
+			claim := e.claim(t, "use pnpm")
+			var item int64
+			write(t, e.Store, func(tx *sql.Tx) (err error) {
+				if err := InsertWorkspace(ctx, tx, Workspace{Key: "ka", HerdrSession: "default", HerdrWorkspaceID: "w1",
+					Label: "brain", Status: WorkspaceLive, LastSeen: testNow}); err != nil {
+					return err
+				}
+				item, err = InsertItem(ctx, tx, Item{ClaimID: claim, CurrentRevision: 1, Kind: KindFact, Scope: ScopeWorkspace,
+					WorkspaceKey: ptr("ka"), State: StateActive, Anchors: []string{}, Created: testNow})
+				return err
+			})
+			tc.other(t, e, claim)
+			write(t, e.Store, func(tx *sql.Tx) error {
+				if err := EraseItem(ctx, tx, item, testNow); err != nil {
+					return err
+				}
+				left, err := ItemTextLeft(ctx, tx, item)
+				if err != nil {
+					return err
+				}
+				if len(left) != 0 {
+					t.Errorf("ItemTextLeft = %v, want none", left)
+				}
+				c, err := ClaimByID(ctx, tx, claim)
+				if err != nil {
+					return err
+				}
+				if want := (ClaimKey{"in this repo", "use pnpm"}); tc.kept && c.Key != want {
+					t.Errorf("claim key %+v, want %+v kept for the other scope", c.Key, want)
+				}
+				if !tc.kept && c.Key != (ClaimKey{}) {
+					t.Errorf("claim %s keeps its key %+v after the forget", claim, c.Key)
+				}
+				return nil
+			})
+		})
+	}
 }
