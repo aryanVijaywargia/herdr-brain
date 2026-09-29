@@ -88,5 +88,27 @@ func noItemTextFields() []Field {
 		{"learning_settings", "target"}, // A workspace key or a herdr pane id.
 		{"learning_settings", "learning"},
 		{"learning_settings", "changed"},
+		{"sessions", "herdr_session"},
+		{"sessions", "harness"},
+		{"sessions", "key_kind"},
+		{"sessions", "key_id"}, // An agent session id or a random capture id.
+		{"sessions", "agent_session_id"},
+		{"sessions", "pane_id"},
+		{"sessions", "workspace_key"},
+		{"sessions", "started"},
+		{"sessions", "ended"},
+		{"segments", "pane_id"},
+		{"segments", "workspace_key"},
+		{"segments", "read_source"},
+		{"segments", "started"},
+		{"segments", "ended"},
+		{"observations", "capture_identity"},
+		{"observations", "source"},
+		{"observations", "event"},
+		// Pane text, not item text: forget finds it by session key (ForgetSession), never by a
+		// text search (§6.7).
+		{"observations", "excerpt"},
+		{"observations", "status"},
+		{"observations", "at"},
 	}
 }

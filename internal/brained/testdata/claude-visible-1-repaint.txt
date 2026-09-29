@@ -1,0 +1,37 @@
+> Explain what internal/brained does in two sentences.
+
+⏺ internal/brained is the herdr listener of Brain. It follows the panes of one
+herdr session over the event socket and gives each pane step to a handler.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+> 
+────────────────────────────────────────────────────────────────────────────────
+  ? for shortcuts

@@ -236,3 +236,81 @@ func parseEvent(line []byte) (Event, error) {
 	}
 	return ev, nil
 }
+
+// Pane returns pane id, from pane.get. A pane that is gone gives ErrPaneNotFound.
+func (s Socket) Pane(ctx context.Context, id string) (Pane, error) {
+	if err := checkPaneID(id); err != nil {
+		return Pane{}, err
+	}
+	var r struct {
+		Pane *rawPane `json:"pane"`
+	}
+	if err := s.call(ctx, "pane.get", map[string]any{"pane_id": id}, "pane_info", &r); err != nil {
+		return Pane{}, fmt.Errorf("herdr pane.get: %w", err)
+	}
+	p, err := r.Pane.parse("pane")
+	if err != nil {
+		return Pane{}, fmt.Errorf("herdr pane.get: %w", err)
+	}
+	return p, nil
+}
+
+// The read sources of pane.read that Brain uses. Neither moves the pane's scroll.
+const (
+	ReadVisible         = "visible"          // the screen as the user sees it
+	ReadRecentUnwrapped = "recent_unwrapped" // the last lines of the history, with wraps joined
+)
+
+// PaneRead is one pane.read reply.
+type PaneRead struct {
+	PaneID      string
+	WorkspaceID string
+	Source      string
+	Text        string
+	Revision    uint64
+	Truncated   bool
+}
+
+// Read reads the text of pane id from source, as plain text. lines is the number of lines
+// for a history source, 0 for the herdr default. It only reads: pane.read sends no input.
+func (s Socket) Read(ctx context.Context, id, source string, lines int) (PaneRead, error) {
+	if err := checkPaneID(id); err != nil {
+		return PaneRead{}, err
+	}
+	params := map[string]any{"pane_id": id, "source": source, "format": "text", "strip_ansi": true}
+	if lines > 0 {
+		params["lines"] = lines
+	}
+	var r struct {
+		Read *struct {
+			PaneID      *string `json:"pane_id"`
+			WorkspaceID *string `json:"workspace_id"`
+			Source      *string `json:"source"`
+			Text        *string `json:"text"`
+			Revision    *uint64 `json:"revision"`
+			Truncated   *bool   `json:"truncated"`
+		} `json:"read"`
+	}
+	if err := s.call(ctx, "pane.read", params, "pane_read", &r); err != nil {
+		return PaneRead{}, fmt.Errorf("herdr pane.read: %w", err)
+	}
+	var ck check
+	raw := req(&ck, r.Read, "read")
+	if ck.err != nil {
+		return PaneRead{}, fmt.Errorf("herdr pane.read: %w", ck.err)
+	}
+	pr := PaneRead{
+		PaneID:      req(&ck, raw.PaneID, "read.pane_id"),
+		WorkspaceID: req(&ck, raw.WorkspaceID, "read.workspace_id"),
+		Source:      req(&ck, raw.Source, "read.source"),
+		Text:        req(&ck, raw.Text, "read.text"),
+		Revision:    req(&ck, raw.Revision, "read.revision"),
+		Truncated:   req(&ck, raw.Truncated, "read.truncated"),
+	}
+	ck.id(workspaceIDRe, pr.WorkspaceID, "", "read.workspace_id")
+	ck.id(paneIDRe, pr.PaneID, pr.WorkspaceID, "read.pane_id")
+	if ck.err != nil {
+		return PaneRead{}, fmt.Errorf("herdr pane.read: %w", ck.err)
+	}
+	return pr, nil
+}

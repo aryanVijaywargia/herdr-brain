@@ -46,7 +46,7 @@ var ErrStop = errors.New("brained stops")
 var ErrRunning = errors.New("brained already runs")
 
 // Main runs brained for the herdr session of environ, the environment that herdr gives a
-// [[startup]] process. It writes one line for each step to log.
+// [[startup]] process. It reads the panes with Capture and writes its errors to log.
 func Main(ctx context.Context, environ []string, log io.Writer) error {
 	e, err := parseEnv(environ)
 	if err != nil {
@@ -65,7 +65,7 @@ func Main(ctx context.Context, environ []string, log io.Writer) error {
 	defer t.Stop()
 	d := &daemon{
 		env: e, sock: herdr.Socket{Path: e.socket}, bindingsFile: bf,
-		handler: LogHandler{W: log}, log: log, tick: t.C,
+		handler: NewCapture(herdr.Socket{Path: e.socket}), log: log, tick: t.C,
 		tries: connectTries, pause: connectPause, queue: queueSize,
 	}
 	return d.run(ctx)

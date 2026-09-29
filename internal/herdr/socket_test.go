@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -161,5 +162,49 @@ func TestSocketPanes(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != "w1:p1" || got[0].Agent == nil || *got[0].Agent != "claude" {
 		t.Errorf("Panes = %+v, want w1:p1 with claude", got)
+	}
+}
+
+func TestSocketPane(t *testing.T) {
+	reply, err := os.ReadFile("testdata/pane-agent.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := serveOne(t, "pane.get", strings.TrimSpace(string(reply)))
+	got, err := Socket{Path: path}.Pane(testCtx(t), "w14:p2F")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.WorkspaceID != "w14" || got.AgentSession == nil || got.AgentSession.Value != "6a345ec1-3050-4e61-b736-d0e9d2edab82" {
+		t.Errorf("Pane = %+v, want w14 with its agent session", got)
+	}
+}
+
+func TestSocketPaneGone(t *testing.T) {
+	path := serveOne(t, "pane.get", `{"id":"brain","error":{"code":"pane_not_found","message":"pane w1:p9 not found"}}`)
+	if _, err := (Socket{Path: path}).Pane(testCtx(t), "w1:p9"); !errors.Is(err, ErrPaneNotFound) {
+		t.Errorf("Pane = %v, want ErrPaneNotFound", err)
+	}
+}
+
+func TestSocketRead(t *testing.T) {
+	path := serveOne(t, "pane.read",
+		`{"id":"brain","result":{"type":"pane_read","read":{"pane_id":"w1:p2","workspace_id":"w1","tab_id":"w1:t1","source":"recent_unwrapped","format":"text","text":"a\nb\n","revision":7,"truncated":false}}}`)
+	got, err := Socket{Path: path}.Read(testCtx(t), "w1:p2", ReadRecentUnwrapped, 120)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := PaneRead{PaneID: "w1:p2", WorkspaceID: "w1", Source: ReadRecentUnwrapped, Text: "a\nb\n", Revision: 7}
+	if got != want {
+		t.Errorf("Read = %+v, want %+v", got, want)
+	}
+}
+
+func TestSocketReadShape(t *testing.T) {
+	path := serveOne(t, "pane.read",
+		`{"id":"brain","result":{"type":"pane_read","read":{"pane_id":"w1:p2","workspace_id":"w1","source":"visible","format":"text","revision":7,"truncated":false}}}`)
+	var se *ShapeError
+	if _, err := (Socket{Path: path}).Read(testCtx(t), "w1:p2", ReadVisible, 0); !errors.As(err, &se) || se.Field != "read.text" {
+		t.Errorf("Read = %v, want a ShapeError on read.text", err)
 	}
 }

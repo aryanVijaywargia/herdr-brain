@@ -123,7 +123,7 @@ func columns(t *testing.T, s *Store, table string) []column {
 func TestM1Tables(t *testing.T) {
 	s := openM1(t)
 	want := []string{"applied_edits", "deliveries", "item_revisions", "items", "learning_settings",
-		"outputs", "proposals", "review_panes", "tombstones", "workspaces"}
+		"observations", "outputs", "proposals", "review_panes", "segments", "sessions", "tombstones", "workspaces"}
 	if got := tableNames(t, s); !slices.Equal(got, want) {
 		t.Errorf("tables = %v, want %v", got, want)
 	}

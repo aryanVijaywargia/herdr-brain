@@ -3,8 +3,6 @@ package brained
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"io"
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
@@ -14,7 +12,7 @@ import (
 )
 
 // Handler gets the steps of the panes that brained follows, one at a time and in order, so
-// the reads of a pane are one at a time (HLD §6.2 step 3). E11-S3 reads the pane in it.
+// the reads of a pane are one at a time (HLD §6.2 step 3). Capture reads the pane in it.
 //
 // A handler must check the learning state in the transaction that writes: it writes only
 // when Gate.Learning gives the same state as the step of its last baseline. Otherwise it
@@ -95,13 +93,9 @@ func NewGate(b bindings.Binding) Gate {
 // test store has learning off by default (§12.1), as in brain learn. A withheld workspace
 // keeps its key, so a switch of that workspace still applies.
 func (g Gate) Learning(ctx context.Context, tx *sql.Tx, paneID, workspaceID string) (Learning, error) {
-	m, err := g.ws.Lookup(workspaceID)
+	key, err := g.workspaceKey(workspaceID)
 	if err != nil {
 		return Learning{}, err
-	}
-	var key string
-	if m.State != workspace.Unmapped {
-		key = m.Entry.Key
 	}
 	on, err := store.LearningOn(ctx, tx, g.Binding.Kind != bindings.KindTest, g.Binding.Session, key, paneID)
 	if err != nil {
@@ -114,22 +108,12 @@ func (g Gate) Learning(ctx context.Context, tx *sql.Tx, paneID, workspaceID stri
 	return Learning{On: on, Changed: changed}, nil
 }
 
-// LogHandler writes one line for each step to W. It stands in until E11-S3 reads panes.
-type LogHandler struct {
-	W io.Writer
-}
-
-// Handle writes the line of s.
-func (h LogHandler) Handle(_ context.Context, s Step) error {
-	var extra string
-	switch s.Kind {
-	case Baseline:
-		extra = " gap=" + string(s.Gap)
-	case Change:
-		extra = " status=" + s.Event.Status
-	case End:
-		extra = " reason=" + string(s.Reason)
+// workspaceKey returns the Brain key of herdr workspace workspaceID, or "" when it has none.
+// A withheld workspace keeps its key.
+func (g Gate) workspaceKey(workspaceID string) (string, error) {
+	m, err := g.ws.Lookup(workspaceID)
+	if err != nil || m.State == workspace.Unmapped {
+		return "", err
 	}
-	_, err := fmt.Fprintf(h.W, "brained: %s pane %s workspace %s%s\n", s.Kind, s.PaneID, s.WorkspaceID, extra)
-	return err
+	return m.Entry.Key, nil
 }
