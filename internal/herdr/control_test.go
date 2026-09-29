@@ -85,10 +85,12 @@ func TestAgentCalls(t *testing.T) {
 	start := "agent start probe-1 --kind claude --pane w1:p2"
 	prompt := "agent prompt probe-1 hello --wait --timeout 60000"
 	read := "agent read probe-1 --source recent-unwrapped --lines 400"
+	visible := "agent read probe-1 --source visible"
 	c, _ := fakeClient(t, map[string]reply{
-		start:  {Stdout: `{"result":{"type":"agent_started","agent":{"name":"probe-1"},"argv":["claude"]}}`},
-		prompt: {Stdout: `{"result":{"type":"agent_prompted","agent":{"name":"probe-1"}}}`},
-		read:   {Stdout: "> hello\nhi there\n"},
+		start:   {Stdout: `{"result":{"type":"agent_started","agent":{"name":"probe-1"},"argv":["claude"]}}`},
+		prompt:  {Stdout: `{"result":{"type":"agent_prompted","agent":{"name":"probe-1"}}}`},
+		read:    {Stdout: "> hello\nhi there\n"},
+		visible: {Stdout: "> hello\nhi\n"},
 	})
 	if err := c.StartAgent(deadline(t), "probe-1", "claude", "w1:p2"); err != nil {
 		t.Errorf("StartAgent() = %v", err)
@@ -98,6 +100,9 @@ func TestAgentCalls(t *testing.T) {
 	}
 	if got, err := c.ReadAgent(deadline(t), "probe-1", 400); err != nil || got != "> hello\nhi there\n" {
 		t.Errorf("ReadAgent() = %q, %v, want the plain text", got, err)
+	}
+	if got, err := c.ReadAgentVisible(deadline(t), "probe-1"); err != nil || got != "> hello\nhi\n" {
+		t.Errorf("ReadAgentVisible() = %q, %v, want the screen text", got, err)
 	}
 
 	c, _ = fakeClient(t, map[string]reply{

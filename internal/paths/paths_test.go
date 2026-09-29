@@ -144,6 +144,13 @@ func TestWorkspaceMap(t *testing.T) {
 	}
 }
 
+// The eval results sit in the test store folder (E10-S2).
+func TestEvalResults(t *testing.T) {
+	if got, want := EvalResults("/data/test"), "/data/test/eval-results.json"; got != want {
+		t.Errorf("EvalResults(/data/test) = %q, want %q", got, want)
+	}
+}
+
 func TestPluginDirs(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

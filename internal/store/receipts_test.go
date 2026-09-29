@@ -35,6 +35,13 @@ func TestReceipts(t *testing.T) {
 		if _, ok, err := LatestReceipt(ctx, tx, "default", "claude", "b"); err != nil || ok {
 			t.Errorf("LatestReceipt(b) = %v, %v, want none", ok, err)
 		}
+		// The newest receipt of a pane, by harness and binding.
+		if d, ok, err := LatestPaneReceipt(ctx, tx, "default", "claude", "w1:p1"); err != nil || !ok || d.Result != ResultEmitted {
+			t.Errorf("LatestPaneReceipt(w1:p1) = %v, %v, %v, want emitted", d.Result, ok, err)
+		}
+		if _, ok, err := LatestPaneReceipt(ctx, tx, "default", "claude", "w1:p2"); err != nil || ok {
+			t.Errorf("LatestPaneReceipt(w1:p2) = %v, %v, want none: the pane has a codex receipt only", ok, err)
+		}
 		cs, err := WithheldCounts(ctx, tx, "default", "claude")
 		want := []WithheldCount{{"not a member", 2}, {"pane not live", 1}}
 		if err != nil || !slices.Equal(cs, want) {

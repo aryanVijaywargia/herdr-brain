@@ -55,3 +55,21 @@ func WithheldCounts(ctx context.Context, tx *sql.Tx, session, profile string) ([
 	}
 	return cs, nil
 }
+
+// LatestPaneReceipt reads the newest receipt of pane paneID of harness profile in the store
+// binding of herdr session session (E10-S2). ok is false when there is none. The eval runner
+// opens a fresh pane for each probe in a fresh store, so the pane id names one agent there.
+func LatestPaneReceipt(ctx context.Context, tx *sql.Tx, session, profile, paneID string) (d Delivery, ok bool, err error) {
+	var id int64
+	err = tx.QueryRowContext(ctx, `SELECT id FROM deliveries
+		WHERE herdr_session = ? AND profile = ? AND pane_id = ? ORDER BY id DESC LIMIT 1`,
+		session, profile, paneID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Delivery{}, false, nil
+	}
+	if err != nil {
+		return Delivery{}, false, fmt.Errorf("read receipts of pane %s: %w", paneID, err)
+	}
+	d, err = DeliveryByID(ctx, tx, id)
+	return d, err == nil, err
+}
