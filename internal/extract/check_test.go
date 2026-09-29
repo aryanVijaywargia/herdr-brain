@@ -125,7 +125,7 @@ func TestEvidenceFromAnotherWorkspace(t *testing.T) {
 	f := newFixture(t)
 	_, inB := f.session("b", true, line{"ws-B", "wrong, run make lint first", t0})
 	sid, _ := f.session("a", true, line{"ws-A", pnpm, t0.Add(time.Minute)})
-	f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {
+	f.cli.reply = func(_ context.Context, prompt string) ([]byte, error) {
 		if !strings.Contains(prompt, "pnpm") {
 			return claudeReply(map[string]any{"claims": []any{}})
 		}
