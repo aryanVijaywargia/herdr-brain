@@ -120,12 +120,12 @@ func columns(t *testing.T, s *Store, table string) []column {
 // AC: the migration creates the M1 tables and no others. The issue's AC says 11; the
 // coordinator's brief says the 9 of the issue's table list (adapters and file_snapshots move
 // to install.json, E8). E9-S4 adds learning_settings; E11-S3 and E11-S4 add the capture tables; E11-S5 adds command_records;
-// E11-S6 adds forgotten_captures; E12-S2 adds claims, candidates and evidence_links.
+// E11-S6 adds forgotten_captures; E12-S2 adds claims, candidates and evidence_links; E12-S3 adds rejections.
 func TestM1Tables(t *testing.T) {
 	s := openM1(t)
 	want := []string{"applied_edits", "candidates", "claims", "command_records", "cursors", "deliveries", "evidence_links",
 		"forgotten_captures", "item_revisions", "items", "learning_settings",
-		"observations", "outputs", "proposals", "review_panes", "segments", "sessions", "tombstones", "workspaces"}
+		"observations", "outputs", "proposals", "rejections", "review_panes", "segments", "sessions", "tombstones", "workspaces"}
 	if got := tableNames(t, s); !slices.Equal(got, want) {
 		t.Errorf("tables = %v, want %v", got, want)
 	}

@@ -24,6 +24,8 @@ func ItemTextFields() []Field {
 		// claim id stays.
 		{"claims", "situation"},
 		{"claims", "rule"},
+		// Your reason for a rejection of the claim of the item (§6.7, §7.2).
+		{"rejections", "reason"},
 	}
 }
 
@@ -139,5 +141,10 @@ func noItemTextFields() []Field {
 		{"evidence_links", "harness"},
 		{"evidence_links", "sender"},
 		{"evidence_links", "at"},
+		{"rejections", "claim_id"},
+		{"rejections", "scope"},
+		{"rejections", "workspace_key"},
+		{"rejections", "at"},
+		{"rejections", "reopened"},
 	}
 }
