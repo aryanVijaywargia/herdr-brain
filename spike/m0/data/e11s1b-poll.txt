@@ -1,6 +1,17 @@
 E11-S1b raw logs: read polls while Codex runs (spike/m0/e11probe/poll.sh, H=/tmp/e11s1b/ht, RL=300).
 Each line: time, agent status, scroll max_offset_from_bottom, recent-unwrapped --lines 300 rc/lines/marker count, visible rc/marker count.
 The trailing 'error: invalid value ...' text on some poll2 lines is pane text: the grep for 'error' in poll.sh matched the failed first cx2 start in the scrollback. It is not a herdr error; every rc is 0.
+Counts from the full logs, before rows were cut (one group per status, with the rc of every read in it):
+== poll1
+status=idle ru_rc=0 vis_rc=0 reads=143
+status=working ru_rc=0 vis_rc=0 reads=51
+status=None ru_rc=1 vis_rc=1 reads=42   (after /exit: agent_not_found)
+== poll2
+status=idle ru_rc=0 vis_rc=0 reads=133
+status=working ru_rc=0 vis_rc=0 reads=61
+status=blocked ru_rc=0 vis_rc=0 reads=42
+So every idle, working and blocked read gave rc 0 for both sources.
+
 poll1: marker mq-8823 (run 1, turn 1, 120-row reply). Rows where nothing changed are cut.
 
 == poll1.log

@@ -50,3 +50,13 @@ Turn 2 command, as shown in the pane after approval:
       ls: nosuchfile-zq: No such file or directory
       .:
 The screen shows the output but no exit code. The live PostToolUse payload (command, cwd, exit data) stays OPEN.
+
+The test hook script (/tmp/e11s1b/hooks/log.sh, used by e11probe/codex-run.sh). It is e11probe/log.sh
+with the paths set to /tmp/e11s1b/hooks, so a hook run would add a line to the same index.log as notify:
+  #!/bin/sh
+  # Spike hook: save stdin with the receive time; print nothing.
+  t=$(/usr/bin/python3 -c 'import time;print("%.3f"%time.time())')
+  cat > /tmp/e11s1b/hooks/$1-$t.json
+  echo "$t $1 pane=$HERDR_PANE_ID" >> /tmp/e11s1b/hooks/index.log
+  exit 0
+index.log held only notify lines, so the ups and stop hooks did not run.
