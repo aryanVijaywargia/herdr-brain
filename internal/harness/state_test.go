@@ -147,6 +147,12 @@ func TestStates(t *testing.T) {
 			if s := check(t, e, seen, p); s.State() != Verified || s.Retest {
 				t.Fatalf("conformance pass on 9.9.9: %+v, want verified, no retest", s)
 			}
+			// The last pass tested 9.9.9, not the profile version.
+			e.cli(t, tc.kind, tc.version)
+			s = check(t, e, seen, p)
+			if s.State() != Retest || s.CLIVersion != p.TestedVersion || s.Verified {
+				t.Fatalf("back to %s after a pass on 9.9.9: %+v, want retest", p.TestedVersion, s)
+			}
 			e.cli(t, tc.kind, strings.Replace(tc.version, p.TestedVersion, "9.9.10", 1))
 			if s := check(t, e, seen, p); s.State() != Retest {
 				t.Fatalf("second new CLI version: state %s, want retest", s.State())
@@ -171,16 +177,18 @@ func TestNotVerified(t *testing.T) {
 	tests := []struct {
 		name    string
 		results []Result
+		want    State
 	}{
-		{"no conformance file", nil},
-		{"pending", []Result{with(func(r *Result) { r.Result = "pending" })}},
-		{"fail", []Result{with(func(r *Result) { r.Result = "fail" })}},
-		{"inconclusive", []Result{with(func(r *Result) { r.Result = "inconclusive" })}},
-		{"other CLI version", []Result{with(func(r *Result) { r.CLIVersion = "0.153.0" })}},
-		{"other profile", []Result{with(func(r *Result) { r.ProfileSHA256 = "00" })}},
-		{"other entry", []Result{with(func(r *Result) { r.EntrySHA256 = "00" })}},
-		{"other harness", []Result{with(func(r *Result) { r.Harness = "claude" })}},
-		{"pass then a pending run", []Result{pass, with(func(r *Result) { r.RunID, r.Result = "run-2", "pending" })}},
+		{"no conformance file", nil, Configured},
+		{"pending", []Result{with(func(r *Result) { r.Result = "pending" })}, Configured},
+		{"fail", []Result{with(func(r *Result) { r.Result = "fail" })}, Configured},
+		{"inconclusive", []Result{with(func(r *Result) { r.Result = "inconclusive" })}, Configured},
+		// The pass tested another version than the current one (§8.5).
+		{"other CLI version", []Result{with(func(r *Result) { r.CLIVersion = "0.153.0" })}, Retest},
+		{"other profile", []Result{with(func(r *Result) { r.ProfileSHA256 = "00" })}, Configured},
+		{"other entry", []Result{with(func(r *Result) { r.EntrySHA256 = "00" })}, Configured},
+		{"other harness", []Result{with(func(r *Result) { r.Harness = "claude" })}, Configured},
+		{"pass then a pending run", []Result{pass, with(func(r *Result) { r.RunID, r.Result = "run-2", "pending" })}, Configured},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -190,8 +198,8 @@ func TestNotVerified(t *testing.T) {
 			if tt.results != nil {
 				e.conformance(t, tt.results...)
 			}
-			if s := check(t, e, fakeHerdr{}, p); s.State() != Configured {
-				t.Errorf("state = %s, want configured", s.State())
+			if s := check(t, e, fakeHerdr{}, p); s.State() != tt.want {
+				t.Errorf("state = %s, want %s", s.State(), tt.want)
 			}
 		})
 	}

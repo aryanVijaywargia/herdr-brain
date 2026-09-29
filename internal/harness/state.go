@@ -115,9 +115,14 @@ func Check(ctx context.Context, h Panes, f Files, profiles []*adapter.Profile) (
 			marked = false
 		}
 		s.Verified = current && !marked
-		// A pass on the current version tests that version (§8.5 "tested version"), so a
-		// verified CLI after an update needs no retest.
-		s.Retest = (s.CLIVersion != p.TestedVersion || marked) && !s.Verified
+		// A pass tests the version it ran on (§8.5 "tested version"): a verified CLI after an
+		// update needs no retest, and a CLI that returns to the profile version after a pass on
+		// another version needs one.
+		tested := p.TestedVersion
+		if ok && r.Result == Pass {
+			tested = r.CLIVersion
+		}
+		s.Retest = (s.CLIVersion != tested || marked) && !s.Verified
 		out[i] = s
 	}
 	return out, nil
