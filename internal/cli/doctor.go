@@ -242,7 +242,10 @@ func (d *doctorCall) trust(record string, p *adapter.Profile) error {
 	if err != nil {
 		return err
 	}
-	fix := "fix: start codex, type /hooks, and press t on the Brain SessionStart hook (brain setup shows the steps)"
+	// Codex needs trust again for each new or changed hook entry, a hook record entry too
+	// (E11-S5).
+	fix := "fix: start codex, type /hooks, and press t on the Brain SessionStart hook " +
+		"and on each new Brain hook entry (brain setup shows the steps)"
 	switch t {
 	case harness.Trusted:
 	case harness.NoEntry:

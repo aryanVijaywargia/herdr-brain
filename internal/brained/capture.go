@@ -260,15 +260,19 @@ func (c *Capture) begin(ctx context.Context, tx *sql.Tx, s Step, cp *capturePane
 // so a crash leaves both or neither (§6.4). tx has run the exclusion check (Capture.write), and
 // the caller writes only when the learning state is the one of its base. A known capture
 // identity is a retry or a duplicate: it adds nothing and moves no cursor. A gap has no text,
-// so it never counts.
+// so it never counts. A hook record with the same text enriches the new observation (S35).
 func record(ctx context.Context, tx *sql.Tx, cp *capturePane, o store.Observation) error {
 	// E11-S6 (#60) checks the capture generation of the session here: a failed check
 	// discards the write.
 	if o.Status == store.ObservationGap {
 		o.Counts = false
 	}
-	added, err := store.AddObservation(ctx, tx, o)
-	if err != nil || !added {
+	id, err := store.AddObservation(ctx, tx, o)
+	if err != nil || id == 0 {
+		return err
+	}
+	o.ID = id
+	if err := Match(ctx, tx, cp.agent, cp.session, o); err != nil {
 		return err
 	}
 	return store.MoveCursor(ctx, tx, cp.session, o.Source, o.CaptureIdentity)

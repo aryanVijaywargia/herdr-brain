@@ -35,7 +35,7 @@ commands:
   event     workspace-closed: herdr's workspace.closed event (D4); marks the workspace closed
   learn     on|off [--workspace <id> | --pane <id>]: record the learning switch; delivery stays on
   uninstall [--apply] [--data]: list what uninstall removes; --apply removes it, --data the stores too
-  hook      --profile <name> --event start: the agent start hook (prints the brief or nothing)
+  hook      --profile <name> --event start|prompt|tool|stop: the agent hooks (start prints the brief or nothing)
   brained   the herdr listener of one herdr session (herdr starts it; D7)
 `
 

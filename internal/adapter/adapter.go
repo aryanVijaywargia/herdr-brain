@@ -40,12 +40,26 @@ type Profile struct {
 	InstallTarget string `toml:"install_target"`
 	Events        struct {
 		Start string `toml:"start"`
+		// The CLI events of the hook records (E11-S5, §6.1). An empty event is off: a CLI gets
+		// hook records only after its E11-S1 hook test.
+		Prompt      string   `toml:"prompt"`
+		Tool        []string `toml:"tool"`
+		ToolMatcher string   `toml:"tool_matcher"` // the shell tool: the tool hook runs only for it
+		Stop        string   `toml:"stop"`
 	} `toml:"events"`
 	StartCondition string `toml:"start_condition"`
 	OutputForm     string `toml:"output_form"`
 	Input          struct {
 		SessionID string `toml:"session_id"`
 		CWD       string `toml:"cwd"`
+		// The paths of the hook records (E11-S5).
+		Prompt  string `toml:"prompt"`  // the prompt text
+		Command string `toml:"command"` // the shell command of the tool
+		Error   string `toml:"error"`   // the error text of a failed tool; it may hold the exit status
+		Reply   string `toml:"reply"`   // the last assistant message at the stop
+		// ExitPattern is a regular expression on the error text; its first group is the exit
+		// status. With no match the exit status is unknown.
+		ExitPattern string `toml:"exit_pattern"`
 	} `toml:"input"`
 	TestedVersion string `toml:"tested_version"`
 	// AdditionalContextLimit goes into the hook entry when set. Codex sends a longer
@@ -62,6 +76,8 @@ type Profile struct {
 	cond condition
 	// noise is NoiseLines, compiled.
 	noise []*regexp.Regexp
+	// exit is ExitPattern, compiled; nil when the profile has none.
+	exit *regexp.Regexp
 }
 
 // condition is a start condition of the form `<JSON path> == <JSON value>`, for example
@@ -123,6 +139,22 @@ func (p *Profile) check() error {
 	}
 	if p.OutputForm != formAdditionalContext {
 		return fmt.Errorf("unknown output_form %q", p.OutputForm)
+	}
+	for _, c := range []struct{ event, key, path string }{
+		{p.Events.Prompt, "input.prompt", p.Input.Prompt},
+		{strings.Join(p.Events.Tool, ""), "input.command", p.Input.Command},
+		{p.Events.Stop, "input.reply", p.Input.Reply},
+	} {
+		if c.event != "" && c.path == "" {
+			return fmt.Errorf("%s is empty", c.key)
+		}
+	}
+	if p.Input.ExitPattern != "" {
+		re, err := regexp.Compile(p.Input.ExitPattern)
+		if err != nil || re.NumSubexp() < 1 {
+			return fmt.Errorf("input.exit_pattern %q: want a regular expression with one group", p.Input.ExitPattern)
+		}
+		p.exit = re
 	}
 	for _, n := range p.NoiseLines {
 		re, err := regexp.Compile(`^(?:` + n + `)$`)

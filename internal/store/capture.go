@@ -59,8 +59,11 @@ const (
 	ObservationGap      ObservationStatus = "gap"      // text is missing; the excerpt holds none
 )
 
-// SourceHerdr is the observation source of a pane read.
-const SourceHerdr = "herdr"
+// The observation sources.
+const (
+	SourceHerdr = "herdr" // a pane read
+	SourceHook  = "hook"  // a CLI hook (E11-S5)
+)
 
 // Sender says who wrote the text of an observation (§6.5).
 type Sender string
@@ -87,6 +90,7 @@ type Observation struct {
 	Counts          bool // it can raise a support count (§6.4)
 	BrainOrigin     bool // Brain caused the text; it never counts
 	At              time.Time
+	EnrichedBy      int64 // the hook observation that adds detail to it (S35); 0 when none
 }
 
 // keyWhere is the WHERE clause of the session with key ?1…?4.
@@ -143,10 +147,13 @@ func EndSession(ctx context.Context, tx *sql.Tx, k SessionKey, at time.Time) err
 	return nil
 }
 
-// ForgetSession removes the session with key k, with its segments, observations and cursors.
+// ForgetSession removes the session with key k, with its segments, observations, command
+// records and cursors.
 func ForgetSession(ctx context.Context, tx *sql.Tx, k SessionKey) error {
 	for _, q := range []string{
 		`DELETE FROM cursors WHERE session_id IN (SELECT id FROM sessions WHERE ` + keyWhere + `)`,
+		`DELETE FROM command_records WHERE observation_id IN (SELECT o.id FROM observations o
+			JOIN segments s ON s.id = o.segment_id JOIN sessions n ON n.id = s.session_id WHERE ` + keyWhereOf("n") + `)`,
 		`DELETE FROM observations WHERE segment_id IN
 			(SELECT s.id FROM segments s JOIN sessions n ON n.id = s.session_id WHERE ` + keyWhereOf("n") + `)`,
 		`DELETE FROM segments WHERE session_id IN (SELECT id FROM sessions WHERE ` + keyWhere + `)`,
@@ -180,26 +187,26 @@ func StartSegment(ctx context.Context, tx *sql.Tx, sessionID int64, paneID, work
 	return id, nil
 }
 
-// AddObservation adds o and reports whether it is new. An observation with a known capture
-// identity is a retry or a duplicate: it adds nothing and does not count again (§6.4).
-func AddObservation(ctx context.Context, tx *sql.Tx, o Observation) (bool, error) {
+// AddObservation adds o and returns its id. An observation with a known capture identity is
+// a retry or a duplicate: it adds nothing, does not count again (§6.4), and the id is 0.
+func AddObservation(ctx context.Context, tx *sql.Tx, o Observation) (int64, error) {
 	sender := o.Sender
 	if sender == "" {
 		sender = SenderUnconfirmed
 	}
-	res, err := tx.ExecContext(ctx, `INSERT INTO observations
+	var id int64
+	err := tx.QueryRowContext(ctx, `INSERT INTO observations
 		(capture_identity, source, segment_id, event, excerpt, truncated, status, sender, counts, brain_origin, at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (capture_identity) DO NOTHING`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (capture_identity) DO NOTHING RETURNING id`,
 		o.CaptureIdentity, o.Source, o.SegmentID, o.Event, o.Excerpt, o.Truncated, o.Status, sender,
-		o.Counts && !o.BrainOrigin, o.BrainOrigin, timeArg(o.At))
-	if err != nil {
-		return false, fmt.Errorf("add observation: %w", err)
+		o.Counts && !o.BrainOrigin, o.BrainOrigin, timeArg(o.At)).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
 	}
-	n, err := res.RowsAffected()
 	if err != nil {
-		return false, fmt.Errorf("add observation: %w", err)
+		return 0, fmt.Errorf("add observation: %w", err)
 	}
-	return n == 1, nil
+	return id, nil
 }
 
 // SeenExcerpt reports whether segment segmentID holds an observation of sender with excerpt.
@@ -266,11 +273,11 @@ func Segments(ctx context.Context, tx *sql.Tx) ([]Segment, error) {
 // Observations returns every observation, by id.
 func Observations(ctx context.Context, tx *sql.Tx) ([]Observation, error) {
 	return query(ctx, tx, `SELECT id, capture_identity, source, segment_id, event, excerpt, truncated, status,
-		sender, counts, brain_origin, at FROM observations ORDER BY id`,
+		sender, counts, brain_origin, at, COALESCE(enriched_by, 0) FROM observations ORDER BY id`,
 		func(rows *sql.Rows) (Observation, error) {
 			var o Observation
 			err := rows.Scan(&o.ID, &o.CaptureIdentity, &o.Source, &o.SegmentID, &o.Event, &o.Excerpt,
-				&o.Truncated, &o.Status, &o.Sender, &o.Counts, &o.BrainOrigin, timeDest{&o.At})
+				&o.Truncated, &o.Status, &o.Sender, &o.Counts, &o.BrainOrigin, timeDest{&o.At}, &o.EnrichedBy)
 			return o, err
 		})
 }

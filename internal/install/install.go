@@ -13,8 +13,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -70,12 +72,18 @@ type Installer struct {
 	beforeCheck func()
 }
 
-// Install adds the Brain entry of profile p to its hook file, as the last matcher group of the
-// start event. It stores the entry, its hash and, before the first edit of the file, a
+// Install adds the Brain start entry of profile p to its hook file, as the last matcher group
+// of the start event. It stores the entry, its hash and, before the first edit of the file, a
 // snapshot of the whole file in the install record.
 func (in *Installer) Install(p *adapter.Profile) (Status, error) {
+	return in.InstallHook(p, p.Hooks()[0])
+}
+
+// InstallHook adds the Brain entry of hook h of profile p to its hook file, as the last matcher
+// group of the CLI event of h. `brain setup` adds the hook record entries with it (E11-S5).
+func (in *Installer) InstallHook(p *adapter.Profile, h adapter.Hook) (Status, error) {
 	target := in.target(p)
-	e, err := in.entry(p, target)
+	e, err := in.entry(p, h, target)
 	if err != nil {
 		return "", err
 	}
@@ -96,7 +104,8 @@ func (in *Installer) Install(p *adapter.Profile) (Status, error) {
 	if old.missing {
 		data = []byte("{}\n")
 	}
-	out, wrap, st, err := insert(data, p, e, rec.Entries[p.Kind])
+	prev, _ := rec.entry(p.Kind, h)
+	out, wrap, st, err := insert(data, h.CLIEvent, p, e, prev)
 	if err != nil || st == Edited {
 		return st, err
 	}
@@ -107,7 +116,7 @@ func (in *Installer) Install(p *adapter.Profile) (Status, error) {
 	if _, ok := rec.Snapshots[target]; !ok {
 		rec.Snapshots[target] = Snapshot{Missing: old.missing, Data: old.data}
 	}
-	rec.Entries[p.Kind] = e
+	rec.set(p.Kind, h, e)
 	if err := write(in.Record, rec); err != nil {
 		return "", err
 	}
@@ -120,9 +129,11 @@ func (in *Installer) Install(p *adapter.Profile) (Status, error) {
 	return Added, nil
 }
 
-// Uninstall removes the Brain entry of profile p from its hook file when the entry's hash is
-// unchanged. It keeps every other byte as it is now (S45). A hand-edited entry stays, and
-// Uninstall returns Edited. The snapshot stays in the record as recovery material (§8.1).
+// Uninstall removes the Brain entries of profile p from its hook file when the hash of each
+// entry is unchanged: the hook record entries, then the start entry. It keeps every other byte
+// as it is now (S45). A hand-edited entry stays, and Uninstall returns Edited. The snapshot
+// stays in the record as recovery material (§8.1). With more than one entry it returns the
+// outcome that needs the most attention: Edited, then Removed, NotFound and NotInstalled.
 func (in *Installer) Uninstall(p *adapter.Profile) (Status, error) {
 	lk, err := lock(in.Record)
 	if err != nil {
@@ -133,23 +144,30 @@ func (in *Installer) Uninstall(p *adapter.Profile) (Status, error) {
 	if err != nil {
 		return "", err
 	}
-	e, ok := rec.Entries[p.Kind]
-	if !ok {
-		return NotInstalled, nil
-	}
-	old, out, st, err := removal(p, e)
-	if err != nil || st == Edited {
-		return st, err
-	}
-	if st == Removed {
-		if err := in.check(old); err != nil {
+	st := NotInstalled
+	for _, h := range recorded(rec, p) {
+		e, _ := rec.entry(p.Kind, h)
+		old, out, s, err := removal(h.CLIEvent, p, e)
+		if err != nil {
 			return "", err
 		}
-		if err := writeFile(old, out); err != nil {
-			return "", err
+		st = worse(st, s)
+		if s == Edited {
+			continue
 		}
+		if s == Removed {
+			if err := in.check(old); err != nil {
+				return "", err
+			}
+			if err := writeFile(old, out); err != nil {
+				return "", err
+			}
+		}
+		rec.drop(p.Kind, h)
 	}
-	delete(rec.Entries, p.Kind)
+	if st == NotInstalled {
+		return st, nil
+	}
 	if err := write(in.Record, rec); err != nil {
 		return "", err
 	}
@@ -163,21 +181,55 @@ func (in *Installer) WouldUninstall(p *adapter.Profile) (Status, error) {
 	if err != nil {
 		return "", err
 	}
-	e, ok := rec.Entries[p.Kind]
-	if !ok {
-		return NotInstalled, nil
+	st := NotInstalled
+	for _, h := range recorded(rec, p) {
+		e, _ := rec.entry(p.Kind, h)
+		_, _, s, err := removal(h.CLIEvent, p, e)
+		if err != nil {
+			return "", err
+		}
+		st = worse(st, s)
 	}
-	_, _, st, err := removal(p, e)
-	return st, err
+	return st, nil
 }
 
-// WouldInstall returns the entry that Install would add for profile p, and what Install
+// recorded returns the hooks of profile p that the install record rec holds: the hook record
+// entries, by CLI event, then the start entry. A hook record entry of a CLI event that the
+// profile no longer names is still there.
+func recorded(rec Record, p *adapter.Profile) []adapter.Hook {
+	var hs []adapter.Hook
+	for _, k := range slices.Sorted(maps.Keys(rec.Records)) {
+		if event, ok := strings.CutPrefix(k, recordKey(p.Kind, "")); ok {
+			hs = append(hs, adapter.Hook{CLIEvent: event, Event: "record"})
+		}
+	}
+	if start := p.Hooks()[0]; rec.Has(p.Kind, start) {
+		hs = append(hs, start)
+	}
+	return hs
+}
+
+// worse returns the outcome of a and b that needs more attention.
+func worse(a, b Status) Status {
+	rank := map[Status]int{NotInstalled: 0, NotFound: 1, Removed: 2, Edited: 3}
+	if rank[b] > rank[a] {
+		return b
+	}
+	return a
+}
+
+// WouldInstall returns the start entry that Install would add for profile p, and what Install
 // would do now: Present when the hook file and the record already hold that entry, Edited
 // when the file holds a Brain entry that you changed, else Added. It changes nothing.
 // `brain setup` shows the entry before it asks (E9-S1).
 func (in *Installer) WouldInstall(p *adapter.Profile) (Entry, Status, error) {
+	return in.WouldInstallHook(p, p.Hooks()[0])
+}
+
+// WouldInstallHook is WouldInstall for hook h of profile p.
+func (in *Installer) WouldInstallHook(p *adapter.Profile, h adapter.Hook) (Entry, Status, error) {
 	target := in.target(p)
-	e, err := in.entry(p, target)
+	e, err := in.entry(p, h, target)
 	if err != nil {
 		return Entry{}, "", err
 	}
@@ -193,20 +245,21 @@ func (in *Installer) WouldInstall(p *adapter.Profile) (Entry, Status, error) {
 	if old.missing {
 		data = []byte("{}\n")
 	}
-	_, _, st, err := insert(data, p, e, rec.Entries[p.Kind])
+	prev, ok := rec.entry(p.Kind, h)
+	_, _, st, err := insert(data, h.CLIEvent, p, e, prev)
 	if err != nil {
 		return e, "", err
 	}
 	// Install also records an entry that is in the file but not in the record.
-	if prev, ok := rec.Entries[p.Kind]; st == Present && (!ok || prev.SHA256 != e.SHA256 || prev.Target != target) {
+	if st == Present && (!ok || prev.SHA256 != e.SHA256 || prev.Target != target) {
 		st = Added
 	}
 	return e, st, nil
 }
 
-// removal reads the hook file of the recorded entry e and returns it with the file bytes
-// without e. A missing file holds no entry.
-func removal(p *adapter.Profile, e Entry) (old file, out []byte, st Status, err error) {
+// removal reads the hook file of the recorded entry e of CLI event event and returns it with
+// the file bytes without e. A missing file holds no entry.
+func removal(event string, p *adapter.Profile, e Entry) (old file, out []byte, st Status, err error) {
 	old, err = readFile(e.Target)
 	if err != nil {
 		return old, nil, "", err
@@ -214,7 +267,7 @@ func removal(p *adapter.Profile, e Entry) (old file, out []byte, st Status, err 
 	if old.missing {
 		return old, nil, NotFound, nil
 	}
-	out, st, err = remove(old.data, p, e)
+	out, st, err = remove(old.data, event, p, e)
 	return old, out, st, err
 }
 
@@ -226,20 +279,26 @@ func (in *Installer) target(p *adapter.Profile) string {
 	return p.InstallTarget
 }
 
-// entry builds the frozen Brain entry of p: one matcher group with one command handler (§8.3).
-// The Codex profile sets additional_context_limit 0, so Codex sends the whole brief inline;
-// the field is in the entry and its hash, so Codex trust covers it (E8 epic).
-func (in *Installer) entry(p *adapter.Profile, target string) (Entry, error) {
+// entry builds the frozen Brain entry of hook h of p: one matcher group with one command
+// handler (§8.3). The Codex profile sets additional_context_limit 0, so Codex sends the whole
+// brief inline; the field is in the start entry and its hash, so Codex trust covers it (E8
+// epic). A tool entry has the matcher of the shell tool (§6.1).
+func (in *Installer) entry(p *adapter.Profile, h adapter.Hook, target string) (Entry, error) {
 	type handler struct {
 		Type                   string `json:"type"`
 		Command                string `json:"command"`
 		Timeout                int    `json:"timeout"`
 		AdditionalContextLimit *int   `json:"additionalContextLimit,omitempty"`
 	}
-	command := quote(in.Binary) + " hook --profile " + p.Kind + " --event start"
+	command := quote(in.Binary) + " hook --profile " + p.Kind + " --event " + h.Event
+	limit := p.AdditionalContextLimit
+	if h.Event != adapter.EventStart {
+		limit = nil // a hook record prints nothing
+	}
 	group := struct {
-		Hooks []handler `json:"hooks"`
-	}{[]handler{{"command", command, entryTimeout, p.AdditionalContextLimit}}}
+		Matcher string    `json:"matcher,omitempty"`
+		Hooks   []handler `json:"hooks"`
+	}{h.Matcher, []handler{{"command", command, entryTimeout, limit}}}
 	b, err := json.Marshal(group)
 	if err != nil {
 		return Entry{}, err
@@ -263,14 +322,14 @@ func (in *Installer) check(old file) error {
 	return nil
 }
 
-// insert appends entry e to the start event array of the hook file b. It returns Present with
-// no change when the file already holds e, and Edited when it holds another Brain entry of p:
-// one with the hash of the recorded entry prev, or a handler that runs `brain hook` for p.
-func insert(b []byte, p *adapter.Profile, e, prev Entry) (out []byte, wrap string, st Status, err error) {
-	event := p.Events.Start
+// insert appends entry e to the array of CLI event event in the hook file b. It returns
+// Present with no change when the file already holds e, and Edited when it holds another Brain
+// entry of p: one with the hash of the recorded entry prev, or a handler that runs `brain
+// hook` for p.
+func insert(b []byte, event string, p *adapter.Profile, e, prev Entry) (out []byte, wrap string, st Status, err error) {
 	root, err := parse(b)
 	if err != nil || root.kind != '{' {
-		return nil, "", "", layoutError(e, "the file is not one JSON object")
+		return nil, "", "", layoutError(e, event, "the file is not one JSON object")
 	}
 	hi := root.member("hooks")
 	if hi < 0 {
@@ -279,7 +338,7 @@ func insert(b []byte, p *adapter.Profile, e, prev Entry) (out []byte, wrap strin
 	}
 	hooks := root.items[hi].val
 	if hooks.kind != '{' {
-		return nil, "", "", layoutError(e, `"hooks" is not an object`)
+		return nil, "", "", layoutError(e, event, `"hooks" is not an object`)
 	}
 	ei := hooks.member(event)
 	if ei < 0 {
@@ -287,7 +346,7 @@ func insert(b []byte, p *adapter.Profile, e, prev Entry) (out []byte, wrap strin
 	}
 	arr := hooks.items[ei].val
 	if arr.kind != '[' {
-		return nil, "", "", layoutError(e, fmt.Sprintf("%q is not an array", event))
+		return nil, "", "", layoutError(e, event, fmt.Sprintf("%q is not an array", event))
 	}
 	for _, g := range arr.items {
 		text := b[g.val.start:g.val.end]
@@ -302,13 +361,12 @@ func insert(b []byte, p *adapter.Profile, e, prev Entry) (out []byte, wrap strin
 	return spliceAppend(b, arr, e.Text), wrapGroup, Added, nil
 }
 
-// remove takes the recorded entry e out of the hook file b, with what install created around
-// it (e.Wrap) when nothing else is left there.
-func remove(b []byte, p *adapter.Profile, e Entry) ([]byte, Status, error) {
-	event := p.Events.Start
+// remove takes the recorded entry e out of the array of CLI event event in the hook file b,
+// with what install created around it (e.Wrap) when nothing else is left there.
+func remove(b []byte, event string, p *adapter.Profile, e Entry) ([]byte, Status, error) {
 	root, err := parse(b)
 	if err != nil || root.kind != '{' {
-		return nil, "", layoutError(e, "the file is not one JSON object")
+		return nil, "", layoutError(e, event, "the file is not one JSON object")
 	}
 	hi := root.member("hooks")
 	if hi < 0 || root.items[hi].val.kind != '{' {
@@ -374,9 +432,9 @@ func spliceAppend(b []byte, container node, text string) []byte {
 	return append(out, b[at:]...)
 }
 
-func layoutError(e Entry, reason string) error {
-	return fmt.Errorf("%w: %s: %s; add this entry by hand to the start event array:\n%s",
-		ErrLayout, e.Target, reason, e.Text)
+func layoutError(e Entry, event, reason string) error {
+	return fmt.Errorf("%w: %s: %s; add this entry by hand to the %s event array:\n%s",
+		ErrLayout, e.Target, reason, event, e.Text)
 }
 
 func jsonString(s string) string {

@@ -7,13 +7,60 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 )
 
 // Record is the install record, <data home>/install.json (§11, E8 epic). It holds tokens when
 // a snapshot does (owner decision 2026-09-28), so its mode is 0o600.
 type Record struct {
-	Entries   map[string]Entry    `json:"entries"`   // by profile kind, for example "codex"
+	Entries map[string]Entry `json:"entries"` // the start entries, by profile kind, for example "codex"
+	// Records are the hook record entries (E11-S5), by profile kind and CLI event, for
+	// example "claude PostToolUse" (recordKey).
+	Records   map[string]Entry    `json:"records,omitempty"`
 	Snapshots map[string]Snapshot `json:"snapshots"` // by hook file path
+}
+
+// recordKey is the key of the hook record entry of kind for CLI event event in Record.Records.
+func recordKey(kind, event string) string {
+	return kind + " " + event
+}
+
+// entry returns the recorded entry of profile kind for hook h.
+func (r Record) entry(kind string, h adapter.Hook) (Entry, bool) {
+	if h.Event == adapter.EventStart {
+		e, ok := r.Entries[kind]
+		return e, ok
+	}
+	e, ok := r.Records[recordKey(kind, h.CLIEvent)]
+	return e, ok
+}
+
+// set records entry e of profile kind for hook h.
+func (r *Record) set(kind string, h adapter.Hook, e Entry) {
+	if h.Event == adapter.EventStart {
+		r.Entries[kind] = e
+		return
+	}
+	if r.Records == nil {
+		r.Records = map[string]Entry{}
+	}
+	r.Records[recordKey(kind, h.CLIEvent)] = e
+}
+
+// drop removes the recorded entry of profile kind for hook h.
+func (r *Record) drop(kind string, h adapter.Hook) {
+	if h.Event == adapter.EventStart {
+		delete(r.Entries, kind)
+		return
+	}
+	delete(r.Records, recordKey(kind, h.CLIEvent))
+}
+
+// Has reports whether the record holds the entry of profile kind for hook h.
+func (r Record) Has(kind string, h adapter.Hook) bool {
+	_, ok := r.entry(kind, h)
+	return ok
 }
 
 // Entry is one installed Brain entry.
@@ -62,7 +109,7 @@ func RemoveRecord(path string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if len(rec.Entries) > 0 {
+	if len(rec.Entries) > 0 || len(rec.Records) > 0 {
 		return false, nil
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
