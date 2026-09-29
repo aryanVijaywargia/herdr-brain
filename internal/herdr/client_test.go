@@ -591,7 +591,7 @@ func TestPaneProcesses(t *testing.T) {
 	info := fixture(t, "pane-process-info.json")
 	c, _ := fakeClient(t, map[string]reply{cmd: {Stdout: info}})
 	got, err := c.PaneProcesses(deadline(t), "w1:p2")
-	want := []Process{{Name: "brain", Argv: []string{"/tmp/brain-t0048/plug/bin/brain", "pane", "review", "--proposal", "7"}}}
+	want := []Process{{Name: "brain", Argv: []string{"/tmp/brain-t0048/plug/bin/brain", "pane", "review", "--proposal", "7"}, PID: 77750}}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("PaneProcesses() = %+v, %v, want %+v, nil", got, err, want)
 	}

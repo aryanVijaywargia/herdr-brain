@@ -62,6 +62,16 @@ func ConformanceFile() (string, error) {
 	return filepath.Join(dir, "conformance.json"), nil
 }
 
+// EvalLock returns ~/.local/share/brain/eval.lock, the lock of the eval runner (HLD §12.1,
+// E10-S1). One run at a time holds it.
+func EvalLock() (string, error) {
+	dir, err := DataHome()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "eval.lock"), nil
+}
+
 // LinkPath returns ~/.local/bin/brain, the symlink that `brain setup` offers to make.
 func LinkPath() (string, error) {
 	home, err := homeDir()

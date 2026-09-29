@@ -75,6 +75,18 @@ func TestConformanceFile(t *testing.T) {
 	}
 }
 
+func TestEvalLock(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got, err := EvalLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".local", "share", "brain", "eval.lock"); got != want {
+		t.Errorf("EvalLock = %q, want %q", got, want)
+	}
+}
+
 func TestLinkPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

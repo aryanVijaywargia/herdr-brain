@@ -395,37 +395,15 @@ func (c *Client) ClosePluginPane(ctx context.Context, paneID string) error {
 type Process struct {
 	Name string
 	Argv []string // nil when herdr cannot read it
+	PID  int
 }
 
 // PaneProcesses returns the foreground processes of the pane with id, from `herdr pane
 // process-info`. It returns ErrPaneNotFound when the pane closed.
 func (c *Client) PaneProcesses(ctx context.Context, id string) ([]Process, error) {
-	if err := checkPaneID(id); err != nil {
-		return nil, fmt.Errorf("herdr pane process-info: %w", err)
+	pi, err := c.PaneProcessInfo(ctx, id)
+	if err != nil {
+		return nil, err
 	}
-	var r struct {
-		Info *struct {
-			PaneID    *string `json:"pane_id"`
-			Processes []struct {
-				Name *string  `json:"name"`
-				Argv []string `json:"argv"`
-			} `json:"foreground_processes"`
-		} `json:"process_info"`
-	}
-	if err := c.result(ctx, "pane_process_info", &r, "pane", "process-info", "--pane", id); err != nil {
-		return nil, fmt.Errorf("herdr pane process-info: %w", err)
-	}
-	var ck check
-	info := req(&ck, r.Info, "process_info")
-	if got := req(&ck, info.PaneID, "process_info.pane_id"); ck.err == nil && got != id {
-		ck.fail("process_info.pane_id", fmt.Sprintf("%q, want %q", got, id))
-	}
-	ps := make([]Process, len(info.Processes))
-	for i, p := range info.Processes {
-		ps[i] = Process{Name: req(&ck, p.Name, fmt.Sprintf("process_info.foreground_processes[%d].name", i)), Argv: p.Argv}
-	}
-	if ck.err != nil {
-		return nil, fmt.Errorf("herdr pane process-info: %w", ck.err)
-	}
-	return ps, nil
+	return pi.Processes, nil
 }

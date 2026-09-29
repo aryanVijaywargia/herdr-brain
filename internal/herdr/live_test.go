@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 const liveSession = "brain-live-test"
@@ -133,4 +134,84 @@ func TestLiveTarget(t *testing.T) {
 			t.Errorf("session %q = %+v, want running with socket %q", liveSession, s, socket)
 		}
 	}
+}
+
+// TestLiveServerControl starts a named server with StartServer in a scratch HOME, opens a
+// workspace, runs a shell step and waits for its output, splits a pane, reads its processes,
+// closes the panes, then stops and deletes the session (E10-S1).
+func TestLiveServerControl(t *testing.T) {
+	environ, work := liveEnviron(t)
+	s, err := StartServer(deadline(t), environ, liveSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ss, err := Sessions(deadline(t), environ)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(ss, func(x Session) bool { return x.Name == liveSession && x.Running })
+	if i < 0 {
+		t.Fatalf("sessions = %+v, want %s running", ss, liveSession)
+	}
+	c, err := New(environ, Target{Session: liveSession, Socket: ss[i].Socket})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := c.CreateWorkspace(deadline(t), work, "eval-case")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RunInPane(deadline(t), root.ID, "echo hi; echo live-done-kest $?"); err != nil {
+		t.Fatal(err)
+	}
+	if line, err := c.WaitOutput(deadline(t), root.ID, "live-done-kest [0-9]+", 10*time.Second); err != nil || line != "live-done-kest 0" {
+		t.Errorf("WaitOutput() = %q, %v", line, err)
+	}
+	p, err := c.SplitPane(deadline(t), root.ID, work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pi, err := c.PaneProcessInfo(deadline(t), p.ID); err != nil || pi.ShellPID <= 0 {
+		t.Errorf("PaneProcessInfo() = %+v, %v", pi, err)
+	}
+	for _, id := range []string{p.ID, root.ID} {
+		if err := c.ClosePane(deadline(t), id); err != nil {
+			t.Errorf("ClosePane(%s) = %v", id, err)
+		}
+	}
+	// The eval guard counts on this: herdr closes a workspace with its last pane.
+	if ws, err := c.Workspaces(deadline(t)); err != nil || slices.ContainsFunc(ws, func(w Workspace) bool { return w.Label == "eval-case" }) {
+		t.Errorf("Workspaces() after the close = %+v, %v, want no eval-case", ws, err)
+	}
+	if err := s.Stop(deadline(t)); err != nil {
+		t.Fatal(err)
+	}
+	ss, err = Sessions(deadline(t), environ)
+	if err != nil || slices.ContainsFunc(ss, func(x Session) bool { return x.Name == liveSession }) {
+		t.Errorf("sessions after Stop = %+v, %v, want no %s", ss, err, liveSession)
+	}
+}
+
+// liveEnviron returns a scratch environment with a short scratch HOME, and a work folder in
+// it. Its HERDR_ variables name another session, which StartServer must not reach.
+func liveEnviron(t *testing.T) (environ []string, work string) {
+	t.Helper()
+	if os.Getenv("BRAIN_LIVE_HERDR") != "1" {
+		t.Skip("set BRAIN_LIVE_HERDR=1 to run against a scratch herdr server")
+	}
+	bin, err := exec.LookPath("herdr")
+	if err != nil {
+		t.Skip("herdr is not on PATH")
+	}
+	home, err := os.MkdirTemp("/tmp", "brain-live-") // short: a socket path
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	work = filepath.Join(home, "work")
+	if err := os.Mkdir(work, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return []string{"HOME=" + home, "PATH=/usr/bin:/bin", "HERDR_BIN_PATH=" + bin,
+		"HERDR_SOCKET_PATH=/tmp/not-this.sock", "HERDR_SESSION=default"}, work
 }
