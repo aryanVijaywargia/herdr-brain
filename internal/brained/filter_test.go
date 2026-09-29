@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -320,5 +322,38 @@ func TestCaptureReplay(t *testing.T) {
 	}
 	if !slices.Equal(got, []bool{true, true, false}) {
 		t.Errorf("counts = %v, want true, true, false", got)
+	}
+}
+
+// The shipped profiles drop the done line of a Claude turn and the Codex rules in every
+// recorded read, and keep the text around them.
+func TestShippedNoise(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join("testdata", "*-s*.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := NewCapture(herdr.Socket{})
+	done, rule := regexp.MustCompile(`^✻ \S+ for \d+s · done `), regexp.MustCompile(`^─+$`)
+	seen := map[string]int{}
+	for _, f := range files {
+		harness, _, _ := strings.Cut(filepath.Base(f), "-")
+		text := fixture(t, filepath.Base(f))
+		for _, l := range strings.Split(text, "\n") {
+			if harness == "claude" && done.MatchString(l) || harness == "codex" && rule.MatchString(strings.TrimRight(l, " ")) {
+				seen[harness]++
+			}
+		}
+		lines := c.lines(harness, text)
+		for _, l := range lines {
+			if harness == "claude" && done.MatchString(l) || harness == "codex" && rule.MatchString(l) {
+				t.Errorf("%s: line %q is kept, want it dropped", f, l)
+			}
+		}
+		if len(lines) == 0 {
+			t.Errorf("%s: no line is kept", f)
+		}
+	}
+	if seen["claude"] == 0 || seen["codex"] == 0 {
+		t.Errorf("recorded lines = %v, want done lines of claude and rules of codex", seen)
 	}
 }

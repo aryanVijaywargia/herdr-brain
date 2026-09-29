@@ -74,5 +74,5 @@ columns.
 ## Noise profiles
 
 The shipped `adapters/codex.toml` and `adapters/claude.toml` carry the `noise_lines` of the
-reads above (E11-S4): the screen lines that change on each read (the spinner, the tip, the
-composer or prompt box, and the footer). The capture tests use the shipped profiles.
+reads above (E11-S4): the screen lines that change on each read (the spinner, the done line,
+the rules, the tip, the composer or prompt box, and the footer). The capture tests use the shipped profiles.
