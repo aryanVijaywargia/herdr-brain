@@ -14,7 +14,6 @@ import (
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
-	"github.com/aryanVijaywargia/herdr-brain/internal/secret"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
@@ -75,11 +74,12 @@ type capturePane struct {
 
 // read is one checked pane read.
 type read struct {
-	pane  herdr.Pane // the pane after the read
-	agent string     // "" when the pane has no agent
-	read  herdr.PaneRead
-	lines []string
-	full  bool // the read holds the whole history of the pane
+	pane    herdr.Pane // the pane after the read
+	agent   string     // "" when the pane has no agent
+	read    herdr.PaneRead
+	lines   []string
+	senders []store.Sender // the sender of each line (§6.5)
+	full    bool           // the read holds the whole history of the pane
 }
 
 // errUnsure says that the pane changed during the read.
@@ -165,6 +165,7 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 		return c.baseline(ctx, s, gapSession)
 	}
 	added, status := newPart(cp.lines, cp.back, r)
+	ps := parts(r, added)
 	err = c.write(ctx, s, func(tx *sql.Tx, now time.Time, learning Learning) error {
 		if !sameLearning(learning, cp.base) {
 			// Learning switched since the base: drop the read, and it is the new base.
@@ -190,15 +191,32 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 			if status == store.ObservationPartial && len(cp.lines) > 0 {
 				// The screen lost the old text and shows nothing new, as an alternate screen
 				// that closes: the lost text shows as a gap (S38).
-				return store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: identity(s, cp.segment, now),
+				return record(ctx, tx, cp, store.Observation{CaptureIdentity: identity(s, cp.segment, now),
 					Source: store.SourceHerdr, SegmentID: cp.segment, Event: gapLost, Status: store.ObservationGap, At: now})
 			}
 			return nil // a repaint or a resize: nothing new (S38)
 		}
-		excerpt, truncated := filter(strings.Join(added, "\n"))
-		return store.AddObservation(ctx, tx, store.Observation{
-			CaptureIdentity: identity(s, cp.segment, now), Source: store.SourceHerdr, SegmentID: cp.segment,
-			Event: eventOf(s), Excerpt: excerpt, Truncated: truncated, Status: status, At: now})
+		for i, p := range ps {
+			excerpt, truncated := filter(r.agent, strings.Join(p.lines, "\n"))
+			o := store.Observation{CaptureIdentity: fmt.Sprintf("%s/%d", identity(s, cp.segment, now), i+1),
+				Source: store.SourceHerdr, SegmentID: cp.segment, Event: eventOf(s), Excerpt: excerpt, Truncated: truncated,
+				Status: status, Sender: p.sender, Counts: true, BrainOrigin: p.brain, At: now}
+			if status == store.ObservationPartial {
+				// A partial read does not start inside the old text, so a text that the segment
+				// holds can be old text shown again: Brain cannot tell a replay from new
+				// evidence, so it stores it and does not count it (§6.4, S34). A complete read
+				// that repeats a text is a real repeat (S40).
+				seen, err := store.SeenExcerpt(ctx, tx, cp.segment, p.sender, excerpt)
+				if err != nil {
+					return err
+				}
+				o.Counts = !seen
+			}
+			if err := record(ctx, tx, cp, o); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return err
@@ -231,8 +249,26 @@ func (c *Capture) begin(ctx context.Context, tx *sql.Tx, s Step, cp *capturePane
 	if gap == "" {
 		return nil
 	}
-	return store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: identity(s, cp.segment, now),
+	return record(ctx, tx, cp, store.Observation{CaptureIdentity: identity(s, cp.segment, now),
 		Source: store.SourceHerdr, SegmentID: cp.segment, Event: gap, Status: store.ObservationGap, At: now})
+}
+
+// record stores observation o of the session of cp and moves the cursor of the session in tx,
+// so a crash leaves both or neither (§6.4). tx has run the exclusion check (Capture.write), and
+// the caller writes only when the learning state is the one of its base. A known capture
+// identity is a retry or a duplicate: it adds nothing and moves no cursor. A gap has no text,
+// so it never counts.
+func record(ctx context.Context, tx *sql.Tx, cp *capturePane, o store.Observation) error {
+	// E11-S6 (#60) checks the capture generation of the session here: a failed check
+	// discards the write.
+	if o.Status == store.ObservationGap {
+		o.Counts = false
+	}
+	added, err := store.AddObservation(ctx, tx, o)
+	if err != nil || !added {
+		return err
+	}
+	return store.MoveCursor(ctx, tx, cp.session, o.Source, o.CaptureIdentity)
 }
 
 // errMoved says that the pane has a new id or workspace.
@@ -262,7 +298,7 @@ func (c *Capture) lose(ctx context.Context, s Step, cp *capturePane, err error) 
 			if !sameLearning(learning, cp.base) || !learning.On {
 				return nil
 			}
-			return store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: identity(s, cp.segment, now),
+			return record(ctx, tx, cp, store.Observation{CaptureIdentity: identity(s, cp.segment, now),
 				Source: store.SourceHerdr, SegmentID: cp.segment, Event: gap, Status: store.ObservationGap, At: now})
 		})
 		cp.segment = 0
@@ -356,7 +392,7 @@ func (c *Capture) read(ctx context.Context, id string) (read, error) {
 	}
 	all := c.lines(agent, rd.Text)
 	raw := strings.Count(strings.TrimRight(rd.Text, "\n"), "\n") + 1
-	return read{pane: after, agent: agent, read: rd, lines: all,
+	return read{pane: after, agent: agent, read: rd, lines: all, senders: senders(agent, all),
 		full: source == herdr.ReadRecentUnwrapped && raw < lines && !rd.Truncated}, nil
 }
 
@@ -382,7 +418,7 @@ func (c *Capture) lines(harness, text string) []string {
 	return ls
 }
 
-// newPart returns the lines of r that the last read old does not hold, and the status of the
+// newPart returns the indexes of the lines of r that the last read old does not hold, and the status of the
 // new part (§6.2 steps 4-5). A line diff keeps each new line, also one with the same text as
 // an old line (S40). A new block that is only old text with other line breaks is a resize or
 // a rewrap, so it is not new (S38) [NEW, design choice]. The part is complete when the read
@@ -394,7 +430,7 @@ func (c *Capture) lines(harness, text string) []string {
 // if the read back, before old, holds them all [NEW, real Claude read,
 // testdata/claude-s31-3-working.txt]. When the last old line stays, the lines above are a
 // repeat (S40).
-func newPart(old, back []string, r read) ([]string, store.ObservationStatus) {
+func newPart(old, back []string, r read) ([]int, store.ObservationStatus) {
 	matched := lcs(old, r.lines)
 	if first := slices.Index(matched, true); first > 0 && !slices.Contains(r.lines, old[len(old)-1]) &&
 		!slices.ContainsFunc(r.lines[:first], func(l string) bool { return !slices.Contains(back, l) }) {
@@ -403,23 +439,27 @@ func newPart(old, back []string, r read) ([]string, store.ObservationStatus) {
 		}
 	}
 	oldText := squash(strings.Join(old, ""))
-	var added, block []string
+	var added, block []int
 	// A rewrap splits lines anew, so a block with its text in the old read and a line that
 	// the old read does not hold is a rewrap. A block of old lines only is a repeat (S40).
 	flush := func() {
-		rewrap := strings.Contains(oldText, squash(strings.Join(block, ""))) &&
-			slices.ContainsFunc(block, func(l string) bool { return !slices.Contains(old, l) })
+		var text strings.Builder
+		for _, i := range block {
+			text.WriteString(r.lines[i])
+		}
+		rewrap := strings.Contains(oldText, squash(text.String())) &&
+			slices.ContainsFunc(block, func(i int) bool { return !slices.Contains(old, r.lines[i]) })
 		if !rewrap {
 			added = append(added, block...)
 		}
 		block = nil
 	}
-	for i, l := range r.lines {
+	for i := range r.lines {
 		if matched[i] {
 			flush()
 			continue
 		}
-		block = append(block, l)
+		block = append(block, i)
 	}
 	flush()
 	status := store.ObservationPartial
@@ -469,34 +509,6 @@ func squash(s string) string {
 		}
 		return r
 	}, s)
-}
-
-// filter is the excerpt filter until E11-S4 adds the filters of §6.3: it drops secrets and
-// cuts the text to excerptLimit characters (§6.7).
-func filter(text string) (string, bool) {
-	hits := secret.Find(text)
-	if len(hits) > 0 {
-		var b strings.Builder
-		at := 0
-		for _, h := range hits {
-			if h.Start < at {
-				h.Start = at
-			}
-			if h.End <= at {
-				continue
-			}
-			b.WriteString(text[at:h.Start])
-			b.WriteString("[secret]")
-			at = h.End
-		}
-		b.WriteString(text[at:])
-		text = b.String()
-	}
-	rs := []rune(text)
-	if len(rs) <= excerptLimit {
-		return text, false
-	}
-	return string(rs[:excerptLimit]), true
 }
 
 // identity is the capture identity of an observation: the binding, the segment and the read

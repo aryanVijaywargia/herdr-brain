@@ -10,3 +10,8 @@ input.session_id = "session_id"
 input.cwd = "cwd"
 # The version of the M0 test (spike/m0/FINDINGS.md).
 tested_version = "2.1.283"
+# The Claude screen lines that change on each read and that herdr capture drops (§6.2, E11-S4):
+# the spinner, the tip, the empty prompt box, the rules, the status line and the mode line.
+# From the recorded reads in internal/brained/testdata (Claude Code 2.1.284). The status line
+# " | ctx:" is the one of the recording machine.
+noise_lines = ['[·✢✳✶✻✽*] \S+….*', '\s*⎿\s+Tip: .*', '❯', '─+', '.* \| ctx:.*', '\s*⏸ .*']

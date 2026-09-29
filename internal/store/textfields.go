@@ -109,6 +109,9 @@ func noItemTextFields() []Field {
 		// text search (§6.7).
 		{"observations", "excerpt"},
 		{"observations", "status"},
+		{"observations", "sender"},
 		{"observations", "at"},
+		{"cursors", "source"},
+		{"cursors", "position"}, // A capture identity or a byte offset (§6.4).
 	}
 }

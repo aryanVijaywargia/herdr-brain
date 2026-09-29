@@ -13,3 +13,8 @@ tested_version = "0.154.0"
 # The hook entry sets additionalContextLimit 0, so Codex sends the whole brief inline, not a
 # preview of a saved file (E8 epic, official Codex hooks docs).
 additional_context_limit = 0
+# The Codex screen lines that change on each read and that herdr capture drops (§6.2, E11-S4):
+# the empty composer, the footer and the spinner. From the recorded reads in
+# internal/brained/testdata (codex-cli 0.154.0). The footer starts with the git branch, so the
+# pattern takes any text before " · Context".
+noise_lines = ['› Ask Codex to do anything', '\s*.* · Context \d+% used · .*', '• Working \(.*\)']

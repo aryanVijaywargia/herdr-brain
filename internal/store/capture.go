@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -61,6 +62,17 @@ const (
 // SourceHerdr is the observation source of a pane read.
 const SourceHerdr = "herdr"
 
+// Sender says who wrote the text of an observation (§6.5).
+type Sender string
+
+// The senders. Capture never sets SenderYou: only a review approval does (§6.3).
+const (
+	SenderYou         Sender = "you"
+	SenderUnconfirmed Sender = "unconfirmed" // a captured message, or text with no known mark
+	SenderAssistant   Sender = "assistant"   // agent reply text
+	SenderTool        Sender = "tool"        // tool output
+)
+
 // Observation is one row of observations.
 type Observation struct {
 	ID              int64
@@ -71,6 +83,9 @@ type Observation struct {
 	Excerpt         string
 	Truncated       bool
 	Status          ObservationStatus
+	Sender          Sender
+	Counts          bool // it can raise a support count (§6.4)
+	BrainOrigin     bool // Brain caused the text; it never counts
 	At              time.Time
 }
 
@@ -128,9 +143,10 @@ func EndSession(ctx context.Context, tx *sql.Tx, k SessionKey, at time.Time) err
 	return nil
 }
 
-// ForgetSession removes the session with key k, with its segments and observations.
+// ForgetSession removes the session with key k, with its segments, observations and cursors.
 func ForgetSession(ctx context.Context, tx *sql.Tx, k SessionKey) error {
 	for _, q := range []string{
+		`DELETE FROM cursors WHERE session_id IN (SELECT id FROM sessions WHERE ` + keyWhere + `)`,
 		`DELETE FROM observations WHERE segment_id IN
 			(SELECT s.id FROM segments s JOIN sessions n ON n.id = s.session_id WHERE ` + keyWhereOf("n") + `)`,
 		`DELETE FROM segments WHERE session_id IN (SELECT id FROM sessions WHERE ` + keyWhere + `)`,
@@ -164,15 +180,63 @@ func StartSegment(ctx context.Context, tx *sql.Tx, sessionID int64, paneID, work
 	return id, nil
 }
 
-// AddObservation adds o. A second observation with the same capture identity is an error.
-func AddObservation(ctx context.Context, tx *sql.Tx, o Observation) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO observations
-		(capture_identity, source, segment_id, event, excerpt, truncated, status, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		o.CaptureIdentity, o.Source, o.SegmentID, o.Event, o.Excerpt, o.Truncated, o.Status, timeArg(o.At))
+// AddObservation adds o and reports whether it is new. An observation with a known capture
+// identity is a retry or a duplicate: it adds nothing and does not count again (§6.4).
+func AddObservation(ctx context.Context, tx *sql.Tx, o Observation) (bool, error) {
+	sender := o.Sender
+	if sender == "" {
+		sender = SenderUnconfirmed
+	}
+	res, err := tx.ExecContext(ctx, `INSERT INTO observations
+		(capture_identity, source, segment_id, event, excerpt, truncated, status, sender, counts, brain_origin, at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (capture_identity) DO NOTHING`,
+		o.CaptureIdentity, o.Source, o.SegmentID, o.Event, o.Excerpt, o.Truncated, o.Status, sender,
+		o.Counts && !o.BrainOrigin, o.BrainOrigin, timeArg(o.At))
 	if err != nil {
-		return fmt.Errorf("add observation: %w", err)
+		return false, fmt.Errorf("add observation: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("add observation: %w", err)
+	}
+	return n == 1, nil
+}
+
+// SeenExcerpt reports whether segment segmentID holds an observation of sender with excerpt.
+func SeenExcerpt(ctx context.Context, tx *sql.Tx, segmentID int64, sender Sender, excerpt string) (bool, error) {
+	var n int
+	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM observations
+		WHERE segment_id = ? AND sender = ? AND excerpt = ? AND status != 'gap'`, segmentID, sender, excerpt).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("find excerpt: %w", err)
+	}
+	return n > 0, nil
+}
+
+// MoveCursor sets the cursor of session sessionID and source to position, the capture
+// identity of its last observation. The caller moves it in the transaction that stores the
+// observation (§6.4).
+func MoveCursor(ctx context.Context, tx *sql.Tx, sessionID int64, source, position string) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO cursors (session_id, source, position) VALUES (?, ?, ?)
+		ON CONFLICT (session_id, source) DO UPDATE SET position = excluded.position`, sessionID, source, position)
+	if err != nil {
+		return fmt.Errorf("move cursor: %w", err)
 	}
 	return nil
+}
+
+// Cursor returns the cursor position of session sessionID and source, or "" when it has none.
+func Cursor(ctx context.Context, tx *sql.Tx, sessionID int64, source string) (string, error) {
+	var pos string
+	err := tx.QueryRowContext(ctx, `SELECT position FROM cursors WHERE session_id = ? AND source = ?`,
+		sessionID, source).Scan(&pos)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read cursor: %w", err)
+	}
+	return pos, nil
 }
 
 // Sessions returns every session, by id.
@@ -201,12 +265,12 @@ func Segments(ctx context.Context, tx *sql.Tx) ([]Segment, error) {
 
 // Observations returns every observation, by id.
 func Observations(ctx context.Context, tx *sql.Tx) ([]Observation, error) {
-	return query(ctx, tx, `SELECT id, capture_identity, source, segment_id, event, excerpt, truncated, status, at
-		FROM observations ORDER BY id`,
+	return query(ctx, tx, `SELECT id, capture_identity, source, segment_id, event, excerpt, truncated, status,
+		sender, counts, brain_origin, at FROM observations ORDER BY id`,
 		func(rows *sql.Rows) (Observation, error) {
 			var o Observation
 			err := rows.Scan(&o.ID, &o.CaptureIdentity, &o.Source, &o.SegmentID, &o.Event, &o.Excerpt,
-				&o.Truncated, &o.Status, timeDest{&o.At})
+				&o.Truncated, &o.Status, &o.Sender, &o.Counts, &o.BrainOrigin, timeDest{&o.At})
 			return o, err
 		})
 }
