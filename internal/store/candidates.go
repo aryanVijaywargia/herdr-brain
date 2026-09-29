@@ -83,20 +83,40 @@ func ClaimByID(ctx context.Context, tx *sql.Tx, id string) (Claim, error) {
 	return c, nil
 }
 
+// ScopeClaims returns the claims with a key that are open, active or rejected in the scope of
+// workspaceKey, or active or rejected in global, by id: the claim keys of the extractor input
+// (§7.3). A claim is open with an open or proposed candidate, active with an active item, and
+// rejected while its rejection holds. A global candidate is not approved global context: it can
+// come from another workspace. A forgotten claim has no key and is not returned.
+func ScopeClaims(ctx context.Context, tx *sql.Tx, workspaceKey string) ([]Claim, error) {
+	return query(ctx, tx, `SELECT id, situation, rule, created FROM claims WHERE situation IS NOT NULL AND rule IS NOT NULL AND id IN (
+			SELECT claim_id FROM candidates WHERE status IN (?2, ?3) AND workspace_key = ?1
+			UNION SELECT claim_id FROM items WHERE state = ?4 AND COALESCE(workspace_key, '') IN (?1, '')
+			UNION SELECT claim_id FROM rejections WHERE reopened IS NULL AND COALESCE(workspace_key, '') IN (?1, ''))
+		ORDER BY id`,
+		func(rows *sql.Rows) (Claim, error) {
+			var c Claim
+			err := rows.Scan(&c.ID, &c.Key.Situation, &c.Key.Rule, timeDest{&c.Created})
+			return c, err
+		}, workspaceKey, CandidateOpen, CandidateProposed, StateActive)
+}
+
 // Match is what Brain knows about a same_as link that the extractor proposes (§7.3).
 type Match struct {
 	Clear       bool // the extractor gives a clear match
 	Permissions bool // the extractor flags both claims as a permission or a safety rule
 }
 
-// permissionText finds a claim key that may change a permission or a safety rule: the words
-// of the review warning (internal/cli permissionWords). Brain checks the permission flag
-// outside the model (§7.3), so SameAs does not trust Match.Permissions alone.
+// permissionText finds text that may change a permission or a safety rule: the words of the
+// review warning (internal/cli permissionWords).
 var permissionText = regexp.MustCompile(`(?i)allow|permission|sandbox|--dangerously|\b(never|always)\s+run`)
 
-func (k ClaimKey) touchesPermission() bool {
-	return permissionText.MatchString(k.Situation + " " + k.Rule)
-}
+// TouchesPermission reports whether text may change a permission or a safety rule. Brain checks
+// the permission flag outside the model with it (§7.3), so neither SameAs nor the extractor
+// trusts the model flag alone.
+func TouchesPermission(text string) bool { return permissionText.MatchString(text) }
+
+func (k ClaimKey) touchesPermission() bool { return TouchesPermission(k.Situation + " " + k.Rule) }
 
 // SameAs links claim id to claim other: the key of id means the same as the key of other. A
 // clear match is confirmed. An unclear match, and any match of two permission or safety
