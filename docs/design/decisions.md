@@ -227,8 +227,8 @@ $S/h session stop brain-e2s6; $S/h session delete brain-e2s6
 **Decision:** `[[startup]]`. The Brain manifest starts `brained` with one `[[startup]]` entry. It runs as one long process for each herdr session (each herdr server). Brain uses no `[[events]]` handler for capture, and no launchd or systemd.
 
 `brained` must do these things itself, because herdr does not do them:
-- **One copy for each herdr session.** It takes a lock file in `HERDR_PLUGIN_STATE_DIR`, keyed by `HERDR_SESSION` (empty for `default`). A second copy exits. herdr can start a second copy while an old one still runs (test below).
-- **Exit when the server stops.** herdr sends no signal on `session stop`, and the process lives on with ppid 1. The event socket closes (EOF), so `brained` exits on EOF.
+- **One copy for each herdr session [NEW].** It takes one lock file [NEW] in `HERDR_PLUGIN_STATE_DIR`, keyed by `HERDR_SESSION` (empty for `default`). A second copy exits. herdr can start a second copy while an old one still runs (test below).
+- **Exit when the server stops [NEW].** herdr sends no signal on `session stop`, and the process lives on with ppid 1. The event socket closes (EOF), so `brained` exits on EOF.
 - **Exit when Brain is disabled or unlinked.** herdr does not stop it. `brained` checks this itself. E11-S2 picks the check.
 - **Subscribe for each pane.** `events.subscribe` needs a `pane_id` for `pane.agent_status_changed`. `brained` subscribes to `pane.created` and `pane.agent_detected` (no pane id), lists the panes at start, and adds a subscription for each pane.
 - **No restart after a crash.** herdr does not start it again until the next server start or live handoff. `brain status` and `brain doctor` show "brained is not running". A new link or install also starts nothing until the server starts again.
@@ -237,7 +237,7 @@ $S/h session stop brain-e2s6; $S/h session delete brain-e2s6
 - HLD §6.2 needs one read at a time for each pane, in event order, and the last read in memory. A long process gives this.
 - `[[events]]` runs one new process for each event. A burst of 10 changes gave 10 processes at the same time, with 3 s hooks. Nothing orders them, and none keeps state. Each call would need a lock and a state file.
 - The `[[events]]` payload has no time and no event id. So a late process cannot tell that its event is old.
-- The herdr plugin docs say that `[[startup]]` runs after the API socket is ready. The probe did not connect to the socket at startup, so this is not tested. `brained` retries the first connect.
+- The herdr plugin docs say that `[[startup]]` runs after the API socket is ready. The probe did not connect to the socket at startup, so this is not tested. `brained` retries the first connect [NEW].
 - A long startup process is allowed: two ran for 12 minutes with no kill.
 
 **Test** (herdr 0.9.1, 2026-09-29, scratch HOME, named sessions `brain-e11s1` and `brain-e11s1b` and a scratch-HOME `default`; the main server and the real `default` were not touched). Probe: `spike/m0/e11probe/`. Raw log: `spike/m0/data/e11s1-hosting.txt`.

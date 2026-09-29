@@ -386,14 +386,14 @@ All components are parts of one Go binary and one plugin manifest. They are not 
 
 | Component | Job | Milestone |
 |---|---|---|
-| `herdr-plugin.toml` | Binds actions (review, remember, status) and the popup to the `brain` binary. From M2 it also starts `brained`. | M1 |
+| `herdr-plugin.toml` | Binds actions (review, remember, status) and the popup to the `brain` binary. From M2 a `[[startup]]` entry starts `brained` once for each herdr session. | M1 |
 | `brain` binary | One Go binary (D2). Short calls: `remember`, `review`, `undo`, `forget`, `pin`, `learn`, `status`, `doctor`, `hook` and `setup`. `setup --session <name>` binds one more real herdr session to the main store. `setup --session <name> --test <folder>` binds a test session to its own store (§8.3). `promote` comes in M3. `run`, `tools` and `automation` come in M4. Each call checks the herdr version and refreshes the workspace map and the labels. | M1 |
 | Store | SQLite. The only source of truth. M1 creates only the M1 tables (§11). | M1 |
 | Compiler | Builds one output generation in its own folder: the global part, one workspace part for each workspace and one manifest. Then it switches one pointer. Runs under one lock. Skill folders come in M3. | M1 |
 | `brain hook` | The hook subcommand. It checks the live pane with herdr, reads the current generation once and prints the brief in the output form of the profile. It then writes an "emitted" receipt. OpenCode and pi call it through a small shared TypeScript shim. | M1 |
 | Base adapter + profiles | Shared code for all harnesses, plus one data profile for each harness (§8.5) | M1 for Claude and Codex; others after M0 |
 | Review queue and review pane | Holds proposals until you decide. `brain review <id>` can run in a small pane that Brain opens `--no-focus` beside the caller. | M1 |
-| `brained` listener | Subscribes to herdr events. Reads panes at state changes. Runs the extractor and the prompt match for herdr capture. | M2 |
+| `brained` listener | Runs as the plugin `[[startup]]` process, one for each herdr session (lock in the plugin state dir). Exits when the event socket closes or Brain is disabled or unlinked. Subscribes to herdr events for each pane. Reads panes at state changes. Runs the extractor and the prompt match for herdr capture. | M2 |
 | Capture | Turns each pane read and each hook record into a bounded observation. Filters injected text, adds the sender mark, moves the cursor in the same transaction. | M2 |
 | Signal rules | Find candidate corrections, procedures, repeated prompts, command chains and failures. No LLM. | M2 |
 | Extractor | Turns a batch of signals into claims and ready proposals | M2 |
@@ -593,7 +593,7 @@ herdr capture is the main path. It needs no code for each harness. Hook records 
 **Hook records** (D11; details from [ASTRA4] §B):
 - They use the same `brain hook` binary, with an event name from the profile.
 - `UserPromptSubmit`: the exact submitted text. The sender stays **unconfirmed**, because a script or `herdr agent prompt` can also submit text. The hook prints nothing.
-- `PostToolUse`: a shell-tool matcher first. Codex gives the session `cwd`, not the command `cwd`. `tool_response` has no standard exit code, and a long command can finish through `write_stdin`. So Brain records an exit status only when the payload has one.
+- `PostToolUse`: a shell-tool matcher first. Codex gives the session `cwd`, not the command `cwd`. `tool_response` has no standard exit code, and a long command can finish through `write_stdin`. So Brain records an exit status only when the payload has one. Claude sends a failed command to `PostToolUseFailure`, with the exit code in `error`; Brain also matches this event. Claude's `cwd` is the shell cwd after the command.
 - `Stop`: an observation only. It does not prove that the reply is complete.
 - `PreCompact`: deferred. Its payload has no conversation text.
 - Capture hooks are short. They exit 0 on any error and never block the CLI.
@@ -603,18 +603,18 @@ herdr capture is the main path. It needs no code for each harness. Hook records 
 
 A state change is a **chance to read** the pane. It does not prove that you sent a message or that the agent finished its reply. The read also comes after the event, not at its exact time.
 
-1. `brained` subscribes only to bound herdr sessions with learning on (§8.3). It subscribes to `pane.agent_detected`, `pane.agent_status_changed`, `pane.exited` and `pane.closed`.
+1. `brained` subscribes only to bound herdr sessions with learning on (§8.3). It subscribes to `pane.created` and `pane.agent_detected`. For each pane it adds `pane.agent_status_changed`, `pane.exited` and `pane.closed` with the `pane_id`, because herdr requires the pane for status events.
 2. On **every** status change (also `blocked` → `working` and `unknown`), it reads the pane (`recent-unwrapped`, about 120 lines).
 3. Reads are **one at a time for each pane**. When a read returns, Brain checks that the pane still holds the same agent, session and workspace. If not, it drops the read and records a gap.
 4. Brain compares the read with the last read of that pane. The last read is kept **in memory only**. The new part becomes one **observation**: (capture identity, event, event time, read time, text, status).
 5. Status is `complete`, `partial` or `gap`. A partial or uncertain piece is kept as it is. Brain never invents missing text.
-6. **Agent session binding:** (harness, agent session id from herdr) when it exists. Else (harness, pane id, agent start time). Brain stores the binding before it stores any evidence for it.
+6. **Agent session binding:** (harness, agent session id from herdr) when it exists. Else (harness, pane id, agent pid from `pane process-info`). herdr gives no agent start time. Brain stores the binding before it stores any evidence for it.
 7. **Pane moves:** when live membership changes, a new capture segment starts. Brain never joins text across that boundary. New text never goes to the old workspace.
 8. **Start and reconnect:** Brain reconciles all live agents. For an agent that already works, the current screen is only a baseline. Brain records a gap and waits for new text.
 9. **Exit and close:** Brain closes the segment. It does not need a final read to succeed.
 
 Limits:
-- Rows that leave an alternate screen are lost. M0 measures the loss for each harness.
+- Claude draws in the alternate screen. While it is `working` or `blocked`, only the screen can be read. At idle, herdr can capture the history by scrolling. Codex draws inline, so its rows go to scrollback (M0 E11-S1).
 - M0 tests whether `recent-unwrapped` works while an agent is `working` or `blocked`. If it does not, Brain uses the `visible` read and reports lower coverage.
 - An observation can hold screen noise, for example the input box. Optional noise patterns for each harness remove it. An unknown pattern lowers confidence. It does not fake a clean text.
 - Brain reads only. It never sends keys or scrolls a pane to get missed text.
@@ -1076,7 +1076,7 @@ Rules:
 | Last result | ok, failed, skipped, cancelled or unknown, with the time |
 
 **Claim before run** (from Prime [PRIME] `cron-jobs.ts:718-742`, `:1749-1795`):
-1. The event arrives. Brain builds an event key from the herdr event id, or from (pane, agent start time, status time).
+1. The event arrives. Brain builds an event key from (pane, agent session id, `state_change_seq` from `agent get`) [NEW]. herdr events have no id and no time.
 2. Brain inserts one row (automation id, event key) in `automation_runs`. The pair is unique. If the row exists, Brain does nothing. This prevents duplicate runs. It is not exactly-once.
 3. Brain checks that the binding is still enabled and that the contract hash is unchanged.
 4. If an agent in the workspace is `working` in the pinned folder, Brain skips the run and records **skipped**.
@@ -1450,19 +1450,19 @@ M0 checks the facts that M1 needs first (marked **M1**). The others can stay **u
 5. The event types for workspace rename and close on the socket.
 6. How herdr shows `workspace report-metadata` tokens in the UI.
 7. That an MCP server started by Claude or Codex inherits `HERDR_WORKSPACE_ID` (M4).
-8. How long after a state change `events.subscribe` delivers `pane.agent_status_changed`, on the latest herdr release.
-9. How much text herdr capture loses on the alternate screen for each harness. Whether the user message is still on screen at turn start.
+8. How long after a state change `events.subscribe` delivers `pane.agent_status_changed`, on the latest herdr release. **Answered `[M0]` (E11-S1):** 0.14-0.42 s after a Claude change, in 7 samples. The event has no time and no id.
+9. How much text herdr capture loses on the alternate screen for each harness. Whether the user message is still on screen at turn start. **Answered for Claude `[M0]` (E11-S1):** Claude draws in the alternate screen. While busy, only the screen can be read; at idle, herdr can capture the history by scrolling. The user prompt line is on the screen at turn start. **Codex stays open** for a follow-up Codex spike.
 10. **M1** The full hook time in the real CLI hook environment: process start, socket access, `herdr pane get`, manifest check and receipt, at normal and busy load. It sets the lookup deadline inside the 300 ms cap. A fast `pane get` alone is not enough. A slow answer withholds the whole brief (§8.3). **PARTIAL `[M0]`:** a Go hook took 5.4-10.7 ms in total, with `pane get` 4.5-10.2 ms, at normal load. Still open: busy load and the manifest check. **ANSWERED** (E7-S4, PR #89): the lookup deadline is 150 ms from the hook start (owner decision 2026-09-28). E7-S2 (#34) enforces the whole cap.
 11. **M1** That `herdr pane split --no-focus` and `pane close` work from a `brain` call, and that the review pane does not take focus. The plugin popup placement for a TUI review screen. **PASS `[M0]`** for `pane split --no-focus`, `pane close`, and a plugin `split` pane with `--no-focus`. Still open: the `popup` placement.
 12. That each CLI reads a skill file from an absolute path listed in the brief, when the skill is relevant (M3).
 13. That `codex exec` and `claude -p` can run with no tools and a JSON schema output for the extractor. **Decided (owner decision 2026-09-28):** see the "no tools" rule of §7.3.
-14. Hook payloads on the installed Claude and Codex: `UserPromptSubmit` text, `PostToolUse` command, cwd and exit data, `Stop`. That a `UserPromptSubmit` hook with no output leaves the prompt unchanged.
+14. Hook payloads on the installed Claude and Codex: `UserPromptSubmit` text, `PostToolUse` command, cwd and exit data, `Stop`. That a `UserPromptSubmit` hook with no output leaves the prompt unchanged. **Answered for Claude `[M0]` (E11-S1):** `prompt` is the exact text; an empty hook leaves it unchanged; `PostToolUse` has the command and the cwd after the command, but no exit code; a failed command goes to `PostToolUseFailure`. **Codex stays open** for a follow-up Codex spike; its source shows no exit code in `PostToolUse`.
 15. That the Brain MCP server sees `HERDR_ENV` and returns an empty tool list outside herdr (M4).
 16. agy 1.2.11: that `PreInvocation` with `invocationNum == 0` and `injectSteps[].ephemeralMessage` reach the model; the hook file `~/.gemini/config/hooks.json`; the input JSON paths; a tool event.
 17. Whether each CLI prompts for each MCP tool call (M4).
 18. OpenCode v2.0.18: that `session.created` and `experimental.chat.system.transform` can add the brief through the shim, and how stable the experimental API is.
 19. Whether an existing cross-agent memory layer (§2.1) can serve as a Brain delivery path, so Brain does not build one.
-20. That `recent-unwrapped` returns usable text while an agent is `working` or `blocked`, for each harness.
+20. That `recent-unwrapped` returns usable text while an agent is `working` or `blocked`, for each harness. **FAIL for Claude `[M0]` (E11-S1):** above the screen size it returns `agent_not_idle`; `visible` works. **Codex stays open** for a follow-up Codex spike.
 21. **M1** The conformance test (§8.5) on the installed Claude and Codex versions.
 22. pi: that `before_agent_start` can add the brief to the system prompt from an extension in `~/.pi/agent/extensions/`, and the shape of the `tool_result` payload.
 23. The "agent stopped working" condition for each CLI: `working → done` or `working → idle` (M4 trigger).
