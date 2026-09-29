@@ -17,13 +17,10 @@ type Rejection struct {
 	Reason        string
 	EvidenceCount int // the evidence count of the claim in the scope at the rejection or the last reset
 	Evidence      int // the evidence count now: the count of its candidate, 0 with no candidate
+	New           int // the evidence observed after At: the new evidence since the rejection or the last reset
 	At            time.Time
 	Reopened      time.Time // zero while the rejection holds
 }
-
-// New reports the evidence since the rejection, or since its last reset. A forget can take
-// evidence away, so it is never below 0.
-func (r Rejection) New() int { return max(r.Evidence-r.EvidenceCount, 0) }
 
 // ErrRejected is the error of a proposal of a claim that you rejected in its scope.
 var ErrRejected = errors.New("rejected")
@@ -81,14 +78,18 @@ func ProposeCandidate(ctx context.Context, tx *sql.Tx, id int64, p Proposal) (in
 }
 
 // rejectionColumns are the columns that scanRejection reads, in order. The evidence count now
-// is the count of the candidate of the claim in the scope.
+// is the count of the candidate of the claim in the scope. The new evidence is the evidence
+// links of that candidate observed after the rejection: a forget of older evidence does not
+// hide it, as a difference of two counts would.
 const rejectionColumns = `r.id, r.claim_id, r.scope, COALESCE(r.workspace_key, ''), r.reason, r.evidence_count,
 	COALESCE((SELECT c.count FROM candidates c WHERE c.claim_id = r.claim_id
-		AND COALESCE(c.workspace_key, '') = COALESCE(r.workspace_key, '')), 0), r.at, r.reopened`
+		AND COALESCE(c.workspace_key, '') = COALESCE(r.workspace_key, '')), 0),
+	(SELECT count(*) FROM evidence_links l JOIN candidates c ON c.id = l.candidate_id WHERE c.claim_id = r.claim_id
+		AND COALESCE(c.workspace_key, '') = COALESCE(r.workspace_key, '') AND l.at > r.at), r.at, r.reopened`
 
 func scanRejection(rows interface{ Scan(...any) error }) (Rejection, error) {
 	var r Rejection
-	err := rows.Scan(&r.ID, &r.ClaimID, &r.Scope, &r.WorkspaceKey, &r.Reason, &r.EvidenceCount, &r.Evidence,
+	err := rows.Scan(&r.ID, &r.ClaimID, &r.Scope, &r.WorkspaceKey, &r.Reason, &r.EvidenceCount, &r.Evidence, &r.New,
 		timeDest{&r.At}, timeDest{&r.Reopened})
 	return r, err
 }

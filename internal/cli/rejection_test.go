@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
@@ -36,9 +37,15 @@ func (f *fixture) claim(t *testing.T) string {
 	return id
 }
 
-// correct adds one correction of claim in workspace key ws, in the new capture session name,
-// and returns its candidate.
+// correct adds one correction of claim in workspace key ws, observed at testNow in the new
+// capture session name, and returns its candidate.
 func (f *fixture) correct(t *testing.T, claim, ws, name string) store.Candidate {
+	t.Helper()
+	return f.correctAt(t, claim, ws, name, testNow)
+}
+
+// correctAt is correct with the observation at at.
+func (f *fixture) correctAt(t *testing.T, claim, ws, name string, at time.Time) store.Candidate {
 	t.Helper()
 	ctx := context.Background()
 	s := openStore(t, f.store)
@@ -56,7 +63,7 @@ func (f *fixture) correct(t *testing.T, claim, ws, name string) store.Candidate 
 		}
 		o, err := store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: name, Source: store.SourceHerdr,
 			SegmentID: seg, Event: "idle", Excerpt: "text", Status: store.ObservationComplete,
-			Sender: store.SenderUnconfirmed, Counts: true, At: testNow})
+			Sender: store.SenderUnconfirmed, Counts: true, At: at})
 		if err != nil {
 			return err
 		}
@@ -134,7 +141,7 @@ func TestReviewRejectClaim(t *testing.T) {
 	}
 
 	// New evidence in shop attaches, but gives no proposal.
-	f.correct(t, claim, "ws_a14", "a3")
+	f.correctAt(t, claim, "ws_a14", "a3", testNow.Add(time.Hour))
 	before := len(f.rows(t).proposals)
 	if _, err := f.propose(t, shop, "workspace w14 (shop)"); !errors.Is(err, store.ErrRejected) {
 		t.Errorf("a new proposal in shop: %v, want %v", err, store.ErrRejected)
@@ -165,7 +172,7 @@ func TestReviewReopenRejection(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.mustReview(t, fmt.Sprint(pid), "--reject")
-	f.correct(t, claim, "ws_a14", "a3")
+	f.correctAt(t, claim, "ws_a14", "a3", testNow.Add(time.Hour))
 
 	for _, args := range [][]string{{"--reopen", "1"}, {"--reset", "1"}, {"--rejected"}} {
 		out, err := f.reviewBlog(t, args...)
@@ -183,9 +190,11 @@ func TestReviewReopenRejection(t *testing.T) {
 		t.Errorf("--reopen 9 = %v, want not found", err)
 	}
 
-	out := f.mustReview(t, "--reset", "1")
-	if !strings.Contains(out, "rejection 1 reset") {
-		t.Errorf("--reset printed %q", out)
+	var buf bytes.Buffer
+	e := f.env(f.sock, "w14:p1", "w14", &buf)
+	e.Now = func() time.Time { return testNow.Add(2 * time.Hour) }
+	if err := Review(context.Background(), e, []string{"--reset", "1"}); err != nil || !strings.Contains(buf.String(), "rejection 1 reset") {
+		t.Errorf("--reset = %q, %v", buf.String(), err)
 	}
 	if out := f.mustReview(t, "--rejected"); !strings.Contains(out, "0 new evidence since (3 now, 3 then)") ||
 		!strings.Contains(out, "reason: (none)") {
@@ -195,7 +204,7 @@ func TestReviewReopenRejection(t *testing.T) {
 		t.Errorf("a proposal after reset: %v, want %v", err, store.ErrRejected)
 	}
 
-	out = f.mustReview(t, "--reopen", "1")
+	out := f.mustReview(t, "--reopen", "1")
 	if want := fmt.Sprintf("rejection 1 reopened: claim %s can get proposals in workspace w14 (shop) again\n", claim); out != want {
 		t.Errorf("--reopen printed %q, want %q", out, want)
 	}
@@ -256,5 +265,29 @@ func TestReviewRejectNoCandidate(t *testing.T) {
 	}
 	if out := f.mustReview(t, "--rejected"); out != "no rejections\n" {
 		t.Errorf("--rejected = %q, want none", out)
+	}
+}
+
+// A reject of one proposal rejects the other pending proposals of its candidate: none of them
+// can make the rejected claim active.
+func TestReviewRejectOtherProposals(t *testing.T) {
+	f := newFixture(t)
+	c := f.correct(t, f.claim(t), "ws_a14", "a1")
+	first, err := f.propose(t, c, "workspace w14 (shop)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := f.propose(t, c, "workspace w14 (shop)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := f.mustReview(t, fmt.Sprint(first), "--reject"); !strings.Contains(out, fmt.Sprintf("proposal %d of the same claim rejected", second)) {
+		t.Errorf("--reject printed %q", out)
+	}
+	if p := f.rows(t).proposal(t, second); p.Status != store.ProposalRejected {
+		t.Errorf("the other proposal = %+v, want rejected", p)
+	}
+	if _, err := f.review(t, fmt.Sprint(second), "--approve"); err == nil || !strings.Contains(err.Error(), "conflict: it is rejected") {
+		t.Errorf("approve of the other proposal = %v, want a conflict", err)
 	}
 }

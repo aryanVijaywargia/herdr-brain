@@ -405,10 +405,12 @@ func confirmed(r review, p store.Proposal, next store.ItemRevision) error {
 }
 
 // reject marks the proposal rejected. The item does not change. The claim of the proposal's
-// candidate stays rejected in the scope of the candidate, with reason (§7.2).
+// candidate stays rejected in the scope of the candidate, with reason (§7.2), so the other
+// pending proposals of the candidate are rejected too: none of them can make the claim active.
 func (cl caller) reject(ctx context.Context, id int64, reason string) error {
 	var c *store.Candidate
 	var rejection int64
+	var others []int64
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		p, _, _, err := cl.pending(ctx, tx, id)
 		if err != nil {
@@ -420,6 +422,19 @@ func (cl caller) reject(ctx context.Context, id int64, reason string) error {
 		if c != nil {
 			if rejection, err = store.Reject(ctx, tx, *c, reason, cl.Now()); err != nil {
 				return err
+			}
+			ids, err := store.PendingCandidateProposalIDs(ctx, tx, c.ID)
+			if err != nil {
+				return err
+			}
+			for _, other := range ids {
+				if other == id {
+					continue
+				}
+				if err := store.DecideProposal(ctx, tx, other, store.ProposalRejected, cl.surface, cl.Now()); err != nil {
+					return err
+				}
+				others = append(others, other)
 			}
 		}
 		return store.DecideProposal(ctx, tx, id, store.ProposalRejected, cl.surface, cl.Now())
@@ -433,6 +448,11 @@ func (cl caller) reject(ctx context.Context, id int64, reason string) error {
 	}
 	_, err = fmt.Fprintf(cl.Stdout, "proposal %d rejected: claim %s stays rejected in %s (rejection %d, brain review --rejected)\n",
 		id, c.ClaimID, cl.target(c.Scope), rejection)
+	for _, other := range others {
+		if err == nil {
+			_, err = fmt.Fprintf(cl.Stdout, "proposal %d of the same claim rejected\n", other)
+		}
+	}
 	return err
 }
 
@@ -603,7 +623,7 @@ func (cl caller) listRejections(ctx context.Context) error {
 				reason = "(none)"
 			}
 			lines = append(lines, fmt.Sprintf("rejection %d  %s  rejected %s  %d new evidence since (%d now, %d then)\n  claim %s: %s\n  reason: %s",
-				r.ID, cl.target(r.Scope), r.At.Format("2006-01-02 15:04"), r.New(), r.Evidence, r.EvidenceCount, r.ClaimID, text, reason))
+				r.ID, cl.target(r.Scope), r.At.Format("2006-01-02 15:04"), r.New, r.Evidence, r.EvidenceCount, r.ClaimID, text, reason))
 		}
 		return nil
 	})

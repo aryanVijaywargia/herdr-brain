@@ -88,7 +88,7 @@ func TestRejectionNewEvidence(t *testing.T) {
 		t.Fatalf("the new evidence gave count %d, want 2: it still attaches", later.Count)
 	}
 	rs := e.rejections(t)
-	if len(rs) != 1 || rs[0].EvidenceCount != 1 || rs[0].Evidence != 2 || rs[0].New() != 1 {
+	if len(rs) != 1 || rs[0].EvidenceCount != 1 || rs[0].Evidence != 2 || rs[0].New != 1 {
 		t.Errorf("rejections = %+v, want 1 at the rejection, 2 now, 1 new", rs)
 	}
 	if err := e.propose(later.ID); !errors.Is(err, ErrRejected) {
@@ -96,6 +96,11 @@ func TestRejectionNewEvidence(t *testing.T) {
 	}
 	if n := queryInt(t, e.Store, `SELECT count(*) FROM proposals`); n != 0 {
 		t.Errorf("proposals = %d, want 0", n)
+	}
+	// A forget of the older evidence does not hide the new evidence.
+	write(t, e.Store, func(tx *sql.Tx) error { return ForgetSession(context.Background(), tx, e.sessions["claude/a1"]) })
+	if rs := e.rejections(t); len(rs) != 1 || rs[0].Evidence != 1 || rs[0].New != 1 {
+		t.Errorf("after a forget of the older evidence: %+v, want 1 now and 1 new", rs)
 	}
 }
 
@@ -130,7 +135,7 @@ func TestReopenAndResetRejection(t *testing.T) {
 	e.mustAttach(t, c, e.observe(t, "codex", "b1", "shop", SenderUnconfirmed, testNow))
 	later := testNow.Add(time.Hour)
 	write(t, e.Store, func(tx *sql.Tx) error { return ResetRejection(ctx, tx, id, later) })
-	if rs := e.rejections(t); len(rs) != 1 || rs[0].EvidenceCount != 3 || rs[0].New() != 0 || !rs[0].At.Equal(later) {
+	if rs := e.rejections(t); len(rs) != 1 || rs[0].EvidenceCount != 3 || rs[0].New != 0 || !rs[0].At.Equal(later) {
 		t.Errorf("after reset: %+v, want 3 at %v and 0 new", rs, later)
 	}
 	if !e.rejected(t, c.ClaimID, "shop") {
