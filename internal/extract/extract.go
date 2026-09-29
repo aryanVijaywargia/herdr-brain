@@ -37,19 +37,23 @@ type Pass struct {
 
 // ref is one observation of the input of a batch, with its ref id in the prompt.
 type ref struct {
-	id       string // "e1", "e2", …
-	obs      int64
-	identity string
-	sender   store.Sender
-	excerpt  string
-	kind     signal.Kind // the kind of the signal of the observation
+	id        string // "e" and the observation id
+	obs       int64
+	identity  string
+	workspace string // the Brain workspace key of the observation
+	sender    store.Sender
+	excerpt   string
+	kind      signal.Kind // the kind of the signal of the observation
 }
 
-// job is one batch to extract: its stable id and start watermark, and its input.
+// job is one batch to extract: its stable id and start watermark, and its input. The known
+// claims and the brief items come from the workspace key of the batch and global (§7.3).
 type job struct {
 	batch   store.Batch
 	session store.Session
 	refs    []ref
+	known   []store.Claim        // the claims that the input names by claim id
+	brief   []store.ItemRevision // the current brief items
 }
 
 // Run runs the pass: it forms the batches of the finished sessions, and extracts and commits
@@ -236,12 +240,10 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 	var rs []ref
 	for id, k := range kinds {
 		o := byID[id]
-		rs = append(rs, ref{obs: id, identity: o.CaptureIdentity, sender: o.Sender, excerpt: o.Excerpt, kind: k})
+		rs = append(rs, ref{id: fmt.Sprintf("e%d", id), obs: id, identity: o.CaptureIdentity, workspace: o.WorkspaceKey,
+			sender: o.Sender, excerpt: o.Excerpt, kind: k})
 	}
 	slices.SortFunc(rs, func(a, b ref) int { return int(a.obs - b.obs) })
-	for i := range rs {
-		rs[i].id = fmt.Sprintf("e%d", i+1)
-	}
 	return rs
 }
 
@@ -263,6 +265,9 @@ func (p Pass) extract(ctx context.Context, j job) error {
 			return err
 		}
 		if s, err = store.Extractor(ctx, tx); err != nil {
+			return err
+		}
+		if j, err = scope(ctx, tx, j); err != nil {
 			return err
 		}
 		b, err = store.StartBatch(ctx, tx, j.batch, p.Now())
@@ -369,8 +374,9 @@ func untombstoned(ctx context.Context, tx *sql.Tx, refs []ref) ([]ref, error) {
 
 // write stores claim c of batch j: its claim id, a same_as link, and each ref as evidence of
 // the candidate of the claim in its scope. A tombstoned claim or ref adds nothing (§6.7): a
-// forget erases the claim key, so the tombstone source keys stop the same evidence. A candidate
-// that reaches its gate gets a proposal.
+// forget erases the claim key, so the tombstone source keys stop the same evidence. A known
+// claim (same_as, or the same claim id) gets the evidence first; propose then drops the
+// duplicate proposal (§7.3). A candidate that reaches its gate gets a proposal.
 func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Time) error {
 	kept, err := untombstoned(ctx, tx, c.Refs)
 	if c.Refs = kept; err != nil || len(kept) == 0 {
@@ -385,13 +391,17 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 		return err
 	}
 	if c.SameAs != "" && c.SameAs != claim {
-		_, err := store.ClaimByID(ctx, tx, c.SameAs)
-		switch {
-		case err == nil:
-			if _, err := store.SameAs(ctx, tx, claim, c.SameAs, store.Match{Permissions: c.TouchesPermission}); err != nil {
-				return err
-			}
-		case !errors.Is(err, sql.ErrNoRows):
+		// The link keeps both claim ids and waits for review (§7.2); the evidence goes to the
+		// candidate of the known claim, which check found in the input.
+		if _, err := store.SameAs(ctx, tx, claim, c.SameAs, store.Match{Permissions: c.TouchesPermission}); err != nil {
+			return err
+		}
+		linked, err := store.ClaimByID(ctx, tx, claim)
+		if err != nil {
+			return err
+		}
+		claim = linked.SameAs
+		if ts, err := store.TombstonesByClaim(ctx, tx, claim); err != nil || len(ts) > 0 {
 			return err
 		}
 	}
