@@ -109,6 +109,7 @@ type Hook struct {
 	Now      func() time.Time
 
 	ended func() // tests only: called when the capped run ends, after the cap too
+	noted func() // tests only: called when a hook record has noted the capture generation
 }
 
 // Run reads the hook input from stdin and prints the brief to stdout, or nothing. A result

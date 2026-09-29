@@ -36,6 +36,7 @@ type Session struct {
 	WorkspaceKey   string // "" when the workspace has no Brain key
 	Started        time.Time
 	Ended          time.Time // zero while the session is open
+	Generation     int64     // the capture generation; forget raises it
 }
 
 // Segment is one row of segments.
@@ -147,27 +148,80 @@ func EndSession(ctx context.Context, tx *sql.Tx, k SessionKey, at time.Time) err
 	return nil
 }
 
-// ForgetSession removes the session with key k, with its segments, observations, command
-// records and cursors.
-func ForgetSession(ctx context.Context, tx *sql.Tx, k SessionKey) error {
-	for _, q := range []string{
-		`DELETE FROM cursors WHERE session_id IN (SELECT id FROM sessions WHERE ` + keyWhere + `)`,
-		`DELETE FROM command_records WHERE observation_id IN (SELECT o.id FROM observations o
-			JOIN segments s ON s.id = o.segment_id JOIN sessions n ON n.id = s.session_id WHERE ` + keyWhereOf("n") + `)`,
-		`DELETE FROM observations WHERE segment_id IN
-			(SELECT s.id FROM segments s JOIN sessions n ON n.id = s.session_id WHERE ` + keyWhereOf("n") + `)`,
-		`DELETE FROM segments WHERE session_id IN (SELECT id FROM sessions WHERE ` + keyWhere + `)`,
-		`DELETE FROM sessions WHERE ` + keyWhere,
-	} {
-		if _, err := tx.ExecContext(ctx, q, keyArgs(k)...); err != nil {
-			return fmt.Errorf("forget session: %w", err)
-		}
+// ErrForgotten says that brain forget --session raised the capture generation of a session
+// after a pane read or a hook record noted it: the text may be forgotten text, so the write
+// stores nothing (§6.7).
+var ErrForgotten = errors.New("the session was forgotten after the text was collected")
+
+// Generation returns the capture generation of session sessionID. A pane read and a hook
+// record note it before they collect text.
+func Generation(ctx context.Context, tx *sql.Tx, sessionID int64) (int64, error) {
+	var gen int64
+	if err := tx.QueryRowContext(ctx, `SELECT generation FROM sessions WHERE id = ?`, sessionID).Scan(&gen); err != nil {
+		return 0, fmt.Errorf("read capture generation: %w", err)
+	}
+	return gen, nil
+}
+
+// CheckGeneration returns ErrForgotten when the capture generation of session sessionID is
+// no longer gen, the value that the writer noted before it collected its text.
+func CheckGeneration(ctx context.Context, tx *sql.Tx, sessionID, gen int64) error {
+	cur, err := Generation(ctx, tx, sessionID)
+	if err != nil {
+		return err
+	}
+	if cur != gen {
+		return fmt.Errorf("session %d: %w", sessionID, ErrForgotten)
 	}
 	return nil
 }
 
-func keyWhereOf(alias string) string {
-	return fmt.Sprintf(`%[1]s.herdr_session = ?1 AND %[1]s.harness = ?2 AND %[1]s.key_kind = ?3 AND %[1]s.key_id = ?4`, alias)
+// SessionsByID returns the sessions of binding herdrSession whose key id or agent session id
+// is id, by row id. One agent session can have two rows: a capture key that herdr enriched
+// later, and an agent key (§6.2 step 6).
+func SessionsByID(ctx context.Context, tx *sql.Tx, herdrSession, id string) ([]Session, error) {
+	return sessions(ctx, tx, `WHERE herdr_session = ?1 AND (key_id = ?2 OR agent_session_id = ?2)`, herdrSession, id)
+}
+
+// Evidence counts the evidence of one session that forget deletes.
+type Evidence struct {
+	Observations   int
+	CommandRecords int
+}
+
+// SessionEvidence counts the observations and the command records of session sessionID.
+func SessionEvidence(ctx context.Context, tx *sql.Tx, sessionID int64) (Evidence, error) {
+	var e Evidence
+	err := tx.QueryRowContext(ctx, `SELECT count(o.id), count(c.observation_id) FROM observations o
+		JOIN segments s ON s.id = o.segment_id LEFT JOIN command_records c ON c.observation_id = o.id
+		WHERE s.session_id = ?`, sessionID).Scan(&e.Observations, &e.CommandRecords)
+	if err != nil {
+		return Evidence{}, fmt.Errorf("count evidence of session %d: %w", sessionID, err)
+	}
+	return e, nil
+}
+
+// ForgetSession deletes the evidence of session sessionID: its observations, command records
+// and cursors (§6.7). It raises the capture generation, so a pane read or a hook record that
+// noted the old value stores nothing, and it keeps the capture identities of the deleted
+// observations, so a replay stores nothing again. The session row and its segments hold no
+// text, and they stay: the counter must not go back, and new text after the forget is
+// captured as usual.
+func ForgetSession(ctx context.Context, tx *sql.Tx, sessionID int64) error {
+	const obs = `SELECT o.id FROM observations o JOIN segments s ON s.id = o.segment_id WHERE s.session_id = ?1`
+	for _, q := range []string{
+		`INSERT INTO forgotten_captures (capture_identity) SELECT capture_identity FROM observations
+			WHERE id IN (` + obs + `) ON CONFLICT DO NOTHING`,
+		`DELETE FROM command_records WHERE observation_id IN (` + obs + `)`,
+		`DELETE FROM observations WHERE id IN (` + obs + `)`,
+		`DELETE FROM cursors WHERE session_id = ?1`,
+		`UPDATE sessions SET generation = generation + 1 WHERE id = ?1`,
+	} {
+		if _, err := tx.ExecContext(ctx, q, sessionID); err != nil {
+			return fmt.Errorf("forget session %d: %w", sessionID, err)
+		}
+	}
+	return nil
 }
 
 // StartSegment starts a segment of session sessionID in pane paneID and returns its id. It
@@ -188,7 +242,8 @@ func StartSegment(ctx context.Context, tx *sql.Tx, sessionID int64, paneID, work
 }
 
 // AddObservation adds o and returns its id. An observation with a known capture identity is
-// a retry or a duplicate: it adds nothing, does not count again (§6.4), and the id is 0.
+// a retry or a duplicate: it adds nothing, does not count again (§6.4), and the id is 0. So is
+// the identity of an observation that forget deleted: its replay stores nothing (§6.7).
 func AddObservation(ctx context.Context, tx *sql.Tx, o Observation) (int64, error) {
 	sender := o.Sender
 	if sender == "" {
@@ -197,7 +252,9 @@ func AddObservation(ctx context.Context, tx *sql.Tx, o Observation) (int64, erro
 	var id int64
 	err := tx.QueryRowContext(ctx, `INSERT INTO observations
 		(capture_identity, source, segment_id, event, excerpt, truncated, status, sender, counts, brain_origin, at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (capture_identity) DO NOTHING RETURNING id`,
+		SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11
+		WHERE NOT EXISTS (SELECT 1 FROM forgotten_captures WHERE capture_identity = ?1)
+		ON CONFLICT (capture_identity) DO NOTHING RETURNING id`,
 		o.CaptureIdentity, o.Source, o.SegmentID, o.Event, o.Excerpt, o.Truncated, o.Status, sender,
 		o.Counts && !o.BrainOrigin, o.BrainOrigin, timeArg(o.At)).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -248,14 +305,19 @@ func Cursor(ctx context.Context, tx *sql.Tx, sessionID int64, source string) (st
 
 // Sessions returns every session, by id.
 func Sessions(ctx context.Context, tx *sql.Tx) ([]Session, error) {
+	return sessions(ctx, tx, "")
+}
+
+// sessions returns the sessions that match the clause where with args, by id.
+func sessions(ctx context.Context, tx *sql.Tx, where string, args ...any) ([]Session, error) {
 	return query(ctx, tx, `SELECT id, herdr_session, harness, key_kind, key_id, COALESCE(agent_session_id, ''),
-		pane_id, COALESCE(workspace_key, ''), started, ended FROM sessions ORDER BY id`,
+		pane_id, COALESCE(workspace_key, ''), started, ended, generation FROM sessions `+where+` ORDER BY id`,
 		func(rows *sql.Rows) (Session, error) {
 			var s Session
 			err := rows.Scan(&s.ID, &s.Key.HerdrSession, &s.Key.Harness, &s.Key.Kind, &s.Key.ID, &s.AgentSessionID,
-				&s.PaneID, &s.WorkspaceKey, timeDest{&s.Started}, timeDest{&s.Ended})
+				&s.PaneID, &s.WorkspaceKey, timeDest{&s.Started}, timeDest{&s.Ended}, &s.Generation)
 			return s, err
-		})
+		}, args...)
 }
 
 // Segments returns every segment, by id.
@@ -282,8 +344,8 @@ func Observations(ctx context.Context, tx *sql.Tx) ([]Observation, error) {
 		})
 }
 
-func query[T any](ctx context.Context, tx *sql.Tx, q string, scan func(*sql.Rows) (T, error)) ([]T, error) {
-	rows, err := tx.QueryContext(ctx, q)
+func query[T any](ctx context.Context, tx *sql.Tx, q string, scan func(*sql.Rows) (T, error), args ...any) ([]T, error) {
+	rows, err := tx.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("read capture: %w", err)
 	}

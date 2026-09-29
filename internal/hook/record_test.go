@@ -189,3 +189,46 @@ func TestRecordStoresNothing(t *testing.T) {
 		t.Errorf("no retest marker: %v", err)
 	}
 }
+
+// A brain forget --session after a hook record noted the capture generation, and before its
+// write, leaves the forgotten text absent. A replay of that record stores nothing, and a new
+// record after the forget is stored (E11-S6).
+func TestRecordForgotten(t *testing.T) {
+	f := recordFixture(t)
+	p := claude(t)
+	stop := func(text string) string { return `{"session_id":"s1","last_assistant_message":"` + text + `"}` }
+	run := func(raw string, at time.Time, noted func()) {
+		t.Helper()
+		h := f.hook(p, environ(f.mainSock, "", "w14:p1", "w14"))
+		h.Event = adapter.EventStop
+		h.Now = func() time.Time { return at }
+		h.noted = noted
+		var out bytes.Buffer
+		if err := h.run(context.Background(), strings.NewReader(raw), &out); err != nil || out.Len() != 0 {
+			t.Fatalf("hook = %v, printed %q", err, out.String())
+		}
+	}
+	forget := func() {
+		s := openStore(t, f.mainStore)
+		defer closeStore(t, s)
+		write(t, s, func(tx *sql.Tx) error {
+			ss, err := store.SessionsByID(context.Background(), tx, "default", "cap-1")
+			if err != nil || len(ss) != 1 {
+				t.Fatalf("SessionsByID = %+v, %v", ss, err)
+			}
+			return store.ForgetSession(context.Background(), tx, ss[0].ID)
+		})
+	}
+	first := testNow.Add(time.Second)
+	run(stop("stored before the forget"), first, nil)
+	forget()
+	run(stop("forgotten while it waits"), first.Add(time.Second), forget)
+	run(stop("stored before the forget"), first, nil) // the replay after a restart
+	if obs, cmds := recordRows(t, f); len(obs) != 0 || len(cmds) != 0 {
+		t.Fatalf("after the forget: %+v, %+v, want nothing", obs, cmds)
+	}
+	run(stop("new text after the forget"), first.Add(2*time.Second), nil)
+	if obs, _ := recordRows(t, f); len(obs) != 1 || obs[0].Excerpt != "new text after the forget" {
+		t.Errorf("after the new record: %+v, want only its text", obs)
+	}
+}

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 	"time"
 )
@@ -46,7 +47,11 @@ func TestCaptureBindingsApart(t *testing.T) {
 		if err := EnrichSession(ctx, tx, a[1], "6a345ec1"); err != nil {
 			return err
 		}
-		return ForgetSession(ctx, tx, a[1])
+		ss, err := SessionsByID(ctx, tx, "default", "6a345ec1")
+		if err != nil || len(ss) != 1 || ss[0].Key != a[1] {
+			t.Fatalf("SessionsByID(default, 6a345ec1) = %+v, %v, want the session of %+v", ss, err, a[1])
+		}
+		return ForgetSession(ctx, tx, ss[0].ID)
 	})
 	var ss []Session
 	var segs []Segment
@@ -61,21 +66,29 @@ func TestCaptureBindingsApart(t *testing.T) {
 		obs, err = Observations(ctx, tx)
 		return err
 	})
-	if len(ss) != 3 || len(segs) != 3 || len(obs) != 3 {
-		t.Fatalf("got %d sessions, %d segments, %d observations, want 3 of each", len(ss), len(segs), len(obs))
+	// Forget keeps the session row and its segments: they hold no text (E11-S6).
+	if len(ss) != 4 || len(segs) != 4 || len(obs) != 3 {
+		t.Fatalf("got %d sessions, %d segments, %d observations, want 4, 4 and 3", len(ss), len(segs), len(obs))
 	}
 	for _, x := range ss {
 		switch x.Key {
 		case a[0]:
-			if x.Ended.IsZero() {
-				t.Errorf("session %+v is open, want ended", x)
+			if x.Ended.IsZero() || x.Generation != 0 {
+				t.Errorf("session %+v is open or forgotten, want ended", x)
+			}
+		case a[1]:
+			if x.Generation != 1 {
+				t.Errorf("session %+v has generation %d after forget, want 1", x, x.Generation)
 			}
 		case b[0], b[1]:
-			if !x.Ended.IsZero() || x.Key.Kind == KeyCapture && x.AgentSessionID != "" {
+			if !x.Ended.IsZero() || x.Generation != 0 || x.Key.Kind == KeyCapture && x.AgentSessionID != "" {
 				t.Errorf("session %+v changed by the other binding", x)
 			}
-		default:
-			t.Errorf("session %+v is not forgotten", x)
+		}
+	}
+	for _, o := range obs {
+		if o.CaptureIdentity == "default"+a[1].ID {
+			t.Errorf("observation %+v of the forgotten session is kept", o)
 		}
 	}
 }
@@ -177,11 +190,75 @@ func TestAddObservationOnce(t *testing.T) {
 			obs[1].Counts || !obs[1].BrainOrigin || obs[1].Sender != SenderAssistant {
 			t.Errorf("observations = %+v, want text that counts and a Brain-origin text that does not", obs)
 		}
-		if err := ForgetSession(ctx, tx, key); err != nil {
+		if err := ForgetSession(ctx, tx, id); err != nil {
 			return err
 		}
 		if pos, err := Cursor(ctx, tx, id, SourceHerdr); err != nil || pos != "" {
 			t.Errorf("Cursor after forget = %q, %v, want empty", pos, err)
+		}
+		return nil
+	})
+}
+
+// Forget of one session raises its capture generation, deletes its evidence and keeps the
+// capture identities: a write with the old generation fails, a replay of a deleted identity
+// stores nothing, and new evidence after the forget is stored (E11-S6, §6.7).
+func TestForgetSessionGeneration(t *testing.T) {
+	ctx := context.Background()
+	s := openM1(t)
+	key := SessionKey{HerdrSession: "default", Harness: "claude", Kind: KeyCapture, ID: "cap-1"}
+	var id, seg int64
+	write(t, s, func(tx *sql.Tx) (err error) {
+		if id, err = OpenSession(ctx, tx, key, "w1:p1", "", testNow); err != nil {
+			return err
+		}
+		if seg, err = StartSegment(ctx, tx, id, "w1:p1", "", "visible", testNow); err != nil {
+			return err
+		}
+		hook, err := AddObservation(ctx, tx, Observation{CaptureIdentity: "h", Source: SourceHook, SegmentID: seg,
+			Event: "tool", Excerpt: "ls", Status: ObservationComplete, Sender: SenderTool, At: testNow})
+		if err != nil {
+			return err
+		}
+		if err := AddCommandRecord(ctx, tx, CommandRecord{ObservationID: hook, Argv: "ls", CWD: "/w"}); err != nil {
+			return err
+		}
+		if _, err := AddObservation(ctx, tx, Observation{CaptureIdentity: "p", Source: SourceHerdr, SegmentID: seg,
+			Event: "idle", Excerpt: "text", Status: ObservationComplete, At: testNow}); err != nil {
+			return err
+		}
+		if e, err := SessionEvidence(ctx, tx, id); err != nil || e != (Evidence{Observations: 2, CommandRecords: 1}) {
+			t.Errorf("SessionEvidence = %+v, %v, want 2 observations and 1 command record", e, err)
+		}
+		return nil
+	})
+	write(t, s, func(tx *sql.Tx) error {
+		gen, err := Generation(ctx, tx, id)
+		if err != nil || gen != 0 {
+			t.Errorf("Generation before forget = %d, %v, want 0", gen, err)
+		}
+		if err := ForgetSession(ctx, tx, id); err != nil {
+			return err
+		}
+		if err := CheckGeneration(ctx, tx, id, gen); !errors.Is(err, ErrForgotten) {
+			t.Errorf("CheckGeneration with the old generation = %v, want ErrForgotten", err)
+		}
+		if err := CheckGeneration(ctx, tx, id, gen+1); err != nil {
+			t.Errorf("CheckGeneration with the new generation = %v", err)
+		}
+		if e, err := SessionEvidence(ctx, tx, id); err != nil || e != (Evidence{}) {
+			t.Errorf("SessionEvidence after forget = %+v, %v, want none", e, err)
+		}
+		// A replay of a deleted identity stores nothing; new evidence is stored.
+		for _, tc := range []struct {
+			identity string
+			added    bool
+		}{{"p", false}, {"h", false}, {"new", true}} {
+			got, err := AddObservation(ctx, tx, Observation{CaptureIdentity: tc.identity, Source: SourceHerdr,
+				SegmentID: seg, Event: "idle", Excerpt: "text", Status: ObservationComplete, At: testNow})
+			if err != nil || (got != 0) != tc.added {
+				t.Errorf("AddObservation(%s) after forget = %d, %v, want added: %v", tc.identity, got, err, tc.added)
+			}
 		}
 		return nil
 	})

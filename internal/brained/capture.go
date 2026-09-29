@@ -39,6 +39,7 @@ const (
 	gapUnsure  = "unstable read"  // the pane changed during the read
 	gapSession = "session change" // another agent or agent session holds the pane
 	gapLost    = "screen lost"    // the screen lost the old text, with nothing new
+	gapForget  = "forgotten"      // brain forget --session deleted the evidence of the session
 )
 
 // Capture is the Handler that reads panes (E11-S3, HLD §6.2). It keeps the last read of each
@@ -64,6 +65,7 @@ type capturePane struct {
 	native    string // the agent session id from herdr; "" while it has none
 	key       store.SessionKey
 	session   int64    // the sessions row; 0 until it is stored
+	gen       int64    // the capture generation of the session, noted at the baseline
 	segment   int64    // the open segment; 0 when there is none
 	workspace string   // the herdr workspace id of the last read
 	base      Learning // the learning state of the last baseline
@@ -221,6 +223,11 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 		}
 		return nil
 	})
+	if errors.Is(err, store.ErrForgotten) {
+		// brain forget --session deleted the evidence of the session after the baseline: the
+		// read may hold forgotten text, so it is dropped, and a new baseline follows (§6.7).
+		return c.baseline(ctx, s, gapForget)
+	}
 	if err != nil {
 		return err
 	}
@@ -240,6 +247,11 @@ func (c *Capture) begin(ctx context.Context, tx *sql.Tx, s Step, cp *capturePane
 		if cp.session, err = store.OpenSession(ctx, tx, cp.key, s.PaneID, key, now); err != nil {
 			return err
 		}
+	}
+	// The read of a new baseline is never stored, so the text of later reads is collected
+	// after this note.
+	if cp.gen, err = store.Generation(ctx, tx, cp.session); err != nil {
+		return err
 	}
 	if native := nativeID(r.pane); cp.key.Kind == store.KeyCapture && native != "" {
 		if err := store.EnrichSession(ctx, tx, cp.key, native); err != nil {
@@ -261,9 +273,11 @@ func (c *Capture) begin(ctx context.Context, tx *sql.Tx, s Step, cp *capturePane
 // the caller writes only when the learning state is the one of its base. A known capture
 // identity is a retry or a duplicate: it adds nothing and moves no cursor. A gap has no text,
 // so it never counts. A hook record with the same text enriches the new observation (S35).
+// A forget of the session since the baseline fails the write with store.ErrForgotten.
 func record(ctx context.Context, tx *sql.Tx, cp *capturePane, o store.Observation) error {
-	// E11-S6 (#60) checks the capture generation of the session here: a failed check
-	// discards the write.
+	if err := store.CheckGeneration(ctx, tx, cp.session, cp.gen); err != nil {
+		return err
+	}
 	if o.Status == store.ObservationGap {
 		o.Counts = false
 	}
@@ -309,8 +323,8 @@ func (c *Capture) lose(ctx context.Context, s Step, cp *capturePane, err error) 
 				Source: store.SourceHerdr, SegmentID: cp.segment, Event: gap, Status: store.ObservationGap, At: now})
 		})
 		cp.segment = 0
-		if werr != nil {
-			return werr
+		if werr != nil && !errors.Is(werr, store.ErrForgotten) {
+			return werr // a forgotten session needs no gap: the next change takes a new baseline
 		}
 	}
 	if gap == gapFailed {

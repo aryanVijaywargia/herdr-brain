@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 	"time"
@@ -13,7 +15,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-const forgetUsage = `usage: brain forget <item>`
+const forgetUsage = `usage: brain forget <item> | --session <id>`
 
 // settle is how long forget waits after its build before it deletes the old generations: a
 // generation that the pointer left less than one hook time cap ago (300 ms, §8.3) may still
@@ -24,7 +26,85 @@ const settle = 350 * time.Millisecond
 // one item and its derivatives from the store and the output, and keeps a tombstone with no
 // text. A second call on the same item only reports whether forget is done.
 func Forget(ctx context.Context, e Env, args []string) error {
+	for _, a := range args {
+		if a == "--session" || a == "-session" || strings.HasPrefix(a, "--session=") || strings.HasPrefix(a, "-session=") {
+			return forgetSession(ctx, e, args)
+		}
+	}
 	return onItem(ctx, e, "forget", forgetUsage, args, caller.forget)
+}
+
+// forgetSession runs `brain forget --session <id>` (§6.7, E11-S6). id is a capture session id
+// or an agent session id in the caller's herdr session. It lists the evidence of the session
+// first, then deletes its observations and command records in one transaction that raises
+// the capture generation, so a pane read or hook record that collected the text before the
+// forget stores nothing. New text after the forget is captured as usual.
+func forgetSession(ctx context.Context, e Env, args []string) (err error) {
+	fs := flag.NewFlagSet("forget", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	id := fs.String("session", "", "")
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("%w\n%s", err, forgetUsage)
+	}
+	if *id == "" || fs.NArg() != 0 {
+		return fmt.Errorf("want one session id and no item\n%s", forgetUsage)
+	}
+	c, err := e.Open(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, c.Close()) }()
+	var ss []store.Session
+	var ev []store.Evidence
+	err = c.Store.Write(ctx, func(tx *sql.Tx) (err error) {
+		if ss, err = store.SessionsByID(ctx, tx, c.Binding.Session, *id); err != nil {
+			return err
+		}
+		ev = make([]store.Evidence, len(ss))
+		for i, s := range ss {
+			if ev[i], err = store.SessionEvidence(ctx, tx, s.ID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if len(ss) == 0 {
+		return fmt.Errorf("no capture session %q in herdr session %s", *id, c.Binding.Session)
+	}
+	// The list comes first, before anything is deleted (§6.7).
+	w := e.Stdout
+	for i, s := range ss {
+		agent := s.AgentSessionID
+		if s.Key.Kind == store.KeyAgent {
+			agent = s.Key.ID
+		}
+		if _, err := fmt.Fprintf(w, "session %d: %s in pane %s, %s id %s, agent session %q: %d observations, %d command records\n",
+			s.ID, s.Key.Harness, s.PaneID, s.Key.Kind, s.Key.ID, agent, ev[i].Observations, ev[i].CommandRecords); err != nil {
+			return err
+		}
+	}
+	// E12 (candidates) and E13 (extraction batches) add the items and candidates that use
+	// this evidence, and the choice to keep them or forget them too; E14 adds the prompt
+	// index rows.
+	if _, err := fmt.Fprintln(w, "no item or candidate uses capture evidence yet: nothing else to keep or forget"); err != nil {
+		return err
+	}
+	err = c.Store.Write(ctx, func(tx *sql.Tx) error {
+		for _, s := range ss {
+			if err := store.ForgetSession(ctx, tx, s.ID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "forget session %s: done; its text is deleted, and new text is captured as usual\n", *id)
+	return err
 }
 
 // forgotten reports whether forget removed the text of the item whose current revision is cur:

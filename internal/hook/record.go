@@ -66,20 +66,45 @@ func (h Hook) record(ctx context.Context, raw []byte) (err error) {
 	if !ok {
 		panic(fmt.Sprintf("hook: resolver store is %T, want the hook's own", r.Store))
 	}
-	return rs.s.Write(ctx, func(tx *sql.Tx) error {
-		return h.write(ctx, tx, r, in, h.Now().UTC())
+	// The record notes the capture generation of its session before it filters and stores
+	// the text, and the write refuses a newer one: a brain forget --session between the two
+	// deleted the evidence, so the record stores nothing (§6.7).
+	var session, gen int64
+	err = rs.s.Write(ctx, func(tx *sql.Tx) (err error) {
+		if session, _, err = store.HookSegment(ctx, tx, r.Binding.Session, h.Profile.Kind, r.PaneID, in.SessionID); err != nil || session == 0 {
+			return err
+		}
+		gen, err = store.Generation(ctx, tx, session)
+		return err
 	})
+	if err != nil || session == 0 {
+		return err
+	}
+	if h.noted != nil {
+		h.noted()
+	}
+	err = rs.s.Write(ctx, func(tx *sql.Tx) error {
+		return h.write(ctx, tx, r, in, session, gen, h.Now().UTC())
+	})
+	if errors.Is(err, store.ErrForgotten) {
+		return nil
+	}
+	return err
 }
 
-// write stores the hook record in in tx, after the learning check of the pane.
-func (h Hook) write(ctx context.Context, tx *sql.Tx, r *resolver.Resolved, in adapter.Record, now time.Time) error {
+// write stores the hook record in in tx, after the learning check of the pane, in session
+// noted with capture generation gen.
+func (h Hook) write(ctx context.Context, tx *sql.Tx, r *resolver.Resolved, in adapter.Record, noted, gen int64, now time.Time) error {
 	learning, err := brained.NewGate(r.Binding).Learning(ctx, tx, r.PaneID, r.WorkspaceID)
 	if err != nil || !learning.On {
 		return err
 	}
 	kind := h.Profile.Kind
 	session, segment, err := store.HookSegment(ctx, tx, r.Binding.Session, kind, r.PaneID, in.SessionID)
-	if err != nil || segment == 0 {
+	if err != nil || segment == 0 || session != noted {
+		return err // another session holds the pane now: the note does not cover it
+	}
+	if err := store.CheckGeneration(ctx, tx, session, gen); err != nil {
 		return err
 	}
 	o := store.Observation{

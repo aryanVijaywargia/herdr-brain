@@ -399,3 +399,93 @@ func TestForgetPendingOnConflictWithoutItem(t *testing.T) {
 		t.Errorf("after repair the marker is in %v, want nowhere", found)
 	}
 }
+
+// onWrite is a writer that calls fn with the text of each write before it keeps it.
+type onWrite struct {
+	bytes.Buffer
+	fn func(p string)
+}
+
+func (w *onWrite) Write(p []byte) (int, error) {
+	w.fn(string(p))
+	return w.Buffer.Write(p)
+}
+
+// AC E11-S6: brain forget --session lists the evidence of the session while it still exists,
+// then deletes it: no store field holds the text of the session after. The same id in another
+// herdr session and the items stay.
+func TestForgetSession(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	const marker = "zq-forget-session-marker"
+	s := openStore(t, f.store)
+	write(t, s, func(tx *sql.Tx) error {
+		for i, herdrSession := range []string{"default", "other"} {
+			key := store.SessionKey{HerdrSession: herdrSession, Harness: "claude", Kind: store.KeyCapture, ID: "cap-1"}
+			id, err := store.OpenSession(ctx, tx, key, "w14:p1", "ws_a14", testNow)
+			if err != nil {
+				return err
+			}
+			if err := store.EnrichSession(ctx, tx, key, "agent-1"); err != nil {
+				return err
+			}
+			seg, err := store.StartSegment(ctx, tx, id, "w14:p1", "ws_a14", "visible", testNow)
+			if err != nil {
+				return err
+			}
+			for j, src := range []string{store.SourceHerdr, store.SourceHook} {
+				o, err := store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: fmt.Sprint(i, j), Source: src,
+					SegmentID: seg, Event: "tool", Excerpt: herdrSession + " " + marker, Status: store.ObservationComplete,
+					Sender: store.SenderTool, Counts: true, At: testNow})
+				if err != nil {
+					return err
+				}
+				if src == store.SourceHook {
+					if err := store.AddCommandRecord(ctx, tx, store.CommandRecord{ObservationID: o,
+						Argv: "echo " + herdrSession + " " + marker, CWD: "/w"}); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		return nil
+	})
+	closeStore(t, s)
+
+	if _, err := f.forget(t, clock(), "--session"); err == nil || !strings.Contains(err.Error(), "usage") {
+		t.Errorf("forget --session with no id = %v, want the usage", err)
+	}
+	if _, err := f.forget(t, clock(), "--session", "nosuch"); err == nil {
+		t.Error("forget of an unknown session = nil, want an error")
+	}
+	var listed []string
+	out := &onWrite{fn: func(p string) {
+		if strings.HasPrefix(p, "session ") {
+			listed = f.scan(t, "default "+marker) // AC: the list shows before anything is deleted
+		}
+	}}
+	e := f.env(f.sock, "w14:p1", "w14", &bytes.Buffer{})
+	e.Stdout = out
+	if err := Forget(ctx, e, []string{"--session", "agent-1"}); err != nil {
+		t.Fatalf("forget --session = %v", err)
+	}
+	want := "session 1: claude in pane w14:p1, capture id cap-1, agent session \"agent-1\": 2 observations, 1 command records\n" +
+		"no item or candidate uses capture evidence yet: nothing else to keep or forget\n" +
+		"forget session agent-1: done; its text is deleted, and new text is captured as usual\n"
+	if out.String() != want {
+		t.Errorf("forget --session printed\n%s\nwant\n%s", out.String(), want)
+	}
+	if len(listed) != 2 {
+		t.Errorf("at the list the text was in %v, want observations and command records", listed)
+	}
+	// AC: a scan of every table finds no text of the session.
+	if got := f.scan(t, "default "+marker); len(got) != 0 {
+		t.Errorf("after the forget %v hold the text of the session", got)
+	}
+	if got := f.scan(t, "other "+marker); len(got) != 2 {
+		t.Errorf("the other herdr session's text is in %v, want observations and command records", got)
+	}
+	if got := f.scan(t, liveText); len(got) == 0 {
+		t.Error("the forget of a session removed an item")
+	}
+}
