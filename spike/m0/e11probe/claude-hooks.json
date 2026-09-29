@@ -1,0 +1,6 @@
+{"hooks":{
+ "UserPromptSubmit":[{"hooks":[{"type":"command","command":"/tmp/e11s1/hooks/log.sh ups","timeout":5}]}],
+ "PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"/tmp/e11s1/hooks/log.sh ptu","timeout":5}]}],
+ "PostToolUseFailure":[{"matcher":"Bash","hooks":[{"type":"command","command":"/tmp/e11s1/hooks/log.sh ptuf","timeout":5}]}],
+ "Stop":[{"hooks":[{"type":"command","command":"/tmp/e11s1/hooks/log.sh stop","timeout":5}]}]
+}}
