@@ -221,10 +221,10 @@ func TestCheckKnownClaims(t *testing.T) {
 	}
 }
 
-var knownPnpm = regexp.MustCompile(`\[(cl_[0-9a-f]+)\] situation: installing packages; rule: use pnpm`)
+var knownPnpm = regexp.MustCompile(`\[(cl_[0-9a-f]+)\] situation: installing packages; rule: (use pnpm|always allow pnpm)`)
 
-// A known claim attaches its new evidence to its candidate first, then makes no second
-// proposal: by same_as with a reworded key, and by the same claim id (§7.3).
+// A known claim by the same claim id attaches its new evidence to its candidate first, then
+// makes no second proposal (§7.3).
 func TestKnownClaim(t *testing.T) {
 	f := newFixture(t)
 	f.session("z", true, line{"ws-A", pnpm, t0})
@@ -233,36 +233,58 @@ func TestKnownClaim(t *testing.T) {
 	if n := f.count(`SELECT COUNT(*) FROM proposals`); n != 1 {
 		t.Fatalf("proposals = %d, want 1", n)
 	}
-	f.cli.reply = func(_ context.Context, prompt string) ([]byte, error) {
-		m := knownPnpm.FindStringSubmatch(prompt)
-		if m == nil {
-			return nil, fmt.Errorf("the input has no known claim:\n%s", prompt)
-		}
-		return claudeReply(map[string]any{"claims": []any{replyOf(map[string]any{"rule": "always pick pnpm",
-			"evidence_refs": promptRefs(prompt), "same_as": m[1]})}})
-	}
-	f.session("b", true, line{"ws-A", pnpm, t0.Add(2 * time.Minute)})
-	f.mustRun()
-	if f.cli.calls() != 3 {
-		t.Fatalf("calls = %d, want 3", f.cli.calls())
-	}
-	if n := f.count(`SELECT c.count FROM proposals p JOIN candidates c ON c.id = p.candidate_id`); n != 3 {
-		t.Errorf("evidence of the known candidate = %d, want 3", n)
-	}
-	if n := f.count(`SELECT COUNT(*) FROM candidates`); n != 1 {
-		t.Errorf("candidates = %d, want 1: the reworded key has no candidate of its own", n)
-	}
-	if n := f.count(`SELECT COUNT(*) FROM claims WHERE rule = 'always pick pnpm'`); n != 0 {
-		t.Errorf("claims with the reworded key = %d, want 0", n)
-	}
-	f.cli.reply = claimOf("use pnpm")
 	f.session("c", true, line{"ws-A", pnpm, t0.Add(3 * time.Minute)})
 	f.mustRun()
-	if n := f.count(`SELECT count FROM candidates`); n != 4 || f.cli.calls() != 4 {
-		t.Errorf("evidence %d, calls %d, want 4, 4", n, f.cli.calls())
+	if n := f.count(`SELECT count FROM candidates`); n != 3 || f.cli.calls() != 3 {
+		t.Errorf("evidence %d, calls %d, want 3, 3", n, f.cli.calls())
 	}
 	if n := f.count(`SELECT COUNT(*) FROM proposals`); n != 1 {
 		t.Errorf("proposals = %d, want 1", n)
+	}
+}
+
+// A same_as reply is a proposal, never a silent merge (§5.4, §7.2, S23): the link is
+// proposed, both claim ids stay, and the evidence goes to the candidate of the new claim. The
+// known candidate keeps its count. Two permission claims link the same way.
+func TestSameAsIsProposed(t *testing.T) {
+	for name, rules := range map[string][2]string{
+		"reworded":         {"use pnpm", "always pick pnpm"},
+		"permission rules": {"always allow pnpm", "always allow pnpm installs"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.cli.reply = claimOf(rules[0])
+			f.session("z", true, line{"ws-A", pnpm, t0})
+			f.session("a", true, line{"ws-A", pnpm, t0.Add(time.Minute)})
+			f.mustRun()
+			known := f.count(`SELECT count FROM candidates`)
+			f.cli.reply = func(_ context.Context, prompt string) ([]byte, error) {
+				m := knownPnpm.FindStringSubmatch(prompt)
+				if m == nil {
+					return nil, fmt.Errorf("the input has no known claim:\n%s", prompt)
+				}
+				return claudeReply(map[string]any{"claims": []any{replyOf(map[string]any{"rule": rules[1],
+					"evidence_refs": promptRefs(prompt), "same_as": m[1]})}})
+			}
+			f.session("b", true, line{"ws-A", pnpm, t0.Add(2 * time.Minute)})
+			f.mustRun()
+			if f.cli.calls() != 3 {
+				t.Fatalf("calls = %d, want 3", f.cli.calls())
+			}
+			q := `SELECT COUNT(*) FROM claims n JOIN claims o ON o.id = n.same_as WHERE n.rule = '` + rules[1] +
+				`' AND n.same_as_status = 'proposed' AND o.rule = '` + rules[0] + `'`
+			if n := f.count(q); n != 1 {
+				t.Errorf("proposed links = %d, want 1", n)
+			}
+			if n := f.count(`SELECT c.count FROM candidates c JOIN claims k ON k.id = c.claim_id WHERE k.rule = '` +
+				rules[0] + `'`); n != known {
+				t.Errorf("known candidate count = %d, want %d", n, known)
+			}
+			if n := f.count(`SELECT c.count FROM candidates c JOIN claims k ON k.id = c.claim_id WHERE k.rule = '` +
+				rules[1] + `'`); n != 1 {
+				t.Errorf("new candidate count = %d, want 1", n)
+			}
+		})
 	}
 }
 
