@@ -138,7 +138,7 @@ func TestSameAs(t *testing.T) {
 			write(t, e.Store, func(tx *sql.Tx) error {
 				got, err := SameAs(ctx, tx, reworded, old, tc.m)
 				if err != nil || got != tc.want {
-					return fmt.Errorf("SameAs() = %s, %v, want %s", got, err, tc.want)
+					return fmt.Errorf("SameAs() = %s, %w, want %s", got, err, tc.want)
 				}
 				return nil
 			})
