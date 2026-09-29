@@ -194,11 +194,11 @@ func codexResult(events []byte, last string) (json.RawMessage, error) {
 		if json.Unmarshal(sc.Bytes(), &ev) != nil {
 			continue
 		}
-		switch t := ev.Item.Type + ev.Item.ItemType; {
-		case ev.Type == "turn.failed" || ev.Type == "error":
+		switch ev.Type {
+		case "turn.failed", "error":
 			return nil, errors.New("codex reported a failed turn")
-		case ev.Type == "item.started" || ev.Type == "item.completed":
-			if !slices.Contains(codexItems, t) {
+		case "item.started", "item.completed":
+			if t := ev.Item.Type + ev.Item.ItemType; !slices.Contains(codexItems, t) {
 				return nil, fmt.Errorf("codex used a tool (%s): %w", t, ErrInvalid)
 			}
 		}

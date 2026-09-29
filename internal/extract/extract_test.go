@@ -174,10 +174,10 @@ func (f *fixture) watermark(sid int64, ws string) int64 {
 	return wm
 }
 
-func (f *fixture) count(query string, args ...any) int {
+func (f *fixture) count(query string) int {
 	f.t.Helper()
 	var n int
-	f.write(func(ctx context.Context, tx *sql.Tx) error { return tx.QueryRowContext(ctx, query, args...).Scan(&n) })
+	f.write(func(ctx context.Context, tx *sql.Tx) error { return tx.QueryRowContext(ctx, query).Scan(&n) })
 	return n
 }
 
