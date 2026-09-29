@@ -389,12 +389,14 @@ func (c *Capture) lines(harness, text string) []string {
 // starts inside the old text or holds the whole history; else text may be lost between the
 // reads, and it is partial.
 //
-// A dialog hides the top of a screen, and the text comes back when the dialog closes. So
-// the lines above the first old line are not new when the read back, before old, holds them
-// all [NEW, real Claude read, testdata/claude-s31-3-working.txt].
+// A dialog at the bottom of a screen hides the top, and the text comes back when the dialog
+// closes. So when the last old line is gone, the lines above the first old line are not new
+// if the read back, before old, holds them all [NEW, real Claude read,
+// testdata/claude-s31-3-working.txt]. When the last old line stays, the lines above are a
+// repeat (S40).
 func newPart(old, back []string, r read) ([]string, store.ObservationStatus) {
 	matched := lcs(old, r.lines)
-	if first := slices.Index(matched, true); first > 0 &&
+	if first := slices.Index(matched, true); first > 0 && !slices.Contains(r.lines, old[len(old)-1]) &&
 		!slices.ContainsFunc(r.lines[:first], func(l string) bool { return !slices.Contains(back, l) }) {
 		for i := range first {
 			matched[i] = true

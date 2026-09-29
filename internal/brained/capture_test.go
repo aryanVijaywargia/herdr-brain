@@ -404,9 +404,9 @@ func TestCaptureScreenLost(t *testing.T) {
 
 // S40: the same text in two real turns gives two occurrences.
 func TestCaptureS40(t *testing.T) {
-	for _, tc := range []struct{ harness, session, prefix, prompt, status string }{
-		{"codex", codexRun2, "codex-s40", "› Reply with only the word ready.", "done"},
-		{"claude", "", "claude-s40", "❯ Reply with only the word ready.", "idle"},
+	for _, tc := range []struct{ harness, session, prefix, prompt, reply, status string }{
+		{"codex", codexRun2, "codex-s40", "› Reply with only the word ready.", "• ready", "done"},
+		{"claude", "", "claude-s40", "❯ Reply with only the word ready.", "⏺ ready", "idle"},
 	} {
 		t.Run(tc.harness, func(t *testing.T) {
 			k := newCapture(t, "s1", t.TempDir())
@@ -419,10 +419,28 @@ func TestCaptureS40(t *testing.T) {
 			if len(excerpts) != 2 {
 				t.Fatalf("excerpts = %q, want 2", excerpts)
 			}
-			if !strings.Contains(excerpts[0], "ready") || strings.Count(excerpts[1], tc.prompt) != 1 {
-				t.Errorf("excerpts = %q, want the reply, then the prompt once", excerpts)
+			if !strings.Contains(excerpts[0], tc.reply) || strings.Count(excerpts[1], tc.prompt) != 1 ||
+				strings.Count(excerpts[1], tc.reply) != 1 {
+				t.Errorf("excerpts = %q, want the reply, then the prompt and the reply once", excerpts)
 			}
 		})
+	}
+}
+
+// newPart keeps a repeat above the old text when the last old line stays (S40), and drops
+// text that a closed dialog hid.
+func TestNewPartRepeatAbove(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		back, old, read []string
+		want            []string
+	}{
+		{"repeat", []string{"P", "A"}, []string{"A"}, []string{"P", "A"}, []string{"P"}},
+		{"dialog", []string{"36", "37", "W"}, []string{"37", "W", "D"}, []string{"36", "37", "W", "N"}, []string{"N"}},
+	} {
+		if got, _ := newPart(tc.old, tc.back, read{lines: tc.read}); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: newPart = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }
 
