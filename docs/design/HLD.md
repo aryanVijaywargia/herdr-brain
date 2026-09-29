@@ -594,7 +594,7 @@ herdr capture is the main path. It needs no code for each harness. Hook records 
 - They use the same `brain hook` binary, with an event name from the profile.
 - `UserPromptSubmit`: the exact submitted text. The sender stays **unconfirmed**, because a script or `herdr agent prompt` can also submit text. The hook prints nothing.
 - `PostToolUse`: a shell-tool matcher first. Codex gives the session `cwd`, not the command `cwd`. `tool_response` has no standard exit code, and a long command can finish through `write_stdin`. So Brain records an exit status only when the payload has one. Claude sends a failed command to `PostToolUseFailure`, with the exit code in `error`; Brain also matches this event. Claude's `cwd` is the shell cwd after the command.
-- `Stop`: an observation only. It does not prove that the reply is complete.
+- `Stop`: an observation only. It does not prove that the reply is complete. Claude's `Stop` payload has `last_assistant_message`, the text of the final reply.
 - `PreCompact`: deferred. Its payload has no conversation text.
 - Capture hooks are short. They exit 0 on any error and never block the CLI.
 - Brain enables a hook event for a CLI only after its M0 test on the recorded CLI version.
@@ -614,10 +614,10 @@ A state change is a **chance to read** the pane. It does not prove that you sent
 9. **Exit and close:** Brain closes the segment. It does not need a final read to succeed.
 
 Limits:
-- Claude draws in the alternate screen. While it is `working` or `blocked`, only the screen can be read. At idle, herdr can capture the history by scrolling. Codex draws inline, so its rows go to scrollback (M0 E11-S1).
-- M0 tests whether `recent-unwrapped` works while an agent is `working` or `blocked`. If it does not, Brain uses the `visible` read and reports lower coverage.
+- Claude draws in the alternate screen. While it is `working` or `blocked`, only the screen can be read. A longer herdr read at idle scrolls the pane, so Brain does not use it (see below). Codex draws inline, so its rows go to scrollback (M0 E11-S1).
+- For an alternate-screen agent (Claude), herdr can read only the screen. `recent-unwrapped` above the screen size fails with `agent_not_idle` while the agent is `working` or `blocked`. Brain uses the `visible` read for such agents and reports lower coverage. Hook records (§6.1) give the prompt, the commands, the errors and the final reply. The M2 evals measure the loss (D5).
 - An observation can hold screen noise, for example the input box. Optional noise patterns for each harness remove it. An unknown pattern lowers confidence. It does not fake a clean text.
-- Brain reads only. It never sends keys or scrolls a pane to get missed text.
+- Brain reads only. It never sends keys or scrolls a pane to get missed text. For an alternate-screen agent it reads only `visible`, because a longer herdr read scrolls the pane at idle.
 
 ### 6.3 Sender mark and filters
 
@@ -1451,7 +1451,7 @@ M0 checks the facts that M1 needs first (marked **M1**). The others can stay **u
 6. How herdr shows `workspace report-metadata` tokens in the UI.
 7. That an MCP server started by Claude or Codex inherits `HERDR_WORKSPACE_ID` (M4).
 8. How long after a state change `events.subscribe` delivers `pane.agent_status_changed`, on the latest herdr release. **Answered `[M0]` (E11-S1):** 0.14-0.42 s after a Claude change, in 7 samples. The event has no time and no id.
-9. How much text herdr capture loses on the alternate screen for each harness. Whether the user message is still on screen at turn start. **Answered for Claude `[M0]` (E11-S1):** Claude draws in the alternate screen. While busy, only the screen can be read; at idle, herdr can capture the history by scrolling. The user prompt line is on the screen at turn start. **Codex stays open** for a follow-up Codex spike.
+9. How much text herdr capture loses on the alternate screen for each harness. Whether the user message is still on screen at turn start. **Answered for Claude `[M0]` (E11-S1):** Claude draws in the alternate screen. While busy, only the screen can be read; at idle, a longer herdr read scrolls the pane, so Brain does not use it (§6.2, owner decision 2026-09-29). The user prompt line is on the screen at turn start. **Codex stays open** for a follow-up Codex spike.
 10. **M1** The full hook time in the real CLI hook environment: process start, socket access, `herdr pane get`, manifest check and receipt, at normal and busy load. It sets the lookup deadline inside the 300 ms cap. A fast `pane get` alone is not enough. A slow answer withholds the whole brief (§8.3). **PARTIAL `[M0]`:** a Go hook took 5.4-10.7 ms in total, with `pane get` 4.5-10.2 ms, at normal load. Still open: busy load and the manifest check. **ANSWERED** (E7-S4, PR #89): the lookup deadline is 150 ms from the hook start (owner decision 2026-09-28). E7-S2 (#34) enforces the whole cap.
 11. **M1** That `herdr pane split --no-focus` and `pane close` work from a `brain` call, and that the review pane does not take focus. The plugin popup placement for a TUI review screen. **PASS `[M0]`** for `pane split --no-focus`, `pane close`, and a plugin `split` pane with `--no-focus`. Still open: the `popup` placement.
 12. That each CLI reads a skill file from an absolute path listed in the brief, when the skill is relevant (M3).

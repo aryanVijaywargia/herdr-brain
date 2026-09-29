@@ -253,3 +253,14 @@ $S/h session stop brain-e2s6; $S/h session delete brain-e2s6
 | `[[events]]` burst, 10 changes, 3 s hook | 10 hook processes at the same time. All 10 ran. |
 | `events.subscribe` with no `pane_id` for `pane.agent_status_changed` | `invalid_request`: "missing field `pane_id`". |
 | Socket subscriber on `session stop` | It reads EOF and exits. |
+
+### D8. Claude capture: the screen read plus hooks, and no scroll
+
+**Decision** (owner, 2026-09-29; no new test): Brain keeps the rule "never sends keys or scrolls a pane". For an alternate-screen agent (Claude), Brain reads only `visible`. Hook records give the prompt, the commands, the errors and the final reply (`Stop` `last_assistant_message`). Brain reports lower coverage for such agents.
+- The M2 evals measure the loss. Brain builds a transcript reader only if the loss matters (HLD D5).
+- HLD §6.1 (`Stop` line) and §6.2 Limits have this text.
+
+**Reason:**
+- E11-S1 showed that a herdr read longer than the screen scrolls the Claude pane through mouse-scroll input at idle. This breaks the "never scrolls" rule.
+- While Claude is `working` or `blocked`, herdr can read only the screen (`agent_not_idle` above it). At idle, a longer read often returned only the screen with exit 0. So the longer read gives little extra text that Brain can trust.
+- Raw log: `spike/m0/data/e11s1-capture.txt`.
