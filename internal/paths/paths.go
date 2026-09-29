@@ -140,3 +140,11 @@ func WorkspaceMap(store string) string {
 func EvalResults(store string) string {
 	return filepath.Join(store, "eval-results.json")
 }
+
+// EvalReport returns <store>/eval-report.md, the short report of the last eval run in the test
+// store folder store: its score, the UNSURE results for your review and the usefulness records
+// (HLD §12.1, E10-S3). The eval runner writes it and keeps it through its store reset. [NEW]
+// name.
+func EvalReport(store string) string {
+	return filepath.Join(store, "eval-report.md")
+}
