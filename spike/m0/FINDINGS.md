@@ -377,6 +377,8 @@ Codex CLI 0.154, herdr 0.9.1, the test session `brain-spike-e11b`, 2 Codex runs 
   - `last-assistant-message` is the final reply only.
   - The first call in a run came from the thread-title side turn. It has a different `thread-id`, and its message wraps the prompt in a title instruction. Brain must drop it.
 - Still open: the live `PostToolUse` fields (command, cwd, exit code) and an empty `UserPromptSubmit`. Images were not tested.
+- Owner decision (2026-09-29): no live Codex hook check with a `-c` `trusted_hash`. The Codex source facts stay for item 14. The owner's M2 hand test, with normal `/hooks` trust, confirms the real payload later.
+- Owner decision (2026-09-29): Codex `notify` is **not** a Brain turn-end source. Brain uses the `Stop` hook only. Reasons: `notify` is one global config slot, and its first call in a run is a side turn with another thread id.
 
 ## Cleanup done
 
@@ -388,7 +390,7 @@ Codex CLI 0.154, herdr 0.9.1, the test session `brain-spike-e11b`, 2 Codex runs 
 
 - E5-S3: the scratch session `brain-e5s3` is stopped and deleted. The client tab `w2C:t2` that this thread made is closed. The plugin links and the key binding lived only in the scratch HOME. `/tmp/e5s3` is removed.
 - E11-S1: the scratch sessions `brain-e11s1`, `brain-e11s1b` and the scratch-HOME `default` are stopped. They lived in the scratch HOME, which is removed. The test session `brain-spike-e11` is stopped and deleted. The orphaned `startup.sh` probes, the socket subscribers and the test Claude runs are ended. `/tmp/e11s1` and `~/.claude/projects/-private-tmp-e11s1-agent/` are removed. The Claude folder-trust entry for `/private/tmp/e11s1/agent` stays in `~/.claude.json`; that file was not read or edited. No Codex session ran, so `~/.codex/config.toml` has no change. The real `default` session and the main server were not touched.
-- E11-S1b: the socket subscriber and the pollers are ended. The test session `brain-spike-e11b` is stopped and deleted, and the Codex runs ended with it. `/tmp/e11s1b` is removed. `~/.codex/config.toml` has the same mtime and size as before; it was not read. Codex keeps its own session logs and `history.jsonl` lines for the 2 runs in `~/.codex`; they were not read or edited. The real `default` session and the main server were not touched.
+- E11-S1b: the socket subscriber and the pollers are ended. The test session `brain-spike-e11b` is stopped and deleted, and the Codex runs ended with it. `/tmp/e11s1b` is removed. `/tmp/codex-src` (the Codex source clone from E11-S1) is removed. `~/.codex/config.toml` has the same mtime and size as before; it was not read. Codex keeps its own session logs and `history.jsonl` lines for the 2 runs in `~/.codex`; they were not read or edited. The real `default` session and the main server were not touched.
 
 ## Open items
 
@@ -399,6 +401,6 @@ Codex CLI 0.154, herdr 0.9.1, the test session `brain-spike-e11b`, 2 Codex runs 
 - Item 21: the conformance test (built in M1).
 - Item 28: answered by E10-S4. Decided (owner, 2026-09-28, HLD §17 item 28): PASS for Claude and Codex. `agent read --source recent-unwrapped` returns a full Codex reply when `--lines` covers the reply and the pane text below it. The runner must still check that the whole reply is there; a partial read is `reply incomplete`.
 - Plugin `[[events]]` delivery: tested by E11-S1 for pane events. Hosting uses `[[startup]]` (D7).
-- Items 9 and 20 for Codex: answered live by E11-S1b. Item 14 for Codex: a `-c` hook needs the hook-trust step, so the live `PostToolUse` fields and an empty `UserPromptSubmit` stay open. Owner decisions: trust a test hook with a `-c` `trusted_hash`, and use Codex `notify` as a turn-end source.
+- Items 9 and 20 for Codex: answered live by E11-S1b; the HLD text is updated (owner, 2026-09-29). Item 14 for Codex: the source facts stay. The owner's M2 hand test with normal `/hooks` trust confirms the live `PostToolUse` fields and an empty `UserPromptSubmit`. Codex `notify` is not a Brain source (owner decision).
 - herdr scroll capture of Claude history sends mouse-scroll input to the pane. HLD §6.2 says Brain never scrolls a pane. Owner decision.
 - The eval delivery and exclusion stages (scripts plus the owner's check).
