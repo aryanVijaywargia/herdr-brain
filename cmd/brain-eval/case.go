@@ -101,12 +101,8 @@ func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]s
 	defer func() {
 		err = errors.Join(err, r.closeAll(ctx, h, opened), os.RemoveAll(dir))
 	}()
-	label := caseLabel + c.ID
-	if c.Control {
-		label += "-control"
-	}
 	shell, err := call(ctx, r.Timeouts.Call, func(ctx context.Context) (herdr.Pane, error) {
-		return h.CreateWorkspace(ctx, dir, label)
+		return h.CreateWorkspace(ctx, dir, workspaceLabel(c))
 	})
 	if err != nil {
 		return Outcome{}, err
@@ -117,6 +113,10 @@ func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]s
 			return Outcome{}, fmt.Errorf("setup step %d: %w", i+1, err)
 		}
 	}
+	want, err := briefHash(b, shell.WorkspaceID)
+	if err != nil {
+		return Outcome{}, err
+	}
 	o = Outcome{CaseID: c.ID, Marker: marker, Markers: markers, Session: b.Session, Store: b.Store}
 	for i, p := range c.Probes {
 		p.Prompt = fill(p.Prompt, markers)
@@ -124,13 +124,21 @@ func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]s
 			o.Replies = append(o.Replies, Reply{Harness: p.Harness, Status: Skipped, Why: why})
 			continue
 		}
-		rep, err := r.probe(ctx, h, shell, dir, fmt.Sprintf("probe-%s-%d", marker, i+1), p, b, &opened)
+		rep, err := r.probe(ctx, h, shell, dir, fmt.Sprintf("probe-%s-%d", marker, i+1), p, b, want, &opened)
 		if err != nil {
-			return Outcome{}, fmt.Errorf("probe %d (%s): %w", i+1, p.Harness, err)
+			return o, fmt.Errorf("probe %d (%s): %w", i+1, p.Harness, err)
 		}
 		o.Replies = append(o.Replies, rep)
 	}
 	return o, nil
+}
+
+// workspaceLabel is the label of the workspace of case c.
+func workspaceLabel(c Case) string {
+	if c.Control {
+		return caseLabel + c.ID + "-control"
+	}
+	return caseLabel + c.ID
 }
 
 // newMarkers returns a fresh marker for {{marker}} and for each other marker placeholder of
@@ -308,11 +316,12 @@ func (r *Runner) step(ctx context.Context, h Herdr, pane, command, marker string
 }
 
 // probe opens a pane beside the shell pane, starts a fresh official CLI in it, sends the
-// prompt with herdr, reads the reply and its receipt in the test store of binding b. The
+// prompt with herdr, reads the reply and its receipt in the test store of binding b, and
+// checks the receipt against want, the expected brief hash. The
 // runner never touches the CLI's credentials or native memory. A CLI that herdr cannot start
 // because it is not ready, such as Codex at its folder-trust dialog, is skipped: the runner
 // never answers that dialog.
-func (r *Runner) probe(ctx context.Context, h Herdr, shell herdr.Pane, dir, name string, p Probe, b bindings.Binding, opened *[]string) (Reply, error) {
+func (r *Runner) probe(ctx context.Context, h Herdr, shell herdr.Pane, dir, name string, p Probe, b bindings.Binding, want string, opened *[]string) (Reply, error) {
 	rep := Reply{Harness: p.Harness}
 	pane, err := call(ctx, r.Timeouts.Call, func(ctx context.Context) (herdr.Pane, error) {
 		return h.SplitPane(ctx, shell.ID, dir)
@@ -346,7 +355,7 @@ func (r *Runner) probe(ctx context.Context, h Herdr, shell herdr.Pane, dir, name
 	if err != nil && !hasCode(err, "agent_not_idle") {
 		return Reply{}, err
 	}
-	d, ok, want, derr := r.receipt(ctx, b, shell.WorkspaceID, pane.ID, p.Harness)
+	d, ok, derr := r.receipt(ctx, b, pane.ID, p.Harness)
 	if derr != nil {
 		return Reply{}, derr
 	}
@@ -354,13 +363,16 @@ func (r *Runner) probe(ctx context.Context, h Herdr, shell herdr.Pane, dir, name
 		rep.Receipt = &d
 	}
 	rep.Status, rep.Why = deliveryStatus(d, ok, want)
-	switch text, found := replyAfter(rep.Screen, p.Prompt); {
+	text, found := replyAfter(rep.Screen, p.Prompt)
+	if !found {
+		text = strings.TrimSpace(rep.Screen) // what the runner saw, for your review of the UNSURE
+	}
+	rep.Text = text
+	switch {
 	case err != nil:
 		rep.Status, rep.Why = Incomplete, err.Error()
 	case !found:
 		rep.Status, rep.Why = Incomplete, "the read does not show the ask with a reply after it"
-	default:
-		rep.Text = text
 	}
 	return rep, nil
 }

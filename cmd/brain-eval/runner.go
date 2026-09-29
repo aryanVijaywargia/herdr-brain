@@ -83,6 +83,7 @@ type Runner struct {
 	Alive       func(pid int) bool // reports whether process pid still runs
 	Timeouts    Timeouts
 	Now         func() time.Time
+	Version     func(ctx context.Context, harness string) (string, error) // the CLI version of harness
 	Stdout      io.Writer
 }
 
@@ -117,15 +118,18 @@ func (r *Runner) Run(ctx context.Context, cases []Case) (out []Outcome, err erro
 		err = errors.Join(err, stop(cctx))
 	}()
 	started := r.Now()
+	versions := r.versions(ctx, cases, skip)
 	defer func() {
-		err = errors.Join(err, writeResults(b.Store, started, r.Now(), results(cases, out)))
+		err = errors.Join(err, writeResults(b.Store, started, r.Now(), results(cases, out, versions)))
 	}()
 	for _, c := range cases {
 		o, err := r.runCase(ctx, h, c, skip)
+		if o.CaseID != "" {
+			out = append(out, o) // also a partial outcome: its finished probes keep their results
+		}
 		if err != nil {
 			return out, fmt.Errorf("case %s: %w", c.ID, err)
 		}
-		out = append(out, o)
 	}
 	return out, nil
 }

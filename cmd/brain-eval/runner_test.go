@@ -57,8 +57,11 @@ type fakeHerdr struct {
 	// and the reply only.
 	answer   func(p *fakePane, prompt string) string
 	onStart  func(pane, kind string) // runs when an agent starts: its hook
+	onRun    func()                  // runs when a pane runs a command: a Brain call of a step
 	notReady map[string]bool         // agent kinds that do not get ready
 	notIdle  bool                    // a read finds the agent still working
+	scrolled bool                    // the ask scrolled off the screen of a read
+	badAsk   string                  // the agent kind whose prompt fails
 	visible  int                     // the count of visible reads
 }
 
@@ -154,6 +157,9 @@ func (f *fakeHerdr) RunInPane(_ context.Context, id, command string) error {
 		return err
 	}
 	p.ran = append(p.ran, command)
+	if f.onRun != nil {
+		f.onRun()
+	}
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Dir = p.cwd
 	out, err := cmd.CombinedOutput()
@@ -200,6 +206,9 @@ func (f *fakeHerdr) PromptAgent(_ context.Context, target, text string, _ time.D
 	if err != nil {
 		return err
 	}
+	if p.pane.Agent != nil && *p.pane.Agent == f.badAsk {
+		return errors.New("agent prompt: the pane is gone (pane_not_found)")
+	}
 	p.prompts = append(p.prompts, text)
 	return nil
 }
@@ -214,6 +223,9 @@ func (f *fakeHerdr) ReadAgent(_ context.Context, target string, _ int) (string, 
 	}
 	if f.answer != nil {
 		last := p.prompts[len(p.prompts)-1]
+		if f.scrolled {
+			return f.answer(p, last) + "\n", nil
+		}
 		return fmt.Sprintf("> %s\n%s\n", last, f.answer(p, last)), nil
 	}
 	return fmt.Sprintf("prompt: %s\nstore: %s\nscratch: %s\n", strings.Join(p.prompts, " | "), dump(f.store), dump(p.cwd)), nil
@@ -296,6 +308,7 @@ func newEnv(t *testing.T) *env {
 		Alive:    func(pid int) bool { return e.fake.alive[pid] },
 		Timeouts: Timeouts{Call: 5 * time.Second, Start: 5 * time.Second, Prompt: 5 * time.Second, Step: 5 * time.Second, Exit: 50 * time.Millisecond, Poll: time.Millisecond},
 		Now:      func() time.Time { return time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC) },
+		Version:  func(context.Context, string) (string, error) { return "2.1.283", nil },
 		Stdout:   io.Discard,
 	}
 	return e

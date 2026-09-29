@@ -26,11 +26,7 @@ type Check struct {
 	Decline bool
 }
 
-// negationWindow is how many words before an answer a negation word counts. [NEW] 2: it holds
-// "not bun", "don't use bun" and "instead of bun".
-const negationWindow = 2
-
-// negations are the words that turn an answer next to them into its negation.
+// negations are the words that turn an answer in the same sentence into its negation.
 var negations = []string{"not", "no", "never", "don't", "dont", "doesn't", "isn't", "aren't",
 	"won't", "without", "avoid", "instead", "than"}
 
@@ -41,6 +37,9 @@ var refusals = []string{"i don't know", "i do not know", "not sure", "no informa
 
 // word splits text into words: letters, digits, "'" and "-".
 var word = regexp.MustCompile(`[\p{L}\p{N}'-]+`)
+
+// sentenceEnd ends a sentence: ".", "!" or "?" before a space, or a line break.
+var sentenceEnd = regexp.MustCompile(`[.!?]\s|\n`)
 
 // label decides the answer label of reply from the rules of §12.1, and names the rule. The
 // rules look only for the exact answers of the probe, so anything that they cannot decide is
@@ -53,7 +52,7 @@ func label(reply string, c Check) (Label, string) {
 	claim := expect || stale
 	switch {
 	case negE || negS:
-		return Unsure, "an answer next to a negation"
+		return Unsure, "an answer in a sentence with a negation"
 	case refused && claim:
 		return Unsure, "a refusal together with a claim"
 	case c.Decline && refused:
@@ -89,7 +88,7 @@ func refusal(text string) bool {
 }
 
 // find reports whether text holds one of terms as a whole word, and whether one such
-// occurrence follows a negation word.
+// occurrence follows a negation word in its sentence.
 func find(text string, terms []string) (found, negated bool) {
 	for _, t := range terms {
 		t = normalize(strings.TrimSpace(t))
@@ -109,10 +108,13 @@ func find(text string, terms []string) (found, negated bool) {
 	return found, negated
 }
 
-// negatedAt reports whether one of the last negationWindow words of before is a negation.
+// negatedAt reports whether the last sentence of before holds a negation word: "we do not use
+// the bun package manager" denies bun.
 func negatedAt(before string) bool {
-	ws := word.FindAllString(before, -1)
-	return slices.ContainsFunc(ws[max(0, len(ws)-negationWindow):], func(w string) bool {
+	if ends := sentenceEnd.FindAllStringIndex(before, -1); len(ends) > 0 {
+		before = before[ends[len(ends)-1][1]:]
+	}
+	return slices.ContainsFunc(word.FindAllString(before, -1), func(w string) bool {
 		return slices.Contains(negations, w)
 	})
 }

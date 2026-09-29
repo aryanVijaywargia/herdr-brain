@@ -18,11 +18,12 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// hook is a fake Brain hook: at an agent start it builds generation 1 of the test store with
-// global part global, and writes a receipt of the pane with result res and brief hash hash.
-// hash "" is the hash of the brief of that generation.
-func (e *env) hook(t *testing.T, global string, res store.Result, hash string) {
-	e.fake.onStart = func(pane, kind string) {
+// hook is a fake Brain: a setup step builds generation 1 of the test store with the global
+// part "facts", and the hook of an agent start writes a receipt of the pane with result res and
+// brief hash hash. hash "" is the hash of the brief of that generation.
+func (e *env) hook(t *testing.T, res store.Result, hash string) {
+	const global = "facts\n"
+	e.fake.onRun = func() {
 		out := filepath.Join(e.testStore, "out")
 		sum := sha256.Sum256([]byte(global))
 		m, err := json.Marshal(map[string]any{"generation": 1, "built_at": time.Now().UTC(), "files": map[string]any{
@@ -34,6 +35,8 @@ func (e *env) hook(t *testing.T, global string, res store.Result, hash string) {
 		write(t, filepath.Join(out, "gen-1", "global.md"), global)
 		write(t, filepath.Join(out, "gen-1", "manifest.json"), string(m))
 		write(t, filepath.Join(out, "current"), "gen-1\n")
+	}
+	e.fake.onStart = func(pane, kind string) {
 		if hash == "" {
 			sum := sha256.Sum256([]byte(brief.Text(global, "")))
 			hash = hex.EncodeToString(sum[:])
@@ -101,16 +104,26 @@ func TestResultStatus(t *testing.T) {
 		ctlStatus Status
 		ctlLabel  Label
 	}{
-		{"delivered", "claude", func(t *testing.T, e *env) { e.hook(t, "facts\n", store.ResultEmitted, "") },
-			Delivered, Pass, "", Delivered, Miss},
-		{"another brief hash", "claude", func(t *testing.T, e *env) { e.hook(t, "facts\n", store.ResultEmitted, strings.Repeat("0", 64)) },
+		{"delivered", "claude", func(t *testing.T, e *env) { e.hook(t, store.ResultEmitted, "") },
+			Delivered, Pass, "", NotDelivered, Miss},
+		{"output moves after the start", "claude", func(t *testing.T, e *env) {
+			e.hook(t, store.ResultEmitted, "")
+			start := e.fake.onStart
+			e.fake.onStart = func(pane, kind string) {
+				start(pane, kind)
+				write(t, filepath.Join(e.testStore, "out", "gen-1", "global.md"), "a change of the probe\n")
+			}
+		}, Delivered, Pass, "", NotDelivered, Miss},
+		{"another brief hash", "claude", func(t *testing.T, e *env) { e.hook(t, store.ResultEmitted, strings.Repeat("0", 64)) },
 			NotDelivered, "", "another brief hash", NotDelivered, Miss},
-		{"withheld receipt", "codex", func(t *testing.T, e *env) { e.hook(t, "facts\n", store.ResultWithheld, "") },
+		{"withheld receipt", "codex", func(t *testing.T, e *env) { e.hook(t, store.ResultWithheld, "") },
 			NotDelivered, "", "the receipt is withheld", NotDelivered, Miss},
 		{"no receipt", "codex", func(*testing.T, *env) {},
 			NotDelivered, "", "no receipt", NotDelivered, Miss},
 		{"reply incomplete", "claude", func(_ *testing.T, e *env) { e.fake.notIdle = true },
 			Incomplete, Unsure, "agent_not_idle", Incomplete, Unsure},
+		{"ask scrolled off", "claude", func(_ *testing.T, e *env) { e.fake.scrolled = true },
+			Incomplete, Unsure, "does not show the ask", Incomplete, Unsure},
 		{"not ready: folder-trust dialog", "codex", func(_ *testing.T, e *env) { e.fake.notReady = map[string]bool{"codex": true} },
 			Skipped, "", "folder-trust dialog", Skipped, ""},
 	}
@@ -139,10 +152,13 @@ func TestResultStatus(t *testing.T) {
 				got.Markers["marker"] != out[0].Marker {
 				t.Errorf("result %+v, want the case, the profile and its hash, the store binding and the marker", got)
 			}
-			if tt.status == Delivered && (got.BriefHash == "" || got.Generation != 1 || got.CLIVersion != "2.1.0" ||
+			if tt.status == Delivered && (got.BriefHash == "" || got.Generation != 1 || got.CLIVersion != "2.1.283" ||
 				!slices.Equal(got.ItemRevisions, []store.RevisionRef{{Item: 1, Revision: 2}}) ||
 				got.Reply != "The deploy code word is "+out[0].Marker+".") {
 				t.Errorf("result %+v, want the reply and the receipt fields", got)
+			}
+			if tt.status == Incomplete && tt.name == "ask scrolled off" && got.Reply != "The deploy code word is "+out[0].Marker+"." {
+				t.Errorf("reply %q, want the text that the runner saw", got.Reply)
 			}
 		})
 	}
@@ -217,8 +233,26 @@ func TestResultsOfFailedRun(t *testing.T) {
 	}
 	rs := readResults(t, e)
 	if len(rs) != 2 || rs[0].Case != "one" || rs[0].Status == string(Skipped) ||
-		rs[1].Case != "two" || rs[1].Status != string(Skipped) || rs[1].Why != "the case did not run" {
+		rs[1].Case != "two" || rs[1].Status != string(Skipped) || rs[1].Why != "the probe did not run" {
 		t.Errorf("results %+v, want case one's result and case two skipped", rs)
+	}
+}
+
+// A probe that fails keeps the results of the probes before it; the probes after it are
+// skipped.
+func TestResultsOfFailedProbe(t *testing.T) {
+	e := newEnv(t)
+	e.fake.answer = knows
+	e.fake.badAsk = "codex"
+	c := Case{ID: "c", Check: Check{Expect: []string{"x"}}, Probes: []Probe{
+		{Harness: "claude", Prompt: "p"}, {Harness: "codex", Prompt: "p"}, {Harness: "claude", Prompt: "q"}}}
+	if _, err := e.r.Run(context.Background(), []Case{c}); err == nil || !strings.Contains(err.Error(), "probe 2 (codex)") {
+		t.Fatalf("Run() = %v, want the failed probe", err)
+	}
+	rs := readResults(t, e)
+	if len(rs) != 3 || rs[0].Status == string(Skipped) || rs[0].Reply == "" || rs[0].Session != session ||
+		rs[1].Status != string(Skipped) || rs[2].Status != string(Skipped) || rs[2].Why != "the probe did not run" {
+		t.Errorf("results %+v, want claude's result and the rest skipped", rs)
 	}
 }
 
@@ -248,6 +282,8 @@ func TestControlPass(t *testing.T) {
 		{ID: "quiet", Stage: "restraint", Check: check, Probes: []Probe{{Harness: "claude"}}},
 		{ID: "quiet", Stage: "restraint", Control: true, Check: check, Probes: []Probe{{Harness: "claude"}}},
 		{ID: "gone", Stage: "exclusion", Check: Check{Stale: []string{"pnpm"}}, Probes: []Probe{{Harness: "claude"}}},
+		{ID: "loud", Stage: "restraint", Check: check, Probes: []Probe{{Harness: "claude"}}},
+		{ID: "loud", Stage: "restraint", Control: true, Check: check, Probes: []Probe{{Harness: "claude"}}},
 	}
 	delivered := func(harness, text string) Reply { return Reply{Harness: harness, Status: Delivered, Text: text} }
 	outs := []Outcome{
@@ -256,13 +292,16 @@ func TestControlPass(t *testing.T) {
 		{Replies: []Reply{delivered("claude", "bun")}},
 		{Replies: []Reply{{Harness: "claude", Status: NotDelivered, Text: "bun"}}},
 		{Replies: []Reply{{Harness: "claude", Status: NotDelivered, Text: "pnpm"}}},
+		{Replies: []Reply{delivered("claude", "bun")}},
+		{Replies: []Reply{{Harness: "claude", Status: NotDelivered, Text: "npm"}}},
 	}
 	type got struct {
 		label       Label
 		controlPass bool
 	}
-	want := []got{{Pass, true}, {"", false}, {Pass, false}, {Miss, false}, {Pass, false}, {Pass, false}, {Stale, false}}
-	rs := results(cases, outs)
+	want := []got{{Pass, true}, {"", false}, {Pass, false}, {Miss, false}, {Pass, false}, {Pass, false}, {Stale, false},
+		{Pass, false}, {Miss, false}}
+	rs := results(cases, outs, nil)
 	if len(rs) != len(want) {
 		t.Fatalf("got %d results, want %d", len(rs), len(want))
 	}
@@ -270,6 +309,30 @@ func TestControlPass(t *testing.T) {
 		if g := (got{Label(r.Label), r.ControlPass}); g != want[i] {
 			t.Errorf("result %d (%s %s control %v) = %+v, want %+v", i, r.Case, r.Harness, r.Control, g, want[i])
 		}
+	}
+	// A restraint case whose control does not pass says so.
+	if rs[4].Why != "" || rs[7].Why != "its control is MISS, and a restraint case must pass there" {
+		t.Errorf("restraint whys %q and %q", rs[4].Why, rs[7].Why)
+	}
+}
+
+// The runner reads the CLI version from the CLI, as the hook does not record it.
+func TestCLIVersion(t *testing.T) {
+	bin := t.TempDir()
+	write(t, filepath.Join(bin, "claude"), "#!/bin/sh\necho '2.1.283 (Claude Code)'\n")
+	write(t, filepath.Join(bin, "codex"), "#!/bin/sh\necho 'codex-cli'\n")
+	for _, n := range []string{"claude", "codex"} {
+		if err := os.Chmod(filepath.Join(bin, n), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin)
+	environ := []string{"PATH=" + bin}
+	if v, err := cliVersion(context.Background(), environ, "claude"); err != nil || v != "2.1.283" {
+		t.Errorf("cliVersion(claude) = %q, %v; want 2.1.283", v, err)
+	}
+	if _, err := cliVersion(context.Background(), environ, "codex"); err == nil || !strings.Contains(err.Error(), "no version") {
+		t.Errorf("cliVersion(codex) = %v, want no version", err)
 	}
 }
 

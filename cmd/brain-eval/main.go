@@ -70,7 +70,7 @@ func run(args, environ []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "--- %s\n%s\n", rep.Harness, rep.Text)
 		}
 	}
-	for _, res := range results(cases, out) {
+	for _, res := range results(cases, out, nil) { // the line shows no CLI version
 		fmt.Fprintln(stdout, resultLine(res))
 	}
 	if err != nil {
@@ -157,7 +157,10 @@ func newRunner(environ []string, stdout io.Writer) (*Runner, error) {
 		Alive:    alive,
 		Timeouts: defaultTimeouts,
 		Now:      time.Now,
-		Stdout:   stdout,
+		Version: func(ctx context.Context, harness string) (string, error) {
+			return cliVersion(ctx, environ, harness)
+		},
+		Stdout: stdout,
 	}
 	for _, f := range []struct {
 		dst *string
