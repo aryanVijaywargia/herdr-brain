@@ -13,6 +13,7 @@ import (
 	"io"
 	"io/fs"
 	"reflect"
+	"regexp"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -50,12 +51,17 @@ type Profile struct {
 	// AdditionalContextLimit goes into the hook entry when set. Codex sends a longer
 	// additionalContext to a file and not to the model; 0 turns the limit off (E8 epic).
 	AdditionalContextLimit *int `toml:"additional_context_limit"`
+	// NoiseLines are optional regular expressions of screen lines that herdr capture drops,
+	// for example the input box (§6.3, E11-S3). A line matches when a pattern matches all of it.
+	NoiseLines []string `toml:"noise_lines"`
 	// SHA256 is the hex SHA-256 of the profile file. A conformance result holds it, so a
 	// changed profile needs a new test (§8.5, E8-S4).
 	SHA256 string `toml:"-"`
 
 	// cond is StartCondition, parsed; its path is empty when the profile has no condition.
 	cond condition
+	// noise is NoiseLines, compiled.
+	noise []*regexp.Regexp
 }
 
 // condition is a start condition of the form `<JSON path> == <JSON value>`, for example
@@ -118,6 +124,13 @@ func (p *Profile) check() error {
 	if p.OutputForm != formAdditionalContext {
 		return fmt.Errorf("unknown output_form %q", p.OutputForm)
 	}
+	for _, n := range p.NoiseLines {
+		re, err := regexp.Compile(`^(?:` + n + `)$`)
+		if err != nil {
+			return fmt.Errorf("noise_lines %q: %w", n, err)
+		}
+		p.noise = append(p.noise, re)
+	}
 	if p.StartCondition == "" {
 		return nil
 	}
@@ -131,6 +144,16 @@ func (p *Profile) check() error {
 	}
 	p.cond.path = path
 	return nil
+}
+
+// Noise reports whether line is screen noise by the profile's noise_lines.
+func (p *Profile) Noise(line string) bool {
+	for _, re := range p.noise {
+		if re.MatchString(line) {
+			return true
+		}
+	}
+	return false
 }
 
 // Parse reads the agent session id and the cwd from raw hook input by the profile's JSON

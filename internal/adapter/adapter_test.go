@@ -204,3 +204,23 @@ func TestLoadErrors(t *testing.T) {
 		t.Error(`Load("agy") = nil error, want an error: there is no agy profile in M1`)
 	}
 }
+
+// noise_lines is optional; a pattern matches a whole line, and a bad pattern is an error.
+func TestNoiseLines(t *testing.T) {
+	good := string(readFile(t, "fake/fake.toml"))
+	p, err := LoadFS(fstest.MapFS{"fake.toml": {Data: []byte(good + "\nnoise_lines = ['─+', '› .*']\n")}}, "fake")
+	if err != nil {
+		t.Fatalf("LoadFS() = %v", err)
+	}
+	for line, want := range map[string]bool{"──────": true, "› type here": true, "a ── b": false, "done": false} {
+		if got := p.Noise(line); got != want {
+			t.Errorf("Noise(%q) = %v, want %v", line, got, want)
+		}
+	}
+	if _, err := LoadFS(fstest.MapFS{"fake.toml": {Data: []byte(good + "\nnoise_lines = ['(']\n")}}, "fake"); err == nil {
+		t.Error("LoadFS with a bad noise pattern = nil, want an error")
+	}
+	if p, err := Load("codex"); err != nil || p.Noise("› type here") {
+		t.Errorf("Load(codex) = %v; a profile without noise_lines drops no line", err)
+	}
+}

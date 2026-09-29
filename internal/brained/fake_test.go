@@ -33,11 +33,33 @@ type fakeHerdr struct {
 	ln       net.Listener
 	subs     chan *fakeSub
 	mu       sync.Mutex
-	panes    map[string]string // pane id → the pane's JSON object
-	plugins  string            // the JSON array of plugin.list
-	failList bool              // pane.list gets an error
+	panes    map[string]*fakePane
+	moved    map[string]string // an old pane id → its new id: pane.get answers the old id
+	reads    map[string][]string
+	onRead   func(f *fakeHerdr) // runs after each pane.read, with mu held
+	calls    []string           // the methods and read sources, in order
+	plugins  string             // the JSON array of plugin.list
+	failList bool               // pane.list gets an error
 	conns    []net.Conn
 	wg       sync.WaitGroup
+}
+
+// fakePane is one live pane.
+type fakePane struct {
+	ws      string
+	agent   string // "" for no agent
+	session string // the agent session id; "" for none
+}
+
+func (p *fakePane) json(id string) string {
+	a, as := "null", ""
+	if p.agent != "" {
+		a = `"` + p.agent + `"`
+	}
+	if p.session != "" {
+		as = fmt.Sprintf(`,"agent_session":{"agent":%q,"kind":"id","source":"herdr:%s","value":%q}`, p.agent, p.agent, p.session)
+	}
+	return fmt.Sprintf(`{"pane_id":%q,"workspace_id":%q,"tab_id":"%s:t1","agent":%s,"agent_status":"working"%s}`, id, p.ws, p.ws, a, as)
 }
 
 // fakeSub is one accepted events.subscribe connection. The test writes its events.
@@ -53,7 +75,8 @@ func newFakeHerdr(t *testing.T) *fakeHerdr {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	f := &fakeHerdr{t: t, path: filepath.Join(dir, "s"), subs: make(chan *fakeSub, 64), panes: map[string]string{},
+	f := &fakeHerdr{t: t, path: filepath.Join(dir, "s"), subs: make(chan *fakeSub, 64), panes: map[string]*fakePane{},
+		moved: map[string]string{}, reads: map[string][]string{},
 		plugins: `[{"plugin_id":"brain","enabled":true}]`}
 	f.ln, err = net.Listen("unix", f.path)
 	if err != nil {
@@ -76,13 +99,9 @@ func newFakeHerdr(t *testing.T) *fakeHerdr {
 // addPane adds a live pane; agent "" is a pane with no agent.
 func (f *fakeHerdr) addPane(id, agent string) {
 	ws, _, _ := strings.Cut(id, ":")
-	a := "null"
-	if agent != "" {
-		a = `"` + agent + `"`
-	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.panes[id] = fmt.Sprintf(`{"pane_id":%q,"workspace_id":%q,"tab_id":"%s:t1","agent":%s,"agent_status":"working"}`, id, ws, ws, a)
+	f.panes[id] = &fakePane{ws: ws, agent: agent}
 }
 
 func (f *fakeHerdr) setFailList(fail bool) {
@@ -125,6 +144,9 @@ func (f *fakeHerdr) answer(conn net.Conn) {
 		Method string `json:"method"`
 		Params struct {
 			Subscriptions []herdr.Subscription `json:"subscriptions"`
+			PaneID        string               `json:"pane_id"`
+			Source        string               `json:"source"`
+			Lines         int                  `json:"lines"`
 		} `json:"params"`
 	}
 	if err := json.Unmarshal(line, &req); err != nil {
@@ -132,27 +154,7 @@ func (f *fakeHerdr) answer(conn net.Conn) {
 		return
 	}
 	f.mu.Lock()
-	var reply string
-	switch req.Method {
-	case "pane.list":
-		if f.failList {
-			break
-		}
-		var ps []string
-		for _, id := range slices.Sorted(maps.Keys(f.panes)) {
-			ps = append(ps, f.panes[id])
-		}
-		reply = `{"type":"pane_list","panes":[` + strings.Join(ps, ",") + `]}`
-	case "plugin.list":
-		reply = `{"type":"plugin_list","plugins":` + f.plugins + `}`
-	case "events.subscribe":
-		reply = `{"type":"subscription_started"}`
-		for _, s := range req.Params.Subscriptions {
-			if _, ok := f.panes[s.PaneID]; s.PaneID != "" && !ok {
-				reply = ""
-			}
-		}
-	}
+	reply := f.reply(req.Method, req.Params.PaneID, req.Params.Source, req.Params.Lines, req.Params.Subscriptions)
 	f.mu.Unlock()
 	if reply == "" {
 		_, _ = io.WriteString(conn, `{"id":"brain","error":{"code":"pane_not_found","message":"no pane"}}`+"\n")
@@ -167,6 +169,73 @@ func (f *fakeHerdr) answer(conn net.Conn) {
 		return
 	}
 	_ = conn.Close()
+}
+
+// reply returns the result JSON of one request, or "" for pane_not_found. f.mu is held.
+func (f *fakeHerdr) reply(method, paneID, source string, lines int, subs []herdr.Subscription) string {
+	f.calls = append(f.calls, strings.TrimSpace(method+" "+source))
+	var reply string
+	switch method {
+	case "pane.list":
+		if f.failList {
+			return ""
+		}
+		var ps []string
+		for _, id := range slices.Sorted(maps.Keys(f.panes)) {
+			ps = append(ps, f.panes[id].json(id))
+		}
+		reply = `{"type":"pane_list","panes":[` + strings.Join(ps, ",") + `]}`
+	case "pane.get":
+		id := paneID
+		if n, ok := f.moved[id]; ok {
+			id = n
+		}
+		if p, ok := f.panes[id]; ok {
+			reply = `{"type":"pane_info","pane":` + p.json(id) + `}`
+		}
+	case "pane.read":
+		reply = f.read(paneID, source, lines)
+	case "plugin.list":
+		reply = `{"type":"plugin_list","plugins":` + f.plugins + `}`
+	case "events.subscribe":
+		reply = `{"type":"subscription_started"}`
+		for _, s := range subs {
+			if _, ok := f.panes[s.PaneID]; s.PaneID != "" && !ok {
+				reply = ""
+			}
+		}
+	}
+	return reply
+}
+
+// read answers pane.read of pane id from its next recorded read; the last one repeats. It
+// runs onRead after the read, as a change that comes while the read is pending.
+func (f *fakeHerdr) read(id, source string, lines int) string {
+	p, ok := f.panes[id]
+	rs := f.reads[id]
+	if !ok || len(rs) == 0 {
+		return ""
+	}
+	text := rs[0]
+	if len(rs) > 1 {
+		f.reads[id] = rs[1:]
+	}
+	if lines > 0 {
+		ls := strings.Split(strings.TrimRight(text, "\n"), "\n")
+		if len(ls) > lines {
+			text = strings.Join(ls[len(ls)-lines:], "\n") + "\n"
+		}
+	}
+	js, err := json.Marshal(text)
+	if err != nil {
+		f.t.Error(err)
+	}
+	ws := p.ws
+	if f.onRead != nil {
+		f.onRead(f)
+	}
+	return fmt.Sprintf(`{"type":"pane_read","read":{"pane_id":%q,"workspace_id":%q,"tab_id":"%s:t1","source":%q,"format":"text","text":%s,"revision":1,"truncated":false}}`,
+		id, ws, ws, source, js)
 }
 
 // sub returns the next accepted subscription.

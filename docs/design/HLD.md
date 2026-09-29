@@ -608,7 +608,7 @@ A state change is a **chance to read** the pane. It does not prove that you sent
 3. Reads are **one at a time for each pane**. When a read returns, Brain checks that the pane still holds the same agent, session and workspace. If not, it drops the read and records a gap.
 4. Brain compares the read with the last read of that pane. The last read is kept **in memory only**. The new part becomes one **observation**: (capture identity, event, event time, read time, text, status).
 5. Status is `complete`, `partial` or `gap`. A partial or uncertain piece is kept as it is. Brain never invents missing text.
-6. **Agent session binding:** (harness, agent session id from herdr) when it exists. Else (harness, pane id, agent pid from `pane process-info`). herdr gives no agent start time. Brain stores the binding before it stores any evidence for it. For Codex, herdr gives the agent session id only after the first prompt of a run (M0 E11-S1b). Before that, Brain uses the pid form.
+6. **Session key:** (canonical herdr binding, harness, agent session id from herdr) when herdr has the id. Else (canonical herdr binding, harness, local capture id). Brain stores the key before it stores any evidence for it. For Codex, herdr gives the agent session id only after the first prompt of a run (M0 E11-S1b). Before that, Brain uses a local capture id. An agent session id that appears later enriches that session. It does not merge two identities.
 7. **Pane moves:** when live membership changes, a new capture segment starts. Brain never joins text across that boundary. New text never goes to the old workspace.
 8. **Start and reconnect:** Brain reconciles all live agents. For an agent that already works, the current screen is only a baseline. Brain records a gap and waits for new text.
 9. **Exit and close:** Brain closes the segment. It does not need a final read to succeed.
@@ -1112,7 +1112,7 @@ The M column says the first milestone that needs the table. M1 builds only the M
 | `tombstones` | M1 | claim id, source keys, forgotten at. No text. |
 | `claims` | M2 | claim id (no text), claim key text (removable), same-as links (proposed/confirmed) |
 | `rejections` | M2 | claim id, scope, workspace key, reason, evidence count at rejection, at, reopened at |
-| `sessions` | M2 | session key, binding (harness + agent session id, or harness + pane + start time), workspace key, started, ended |
+| `sessions` | M2 | session key (canonical herdr binding + harness + agent session id, else + local capture id), agent session id (enriched later, never merged), workspace key, started, ended |
 | `segments` | M2 | segment id, session key, workspace key, pane id, started, ended |
 | `observations` | M2 | id, capture identity (unique), source (remember/herdr/hook/transcript), segment id, sender (you/unconfirmed/assistant/tool), kind, excerpt (filtered, ≤500 chars), truncated, status (complete/partial/gap), counts (yes/no), enriched by, Brain-origin (yes/no), at |
 | `command_records` | M2 | observation id, argv (filtered, ≤ 4 KB), cwd, exit status (if known), truncated, secret found (yes/no) |
