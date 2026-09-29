@@ -399,3 +399,31 @@ func TestStatusEvalLine(t *testing.T) {
 		t.Errorf("evalLine() = %q, want %q", got, want)
 	}
 }
+
+// AC S70: an invalid extractor response keeps the watermark, and status shows the batch.
+func TestStatusFailedBatch(t *testing.T) {
+	f := newStatusFixture(t)
+	s := openStore(t, f.store)
+	write(t, s, func(tx *sql.Tx) error {
+		ctx := context.Background()
+		key := store.SessionKey{HerdrSession: "default", Harness: "claude", Kind: store.KeyAgent, ID: "a1"}
+		sid, err := store.OpenSession(ctx, tx, key, "w14:p1", "ws_a14", testNow)
+		if err != nil {
+			return err
+		}
+		b, err := store.StartBatch(ctx, tx, store.Batch{SessionID: sid, WorkspaceKey: "ws_a14", FirstCapture: "c1",
+			LastCapture: "c2", LastObservation: 2}, testNow)
+		if err != nil {
+			return err
+		}
+		_, err = store.EndBatch(ctx, tx, b.ID, store.BatchInvalid, "claude gave no structured output", testNow)
+		return err
+	})
+	closeStore(t, s)
+	out := f.mustStatus(t)
+	want := "extraction: 1 failed batches; their evidence waits for the next pass\n" +
+		"  batch 1, session 1, workspace ws_a14: invalid, claude gave no structured output, 3h ago\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("brain status:\n%s\nwant it to hold:\n%s", out, want)
+	}
+}

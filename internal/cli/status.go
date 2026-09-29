@@ -148,6 +148,9 @@ func (s *statusCall) run(ctx context.Context) {
 		if err := s.queue(ctx, tx); err != nil {
 			return err
 		}
+		if err := s.extraction(ctx, tx); err != nil {
+			return err
+		}
 		pending, err := store.ForgetPending(ctx, tx)
 		if err != nil {
 			return err
@@ -404,6 +407,25 @@ func (s *statusCall) queue(ctx context.Context, tx *sql.Tx) error {
 		return nil
 	}
 	s.w.printf("\nreview queue: %d pending, the oldest %s old\n", n, age(s.Now().Sub(oldest)))
+	return nil
+}
+
+// extraction prints the extraction batches that failed or gave an invalid response (S70).
+// Their watermark stays, so their evidence waits for the next pass.
+func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
+	bs, err := store.FailedBatches(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if len(bs) == 0 {
+		s.w.printf("extraction: no failed batch\n")
+		return nil
+	}
+	s.w.printf("extraction: %d failed batches; their evidence waits for the next pass\n", len(bs))
+	for _, b := range bs {
+		s.w.printf("  batch %d, session %d, workspace %s: %s, %s, %s ago\n", b.ID, b.SessionID, b.WorkspaceKey,
+			b.Status, b.Reason, age(s.Now().Sub(b.At)))
+	}
 	return nil
 }
 

@@ -210,11 +210,17 @@ func (cl caller) erase(ctx context.Context, tx *sql.Tx, id int64) error {
 	if _, err := store.WriteRevision(ctx, tx, it.CurrentRevision, next); err != nil {
 		return err
 	}
+	// The erased claim key gives the same text a new claim id, so the tombstone also holds the
+	// capture identities of the evidence: the extractor does not bring it back (E13-S2).
+	keys, err := store.ClaimSourceKeys(ctx, tx, it.ClaimID)
+	if err != nil {
+		return err
+	}
 	if err := store.EraseItem(ctx, tx, id, cl.Now()); err != nil {
 		return err
 	}
-	// M1 has no evidence, so the tombstone has no source keys yet.
-	return store.InsertTombstone(ctx, tx, store.Tombstone{ClaimID: it.ClaimID, SourceKeys: []string{}, ForgottenAt: cl.Now()})
+	return store.InsertTombstone(ctx, tx, store.Tombstone{ClaimID: it.ClaimID, SourceKeys: append([]string{}, keys...),
+		ForgottenAt: cl.Now()})
 }
 
 // clean waits until no hook can still read the generations that hold item id, and then

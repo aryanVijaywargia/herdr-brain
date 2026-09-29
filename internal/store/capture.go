@@ -214,9 +214,9 @@ func SessionEvidence(ctx context.Context, tx *sql.Tx, sessionID int64) (Evidence
 }
 
 // ForgetSession deletes the evidence of session sessionID: its evidence links, observations,
-// command records and cursors (§6.7). The candidates that used the links are counted again,
-// with the default gates until a config sets them, and one with no evidence left goes. It raises the capture generation, so a
-// pane read or a hook record that noted the old value stores nothing, and it keeps the
+// command records, cursors and extraction watermarks (§6.7). The candidates that used the
+// links are counted again, with the default gates until a config sets them, and one with no
+// evidence left goes. It raises the capture generation, so a pane read or a hook record that noted the old value stores nothing, and it keeps the
 // capture identities of the deleted observations, so a replay stores nothing again. The
 // session row and its segments hold no text, and they stay: the counter must not go back,
 // and new text after the forget is captured as usual.
@@ -231,6 +231,8 @@ func ForgetSession(ctx context.Context, tx *sql.Tx, sessionID int64) error {
 		`DELETE FROM command_records WHERE observation_id IN (` + obs + `)`,
 		`DELETE FROM observations WHERE id IN (` + obs + `)`,
 		`DELETE FROM cursors WHERE session_id = ?1`,
+		// The observation ids of the watermark are gone, and SQLite can give them again.
+		`DELETE FROM extraction_watermarks WHERE session_id = ?1`,
 		`UPDATE sessions SET generation = generation + 1 WHERE id = ?1`,
 	} {
 		if _, err := tx.ExecContext(ctx, q, sessionID); err != nil {

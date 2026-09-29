@@ -349,3 +349,43 @@ func (c *capture) change(ctx context.Context, s Step) error {
 		return nil
 	})
 }
+
+// A tick starts an extraction pass of the bound store. No second pass starts while one runs,
+// or less than extractEvery after the last start (E13-S2).
+func TestExtractTrigger(t *testing.T) {
+	h := newHarness(t, bindings.KindMain)
+	passes := make(chan Gate, 4)
+	release := make(chan struct{})
+	h.d.extract = func(_ context.Context, g Gate) error {
+		passes <- g
+		<-release
+		return nil
+	}
+	h.start(t)
+	h.check(t)
+	select {
+	case g := <-passes:
+		if g.Binding.Store != h.store {
+			t.Errorf("pass store = %s, want %s", g.Binding.Store, h.store)
+		}
+	case <-time.After(wait):
+		t.Fatal("no extraction pass")
+	}
+	h.check(t) // the pass runs
+	close(release)
+	h.check(t)
+	h.check(t) // the pass ended less than extractEvery ago
+	select {
+	case <-passes:
+		t.Error("a second pass started")
+	default:
+	}
+}
+
+// A pass of a store with no extractor CLI calls nothing.
+func TestExtractPassNoCLI(t *testing.T) {
+	g := NewGate(bindings.Binding{Session: "s1", Store: t.TempDir(), Kind: bindings.KindMain})
+	if err := extractPass(context.Background(), g); err != nil {
+		t.Fatal(err)
+	}
+}
