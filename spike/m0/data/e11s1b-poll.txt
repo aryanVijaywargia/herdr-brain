@@ -1,0 +1,78 @@
+E11-S1b raw logs: read polls while Codex runs (spike/m0/e11probe/poll.sh, H=/tmp/e11s1b/ht, RL=300).
+Each line: time, agent status, scroll max_offset_from_bottom, recent-unwrapped --lines 300 rc/lines/marker count, visible rc/marker count.
+The trailing 'error: invalid value ...' text on some poll2 lines is pane text: the grep for 'error' in poll.sh matched the failed first cx2 start in the scrollback. It is not a herdr error; every rc is 0.
+poll1: marker mq-8823 (run 1, turn 1, 120-row reply). Rows where nothing changed are cut.
+
+== poll1.log
+1790669916.466 status=idle scroll_max=3 ru_rc=0 ru_lines=16 ru_marker=0 vis_rc=0 vis_marker=0 
+1790669918.948 status=idle scroll_max=3 ru_rc=0 ru_lines=18 ru_marker=1 vis_rc=0 vis_marker=1 
+1790669948.371 status=idle scroll_max=3 ru_rc=0 ru_lines=23 ru_marker=1 vis_rc=0 vis_marker=1 
+1790669948.990 status=working scroll_max=3 ru_rc=0 ru_lines=23 ru_marker=1 vis_rc=0 vis_marker=1 
+1790669952.180 status=working scroll_max=3 ru_rc=0 ru_lines=24 ru_marker=3 vis_rc=0 vis_marker=3 
+1790669952.827 status=working scroll_max=3 ru_rc=0 ru_lines=26 ru_marker=5 vis_rc=0 vis_marker=6 
+1790669953.472 status=working scroll_max=3 ru_rc=0 ru_lines=27 ru_marker=6 vis_rc=0 vis_marker=6 
+1790669954.110 status=working scroll_max=3 ru_rc=0 ru_lines=28 ru_marker=7 vis_rc=0 vis_marker=7 
+1790669954.752 status=working scroll_max=3 ru_rc=0 ru_lines=35 ru_marker=14 vis_rc=0 vis_marker=14 
+1790669955.393 status=working scroll_max=3 ru_rc=0 ru_lines=37 ru_marker=16 vis_rc=0 vis_marker=16 
+1790669956.033 status=working scroll_max=3 ru_rc=0 ru_lines=40 ru_marker=19 vis_rc=0 vis_marker=19 
+1790669956.677 status=working scroll_max=3 ru_rc=0 ru_lines=43 ru_marker=22 vis_rc=0 vis_marker=22 
+1790669957.325 status=working scroll_max=6 ru_rc=0 ru_lines=46 ru_marker=25 vis_rc=0 vis_marker=25 
+1790669957.971 status=working scroll_max=8 ru_rc=0 ru_lines=48 ru_marker=27 vis_rc=0 vis_marker=27 
+1790669958.617 status=working scroll_max=11 ru_rc=0 ru_lines=51 ru_marker=30 vis_rc=0 vis_marker=30 
+1790669959.263 status=working scroll_max=14 ru_rc=0 ru_lines=54 ru_marker=33 vis_rc=0 vis_marker=32 
+1790669960.520 status=working scroll_max=19 ru_rc=0 ru_lines=59 ru_marker=38 vis_rc=0 vis_marker=35 
+1790669961.125 status=working scroll_max=20 ru_rc=0 ru_lines=60 ru_marker=39 vis_rc=0 vis_marker=35 
+1790669961.767 status=working scroll_max=24 ru_rc=0 ru_lines=63 ru_marker=42 vis_rc=0 vis_marker=35 
+1790669962.416 status=working scroll_max=27 ru_rc=0 ru_lines=67 ru_marker=46 vis_rc=0 vis_marker=35 
+1790669963.050 status=working scroll_max=29 ru_rc=0 ru_lines=69 ru_marker=48 vis_rc=0 vis_marker=35 
+1790669963.681 status=working scroll_max=32 ru_rc=0 ru_lines=72 ru_marker=51 vis_rc=0 vis_marker=35 
+1790669964.324 status=working scroll_max=35 ru_rc=0 ru_lines=75 ru_marker=54 vis_rc=0 vis_marker=35 
+1790669964.957 status=working scroll_max=37 ru_rc=0 ru_lines=77 ru_marker=56 vis_rc=0 vis_marker=35 
+1790669965.584 status=working scroll_max=38 ru_rc=0 ru_lines=78 ru_marker=57 vis_rc=0 vis_marker=35 
+1790669967.440 status=working scroll_max=42 ru_rc=0 ru_lines=82 ru_marker=61 vis_rc=0 vis_marker=35 
+1790669968.075 status=working scroll_max=51 ru_rc=0 ru_lines=90 ru_marker=69 vis_rc=0 vis_marker=35 
+1790669968.722 status=working scroll_max=53 ru_rc=0 ru_lines=93 ru_marker=72 vis_rc=0 vis_marker=35 
+1790669969.370 status=working scroll_max=56 ru_rc=0 ru_lines=96 ru_marker=75 vis_rc=0 vis_marker=35 
+1790669970.618 status=working scroll_max=61 ru_rc=0 ru_lines=101 ru_marker=80 vis_rc=0 vis_marker=35 
+1790669971.251 status=working scroll_max=64 ru_rc=0 ru_lines=104 ru_marker=83 vis_rc=0 vis_marker=35 
+1790669971.889 status=working scroll_max=66 ru_rc=0 ru_lines=106 ru_marker=85 vis_rc=0 vis_marker=35 
+1790669972.522 status=working scroll_max=69 ru_rc=0 ru_lines=109 ru_marker=88 vis_rc=0 vis_marker=35 
+1790669973.154 status=working scroll_max=72 ru_rc=0 ru_lines=111 ru_marker=90 vis_rc=0 vis_marker=35 
+1790669973.782 status=working scroll_max=74 ru_rc=0 ru_lines=114 ru_marker=93 vis_rc=0 vis_marker=35 
+1790669974.415 status=working scroll_max=77 ru_rc=0 ru_lines=117 ru_marker=96 vis_rc=0 vis_marker=35 
+1790669975.035 status=working scroll_max=79 ru_rc=0 ru_lines=119 ru_marker=98 vis_rc=0 vis_marker=35 
+1790669975.657 status=working scroll_max=82 ru_rc=0 ru_lines=122 ru_marker=101 vis_rc=0 vis_marker=35 
+1790669976.303 status=working scroll_max=85 ru_rc=0 ru_lines=124 ru_marker=103 vis_rc=0 vis_marker=35 
+1790669976.941 status=working scroll_max=85 ru_rc=0 ru_lines=125 ru_marker=104 vis_rc=0 vis_marker=35 
+1790669977.587 status=working scroll_max=88 ru_rc=0 ru_lines=127 ru_marker=106 vis_rc=0 vis_marker=35 
+1790669978.218 status=working scroll_max=93 ru_rc=0 ru_lines=132 ru_marker=111 vis_rc=0 vis_marker=35 
+1790669978.855 status=working scroll_max=95 ru_rc=0 ru_lines=135 ru_marker=114 vis_rc=0 vis_marker=35 
+1790669979.500 status=working scroll_max=98 ru_rc=0 ru_lines=138 ru_marker=117 vis_rc=0 vis_marker=35 
+1790669980.130 status=working scroll_max=101 ru_rc=0 ru_lines=141 ru_marker=120 vis_rc=0 vis_marker=35 
+1790669980.735 status=working scroll_max=102 ru_rc=0 ru_lines=142 ru_marker=121 vis_rc=0 vis_marker=35 
+1790669981.343 status=idle scroll_max=102 ru_rc=0 ru_lines=142 ru_marker=121 vis_rc=0 vis_marker=35 
+1790670039.681 status= scroll_max=102 ru_rc=1 ru_lines=1 ru_marker=0 vis_rc=1 vis_marker=0 error":{"code":"agent_not_found","message":"agent target w1:p1 not found"
+1790670060.023 status= scroll_max=103 ru_rc=1 ru_lines=1 ru_marker=0 vis_rc=1 vis_marker=0 error":{"code":"agent_not_found","message":"agent target w1:p1 not found"
+1790670060.637 status= scroll_max=107 ru_rc=1 ru_lines=1 ru_marker=0 vis_rc=1 vis_marker=0 error":{"code":"agent_not_found","message":"agent target w1:p1 not found"
+
+== poll2.log (marker zr-5531; run 2 turns 2-4)
+1790670121.633 status=idle scroll_max=148 ru_rc=0 ru_lines=161 ru_marker=0 vis_rc=0 vis_marker=0 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670122.899 status=idle scroll_max=148 ru_rc=0 ru_lines=163 ru_marker=1 vis_rc=0 vis_marker=1 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670128.586 status=idle scroll_max=148 ru_rc=0 ru_lines=169 ru_marker=1 vis_rc=0 vis_marker=1 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670129.191 status=working scroll_max=148 ru_rc=0 ru_lines=169 ru_marker=1 vis_rc=0 vis_marker=1 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670133.027 status=working scroll_max=148 ru_rc=0 ru_lines=170 ru_marker=1 vis_rc=0 vis_marker=1 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670133.670 status=working scroll_max=148 ru_rc=0 ru_lines=172 ru_marker=1 vis_rc=0 vis_marker=1 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670135.531 status=working scroll_max=148 ru_rc=0 ru_lines=179 ru_marker=1 vis_rc=0 vis_marker=1 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670137.413 status=working scroll_max=148 ru_rc=0 ru_lines=181 ru_marker=1 vis_rc=0 vis_marker=1 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670138.045 status=working scroll_max=148 ru_rc=0 ru_lines=183 ru_marker=1 vis_rc=0 vis_marker=1 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670139.945 status=blocked scroll_max=153 ru_rc=0 ru_lines=193 ru_marker=1 vis_rc=0 vis_marker=1 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670166.613 status=working scroll_max=153 ru_rc=0 ru_lines=187 ru_marker=1 vis_rc=0 vis_marker=1 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670172.860 status=working scroll_max=153 ru_rc=0 ru_lines=190 ru_marker=1 vis_rc=0 vis_marker=1 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670181.739 status=working scroll_max=153 ru_rc=0 ru_lines=192 ru_marker=1 vis_rc=0 vis_marker=2 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670182.382 status=working scroll_max=153 ru_rc=0 ru_lines=192 ru_marker=2 vis_rc=0 vis_marker=2 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670183.014 status=working scroll_max=156 ru_rc=0 ru_lines=196 ru_marker=2 vis_rc=0 vis_marker=2 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670183.651 status=idle scroll_max=156 ru_rc=0 ru_lines=196 ru_marker=2 vis_rc=0 vis_marker=2 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670217.228 status=working scroll_max=162 ru_rc=0 ru_lines=202 ru_marker=2 vis_rc=0 vis_marker=1 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670224.842 status=idle scroll_max=162 ru_rc=0 ru_lines=202 ru_marker=2 vis_rc=0 vis_marker=1 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670243.299 status=working scroll_max=168 ru_rc=0 ru_lines=208 ru_marker=2 vis_rc=0 vis_marker=1 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'
+1790670246.473 status=idle scroll_max=168 ru_rc=0 ru_lines=208 ru_marker=2 vis_rc=0 vis_marker=1 error: invalid value 'untrusted' for '--ask-for-approval <APPROVAL_POLICY>'

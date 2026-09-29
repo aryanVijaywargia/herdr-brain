@@ -14,13 +14,13 @@
 | 2 | Claude `additionalContext` size limit | PASS, limit found | 10,000 characters reach the model inline. At 10,001 characters Claude writes the text to `~/.claude/projects/<proj>/<sid>/tool-results/hook-...-additionalContext.txt` and gives the model only the path. |
 | 2 | Codex size limit | PASS, no limit seen | `codex exec` returned both markers at 10,500, 30,000 and 100,000 characters. |
 | 4 | Workspace root | ANSWERED (E2-S5), owner decision open | The API has no root. `workspace_cwd` is the focused pane's live folder. `identity_cwd` is the root pane's folder at the last save. Both follow `cd`. See "Workspace root folder source". |
-| 8 | Event delay after a state change | PASS (E11-S1) | Claude 2.1.284, 7 real changes: the socket `pane.agent_status_changed` came 0.14-0.42 s after the matching Claude hook or key press. A fake `pane report-agent` change: 0.03-0.10 s to the socket and to an `[[events]]` hook. The event has no time and no id. See "brained hosting and capture (E11-S1)". |
-| 9 | Alternate-screen loss, user message at turn start | PASS for Claude, OPEN live for Codex (E11-S1) | Claude draws in the alternate screen. While `working` or `blocked`, only the screen (37 rows here) can be read; rows that scroll off are gone until idle. At idle herdr can scroll-capture the full history (138 of 138 lines), but most idle reads with `--lines` above the history size returned only the screen, with exit 0 (6 of 6, then 15 of 19). The user prompt line is on the screen at turn start. Codex draws inline (source, E10-S4), so rows go to normal scrollback. |
+| 8 | Event delay after a state change | PASS (E11-S1) | Claude 2.1.284, 7 real changes: the socket `pane.agent_status_changed` came 0.14-0.42 s after the matching Claude hook or key press. A fake `pane report-agent` change: 0.03-0.10 s to the socket and to an `[[events]]` hook. The event has no time and no id. See "brained hosting and capture (E11-S1)". Codex 0.154 (E11-S1b), 8 real changes: 0.04-0.31 s after Enter or the approval key, 0.39-0.58 s after the Codex turn-end `notify`. See "Codex live capture (E11-S1b)". |
+| 9 | Alternate-screen loss, user message at turn start | PASS for Claude (E11-S1), PASS for Codex (E11-S1b) | Claude draws in the alternate screen. While `working` or `blocked`, only the screen (37 rows here) can be read; rows that scroll off are gone until idle. At idle herdr can scroll-capture the full history (138 of 138 lines), but most idle reads with `--lines` above the history size returned only the screen, with exit 0 (6 of 6, then 15 of 19). The user prompt line is on the screen at turn start. Codex (live, E11-S1b): draws inline; the scrollback grew with the reply (`max_offset_from_bottom` 3 → 102) and no row was lost. Its approval prompt is inline too. The prompt line is on the screen and in the read at turn start. See "Codex live capture (E11-S1b)". |
 | 10 | Hook timing | PASS (E7-S4) | Normal load (M0): whole hook 5.4-10.7 ms. E7-S4, with the manifest check and a SQLite receipt, 100 runs per level: whole hook p95 7.6 ms idle, 8.1 ms with output bursts, 16.5 ms with a flood (max 80.9 ms, from one slow `pane get`). Manifest check ≤ 0.6 ms. Proposed lookup deadline: 150 ms from hook start [NEW]. See "Hook under load and manifest check (E7-S4)". |
 | 11 | Pane split with no focus, then close | PASS | `pane split --no-focus` kept focus. A plugin `split` pane with `--no-focus --env BRAIN_REVIEW=1` kept focus and got the env. `plugin pane close` closed it. `plugin pane close` on a normal pane returned `plugin_pane_not_found` and left it open. `popup` placement: tested in E5-S3; M1 keeps `split` (see "Popup placement and plugin actions (E5-S3)"). |
 | 13 | Headless extractor call, no tools, JSON schema | PASS for no file, shell, network, MCP or hook access; PARTIAL for literal "no tools" (E13-S1) | Claude 2.1.283 and codex-cli 0.154.0 both return schema-valid JSON. Claude keeps only `StructuredOutput`. Codex 0.154 with `gpt-6-sol` keeps code-mode `exec`/`wait` (V8, no nested tools) and `request_user_input_async`; no flag removes them. When the output cannot fit, Claude can exit 0 with no structured output; Codex bends a bad prompt to the schema and fails only for an unsatisfiable schema. See "Headless extractor call (E13-S1)". |
-| 14 | Hook payloads: `UserPromptSubmit`, `PostToolUse`, `Stop` | PASS for Claude (live), PASS from source for Codex, 2 Codex facts OPEN (E11-S1) | Claude: the `prompt` field is the exact text. An empty hook leaves the prompt unchanged. `PostToolUse` has the command and the shell cwd after the command, but no exit code. A failed command goes to `PostToolUseFailure` with `error` = "Exit code N...". Codex (source): `tool_input.command`, the session cwd, no exit code. See "brained hosting and capture (E11-S1)". |
-| 20 | `recent-unwrapped` while `working` or `blocked` | FAIL for Claude, OPEN live for Codex (E11-S1) | Claude: `--lines 300` returns `agent_not_idle` in `working`, `blocked` and just after submit. `--lines 20` (at or below the screen) and `visible` work in every state. At idle, a `--lines` value larger than the history often returns only the screen, with exit 0. Codex is inline, so herdr does not need a scroll capture; not run live. |
+| 14 | Hook payloads: `UserPromptSubmit`, `PostToolUse`, `Stop` | PASS for Claude (live, E11-S1). Codex: PASS from source, live hook OPEN (E11-S1b) | Claude: the `prompt` field is the exact text. An empty hook leaves the prompt unchanged. `PostToolUse` has the command and the shell cwd after the command, but no exit code. A failed command goes to `PostToolUseFailure` with `error` = "Exit code N...". Codex (source): `tool_input.command`, the session cwd, no exit code. See "brained hosting and capture (E11-S1)". Codex live (E11-S1b): a hook set with `-c` still needs the hook-trust step, so no Codex hook ran and the source facts stay. The legacy `notify` command (no trust gate) gave the typed prompt with the @-mention as typed and the final reply. See "Codex live capture (E11-S1b)". |
+| 20 | `recent-unwrapped` while `working` or `blocked` | FAIL for Claude (E11-S1), PASS for Codex (E11-S1b) | Claude: `--lines 300` returns `agent_not_idle` in `working`, `blocked` and just after submit. `--lines 20` (at or below the screen) and `visible` work in every state. At idle, a `--lines` value larger than the history often returns only the screen, with exit 0. Codex (live, E11-S1b): `--lines 300` gave exit 0 in all 112 `working` reads and all 42 `blocked` reads, with the history growing as the reply grew. At idle, `--lines` 300, 1000 and 5000 gave the whole pane history (142 lines) in 9 of 9 reads. `visible` gives the 40-row screen. |
 | 21 | Conformance test | OPEN | |
 | 25 | No `brain` on PATH | PASS | `command -v brain` finds nothing. |
 | 27 | Named test session | PASS (session parts) | `herdr --session brain-eval server` (background) ran beside `default` with its own socket. Its first workspace was `w1`. Its panes had `HERDR_SESSION=brain-eval` and their own `HERDR_SOCKET_PATH`. `herdr session stop brain-eval` and `herdr session delete brain-eval` touched only that session. |
@@ -312,6 +312,72 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
 - herdr has no agent start time. The pid comes from `pane process-info`.
 - After a server restart, `pane list` showed the old agent and `agent_session` on the restored pane for under 3 s, then herdr cleared them. `terminal_id` changed.
 
+## Codex live capture (E11-S1b, items 8, 9, 14, 20)
+
+Codex CLI 0.154, herdr 0.9.1, the test session `brain-spike-e11b`, 2 Codex runs in one pane `w1:p1`. Raw logs: `data/e11s1b-poll.txt` (reads every 0.5 s), `data/e11s1b-capture.txt` (launch, events, idle reads, identity), `data/e11s1b-codex-hooks.txt` (hook trust and `notify`). Scripts: `e11probe/poll.sh`, `e11probe/codex-run.sh`, `e11probe/notify.sh`, `e11probe/sub.py`.
+
+### How Codex ran with no config write
+
+- Folder trust is on the command line only: `-c 'projects={"/private/tmp/e11s1b/agent"={trust_level="trusted"}}'`.
+- The dotted form `-c 'projects."/private/tmp/e11s1b/agent".trust_level="trusted"'` does **not** work. Codex splits a `-c` key on every `.` and keeps the quotes (`config/src/overrides.rs`), so the folder-trust dialog still showed. "Quit" in that dialog writes nothing.
+- `-c check_for_update_on_startup=false` stops the update dialog. `-a untrusted` is gone in 0.154; `-a on-request -c approvals_reviewer='"user"'` gives the approval prompt.
+- The "hooks need review" dialog: "Continue without trusting" writes nothing.
+- `~/.codex/config.toml` had the same mtime and size before and after. The file was not read.
+
+### Item 9: Codex draws inline
+
+- The pane scrollback grew with the reply: `scroll.max_offset_from_bottom` went 3 → 102 in a 120-row reply. No row was lost.
+- The approval prompt is inline in the bottom pane. The scrollback stayed at 153 while the prompt showed.
+- The first-run dialogs (update, folder trust, hooks review) did not reach the scrollback.
+
+### Item 20: reads while busy
+
+| State | Reads | `recent-unwrapped --lines 300` | `visible` |
+|---|---|---|---|
+| `working` (run 1) | 51 | exit 0 every time; marker rows 1 → 121 as the reply grew | exit 0; at most 35 marker rows (40-row screen) |
+| `working` (run 2) | 61 | exit 0 every time | exit 0 |
+| `blocked` (approval) | 42 | exit 0 every time; 193 lines, prompt included | exit 0 |
+| idle, `--lines` 300, 1000, 5000 | 9 | the whole history, 142 lines, the same each time | not used |
+
+- A read above the history size gives the whole history, not an error.
+- The history spans runs and holds shell lines. In run 2, the read held all 122 marker rows of run 1. Brain must bound a read to the current turn.
+
+### Item 8: event delay for real Codex changes
+
+| Change | Reference time | Delay to the socket event |
+|---|---|---|
+| `idle` → `working` | `send-keys enter` | 0.07, 0.27, 0.04, 0.28 s |
+| `blocked` → `working` | the approval key `y` | 0.23 s |
+| `working` → `idle` | the Codex `notify` call (turn end) | 0.58, 0.56, 0.39 s |
+| `working` → `blocked` | none | not measured |
+
+- A false `working` of 1.8-2.7 s came just after "Continue without trusting" in the hooks dialog, in both runs. A paste in a prompt gave no false change.
+- herdr showed the update dialog as `blocked` and the hooks-review dialog as `idle`.
+
+### Item 3 check: agent identity in one pane
+
+| Field | Run 1 | Run 2 (same pane, after `/exit`) |
+|---|---|---|
+| `agent_session.value` (source `herdr:codex`) | `01a0ec3e-5e95-7253-aa8d-e7d232139183` | `01a0ec41-83c7-7463-a232-9faa89066336` |
+| Codex pid (node wrapper) | 22054 (21984) | 34689 (34687) |
+| `terminal_id` | `term_65c9acb584b091` | same |
+| shell pid | 18634 | same |
+
+- `agent_session.value` is the Codex thread id, the same id that `codex resume` takes.
+- `agent_session` is absent until the first prompt of a run.
+- On `/exit`: `pane_agent_detected` with `"released": true` and `"final_status": "idle"`, then status `unknown` about 0.31 s later. `agent get` then gives `agent_not_found`.
+
+### Item 14: Codex hooks, live
+
+- A hook set with `-c 'hooks={...}'` goes to the session-flags layer. It runs only when its `trusted_hash` matches, when it is managed, or with the bypass flag. The dialog said "5 hooks are new or changed", and the `-c` hooks did not run. So the Codex payload facts stay from source (E11-S1).
+- A `-c` `hooks.state."<key>".trusted_hash` could maybe trust the hook, because Codex reads `hooks.state` from the session-flags layer. That is a hook-trust step, so it was not tried. Owner decision.
+- herdr's own Codex hooks (integration v8) also showed as new and did not run. herdr still found every state, so it does not need them for status.
+- The legacy `notify` command (`-c 'notify=[...]'`) has no trust gate. It runs at each turn end. Its last argv item is JSON with `type` (`agent-turn-complete`), `thread-id`, `turn-id`, `cwd`, `client`, `input-messages` and `last-assistant-message`.
+  - `input-messages` is the whole list of user messages in the thread; the new prompt is last. An @-mention stays as typed (`Read @notes-kx.txt ...`).
+  - `last-assistant-message` is the final reply only.
+  - The first call in a run came from the thread-title side turn. It has a different `thread-id`, and its message wraps the prompt in a title instruction. Brain must drop it.
+- Still open: the live `PostToolUse` fields (command, cwd, exit code) and an empty `UserPromptSubmit`. Images were not tested.
+
 ## Cleanup done
 
 - E2-S5: the scratch session `brain-spike-e2s5` is stopped and deleted. Its plugin link lived only in the scratch HOME. The main session was not touched.
@@ -322,6 +388,7 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
 
 - E5-S3: the scratch session `brain-e5s3` is stopped and deleted. The client tab `w2C:t2` that this thread made is closed. The plugin links and the key binding lived only in the scratch HOME. `/tmp/e5s3` is removed.
 - E11-S1: the scratch sessions `brain-e11s1`, `brain-e11s1b` and the scratch-HOME `default` are stopped. They lived in the scratch HOME, which is removed. The test session `brain-spike-e11` is stopped and deleted. The orphaned `startup.sh` probes, the socket subscribers and the test Claude runs are ended. `/tmp/e11s1` and `~/.claude/projects/-private-tmp-e11s1-agent/` are removed. The Claude folder-trust entry for `/private/tmp/e11s1/agent` stays in `~/.claude.json`; that file was not read or edited. No Codex session ran, so `~/.codex/config.toml` has no change. The real `default` session and the main server were not touched.
+- E11-S1b: the socket subscriber and the pollers are ended. The test session `brain-spike-e11b` is stopped and deleted, and the Codex runs ended with it. `/tmp/e11s1b` is removed. `~/.codex/config.toml` has the same mtime and size as before; it was not read. Codex keeps its own session logs and `history.jsonl` lines for the 2 runs in `~/.codex`; they were not read or edited. The real `default` session and the main server were not touched.
 
 ## Open items
 
@@ -332,6 +399,6 @@ Times in ms, nearest-rank percentiles. "In process" starts at `main`. "Fork to e
 - Item 21: the conformance test (built in M1).
 - Item 28: answered by E10-S4. Decided (owner, 2026-09-28, HLD §17 item 28): PASS for Claude and Codex. `agent read --source recent-unwrapped` returns a full Codex reply when `--lines` covers the reply and the pane text below it. The runner must still check that the whole reply is there; a partial read is `reply incomplete`.
 - Plugin `[[events]]` delivery: tested by E11-S1 for pane events. Hosting uses `[[startup]]` (D7).
-- Items 9, 14 and 20 for Codex, live: not run. A live Codex run needs folder trust, which writes to `~/.codex/config.toml`, and the tool gate stopped it. Open: reads while `working` and `blocked`, the live `UserPromptSubmit` text with @-mentions and images, and an empty-hook check.
+- Items 9 and 20 for Codex: answered live by E11-S1b. Item 14 for Codex: a `-c` hook needs the hook-trust step, so the live `PostToolUse` fields and an empty `UserPromptSubmit` stay open. Owner decisions: trust a test hook with a `-c` `trusted_hash`, and use Codex `notify` as a turn-end source.
 - herdr scroll capture of Claude history sends mouse-scroll input to the pane. HLD §6.2 says Brain never scrolls a pane. Owner decision.
 - The eval delivery and exclusion stages (scripts plus the owner's check).
