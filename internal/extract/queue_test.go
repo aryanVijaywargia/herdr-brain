@@ -298,7 +298,7 @@ func TestInputCap(t *testing.T) {
 		}
 	}
 	for i, prompt := range f.cli.prompts {
-		if !strings.Contains(prompt, texts[i]) || strings.Contains(prompt, "[e2]") {
+		if !strings.Contains(prompt, texts[i]) || strings.Count(prompt, "] user: ") != 1 {
 			t.Errorf("prompt %d = %q, want only %q", i+1, prompt, texts[i])
 		}
 	}
