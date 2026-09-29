@@ -150,6 +150,17 @@ func (c *Client) ReadAgent(ctx context.Context, target string, lines int) (strin
 	return string(out), nil
 }
 
+// ReadAgentVisible returns the screen of the agent target as plain text, from `herdr agent
+// read --source visible`. An alternate-screen agent (Claude) has only its screen: a longer
+// read fails while it works and scrolls the pane at idle (HLD §6.2, E11-S1).
+func (c *Client) ReadAgentVisible(ctx context.Context, target string) (string, error) {
+	out, err := c.run(ctx, "agent", "read", target, "--source", "visible")
+	if err != nil {
+		return "", fmt.Errorf("herdr agent read: %w", err)
+	}
+	return string(out), nil
+}
+
 func millis(d time.Duration) string { return strconv.FormatInt(d.Milliseconds(), 10) }
 
 // ProcessInfo is the process state of a pane.

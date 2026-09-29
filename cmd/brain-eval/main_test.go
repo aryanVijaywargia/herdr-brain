@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
 func TestParse(t *testing.T) {
@@ -22,6 +24,8 @@ func TestParse(t *testing.T) {
 		{[]string{"--prompt", "hi"}, nil, "go together"},
 		{[]string{"--probe", "gemini", "--prompt", "hi"}, nil, "want claude or codex"},
 		{[]string{"x"}, nil, "unexpected argument"},
+		{[]string{"--probes", "../../evals/probes", "--step", "a"}, nil, "--probes goes with no other flag"},
+		{[]string{"--probes", "no-such-folder"}, nil, "no-such-folder"},
 	}
 	for _, tt := range tests {
 		got, err := parse(tt.args)
@@ -34,6 +38,26 @@ func TestParse(t *testing.T) {
 		if err != nil || !reflect.DeepEqual(got, tt.want) {
 			t.Errorf("parse(%q) = %+v, %v, want %+v", tt.args, got, err, tt.want)
 		}
+	}
+}
+
+func TestParseProbes(t *testing.T) {
+	cases, err := parse([]string{"--probes", "../../evals/probes"})
+	if err != nil || len(cases) < 2 || !cases[1].Control {
+		t.Errorf("parse(--probes) = %+v, %v; want the probes of evals/probes and their controls", cases, err)
+	}
+}
+
+func TestResultLine(t *testing.T) {
+	res := store.EvalResult{Case: "pm", Control: true, Harness: "codex", Status: "not delivered", Why: "no receipt of the pane",
+		Label: "PASS", Rule: "the expected answer"}
+	want := "pm (control) codex: not delivered, PASS (the expected answer); no receipt of the pane"
+	if got := resultLine(res); got != want {
+		t.Errorf("resultLine() = %q, want %q", got, want)
+	}
+	res = store.EvalResult{Case: "pm", Harness: "claude", Status: "delivered", Label: "PASS", Rule: "r", ControlPass: true}
+	if got := resultLine(res); got != "pm claude: delivered, PASS (r), control_pass" {
+		t.Errorf("resultLine() = %q", got)
 	}
 }
 

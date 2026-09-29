@@ -1,0 +1,17 @@
+# An example probe file (HLD §12.1 "Probe format", E10-S2). The M1 stage probes come in E10-S3.
+#
+# setup: shell steps, run in order in the case's shell pane in a fresh scratch git folder.
+# {{marker}}, {{marker2}} and so on get a fresh opaque marker in each case. The runner runs
+# each probe twice: once as written, and once as its control, with no setup steps.
+
+[[probe]]
+id = "example-code-word"
+stage = "delivery"
+source = "example"
+setup = [
+  'brain remember "The deploy code word of this project is {{marker}}." --global',
+  "brain review 1 --approve",
+]
+ask = "What is the deploy code word of this project? Answer with the code word only."
+expect = ["{{marker}}"]
+harnesses = ["claude", "codex"]
