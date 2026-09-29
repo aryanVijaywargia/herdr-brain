@@ -91,7 +91,7 @@ func Find(ins []store.SignalInput) []Signal {
 var correctionMarkers = []string{"no", "don't", "dont", "do not", "i said", "again", "instead", "wrong", "stop"}
 
 // corrections finds correction-like text: text with a correction marker, or text that
-// repeats earlier text of the same session (§7.1). The sender stays unconfirmed.
+// repeats earlier text of any session (§7.1). The sender stays unconfirmed.
 func corrections(texts []text) []Signal {
 	var sigs []Signal
 	for i, t := range texts {
@@ -99,7 +99,7 @@ func corrections(texts []text) []Signal {
 			continue
 		}
 		earlier := matches(texts[:i], func(e text) bool {
-			return e.in.SessionID == t.in.SessionID && eligible(Correction, e.in.Sender) && t.similar(e, promptSimilarity)
+			return eligible(Correction, e.in.Sender) && t.similar(e, promptSimilarity)
 		})
 		if len(earlier) == 0 && !t.hasMarker() {
 			continue
@@ -262,18 +262,39 @@ func blockedApprovals(texts []text) []Signal {
 		if t.in.Source != store.SourceHerdr || t.in.Event != "blocked" {
 			continue
 		}
-		var screen []string
-		for _, l := range strings.Split(t.in.Excerpt, "\n") {
-			if approvalLine.MatchString(l) {
-				screen = append(screen, strings.Join(strings.Fields(strings.ToLower(l)), " "))
-			}
-		}
-		if len(screen) > 0 {
+		if screen := dialog(t.in.Excerpt); screen != "" {
 			sigs = append(sigs, Signal{Kind: BlockedApproval, Observations: []int64{t.in.ID},
-				Key: key(BlockedApproval, strings.Join(screen, "\n"))})
+				Key: key(BlockedApproval, screen)})
 		}
 	}
 	return sigs
+}
+
+// dialog returns the approval dialog in s, or "": the indented block of lines around the
+// first approval line, in lower case with single spaces. Both harnesses indent the dialog,
+// and the whole block (the command, the file and its new text) tells two screens apart. The
+// agent's own text before it starts at column 0, so it stays out.
+func dialog(s string) string {
+	lines := strings.Split(s, "\n")
+	i := slices.IndexFunc(lines, approvalLine.MatchString)
+	if i < 0 {
+		return ""
+	}
+	inBlock := func(l string) bool { return strings.TrimSpace(l) == "" || strings.HasPrefix(l, " ") }
+	start, end := i, i+1
+	for start > 0 && inBlock(lines[start-1]) {
+		start--
+	}
+	for end < len(lines) && inBlock(lines[end]) {
+		end++
+	}
+	var block []string
+	for _, l := range lines[start:end] {
+		if l = strings.Join(strings.Fields(strings.ToLower(l)), " "); l != "" {
+			block = append(block, l)
+		}
+	}
+	return strings.Join(block, "\n")
 }
 
 // key is the hash of signature sig of kind k. It holds no text.

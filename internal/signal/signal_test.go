@@ -98,7 +98,7 @@ func TestCorrection(t *testing.T) {
 		{"no marker", []store.SignalInput{obs(1, 1, unconf, "Please add a test for the parser.")}, nil},
 		{"marker inside a word", []store.SignalInput{obs(1, 1, unconf, "notice the nonce, restop")}, nil},
 		{"repeat in another session", []store.SignalInput{obs(1, 1, unconf, "use pnpm for installs"),
-			obs(2, 2, unconf, "use pnpm for installs")}, nil},
+			obs(2, 2, unconf, "use pnpm for installs")}, [][]int64{{2, 1}}},
 		{"assistant marker", []store.SignalInput{obs(1, 1, assistant, "No, that is wrong. I will stop.")}, nil},
 		{"tool marker", []store.SignalInput{obs(1, 1, tool, "no such option; stop")}, nil},
 		{"repeat of assistant text", []store.SignalInput{obs(1, 1, assistant, "use pnpm for installs"),
@@ -228,6 +228,19 @@ func TestBlockedApproval(t *testing.T) {
 		blocked(3, 2, assistant, other)})
 	if ks := keys(sigs, BlockedApproval); len(ks) != 3 || ks[0] != ks[1] || ks[0] == ks[2] {
 		t.Errorf("approval keys = %v, want one key for the same screen and command, another for another command", ks)
+	}
+}
+
+// The whole dialog tells two screens apart: the new text of a file is part of it. The agent's
+// text before the dialog is not.
+func TestApprovalScreen(t *testing.T) {
+	bye := strings.ReplaceAll(claudeApproval, "1 hi", "1 bye")
+	said := "• I will run it now.\n  It needs approval.\n\n• Running touch made.txt\n\n" + codexApproval
+	sigs := Find([]store.SignalInput{blocked(1, 1, unconf, claudeApproval), blocked(2, 1, unconf, bye),
+		blocked(3, 1, assistant, "• I’ll request escalated permissions.\n\n• Running touch made.txt\n\n"+codexApproval),
+		blocked(4, 2, assistant, said)})
+	if ks := keys(sigs, BlockedApproval); len(ks) != 4 || ks[0] == ks[1] || ks[2] != ks[3] {
+		t.Errorf("approval keys = %v, want other keys for other file text, one key when only the agent's text differs", ks)
 	}
 }
 
