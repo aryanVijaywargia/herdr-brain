@@ -154,38 +154,7 @@ func (f *fakeHerdr) answer(conn net.Conn) {
 		return
 	}
 	f.mu.Lock()
-	f.calls = append(f.calls, strings.TrimSpace(req.Method+" "+req.Params.Source))
-	var reply string
-	switch req.Method {
-	case "pane.list":
-		if f.failList {
-			break
-		}
-		var ps []string
-		for _, id := range slices.Sorted(maps.Keys(f.panes)) {
-			ps = append(ps, f.panes[id].json(id))
-		}
-		reply = `{"type":"pane_list","panes":[` + strings.Join(ps, ",") + `]}`
-	case "pane.get":
-		id := req.Params.PaneID
-		if n, ok := f.moved[id]; ok {
-			id = n
-		}
-		if p, ok := f.panes[id]; ok {
-			reply = `{"type":"pane_info","pane":` + p.json(id) + `}`
-		}
-	case "pane.read":
-		reply = f.read(req.Params.PaneID, req.Params.Source, req.Params.Lines)
-	case "plugin.list":
-		reply = `{"type":"plugin_list","plugins":` + f.plugins + `}`
-	case "events.subscribe":
-		reply = `{"type":"subscription_started"}`
-		for _, s := range req.Params.Subscriptions {
-			if _, ok := f.panes[s.PaneID]; s.PaneID != "" && !ok {
-				reply = ""
-			}
-		}
-	}
+	reply := f.reply(req.Method, req.Params.PaneID, req.Params.Source, req.Params.Lines, req.Params.Subscriptions)
 	f.mu.Unlock()
 	if reply == "" {
 		_, _ = io.WriteString(conn, `{"id":"brain","error":{"code":"pane_not_found","message":"no pane"}}`+"\n")
@@ -200,6 +169,43 @@ func (f *fakeHerdr) answer(conn net.Conn) {
 		return
 	}
 	_ = conn.Close()
+}
+
+// reply returns the result JSON of one request, or "" for pane_not_found. f.mu is held.
+func (f *fakeHerdr) reply(method, paneID, source string, lines int, subs []herdr.Subscription) string {
+	f.calls = append(f.calls, strings.TrimSpace(method+" "+source))
+	var reply string
+	switch method {
+	case "pane.list":
+		if f.failList {
+			return ""
+		}
+		var ps []string
+		for _, id := range slices.Sorted(maps.Keys(f.panes)) {
+			ps = append(ps, f.panes[id].json(id))
+		}
+		reply = `{"type":"pane_list","panes":[` + strings.Join(ps, ",") + `]}`
+	case "pane.get":
+		id := paneID
+		if n, ok := f.moved[id]; ok {
+			id = n
+		}
+		if p, ok := f.panes[id]; ok {
+			reply = `{"type":"pane_info","pane":` + p.json(id) + `}`
+		}
+	case "pane.read":
+		reply = f.read(paneID, source, lines)
+	case "plugin.list":
+		reply = `{"type":"plugin_list","plugins":` + f.plugins + `}`
+	case "events.subscribe":
+		reply = `{"type":"subscription_started"}`
+		for _, s := range subs {
+			if _, ok := f.panes[s.PaneID]; s.PaneID != "" && !ok {
+				reply = ""
+			}
+		}
+	}
+	return reply
 }
 
 // read answers pane.read of pane id from its next recorded read; the last one repeats. It
