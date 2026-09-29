@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 )
 
@@ -85,16 +86,32 @@ func ClaimByID(ctx context.Context, tx *sql.Tx, id string) (Claim, error) {
 // Match is what Brain knows about a same_as link that the extractor proposes (§7.3).
 type Match struct {
 	Clear       bool // the extractor gives a clear match
-	Permissions bool // both claims change a permission or a safety rule
+	Permissions bool // the extractor flags both claims as a permission or a safety rule
+}
+
+// permissionText finds a claim key that may change a permission or a safety rule: the words
+// of the review warning (internal/cli permissionWords). Brain checks the permission flag
+// outside the model (§7.3), so SameAs does not trust Match.Permissions alone.
+var permissionText = regexp.MustCompile(`(?i)allow|permission|sandbox|--dangerously|\b(never|always)\s+run`)
+
+func (k ClaimKey) touchesPermission() bool {
+	return permissionText.MatchString(k.Situation + " " + k.Rule)
 }
 
 // SameAs links claim id to claim other: the key of id means the same as the key of other. A
 // clear match is confirmed. An unclear match, and any match of two permission or safety
 // rules, waits for review (§7.2). The link keeps both claim ids and their evidence links.
 func SameAs(ctx context.Context, tx *sql.Tx, id, other string, m Match) (SameAsStatus, error) {
+	source, err := ClaimByID(ctx, tx, id)
+	if err != nil {
+		return "", err
+	}
 	target, err := ClaimByID(ctx, tx, other)
 	if err != nil {
 		return "", err
+	}
+	if source.Key.touchesPermission() && target.Key.touchesPermission() {
+		m.Permissions = true
 	}
 	// A link points at the claim id that other has, so a key never needs two hops.
 	if target.SameAsStatus == SameAsConfirmed {
@@ -319,7 +336,8 @@ const expiry = 30 * 24 * time.Hour
 
 // ExpireCandidates sets the open candidates with no new occurrence in 30 days to expired, and
 // returns how many. queued is how long evidence has waited in the extraction queue (E13): that
-// time does not count (§7.2).
+// time does not count (§7.2). The evidence in the queue is not linked yet and can belong to
+// any candidate, so one duration, the wait of the oldest queued evidence, applies to all.
 func ExpireCandidates(ctx context.Context, tx *sql.Tx, now time.Time, queued time.Duration) (int64, error) {
 	res, err := tx.ExecContext(ctx, `UPDATE candidates SET status = ? WHERE status = ? AND last_seen < ?`,
 		CandidateExpired, CandidateOpen, timeArg(now.Add(-expiry-queued)))

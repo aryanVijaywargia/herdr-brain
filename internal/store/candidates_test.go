@@ -121,20 +121,25 @@ func TestClaimID(t *testing.T) {
 func TestSameAs(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range []struct {
-		name string
-		m    Match
-		want SameAsStatus
+		name           string
+		rule, reworded string
+		m              Match
+		want           SameAsStatus
 	}{
-		{"clear", Match{Clear: true}, SameAsConfirmed},
-		{"unclear goes to review", Match{}, SameAsProposed},
-		{"two permission rules go to review", Match{Clear: true, Permissions: true}, SameAsProposed},
+		{"clear", "use pnpm", "always use pnpm", Match{Clear: true}, SameAsConfirmed},
+		{"unclear goes to review", "use pnpm", "always use pnpm", Match{}, SameAsProposed},
+		{"two permission rules go to review", "use pnpm", "always use pnpm", Match{Clear: true, Permissions: true}, SameAsProposed},
+		// Brain checks the permission flag outside the model (§7.3).
+		{"two permission rules with no flag go to review", "allow npm test", "always allow npm test",
+			Match{Clear: true}, SameAsProposed},
+		{"one permission rule", "use pnpm", "allow pnpm", Match{Clear: true}, SameAsConfirmed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEvidenceStore(t)
-			old := e.claim(t, "use pnpm")
+			old := e.claim(t, tc.rule)
 			c := e.mustAttach(t, Candidate{ClaimID: old, Scope: ScopeGlobal, Kind: CandidateCorrection},
 				e.observe(t, "claude", "a1", "ws-a", SenderUnconfirmed, testNow))
-			reworded := e.claim(t, "always use pnpm")
+			reworded := e.claim(t, tc.reworded)
 			write(t, e.Store, func(tx *sql.Tx) error {
 				got, err := SameAs(ctx, tx, reworded, old, tc.m)
 				if err != nil || got != tc.want {
@@ -146,10 +151,10 @@ func TestSameAs(t *testing.T) {
 			if tc.want == SameAsConfirmed {
 				wantID = old
 			}
-			if got := e.claim(t, "always use pnpm"); got != wantID {
+			if got := e.claim(t, tc.reworded); got != wantID {
 				t.Errorf("the reworded key has claim id %s, want %s", got, wantID)
 			}
-			if got := e.claim(t, "use pnpm"); got != old {
+			if got := e.claim(t, tc.rule); got != old {
 				t.Errorf("the old key has claim id %s, want %s", got, old)
 			}
 			write(t, e.Store, func(tx *sql.Tx) error {
