@@ -127,7 +127,7 @@ func TestReconnect(t *testing.T) {
 	if err := l.item(ctx, item{src: l.main, err: syscall.ECONNRESET}); err != nil {
 		t.Fatalf("item = %v, want a reconnect", err)
 	}
-	if main := h.f.sub(t); !slices.Equal(main.subs, mainSubs) || l.main == old {
+	if main := h.f.sub(t); !slices.Equal(main.subs, mainSubs()) || l.main == old {
 		t.Errorf("new subscription %+v, want a new main stream", main.subs)
 	}
 	wantStep(t, h.step(t), Baseline, "w1:p1", GapConnect, "")

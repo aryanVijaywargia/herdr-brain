@@ -14,10 +14,12 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// mainSubs are the subscriptions of the main stream. herdr 0.9.1 takes no pane for
+// mainSubs returns the subscriptions of the main stream. herdr 0.9.1 takes no pane for
 // pane.exited and pane.closed, so brained gets them for all panes here.
-var mainSubs = []herdr.Subscription{
-	{Type: herdr.PaneCreated}, {Type: herdr.PaneAgentDetected}, {Type: herdr.PaneExited}, {Type: herdr.PaneClosed},
+func mainSubs() []herdr.Subscription {
+	return []herdr.Subscription{
+		{Type: herdr.PaneCreated}, {Type: herdr.PaneAgentDetected}, {Type: herdr.PaneExited}, {Type: herdr.PaneClosed},
+	}
 }
 
 // daemon is one brained process.
@@ -136,7 +138,7 @@ func (d *daemon) connect(ctx context.Context) (*herdr.Stream, error) {
 			}
 		}
 		var st *herdr.Stream
-		st, err = d.subscribe(ctx, mainSubs)
+		st, err = d.subscribe(ctx, mainSubs())
 		if err == nil {
 			return st, nil
 		}

@@ -257,8 +257,8 @@ func (h *harness) start(t *testing.T) *fakeSub {
 		<-h.done
 	})
 	main := h.f.sub(t)
-	if len(main.subs) != len(mainSubs) || !slices.Equal(main.subs, mainSubs) {
-		t.Fatalf("main subscription = %+v, want %+v", main.subs, mainSubs)
+	if !slices.Equal(main.subs, mainSubs()) {
+		t.Fatalf("main subscription = %+v, want %+v", main.subs, mainSubs())
 	}
 	return main
 }
