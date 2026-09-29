@@ -30,6 +30,15 @@ type LearningSetting struct {
 
 // SetLearning records s. It replaces the earlier setting of the same scope and target.
 func SetLearning(ctx context.Context, tx *sql.Tx, s LearningSetting) error {
+	// Each change time is later than every stored one, also within one millisecond of the
+	// store's time precision: a reader of LearningChanged sees each off time (E11-S2).
+	var last time.Time
+	if err := tx.QueryRowContext(ctx, `SELECT MAX(changed) FROM learning_settings`).Scan(timeDest{&last}); err != nil {
+		return fmt.Errorf("read learning settings: %w", err)
+	}
+	if !last.IsZero() && !s.Changed.Truncate(time.Millisecond).After(last) {
+		s.Changed = last.Add(time.Millisecond)
+	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO learning_settings (scope, herdr_session, target, learning, changed)
 		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT (scope, herdr_session, target) DO UPDATE SET learning = excluded.learning, changed = excluded.changed`,

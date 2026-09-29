@@ -28,15 +28,16 @@ const wait = 10 * time.Second
 
 // fakeHerdr is a herdr API socket with the replies that brained needs.
 type fakeHerdr struct {
-	t       *testing.T
-	path    string
-	ln      net.Listener
-	subs    chan *fakeSub
-	mu      sync.Mutex
-	panes   map[string]string // pane id → the pane's JSON object
-	plugins string            // the JSON array of plugin.list
-	conns   []net.Conn
-	wg      sync.WaitGroup
+	t        *testing.T
+	path     string
+	ln       net.Listener
+	subs     chan *fakeSub
+	mu       sync.Mutex
+	panes    map[string]string // pane id → the pane's JSON object
+	plugins  string            // the JSON array of plugin.list
+	failList bool              // pane.list gets an error
+	conns    []net.Conn
+	wg       sync.WaitGroup
 }
 
 // fakeSub is one accepted events.subscribe connection. The test writes its events.
@@ -84,6 +85,12 @@ func (f *fakeHerdr) addPane(id, agent string) {
 	f.panes[id] = fmt.Sprintf(`{"pane_id":%q,"workspace_id":%q,"tab_id":"%s:t1","agent":%s,"agent_status":"working"}`, id, ws, ws, a)
 }
 
+func (f *fakeHerdr) setFailList(fail bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failList = fail
+}
+
 func (f *fakeHerdr) setPlugins(js string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -128,6 +135,9 @@ func (f *fakeHerdr) answer(conn net.Conn) {
 	var reply string
 	switch req.Method {
 	case "pane.list":
+		if f.failList {
+			break
+		}
 		var ps []string
 		for _, id := range slices.Sorted(maps.Keys(f.panes)) {
 			ps = append(ps, f.panes[id])

@@ -59,27 +59,20 @@ type loop struct {
 	main   *herdr.Stream
 	panes  map[string]*pane
 	gate   *Gate // nil while the session is not bound
+	redo   *Gap  // the gap of a reconcile that failed; the next tick tries it again
 }
 
 // run connects, reconciles and then handles events until an ErrStop or ctx ends.
 func (d *daemon) run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
-	l := &loop{d: d, items: make(chan item, d.queue), behind: make(chan struct{}, 1), panes: map[string]*pane{}}
+	l := newLoop(d)
 	defer func() {
 		cancel()
-		l.closeAll()
-		l.wg.Wait()
+		l.stop()
 	}()
-	main, err := d.connect(ctx)
-	if err != nil {
+	if err := l.start(ctx); err != nil {
 		return err
 	}
-	l.main = main
-	l.read(ctx, main)
-	if err := l.check(ctx); err != nil {
-		return err
-	}
-	l.report(l.reconcile(ctx, GapStart))
 	for {
 		select {
 		case <-ctx.Done():
@@ -92,14 +85,43 @@ func (d *daemon) run(ctx context.Context) error {
 			if err := l.drain(ctx); err != nil {
 				return err
 			}
-			l.report(l.reconcile(ctx, GapBehind))
+			l.retry(ctx, GapBehind)
 		case <-d.tick:
 			if err := l.check(ctx); err != nil {
 				return err
 			}
-			l.report(l.sync(ctx, GapLearning, false))
+			if l.redo != nil {
+				l.retry(ctx, *l.redo)
+			} else {
+				l.report(l.sync(ctx, GapLearning, false))
+			}
 		}
 	}
+}
+
+func newLoop(d *daemon) *loop {
+	return &loop{d: d, items: make(chan item, d.queue), behind: make(chan struct{}, 1), panes: map[string]*pane{}}
+}
+
+// start connects, checks and reconciles with GapStart.
+func (l *loop) start(ctx context.Context) error {
+	main, err := l.d.connect(ctx)
+	if err != nil {
+		return err
+	}
+	l.main = main
+	l.read(ctx, main)
+	if err := l.check(ctx); err != nil {
+		return err
+	}
+	l.retry(ctx, GapStart)
+	return nil
+}
+
+// stop closes every stream and waits for the readers. ctx of start must be done.
+func (l *loop) stop() {
+	l.closeAll()
+	l.wg.Wait()
 }
 
 // connect opens the main stream. It tries again while herdr's socket is not ready.
@@ -174,17 +196,24 @@ func (l *loop) item(ctx context.Context, it item) error {
 	case errors.As(it.err, &shape):
 		// An event that brained cannot read is a missed event.
 		l.report(fmt.Errorf("event: %w", it.err))
-		l.report(l.reconcile(ctx, GapBehind))
+		l.retry(ctx, GapBehind)
 		return nil
 	case it.err != nil && it.src == l.main:
 		if errors.Is(it.err, io.EOF) {
 			return fmt.Errorf("%w: herdr closed the event socket", ErrStop)
 		}
-		return fmt.Errorf("event socket: %w", it.err)
+		return l.reconnect(ctx, it.err)
 	case it.err != nil:
-		// A status stream ended: brained closed it, or herdr ended. Its pane.exited or
-		// pane.closed, or the main stream's end, comes on the main stream.
-		return nil //nolint:nilerr // the end of a status stream does not stop brained
+		// A status stream ended. When brained closed it, no pane holds it. Else herdr
+		// ended it: the pane may be gone, or its events are lost.
+		for _, p := range l.panes {
+			if p.stream == it.src {
+				l.closeStream(p)
+				l.retry(ctx, GapBehind)
+				break
+			}
+		}
+		return nil
 	}
 	ev := it.ev
 	p := l.panes[ev.PaneID]
@@ -213,6 +242,21 @@ func (l *loop) item(ctx context.Context, it item) error {
 			l.drop(ctx, ev.PaneID, p, &ev)
 		}
 	}
+	return nil
+}
+
+// reconnect opens a new main stream after the old one failed with err, and reconciles: the
+// events of the time between are lost.
+func (l *loop) reconnect(ctx context.Context, err error) error {
+	l.report(fmt.Errorf("event socket: %w", err))
+	_ = l.main.Close() // it failed already; a close error loses nothing
+	main, err := l.d.connect(ctx)
+	if err != nil {
+		return err
+	}
+	l.main = main
+	l.read(ctx, main)
+	l.retry(ctx, GapConnect)
 	return nil
 }
 
@@ -279,6 +323,15 @@ func pluginState(ps []herdr.Plugin, id string) error {
 	return fmt.Errorf("%w: plugin %s is unlinked", ErrStop, id)
 }
 
+// retry reconciles with gap. When the reconcile fails, the next tick tries it again.
+func (l *loop) retry(ctx context.Context, gap Gap) {
+	l.redo = nil
+	if err := l.reconcile(ctx, gap); err != nil {
+		l.report(err)
+		l.redo = &gap
+	}
+}
+
 // reconcile reads the live panes. It ends the panes that are gone and gives each live
 // agent with learning on a baseline with gap (§6.2 step 8). brained does not invent the
 // missed text.
@@ -343,7 +396,11 @@ func (l *loop) syncPanes(ctx context.Context, ids []string, gap Gap, force bool,
 			if !force {
 				g = GapLearning
 			}
-			errs = append(errs, l.follow(ctx, id, p))
+			if err := l.follow(ctx, id, p); err != nil {
+				errs = append(errs, err)
+				p.learning = Learning{} // not followed: the next sync tries again
+				continue
+			}
 			if p.agent {
 				l.step(ctx, Step{Kind: Baseline, Gap: g}, id, p, ev)
 			}

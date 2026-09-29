@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -75,6 +77,60 @@ func TestBehind(t *testing.T) {
 		wantStep(t, s, Baseline, "w1:p1", GapBehind, "")
 		return
 	}
+}
+
+// A status stream that herdr ends while the pane lives gets a new subscription and a
+// baseline with a gap.
+func TestStatusStreamEnds(t *testing.T) {
+	h := newHarness(t, bindings.KindMain)
+	h.f.addPane("w1:p1", "claude")
+	h.start(t)
+	st := h.f.statusSubs(t, 1)["w1:p1"]
+	wantStep(t, h.step(t), Baseline, "w1:p1", GapStart, "")
+	_ = st.conn.Close()
+	h.f.statusSubs(t, 1)["w1:p1"].send(statusLine("w1:p1", "working"))
+	wantStep(t, h.step(t), Baseline, "w1:p1", GapBehind, "")
+	wantStep(t, h.step(t), Change, "w1:p1", "", "")
+}
+
+// A failed pane.list at the start is tried again at the next tick, with the start gap.
+func TestStartListFails(t *testing.T) {
+	h := newHarness(t, bindings.KindMain)
+	h.f.addPane("w1:p1", "claude")
+	h.f.setFailList(true)
+	h.start(t)
+	h.check(t) // pane.list fails again
+	h.f.setFailList(false)
+	h.check(t)
+	h.f.statusSubs(t, 1)
+	wantStep(t, h.step(t), Baseline, "w1:p1", GapStart, "")
+}
+
+// A main stream that fails with another error than its end gets a new connection and a
+// reconcile with GapConnect.
+func TestReconnect(t *testing.T) {
+	h := newHarness(t, bindings.KindMain)
+	h.f.addPane("w1:p1", "claude")
+	ctx, cancel := context.WithCancel(context.Background())
+	l := newLoop(h.d)
+	defer func() {
+		cancel()
+		l.stop()
+	}()
+	if err := l.start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	h.f.sub(t) // the main stream
+	h.f.statusSubs(t, 1)
+	wantStep(t, h.step(t), Baseline, "w1:p1", GapStart, "")
+	old := l.main
+	if err := l.item(ctx, item{src: l.main, err: syscall.ECONNRESET}); err != nil {
+		t.Fatalf("item = %v, want a reconnect", err)
+	}
+	if main := h.f.sub(t); !slices.Equal(main.subs, mainSubs) || l.main == old {
+		t.Errorf("new subscription %+v, want a new main stream", main.subs)
+	}
+	wantStep(t, h.step(t), Baseline, "w1:p1", GapConnect, "")
 }
 
 // blockOnce blocks the first Change until release closes.

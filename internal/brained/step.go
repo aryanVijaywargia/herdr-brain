@@ -47,6 +47,7 @@ const (
 	GapNone     Gap = ""            // a new pane or a new agent: nothing is missing
 	GapStart    Gap = "start"       // brained started; it missed what came before (S13, S32)
 	GapBehind   Gap = "behind"      // brained dropped events (S39)
+	GapConnect  Gap = "reconnect"   // the event socket failed; brained connected again
 	GapLearning Gap = "learning on" // learning was off, so the text of that time is not read
 )
 

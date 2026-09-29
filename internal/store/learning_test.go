@@ -78,8 +78,8 @@ func TestLearningSettings(t *testing.T) {
 	at := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
 	in := []LearningSetting{
 		{Scope: LearningPane, HerdrSession: "default", Target: "w1:p1", On: false, Changed: at},
-		{Scope: LearningWorkspace, Target: "ws_a", On: false, Changed: at},
-		{Scope: LearningStore, On: true, Changed: at},
+		{Scope: LearningWorkspace, Target: "ws_a", On: false, Changed: at.Add(time.Second)},
+		{Scope: LearningStore, On: true, Changed: at.Add(2 * time.Second)},
 	}
 	err := s.Write(ctx, func(tx *sql.Tx) error {
 		for _, set := range in {
@@ -99,6 +99,38 @@ func TestLearningSettings(t *testing.T) {
 			if !sameSetting(got[i], want[i]) || !got[i].Changed.Equal(want[i].Changed) {
 				t.Errorf("LearningSettings()[%d] = %+v, want %+v", i, got[i], want[i])
 			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// E11-S2: an off and on within one millisecond, or with a clock that went back, still gives
+// a later LearningChanged, so a reader sees the off time.
+func TestSetLearningOrder(t *testing.T) {
+	_, s := newTestStore(t)
+	ctx := context.Background()
+	at := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	err := s.Write(ctx, func(tx *sql.Tx) error {
+		var last time.Time
+		for _, set := range []LearningSetting{
+			{Scope: LearningStore, On: true, Changed: at},
+			{Scope: LearningPane, HerdrSession: "default", Target: "w1:p1", On: false, Changed: at.Add(300 * time.Microsecond)},
+			{Scope: LearningPane, HerdrSession: "default", Target: "w1:p1", On: true, Changed: at.Add(-time.Second)},
+		} {
+			if err := SetLearning(ctx, tx, set); err != nil {
+				return err
+			}
+			got, err := LearningChanged(ctx, tx, "default", "", "w1:p1")
+			if err != nil {
+				return err
+			}
+			if !got.After(last) {
+				t.Errorf("LearningChanged after %+v = %v, want later than %v", set, got, last)
+			}
+			last = got
 		}
 		return nil
 	})
