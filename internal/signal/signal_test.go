@@ -302,3 +302,19 @@ func TestEligible(t *testing.T) {
 		t.Error("eligible: want failures and command chains from tool records only")
 	}
 }
+
+// Each candidate kind is a signal kind, and a sender supports a candidate as it supports a
+// signal of that kind (§6.5).
+func TestSupports(t *testing.T) {
+	for _, k := range []store.CandidateKind{store.CandidateCorrection, store.CandidateFailure,
+		store.CandidateProcedure, store.CandidateCommandChain} {
+		for _, s := range []store.Sender{you, unconf, assistant, tool} {
+			if got, want := Supports(k, s), eligible(Kind(k), s); got != want {
+				t.Errorf("Supports(%s, %s) = %v, want %v", k, s, got, want)
+			}
+		}
+	}
+	if Supports(store.CandidateCorrection, assistant) || !Supports(store.CandidateFailure, tool) {
+		t.Error("Supports: want no correction from assistant text, and failures from tool records")
+	}
+}

@@ -20,6 +20,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/hook"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/secret"
+	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
 )
@@ -656,6 +657,9 @@ func TestParseReview(t *testing.T) {
 		{[]string{"--item", "4", "--exception-to", "1", "--pin"}, "one of --edit, --retire"},
 		{[]string{"--exception-to", "1"}, "need --item"},
 		{[]string{"3", "--retired"}, "take no proposal id"},
+		{[]string{"--all"}, ""},
+		{[]string{"3", "--all"}, "take no proposal id"},
+		{[]string{"--all", "--retired"}, "give one action"},
 		{[]string{"--nope"}, "flag provided but not defined"},
 	}
 	for _, c := range cases {
@@ -670,4 +674,93 @@ func TestParseReview(t *testing.T) {
 			t.Errorf("parseReview(%q) = %v, want an error with %q", c.args, err, c.wantErr)
 		}
 	}
+}
+
+// AC: one failure gives a candidate below its gate. `brain review --all` lists it with the
+// candidates that reached their gate, and nothing becomes an item or a proposal without your
+// approval. A candidate of another workspace does not show.
+func TestReviewAll(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	if out := f.mustReview(t, "--all"); out != "no candidates\n" {
+		t.Errorf("--all with no candidates = %q", out)
+	}
+	s := openStore(t, f.store)
+	var failure, pnpm string
+	write(t, s, func(tx *sql.Tx) error {
+		n := 0
+		// evidence adds one observation of sender in a new capture session of harness in
+		// workspace ws, and attaches it to the candidate of claim, kind and scope.
+		evidence := func(harness, ws string, sender store.Sender, claim string, kind store.CandidateKind, scope store.Scope) error {
+			n++
+			key := store.SessionKey{HerdrSession: "default", Harness: harness, Kind: store.KeyCapture, ID: fmt.Sprint("cap-", n)}
+			id, err := store.OpenSession(ctx, tx, key, "w14:p1", ws, testNow)
+			if err != nil {
+				return err
+			}
+			seg, err := store.StartSegment(ctx, tx, id, "w14:p1", ws, "visible", testNow)
+			if err != nil {
+				return err
+			}
+			o, err := store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: fmt.Sprint(n), Source: store.SourceHerdr,
+				SegmentID: seg, Event: "idle", Excerpt: "text", Status: store.ObservationComplete, Sender: sender,
+				Counts: true, At: testNow})
+			if err != nil {
+				return err
+			}
+			c := store.Candidate{ClaimID: claim, Scope: scope, Kind: kind}
+			if scope == store.ScopeWorkspace {
+				c.WorkspaceKey = ws
+			}
+			_, err = store.Attach(ctx, tx, c, o, store.DefaultGates(), signal.Supports)
+			return err
+		}
+		claim := func(situation, rule string) string {
+			id, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: situation, Rule: rule}, testNow)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return id
+		}
+		failure, pnpm = claim("go build", "run go mod tidy first"), claim("installing packages", "use pnpm")
+		other := claim("deploy", "zq-other-workspace")
+		for _, err := range []error{
+			evidence("codex", "ws_a14", store.SenderTool, failure, store.CandidateFailure, store.ScopeWorkspace),
+			evidence("claude", "ws_a14", store.SenderUnconfirmed, pnpm, store.CandidateCorrection, store.ScopeGlobal),
+			evidence("codex", "ws_b", store.SenderUnconfirmed, pnpm, store.CandidateCorrection, store.ScopeGlobal),
+			evidence("claude", "ws_b", store.SenderUnconfirmed, other, store.CandidateCorrection, store.ScopeWorkspace),
+		} {
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	counts := func() (items, proposals int) {
+		write(t, s, func(tx *sql.Tx) error {
+			if err := tx.QueryRow(`SELECT count(*) FROM items`).Scan(&items); err != nil {
+				return err
+			}
+			return tx.QueryRow(`SELECT count(*) FROM proposals`).Scan(&proposals)
+		})
+		return items, proposals
+	}
+	items, proposals := counts()
+	closeStore(t, s)
+
+	out := f.mustReview(t, "--all")
+	seen := testNow.Format("2006-01-02 15:04")
+	want := "candidate 2  global  correction  2 occurrences in 2 sessions  claude, codex  last seen " + seen + "  gate reached  open\n" +
+		"  claim " + pnpm + ": installing packages: use pnpm\n" +
+		"candidate 1  workspace w14 (shop)  failure  1 occurrences in 1 sessions  codex  last seen " + seen + "  below gate (1 of 2 sessions)  open\n" +
+		"  claim " + failure + ": go build: run go mod tidy first\n" +
+		"\nread only: a candidate becomes an item only through a proposal that you approve\n"
+	if out != want {
+		t.Errorf("--all printed\n%s\nwant\n%s", out, want)
+	}
+	s = openStore(t, f.store)
+	if i, p := counts(); i != items || p != proposals {
+		t.Errorf("after --all: %d items, %d proposals; want %d, %d: nothing becomes active without approval", i, p, items, proposals)
+	}
+	closeStore(t, s)
 }

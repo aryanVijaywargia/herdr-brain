@@ -21,13 +21,14 @@ func ForgetPending(ctx context.Context, tx *sql.Tx) (bool, error) {
 }
 
 // itemRows is the WHERE clause of the rows of item ?1 in each table of ItemTextFields: the
-// item, its revisions, its proposals, and the applied edits whose file held it at any
-// revision (AppliedEditsWithItem). Forget finds them by id, never by a text search (§6.7).
+// item, its revisions, its proposals, the applied edits whose file held it at any revision
+// (AppliedEditsWithItem), and its claim. Forget finds them by id, never by a text search (§6.7).
 var itemRows = map[string]string{
 	"items":          `id = ?1`,
 	"item_revisions": `item_id = ?1`,
 	"proposals":      `item_id = ?1`,
 	"applied_edits":  appliedEditsWithItem,
+	"claims":         `id = (SELECT claim_id FROM items WHERE id = ?1)`,
 }
 
 // blanks is the value that forget writes into a field of ItemTextFields; any other field gets
@@ -37,6 +38,8 @@ var blanks = map[Field]string{
 	{"proposals", "change_request"}:     `NULL`,
 	{"applied_edits", "content_before"}: `NULL`,
 	{"applied_edits", "content_after"}:  `NULL`,
+	{"claims", "situation"}:             `NULL`,
+	{"claims", "rule"}:                  `NULL`,
 }
 
 // sideRows is the WHERE clause of the applied edits whose content field held item ?1: the

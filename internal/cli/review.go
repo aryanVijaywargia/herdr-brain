@@ -20,6 +20,7 @@ const reviewUsage = `usage:
   brain review <id> --approve [--edit "<text>"] [--scope global|workspace] [--pin] [--confirm]
   brain review <id> --reject | --later
   brain review --retired                         list the retired items
+  brain review --all                             list the candidates too, below the gate as well
   brain review --restore <item>                  make a retired item active again
   brain review --item <item> --edit "<text>" | --retire   propose a change to an active item
   brain review --item <item> --exception-to <global item> | --conflicts-with <global item>
@@ -34,6 +35,7 @@ type review struct {
 	scope                  store.Scope
 	pin, confirm           bool
 	retired                bool
+	all                    bool  // list the candidates (E12-S2)
 	restore                int64 // the item to restore
 	item                   int64 // the active item to change
 	retire                 bool
@@ -71,6 +73,8 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 		return cl.proposeChange(ctx, r)
 	case r.retired:
 		return cl.listRetired(ctx)
+	case r.all:
+		return cl.listCandidates(ctx)
 	case r.restore != 0:
 		return cl.restore(ctx, r.restore)
 	case r.approve || r.reject || r.later:
@@ -96,6 +100,7 @@ func parseReview(args []string) (review, error) {
 	fs.BoolVar(&r.pin, "pin", false, "")
 	fs.BoolVar(&r.confirm, "confirm", false, "")
 	fs.BoolVar(&r.retired, "retired", false, "")
+	fs.BoolVar(&r.all, "all", false, "")
 	fs.Int64Var(&r.restore, "restore", 0, "")
 	fs.Int64Var(&r.item, "item", 0, "")
 	fs.BoolVar(&r.retire, "retire", false, "")
@@ -133,7 +138,7 @@ func parseReview(args []string) (review, error) {
 // check refuses a mix of flags that has no single meaning.
 func (r review) check() error {
 	actions := 0
-	for _, on := range []bool{r.approve, r.reject, r.later, r.retired, r.restore != 0, r.item != 0} {
+	for _, on := range []bool{r.approve, r.reject, r.later, r.retired, r.all, r.restore != 0, r.item != 0} {
 		if on {
 			actions++
 		}
@@ -166,8 +171,8 @@ func (r review) check() error {
 		return errors.New("--edit, --scope, --pin and --confirm go with --approve")
 	case (r.reject || r.later) && r.id == 0:
 		return errors.New("--reject and --later need a proposal id")
-	case (r.retired || r.restore != 0) && r.id != 0:
-		return errors.New("--retired and --restore take no proposal id")
+	case (r.retired || r.all || r.restore != 0) && r.id != 0:
+		return errors.New("--retired, --all and --restore take no proposal id")
 	}
 	return nil
 }
@@ -408,6 +413,62 @@ func (cl caller) listRetired(ctx context.Context) error {
 	}
 	_, err = fmt.Fprintf(cl.Stdout, "%s\n\nrestore one: brain review --restore <item>\n", strings.Join(lines, "\n"))
 	return err
+}
+
+// listCandidates prints the candidates that the caller sees, the ones below their gate too
+// (§7.2). It changes nothing: a candidate becomes an item only through a proposal that you
+// approve.
+func (cl caller) listCandidates(ctx context.Context) error {
+	gates := store.DefaultGates()
+	var lines []string
+	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
+		cs, err := store.Candidates(ctx, tx)
+		if err != nil {
+			return err
+		}
+		for _, c := range cs {
+			key := &c.WorkspaceKey
+			if c.Scope == store.ScopeGlobal {
+				key = nil
+			}
+			if !cl.sees(key) {
+				continue
+			}
+			claim, err := store.ClaimByID(ctx, tx, c.ClaimID)
+			if err != nil {
+				return err
+			}
+			text := oneLine(claim.Key.Situation + ": " + claim.Key.Rule)
+			if claim.Key == (store.ClaimKey{}) {
+				text = "(text forgotten)"
+			}
+			lines = append(lines, fmt.Sprintf("candidate %d  %s  %s  %d occurrences in %d sessions  %s  last seen %s  %s  %s\n  claim %s: %s",
+				c.ID, cl.target(c.Scope), c.Kind, c.Count, c.Sessions, strings.Join(c.Harnesses, ", "),
+				c.LastSeen.Format("2006-01-02 15:04"), gateLabel(gates, c), c.Status, c.ClaimID, text))
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if len(lines) == 0 {
+		_, err = fmt.Fprintln(cl.Stdout, "no candidates")
+		return err
+	}
+	_, err = fmt.Fprintf(cl.Stdout, "%s\n\nread only: a candidate becomes an item only through a proposal that you approve\n", strings.Join(lines, "\n"))
+	return err
+}
+
+// gateLabel says whether c reached the gate of its kind, and how far it is when not.
+func gateLabel(g store.Gates, c store.Candidate) string {
+	if g.Reached(c) {
+		return "gate reached"
+	}
+	unit := "occurrences"
+	if g[c.Kind].Sessions {
+		unit = "sessions"
+	}
+	return fmt.Sprintf("below gate (%d of %d %s)", g.Support(c), g[c.Kind].Min, unit)
 }
 
 // restore makes a retired item active again with a new revision (§9.2).
