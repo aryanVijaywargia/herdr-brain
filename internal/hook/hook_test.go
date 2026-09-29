@@ -441,6 +441,22 @@ func TestRun(t *testing.T) {
 				WorkspaceKey: ptr("ws_a14"), ItemRevisions: []store.RevisionRef{}},
 		},
 		{
+			// E9-S4, E11-S2: learning off stops capture only; delivery stays on.
+			name: "learning off still delivers",
+			env:  func(f *fixture) []string { return environ(f.mainSock, "", "w14:p1", "w14") },
+			prep: func(t *testing.T, f *fixture) {
+				t.Helper()
+				s := openStore(t, f.mainStore)
+				defer closeStore(t, s)
+				write(t, s, func(tx *sql.Tx) error {
+					return store.SetLearning(context.Background(), tx, store.LearningSetting{Scope: store.LearningStore, On: false, Changed: testNow})
+				})
+			},
+			want: []string{mainGlobal, mainA14},
+			receipt: &store.Delivery{HerdrSession: ptr("default"), PaneID: "w14:p1", Result: store.ResultEmitted, WorkspaceKey: ptr("ws_a14"),
+				ItemRevisions: []store.RevisionRef{{Item: 1, Revision: 1}, {Item: 2, Revision: 1}}},
+		},
+		{
 			name: "S66 manifest mismatch",
 			env:  func(f *fixture) []string { return environ(f.mainSock, "", "w14:p1", "w14") },
 			prep: func(t *testing.T, f *fixture) {
