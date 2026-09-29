@@ -70,6 +70,7 @@ type capturePane struct {
 	lines     []string // the last read, without noise and blank lines
 	back      []string // the read before lines
 	ok        bool     // lines is a usable base
+	open      *block   // the injected block that the last read ends in; nil when none
 }
 
 // read is one checked pane read.
@@ -79,6 +80,7 @@ type read struct {
 	read    herdr.PaneRead
 	lines   []string
 	senders []store.Sender // the sender of each line (§6.5)
+	clean   []string       // lines with the secrets dropped (§6.7)
 	full    bool           // the read holds the whole history of the pane
 }
 
@@ -135,6 +137,7 @@ func (c *Capture) baseline(ctx context.Context, s Step, gap string) error {
 		c.panes[s.PaneID] = cp
 	}
 	cp.workspace, cp.base, cp.lines, cp.back, cp.ok, cp.segment = r.pane.WorkspaceID, s.Learning, r.lines, nil, true, 0
+	_, cp.open = parts(r, nil, nil)
 	return c.write(ctx, s, func(tx *sql.Tx, now time.Time, learning Learning) error {
 		if old != nil && old.session != 0 && !c.held(old.key, s.PaneID) {
 			if err := store.EndSession(ctx, tx, old.key, now); err != nil {
@@ -165,7 +168,7 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 		return c.baseline(ctx, s, gapSession)
 	}
 	added, status := newPart(cp.lines, cp.back, r)
-	ps := parts(r, added)
+	ps, open := parts(r, added, cp.open)
 	err = c.write(ctx, s, func(tx *sql.Tx, now time.Time, learning Learning) error {
 		if !sameLearning(learning, cp.base) {
 			// Learning switched since the base: drop the read, and it is the new base.
@@ -197,7 +200,7 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 			return nil // a repaint or a resize: nothing new (S38)
 		}
 		for i, p := range ps {
-			excerpt, truncated := filter(r.agent, strings.Join(p.lines, "\n"))
+			excerpt, truncated := filter(strings.Join(p.lines, "\n"))
 			o := store.Observation{CaptureIdentity: fmt.Sprintf("%s/%d", identity(s, cp.segment, now), i+1),
 				Source: store.SourceHerdr, SegmentID: cp.segment, Event: eventOf(s), Excerpt: excerpt, Truncated: truncated,
 				Status: status, Sender: p.sender, Counts: true, BrainOrigin: p.brain, At: now}
@@ -221,7 +224,7 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 	if err != nil {
 		return err
 	}
-	cp.native, cp.lines, cp.back = native, r.lines, cp.lines
+	cp.native, cp.lines, cp.back, cp.open = native, r.lines, cp.lines, open
 	return nil
 }
 
@@ -393,7 +396,8 @@ func (c *Capture) read(ctx context.Context, id string) (read, error) {
 	all := c.lines(agent, rd.Text)
 	raw := strings.Count(strings.TrimRight(rd.Text, "\n"), "\n") + 1
 	return read{pane: after, agent: agent, read: rd, lines: all, senders: senders(agent, all),
-		full: source == herdr.ReadRecentUnwrapped && raw < lines && !rd.Truncated}, nil
+		clean: redact(agent, all),
+		full:  source == herdr.ReadRecentUnwrapped && raw < lines && !rd.Truncated}, nil
 }
 
 // lines splits text into lines without trailing space, and drops blank lines and the noise

@@ -587,11 +587,10 @@ func TestCaptureTwoBindings(t *testing.T) {
 
 // The excerpt filter drops secrets and cuts to 500 characters.
 func TestFilter(t *testing.T) {
-	got, cut := filter("", "key AKIAIOSFODNN7EXAMPLE here")
-	if strings.Contains(got, "AKIA") || cut {
-		t.Errorf("filter = %q, %v, want the key dropped", got, cut)
+	if got := redact("", []string{"key AKIAIOSFODNN7EXAMPLE here"}); got[0] != "key [secret] here" {
+		t.Errorf("redact = %q, want the key dropped", got)
 	}
-	got, cut = filter("", strings.Repeat("é", 600))
+	got, cut := filter(strings.Repeat("é", 600))
 	if len([]rune(got)) != excerptLimit || !cut {
 		t.Errorf("filter of 600 characters = %d characters, cut %v, want %d, true", len([]rune(got)), cut, excerptLimit)
 	}

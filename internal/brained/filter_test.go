@@ -3,6 +3,7 @@ package brained
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -98,7 +99,7 @@ func TestCaptureS37(t *testing.T) {
 }
 
 // S41 and §6.3: Brain blocks, CLI scaffolding and compaction summaries are dropped before
-// storage. The rest of a Brain block's run is Brain-origin and never counts. Text that looks
+// storage. The rest of a Brain block's screen block is Brain-origin and never counts. Text that looks
 // injected but has no marker is kept, and its sender stays not confirmed. After a compaction,
 // capture starts again from the new screen.
 func TestCaptureS41(t *testing.T) {
@@ -138,10 +139,35 @@ func TestCaptureS41(t *testing.T) {
 // A block with no end line in the read runs to the end of the read.
 func TestPartsOpenBlock(t *testing.T) {
 	lines := []string{"• a", "  <skills_instructions>", "  x", "• b"}
-	r := read{lines: lines, senders: senders("codex", lines)}
-	ps := parts(r, []int{0, 1, 2, 3})
-	if len(ps) != 1 || !slices.Equal(ps[0].lines, []string{"• a"}) {
-		t.Errorf("parts = %+v, want only • a", ps)
+	r := read{lines: lines, senders: senders("codex", lines), clean: lines}
+	ps, open := parts(r, []int{0, 1, 2, 3}, nil)
+	if len(ps) != 1 || !slices.Equal(ps[0].lines, []string{"• a"}) || open == nil {
+		t.Errorf("parts = %+v, %v, want only • a and an open block", ps, open)
+	}
+}
+
+// A Brain block that opens in the baseline or in an earlier read still drops its lines in a
+// later read. The block starts its own part: the reply above it stays genuine and counts.
+func TestCaptureBlockAcrossReads(t *testing.T) {
+	k := newCapture(t, "s1", t.TempDir())
+	k.pane("w1:p1", "codex", codexRun2)
+	base := "› hi\n• <!-- brain:begin v1 -->\n  Brief one.\n"
+	one := base + "  Brief two.\n  <!-- brain:end -->\n• Reply.\n• A reply. <!-- brain:begin v1 -->\n  Brief three.\n"
+	two := one + "  Brief four.\n  <!-- brain:end -->\n  After the brief.\n"
+	k.raw(base, one, two)
+	k.must(t, Baseline, "w1:p1", "", GapNone)
+	k.must(t, Change, "w1:p1", "done", GapNone)
+	k.must(t, Change, "w1:p1", "done", GapNone)
+	var got []string
+	for _, o := range k.rows(t).obs {
+		if strings.Contains(o.Excerpt, "Brief") {
+			t.Errorf("observation %+v holds the brief", o)
+		}
+		got = append(got, fmt.Sprintf("%s %v %v", o.Excerpt, o.Counts, o.BrainOrigin))
+	}
+	want := []string{"• Reply. true false", "  After the brief. false true"}
+	if !slices.Equal(got, want) {
+		t.Errorf("observations = %q, want %q", got, want)
 	}
 }
 
@@ -164,7 +190,8 @@ func TestSenders(t *testing.T) {
 func TestCaptureSecret(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
 	k.pane("w1:p1", "codex", codexRun2)
-	k.raw("› hi\n", "› hi\n› my key is sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAA ok\n"+
+	k.raw("› hi\n", "› hi\n• -----BEGIN RSA PRIVATE KEY-----\n  └ MIIEowIBAAKCAQEAsplit\n    -----END RSA PRIVATE KEY-----\n"+
+		"› my key is sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAA ok\n"+
 		"• export OPENAI_API_KEY=sk-proj-BBBBBBBBBBBBBBBBBBBBBBBBBBBB\n"+
 		"  └ -----BEGIN RSA PRIVATE KEY-----\n    MIIEowIBAAKCAQEA\n    -----END RSA PRIVATE KEY-----\n"+
 		"› DB_PASSWORD=hunter2\n")
@@ -178,12 +205,12 @@ func TestCaptureSecret(t *testing.T) {
 	if hits := secret.Find(all); len(hits) != 0 {
 		t.Errorf("the store holds secrets %+v", hits)
 	}
-	for _, s := range []string{"AAAAAAAA", "BBBBBBBB", "MIIE", "hunter2"} {
+	for _, s := range []string{"AAAAAAAA", "BBBBBBBB", "MIIE", "split", "hunter2"} {
 		if strings.Contains(all, s) {
 			t.Errorf("the store holds %q", s)
 		}
 	}
-	if len(obs) != 4 || !strings.Contains(obs[0].Excerpt, "› my key is [secret] ok") || !strings.Contains(all, "  └ [secret]") {
+	if len(obs) != 5 || !strings.Contains(all, "› my key is [secret] ok") || !strings.Contains(all, "  └ [secret]") {
 		t.Errorf("observations = %+v, want the text kept with [secret] marks", obs)
 	}
 }

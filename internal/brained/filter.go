@@ -66,33 +66,47 @@ func senders(harness string, lines []string) []store.Sender {
 type part struct {
 	sender store.Sender
 	lines  []string
-	brain  bool // the run held a Brain block, so its other text is Brain-origin
+	brain  bool // the part holds a Brain block, so its text after the block is Brain-origin
 }
 
 // parts drops the injected text from the new lines idx of r and groups the rest into runs of
-// one sender. Pane text has no reliable tags: a marker can be lost, and other text can copy
-// it. So the filters lower noise; they do not prove clean text (§6.3, S41).
-func parts(r read, idx []int) []part {
-	var ps []part
-	var in *block
+// one sender. open is the block that the last read ended in: the scan runs over the whole
+// read from it, so a block that opened in old text or in an earlier read still drops its
+// lines. parts returns the block that r ends in. Pane text has no reliable tags: a marker can
+// be lost, and other text can copy it. So the filters lower noise; they do not prove clean
+// text (§6.3, S41).
+func parts(r read, idx []int, open *block) ([]part, *block) {
+	added := make(map[int]bool, len(idx))
 	for _, i := range idx {
-		l, sender := r.lines[i], r.senders[i]
-		if in == nil && compacted(l) {
+		added[i] = true
+	}
+	var ps []part
+	in := open
+	for i, l := range r.lines {
+		if added[i] && in == nil && compacted(l) {
 			break
 		}
-		if len(ps) == 0 || ps[len(ps)-1].sender != sender {
-			ps = append(ps, part{sender: sender})
-		}
-		p := &ps[len(ps)-1]
+		starts := false
 		if in == nil {
 			in = opens(l)
+			starts = in != nil
 		}
-		if in == nil {
-			p.lines = append(p.lines, l)
-			continue
+		if added[i] {
+			if len(ps) == 0 || ps[len(ps)-1].sender != r.senders[i] || starts && len(ps[len(ps)-1].lines) > 0 ||
+				in == nil && ps[len(ps)-1].brain && !strings.HasPrefix(l, " ") {
+				// A Brain block starts its own part, and the part ends at the next line at column
+				// 0: the text around it stays genuine.
+				ps = append(ps, part{sender: r.senders[i]})
+			}
+			p := &ps[len(ps)-1]
+			switch {
+			case in != nil:
+				p.brain = p.brain || *in == brainBlock
+			case r.clean[i] != "":
+				p.lines = append(p.lines, r.clean[i])
+			}
 		}
-		p.brain = p.brain || *in == brainBlock
-		if strings.Contains(l, in.end) {
+		if in != nil && strings.Contains(l, in.end) {
 			in = nil
 		}
 	}
@@ -102,7 +116,7 @@ func parts(r read, idx []int) []part {
 			kept = append(kept, p)
 		}
 	}
-	return kept
+	return kept, in
 }
 
 // opens returns the injected block that line l starts, or nil.
@@ -125,30 +139,38 @@ func compacted(l string) bool {
 	return false
 }
 
-// filter is the excerpt filter of §6.7 for a text of harness, after the injected text is
-// gone: it drops each secret and puts the mark [secret] in its place, and it cuts the text to
-// excerptLimit characters. A secret never refuses the whole read: there is no user to edit and
-// retry [NEW]. The search sees each sender mark as spaces, so a secret line after a mark, as
+// redact is the secret filter of §6.7 for the lines of one read of harness. It runs on the
+// whole read, before the split into parts, so a secret over two senders still matches. It
+// puts the mark [secret] in place of each hit, and a line that only the rest of a hit fills
+// becomes "". A secret never refuses the whole read: there is no user to edit and retry
+// [NEW]. The search sees each sender mark as spaces, so a secret line after a mark, as
 // "› TOKEN=x", matches as it does at the line start.
-func filter(harness, text string) (string, bool) {
+func redact(harness string, lines []string) []string {
+	text := strings.Join(lines, "\n")
 	hits := secret.Find(unmarked(harness, text))
-	if len(hits) > 0 {
-		var b strings.Builder
-		at := 0
-		for _, h := range hits {
-			if h.Start < at {
-				h.Start = at
-			}
-			if h.End <= at {
-				continue
-			}
-			b.WriteString(text[at:h.Start])
-			b.WriteString("[secret]")
-			at = h.End
-		}
-		b.WriteString(text[at:])
-		text = b.String()
+	if len(hits) == 0 {
+		return lines
 	}
+	var b strings.Builder
+	at := 0
+	for _, h := range hits {
+		if h.Start < at {
+			h.Start = at
+		}
+		if h.End <= at {
+			continue
+		}
+		b.WriteString(text[at:h.Start])
+		b.WriteString("[secret]")
+		b.WriteString(strings.Repeat("\n", strings.Count(text[h.Start:h.End], "\n")))
+		at = h.End
+	}
+	b.WriteString(text[at:])
+	return strings.Split(b.String(), "\n")
+}
+
+// filter cuts an excerpt to excerptLimit characters and says whether it cut (§6.7).
+func filter(text string) (string, bool) {
 	rs := []rune(text)
 	if len(rs) <= excerptLimit {
 		return text, false
