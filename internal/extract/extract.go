@@ -213,11 +213,10 @@ func (p Pass) allowed(ctx context.Context, tx *sql.Tx, j job) (bool, error) {
 	return store.LearningOn(ctx, tx, p.DefaultOn, j.session.Key.HerdrSession, key, j.session.PaneID)
 }
 
-// refs returns the input of run: the observations of each signal that starts in run, with the
-// same workspace key, by id. An earlier observation of a signal, of any session, is context
-// and evidence; an observation of another workspace is not (§7.3).
+// refs returns the input of run: the observations in run of each signal that starts in run,
+// by id. An observation outside run is the input of its own batch, so nothing is extracted
+// twice (§7.3); its claim id still joins the evidence of both batches.
 func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.SignalInput) []ref {
-	key := run[0].WorkspaceKey
 	in := func(id int64) bool {
 		return slices.ContainsFunc(run, func(o store.SignalInput) bool { return o.ID == id })
 	}
@@ -227,7 +226,7 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 			continue
 		}
 		for i, id := range s.Observations {
-			if o, ok := byID[id]; ok && o.WorkspaceKey == key {
+			if in(id) {
 				if _, seen := kinds[id]; !seen || i == 0 {
 					kinds[id] = s.Kind
 				}
@@ -353,10 +352,30 @@ func (p Pass) stale(ctx context.Context, tx *sql.Tx, j job) (string, error) {
 	return "", nil
 }
 
+// untombstoned returns the refs whose evidence no tombstone names.
+func untombstoned(ctx context.Context, tx *sql.Tx, refs []ref) ([]ref, error) {
+	var kept []ref
+	for _, r := range refs {
+		stopped, err := store.Tombstoned(ctx, tx, r.identity)
+		if err != nil {
+			return nil, err
+		}
+		if !stopped {
+			kept = append(kept, r)
+		}
+	}
+	return kept, nil
+}
+
 // write stores claim c of batch j: its claim id, a same_as link, and each ref as evidence of
-// the candidate of the claim in its scope. A tombstoned claim adds nothing (§6.7). A candidate
+// the candidate of the claim in its scope. A tombstoned claim or ref adds nothing (§6.7): a
+// forget erases the claim key, so the tombstone source keys stop the same evidence. A candidate
 // that reaches its gate gets a proposal.
 func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Time) error {
+	kept, err := untombstoned(ctx, tx, c.Refs)
+	if c.Refs = kept; err != nil || len(kept) == 0 {
+		return err
+	}
 	c.Situation, c.Rule, c.ExpectedBenefit = redact(c.Situation), redact(c.Rule), redact(c.ExpectedBenefit)
 	claim, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: normal(c.Situation), Rule: normal(c.Rule)}, now)
 	if err != nil {

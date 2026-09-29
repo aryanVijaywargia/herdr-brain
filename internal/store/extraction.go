@@ -280,3 +280,23 @@ func MarkProposed(ctx context.Context, tx *sql.Tx, id int64) error {
 	}
 	return nil
 }
+
+// ClaimSourceKeys returns the capture identities of the evidence of claim claimID, sorted: the
+// source keys of its tombstone, which hold no text (§6.7).
+func ClaimSourceKeys(ctx context.Context, tx *sql.Tx, claimID string) ([]string, error) {
+	return query(ctx, tx, `SELECT DISTINCT l.capture_identity FROM evidence_links l
+		JOIN candidates c ON c.id = l.candidate_id WHERE c.claim_id = ? ORDER BY 1`,
+		func(r *sql.Rows) (k string, err error) { return k, r.Scan(&k) }, claimID)
+}
+
+// Tombstoned reports whether a tombstone holds capture identity as a source key: forget
+// stopped that evidence (§6.7).
+func Tombstoned(ctx context.Context, tx *sql.Tx, identity string) (bool, error) {
+	var n int
+	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM tombstones t, json_each(t.source_keys) k
+		WHERE k.value = ?`, identity).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("read tombstones: %w", err)
+	}
+	return n > 0, nil
+}

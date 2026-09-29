@@ -244,15 +244,15 @@ func sameBatch(a, b store.Batch) bool {
 	return a.ID == b.ID && a.Status == b.Status && a.ModelCalls == b.ModelCalls
 }
 
-// A forget during the extraction discards the whole result; a later batch extracts again from
-// the evidence that stays (S69).
+// A forget during the extraction discards the whole result; a later batch extracts from the
+// evidence that stays (S69).
 func TestForgetDuringExtraction(t *testing.T) {
 	f := newFixture(t)
-	old, _ := f.session("z", true, line{"ws-A", pnpm, t0})
-	sid, obs := f.session("a", true, line{"ws-A", pnpm, t0.Add(time.Minute)})
+	f.session("z", true, line{"ws-A", pnpm, t0})
+	sid, _ := f.session("a", true, line{"ws-A", pnpm, t0.Add(time.Minute)})
 	f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {
-		if strings.Contains(prompt, "[e2]") { // the batch of session a, with the text of session z
-			f.write(func(ctx context.Context, tx *sql.Tx) error { return store.ForgetSession(ctx, tx, old) })
+		if f.cli.calls() == 2 { // the batch of session a
+			f.write(func(ctx context.Context, tx *sql.Tx) error { return store.ForgetSession(ctx, tx, sid) })
 		}
 		return claimOf("use pnpm")(ctx, prompt)
 	}
@@ -261,21 +261,45 @@ func TestForgetDuringExtraction(t *testing.T) {
 	if len(bs) != 2 || bs[1].Status != store.BatchDiscarded || bs[1].SessionID != sid {
 		t.Fatalf("batches %+v, want the batch of session a discarded", bs)
 	}
-	if n := f.count(`SELECT COUNT(*) FROM evidence_links`); n != 0 {
-		t.Errorf("evidence links = %d, want 0: the forget removed the links of z, and a added none", n)
+	if n := f.count(`SELECT count FROM candidates`); n != 1 {
+		t.Errorf("candidate count = %d, want 1: only the kept evidence of z", n)
 	}
-	if wm := f.watermark(sid, "ws-A"); wm != 0 {
-		t.Errorf("watermark = %d, want 0", wm)
-	}
+	// Session a goes on after the forget; its new text is a later batch.
+	var obs int64
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		seg, err := store.StartSegment(ctx, tx, sid, "w1:p2", "ws-A", "recent_unwrapped", t0.Add(2*time.Minute))
+		if err != nil {
+			return err
+		}
+		obs, err = store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: "a-new", Source: store.SourceHerdr,
+			SegmentID: seg, Event: "working", Excerpt: pnpm, Status: store.ObservationComplete, Sender: store.SenderYou,
+			Counts: true, At: t0.Add(2 * time.Minute)})
+		return err
+	})
 	f.cli.reply = claimOf("use pnpm")
 	f.mustRun()
-	bs = f.batches()
-	if bs[1].Status != store.BatchCommitted || f.cli.calls() != 3 || !strings.Contains(f.cli.prompts[2], pnpm) ||
-		strings.Contains(f.cli.prompts[2], "[e2]") {
-		t.Fatalf("batches %+v, prompt %q: want the kept evidence extracted again", bs, f.cli.prompts[2])
+	if bs := f.batches(); len(bs) != 3 || bs[2].Status != store.BatchCommitted || f.cli.calls() != 3 {
+		t.Fatalf("batches %+v, calls %d: want a later committed batch", bs, f.cli.calls())
 	}
-	if n := f.count(`SELECT count FROM candidates`); n != 1 {
-		t.Errorf("candidate count = %d, want 1", n)
+	if n := f.count(`SELECT count FROM candidates`); n != 2 {
+		t.Errorf("candidate count = %d, want 2", n)
+	}
+	if wm := f.watermark(sid, "ws-A"); wm != obs {
+		t.Errorf("watermark = %d, want %d", wm, obs)
+	}
+}
+
+// A tombstone with the capture identity of an observation stops that evidence: a forget erases
+// the claim key, so the same text gets a new claim id (§6.7).
+func TestTombstoneStopsEvidence(t *testing.T) {
+	f := newFixture(t)
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		return store.InsertTombstone(ctx, tx, store.Tombstone{ClaimID: "cl_old", SourceKeys: []string{"a-0"}, ForgottenAt: t0})
+	})
+	sid, obs := f.session("a", true, line{"ws-A", pnpm, t0})
+	f.mustRun()
+	if n := f.count(`SELECT COUNT(*) FROM candidates`); n != 0 || f.cli.calls() != 1 {
+		t.Errorf("candidates %d, calls %d, want 0, 1", n, f.cli.calls())
 	}
 	if wm := f.watermark(sid, "ws-A"); wm != obs[0] {
 		t.Errorf("watermark = %d, want %d", wm, obs[0])
