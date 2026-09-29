@@ -68,17 +68,9 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 			if ev[i], err = store.SessionEvidence(ctx, tx, s.ID); err != nil {
 				return err
 			}
-			more, err := store.SessionCandidates(ctx, tx, s.ID)
-			if err != nil {
-				return err
-			}
-			for _, m := range more {
-				if !slices.ContainsFunc(cs, func(c store.Candidate) bool { return c.ID == m.ID }) {
-					cs = append(cs, m)
-				}
-			}
 		}
-		return nil
+		cs, err = newCandidates(ctx, tx, ss, nil)
+		return err
 	})
 	if err != nil {
 		return err
@@ -98,16 +90,7 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 			return err
 		}
 	}
-	listCandidates := func(cs []store.Candidate) error {
-		for _, cand := range cs {
-			if _, err := fmt.Fprintf(w, "candidate %d: %s %s of claim %s, %d occurrences in %d sessions: its links to this evidence go, and it is counted again\n",
-				cand.ID, cand.Scope, cand.Kind, cand.ClaimID, cand.Count, cand.Sessions); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if err := listCandidates(cs); err != nil {
+	if err := listCandidates(w, cs); err != nil {
 		return err
 	}
 	// E13 (extraction batches) adds the items and proposals that use this evidence, and the
@@ -118,20 +101,11 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 	err = c.Store.Write(ctx, func(tx *sql.Tx) error {
 		// Evidence can link to a new candidate after the list: that candidate is listed too,
 		// still before the delete.
-		var late []store.Candidate
-		for _, s := range ss {
-			now, err := store.SessionCandidates(ctx, tx, s.ID)
-			if err != nil {
-				return err
-			}
-			for _, n := range now {
-				listed := func(c store.Candidate) bool { return c.ID == n.ID }
-				if !slices.ContainsFunc(cs, listed) && !slices.ContainsFunc(late, listed) {
-					late = append(late, n)
-				}
-			}
+		late, err := newCandidates(ctx, tx, ss, cs)
+		if err != nil {
+			return err
 		}
-		if err := listCandidates(late); err != nil {
+		if err := listCandidates(w, late); err != nil {
 			return err
 		}
 		for _, s := range ss {
@@ -146,6 +120,36 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 	}
 	_, err = fmt.Fprintf(w, "forget session %s: done; its text is deleted, and new text is captured as usual\n", *id)
 	return err
+}
+
+// listCandidates prints the candidates that use the evidence of a session to forget.
+func listCandidates(w io.Writer, cs []store.Candidate) error {
+	for _, c := range cs {
+		if _, err := fmt.Fprintf(w, "candidate %d: %s %s of claim %s, %d occurrences in %d sessions: its links to this evidence go, and it is counted again\n",
+			c.ID, c.Scope, c.Kind, c.ClaimID, c.Count, c.Sessions); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// newCandidates returns the candidates with evidence from sessions ss that are not in listed,
+// each once.
+func newCandidates(ctx context.Context, tx *sql.Tx, ss []store.Session, listed []store.Candidate) ([]store.Candidate, error) {
+	var cs []store.Candidate
+	for _, s := range ss {
+		more, err := store.SessionCandidates(ctx, tx, s.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range more {
+			same := func(c store.Candidate) bool { return c.ID == m.ID }
+			if !slices.ContainsFunc(listed, same) && !slices.ContainsFunc(cs, same) {
+				cs = append(cs, m)
+			}
+		}
+	}
+	return cs, nil
 }
 
 // forgotten reports whether forget removed the text of the item whose current revision is cur:
