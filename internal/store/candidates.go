@@ -323,6 +323,17 @@ func Candidates(ctx context.Context, tx *sql.Tx) ([]Candidate, error) {
 		func(rows *sql.Rows) (Candidate, error) { return scanCandidate(rows) })
 }
 
+// PendingCandidateProposalIDs returns the ids of the pending proposals of candidate id, in
+// id order.
+func PendingCandidateProposalIDs(ctx context.Context, tx *sql.Tx, id int64) ([]int64, error) {
+	return query(ctx, tx, `SELECT id FROM proposals WHERE candidate_id = ? AND status = ? ORDER BY id`,
+		func(rows *sql.Rows) (int64, error) {
+			var id int64
+			err := rows.Scan(&id)
+			return id, err
+		}, id, ProposalPending)
+}
+
 // SessionCandidates returns the candidates with evidence from session sessionID, by id: the
 // ones that brain forget --session lists (§6.7).
 func SessionCandidates(ctx context.Context, tx *sql.Tx, sessionID int64) ([]Candidate, error) {

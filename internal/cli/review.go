@@ -18,9 +18,12 @@ const reviewUsage = `usage:
   brain review                                   list the proposals that wait for you
   brain review <id>                              show one proposal
   brain review <id> --approve [--edit "<text>"] [--scope global|workspace] [--pin] [--confirm]
-  brain review <id> --reject | --later
+  brain review <id> --reject [--reason "<text>"] | --later
   brain review --retired                         list the retired items
   brain review --all                             list the candidates too, below the gate as well
+  brain review --rejected                        list the rejections, with the new evidence since each
+  brain review --reopen <rejection>              end a rejection: its claim can get proposals again
+  brain review --reset <rejection>               keep a rejection, and count its new evidence from now
   brain review --restore <item>                  make a retired item active again
   brain review --item <item> --edit "<text>" | --retire   propose a change to an active item
   brain review --item <item> --exception-to <global item> | --conflicts-with <global item>
@@ -32,10 +35,13 @@ type review struct {
 	id                     int64 // the proposal; 0 for none
 	approve, reject, later bool
 	edit                   *string // the new text; nil for none
+	reason                 *string // your reason for a reject; nil for none
 	scope                  store.Scope
 	pin, confirm           bool
 	retired                bool
 	all                    bool  // list the candidates (E12-S2)
+	rejected               bool  // list the rejections (E12-S3)
+	reopen, reset          int64 // the rejection to reopen or reset
 	restore                int64 // the item to restore
 	item                   int64 // the active item to change
 	retire                 bool
@@ -75,6 +81,12 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 		return cl.listRetired(ctx)
 	case r.all:
 		return cl.listCandidates(ctx)
+	case r.rejected:
+		return cl.listRejections(ctx)
+	case r.reopen != 0:
+		return cl.endRejection(ctx, r.reopen, true)
+	case r.reset != 0:
+		return cl.endRejection(ctx, r.reset, false)
 	case r.restore != 0:
 		return cl.restore(ctx, r.restore)
 	case r.approve || r.reject || r.later:
@@ -96,11 +108,15 @@ func parseReview(args []string) (review, error) {
 	fs.BoolVar(&r.reject, "reject", false, "")
 	fs.BoolVar(&r.later, "later", false, "")
 	fs.Func("edit", "", func(s string) error { r.edit = &s; return nil })
+	fs.Func("reason", "", func(s string) error { r.reason = &s; return nil })
 	scope := fs.String("scope", "", "")
 	fs.BoolVar(&r.pin, "pin", false, "")
 	fs.BoolVar(&r.confirm, "confirm", false, "")
 	fs.BoolVar(&r.retired, "retired", false, "")
 	fs.BoolVar(&r.all, "all", false, "")
+	fs.BoolVar(&r.rejected, "rejected", false, "")
+	fs.Int64Var(&r.reopen, "reopen", 0, "")
+	fs.Int64Var(&r.reset, "reset", 0, "")
 	fs.Int64Var(&r.restore, "restore", 0, "")
 	fs.Int64Var(&r.item, "item", 0, "")
 	fs.BoolVar(&r.retire, "retire", false, "")
@@ -138,7 +154,8 @@ func parseReview(args []string) (review, error) {
 // check refuses a mix of flags that has no single meaning.
 func (r review) check() error {
 	actions := 0
-	for _, on := range []bool{r.approve, r.reject, r.later, r.retired, r.all, r.restore != 0, r.item != 0} {
+	for _, on := range []bool{r.approve, r.reject, r.later, r.retired, r.all, r.rejected, r.reopen != 0, r.reset != 0,
+		r.restore != 0, r.item != 0} {
 		if on {
 			actions++
 		}
@@ -147,6 +164,8 @@ func (r review) check() error {
 	switch {
 	case actions > 1:
 		return errors.New("give one action")
+	case r.reason != nil && !r.reject:
+		return errors.New("--reason goes with --reject")
 	case r.scope != "" && r.scope != store.ScopeGlobal && r.scope != store.ScopeWorkspace:
 		return fmt.Errorf("unknown scope %q", r.scope)
 	case r.edit != nil && strings.TrimSpace(*r.edit) == "":
@@ -171,14 +190,16 @@ func (r review) check() error {
 		return errors.New("--edit, --scope, --pin and --confirm go with --approve")
 	case (r.reject || r.later) && r.id == 0:
 		return errors.New("--reject and --later need a proposal id")
-	case (r.retired || r.all || r.restore != 0) && r.id != 0:
-		return errors.New("--retired, --all and --restore take no proposal id")
+	case (r.retired || r.all || r.rejected || r.reopen != 0 || r.reset != 0 || r.restore != 0) && r.id != 0:
+		return errors.New("--retired, --all, --rejected, --reopen, --reset and --restore take no proposal id")
 	}
 	return nil
 }
 
-// list prints the pending proposals that the caller sees.
+// list prints the pending proposals that the caller sees. A proposal of a candidate below its
+// gate waits in brain review --all only (§7.2).
 func (cl caller) list(ctx context.Context) error {
+	gates := store.DefaultGates()
 	var lines []string
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		ids, err := store.PendingProposalIDs(ctx, tx)
@@ -196,6 +217,13 @@ func (cl caller) list(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
+			below, err := belowGate(ctx, tx, gates, p)
+			if err != nil {
+				return err
+			}
+			if below {
+				continue
+			}
 			lines = append(lines, fmt.Sprintf("%d  %s  %s%s", p.ID, p.Target, summary(p, it), warningMark(p)))
 		}
 		return nil
@@ -209,6 +237,22 @@ func (cl caller) list(ctx context.Context) error {
 	}
 	_, err = fmt.Fprintf(cl.Stdout, "%s\n\nshow one: brain review <id>\n", strings.Join(lines, "\n"))
 	return err
+}
+
+// belowGate reports whether p is a proposal of a candidate below the gate of its kind. A
+// proposal whose candidate is gone (a forget took its evidence) is in the queue.
+func belowGate(ctx context.Context, tx *sql.Tx, gates store.Gates, p store.Proposal) (bool, error) {
+	if p.CandidateID == nil {
+		return false, nil
+	}
+	c, err := store.CandidateByID(ctx, tx, *p.CandidateID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	return !gates.Reached(c), nil
 }
 
 // summary is the one-line form of p for a list. A proposal with no text retires its item.
@@ -274,7 +318,11 @@ func (cl caller) decide(ctx context.Context, r review) error {
 	case r.approve:
 		return cl.approve(ctx, r)
 	case r.reject:
-		return cl.reject(ctx, r.id)
+		reason := ""
+		if r.reason != nil {
+			reason = *r.reason
+		}
+		return cl.reject(ctx, r.id, reason)
 	}
 	return cl.later(ctx, r.id)
 }
@@ -356,19 +404,82 @@ func confirmed(r review, p store.Proposal, next store.ItemRevision) error {
 	return nil
 }
 
-// reject marks the proposal rejected. The item does not change.
-func (cl caller) reject(ctx context.Context, id int64) error {
+// reject marks the proposal rejected. The item does not change. The claim of the proposal's
+// candidate stays rejected in the scope of the candidate, with reason (§7.2), so the other
+// pending proposals of the candidate are rejected too: none of them can make the claim active.
+func (cl caller) reject(ctx context.Context, id int64, reason string) error {
+	var c *store.Candidate
+	var rejection int64
+	var others []int64
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
-		if _, _, _, err := cl.pending(ctx, tx, id); err != nil {
+		p, _, _, err := cl.pending(ctx, tx, id)
+		if err != nil {
 			return err
+		}
+		if c, err = cl.candidate(ctx, tx, p); err != nil {
+			return err
+		}
+		if c != nil {
+			if rejection, err = store.Reject(ctx, tx, *c, reason, cl.Now()); err != nil {
+				return err
+			}
+			ids, err := store.PendingCandidateProposalIDs(ctx, tx, c.ID)
+			if err != nil {
+				return err
+			}
+			for _, other := range ids {
+				if other == id {
+					continue
+				}
+				if err := store.DecideProposal(ctx, tx, other, store.ProposalRejected, cl.surface, cl.Now()); err != nil {
+					return err
+				}
+				others = append(others, other)
+			}
 		}
 		return store.DecideProposal(ctx, tx, id, store.ProposalRejected, cl.surface, cl.Now())
 	})
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(cl.Stdout, "proposal %d rejected\n", id)
+	if c == nil {
+		_, err = fmt.Fprintf(cl.Stdout, "proposal %d rejected\n", id)
+		return err
+	}
+	_, err = fmt.Fprintf(cl.Stdout, "proposal %d rejected: claim %s stays rejected in %s (rejection %d, brain review --rejected)\n",
+		id, c.ClaimID, cl.target(c.Scope), rejection)
+	for _, other := range others {
+		if err == nil {
+			_, err = fmt.Fprintf(cl.Stdout, "proposal %d of the same claim rejected\n", other)
+		}
+	}
 	return err
+}
+
+// candidate reads the candidate of proposal p, when the caller sees it: nil for a proposal with
+// no candidate, or whose candidate is gone (a forget took its evidence).
+func (cl caller) candidate(ctx context.Context, tx *sql.Tx, p store.Proposal) (*store.Candidate, error) {
+	if p.CandidateID == nil {
+		return nil, nil
+	}
+	c, err := store.CandidateByID(ctx, tx, *p.CandidateID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	case !cl.sees(scopeKey(c.Scope, c.WorkspaceKey)):
+		return nil, fmt.Errorf("proposal %d: %w", p.ID, errNotFound)
+	}
+	return &c, nil
+}
+
+// scopeKey is the workspace key of a row with scope and key, as sees takes it: nil for global.
+func scopeKey(scope store.Scope, key string) *string {
+	if scope == store.ScopeGlobal {
+		return nil
+	}
+	return &key
 }
 
 // later leaves the proposal pending: it only mutes it for this review (§7.4, §11 proposals).
@@ -427,24 +538,21 @@ func (cl caller) listCandidates(ctx context.Context) error {
 			return err
 		}
 		for _, c := range cs {
-			key := &c.WorkspaceKey
-			if c.Scope == store.ScopeGlobal {
-				key = nil
-			}
-			if !cl.sees(key) {
+			if !cl.sees(scopeKey(c.Scope, c.WorkspaceKey)) {
 				continue
 			}
-			claim, err := store.ClaimByID(ctx, tx, c.ClaimID)
+			text, err := claimText(ctx, tx, c.ClaimID)
 			if err != nil {
 				return err
-			}
-			text := oneLine(claim.Key.Situation + ": " + claim.Key.Rule)
-			if claim.Key == (store.ClaimKey{}) {
-				text = "(text forgotten)"
 			}
 			lines = append(lines, fmt.Sprintf("candidate %d  %s  %s  %d occurrences in %d sessions  %s  last seen %s  %s  %s\n  claim %s: %s",
 				c.ID, cl.target(c.Scope), c.Kind, c.Count, c.Sessions, strings.Join(c.Harnesses, ", "),
 				c.LastSeen.Format("2006-01-02 15:04"), gateLabel(gates, c), c.Status, c.ClaimID, text))
+			ps, err := cl.candidateProposals(ctx, tx, c.ID)
+			if err != nil {
+				return err
+			}
+			lines = append(lines, ps...)
 		}
 		return nil
 	})
@@ -456,6 +564,107 @@ func (cl caller) listCandidates(ctx context.Context) error {
 		return err
 	}
 	_, err = fmt.Fprintf(cl.Stdout, "%s\n\nread only: a candidate becomes an item only through a proposal that you approve\n", strings.Join(lines, "\n"))
+	return err
+}
+
+// candidateProposals are the lines of the pending proposals of candidate id that the caller
+// sees. You can approve one below the gate: a rare, costly lesson after one occurrence (§7.2).
+// Approve is the E4 approve, with its revision check, permission warning and scope check.
+func (cl caller) candidateProposals(ctx context.Context, tx *sql.Tx, id int64) ([]string, error) {
+	ids, err := store.PendingCandidateProposalIDs(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+	var lines []string
+	for _, pid := range ids {
+		p, it, _, err := cl.proposal(ctx, tx, pid)
+		if errors.Is(err, errNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, fmt.Sprintf("  proposal %d: %s%s (brain review %d --approve)", p.ID, summary(p, it), warningMark(p), p.ID))
+	}
+	return lines, nil
+}
+
+// claimText is the one-line claim key text of claim id.
+func claimText(ctx context.Context, tx *sql.Tx, id string) (string, error) {
+	claim, err := store.ClaimByID(ctx, tx, id)
+	if err != nil {
+		return "", err
+	}
+	if claim.Key == (store.ClaimKey{}) {
+		return "(text forgotten)", nil
+	}
+	return oneLine(claim.Key.Situation + ": " + claim.Key.Rule), nil
+}
+
+// listRejections prints the rejections that the caller sees, with the new evidence since each
+// (§7.2). Brain never reopens one by itself.
+func (cl caller) listRejections(ctx context.Context) error {
+	var lines []string
+	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
+		rs, err := store.Rejections(ctx, tx)
+		if err != nil {
+			return err
+		}
+		for _, r := range rs {
+			if !cl.sees(scopeKey(r.Scope, r.WorkspaceKey)) {
+				continue
+			}
+			text, err := claimText(ctx, tx, r.ClaimID)
+			if err != nil {
+				return err
+			}
+			reason := oneLine(r.Reason)
+			if reason == "" {
+				reason = "(none)"
+			}
+			lines = append(lines, fmt.Sprintf("rejection %d  %s  rejected %s  %d new evidence since (%d now, %d then)\n  claim %s: %s\n  reason: %s",
+				r.ID, cl.target(r.Scope), r.At.Format("2006-01-02 15:04"), r.New, r.Evidence, r.EvidenceCount, r.ClaimID, text, reason))
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if len(lines) == 0 {
+		_, err = fmt.Fprintln(cl.Stdout, "no rejections")
+		return err
+	}
+	_, err = fmt.Fprintf(cl.Stdout, "%s\n\nreopen one: brain review --reopen <rejection>; count its new evidence from now: brain review --reset <rejection>\n",
+		strings.Join(lines, "\n"))
+	return err
+}
+
+// endRejection reopens rejection id, or resets it: it then counts its new evidence from now.
+// [NEW] the actions --reopen and --reset (§7.2 "you reopen or reset it").
+func (cl caller) endRejection(ctx context.Context, id int64, reopen bool) error {
+	var r store.Rejection
+	err := cl.Store.Write(ctx, func(tx *sql.Tx) (err error) {
+		r, err = store.RejectionByID(ctx, tx, id)
+		switch {
+		case errors.Is(err, sql.ErrNoRows) || err == nil && !cl.sees(scopeKey(r.Scope, r.WorkspaceKey)):
+			return fmt.Errorf("rejection %d: %w", id, errNotFound)
+		case err != nil:
+			return err
+		case !r.Reopened.IsZero():
+			return fmt.Errorf("rejection %d: %w: it is reopened already", id, errDecided)
+		case reopen:
+			return store.ReopenRejection(ctx, tx, id, cl.Now())
+		}
+		return store.ResetRejection(ctx, tx, id, cl.Now())
+	})
+	if err != nil {
+		return err
+	}
+	if reopen {
+		_, err = fmt.Fprintf(cl.Stdout, "rejection %d reopened: claim %s can get proposals in %s again\n", id, r.ClaimID, cl.target(r.Scope))
+		return err
+	}
+	_, err = fmt.Fprintf(cl.Stdout, "rejection %d reset: claim %s stays rejected, and its new evidence counts from now\n", id, r.ClaimID)
 	return err
 }
 

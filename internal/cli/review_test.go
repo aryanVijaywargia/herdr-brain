@@ -660,6 +660,15 @@ func TestParseReview(t *testing.T) {
 		{[]string{"--all"}, ""},
 		{[]string{"3", "--all"}, "take no proposal id"},
 		{[]string{"--all", "--retired"}, "give one action"},
+		{[]string{"--rejected"}, ""},
+		{[]string{"--reopen", "1"}, ""},
+		{[]string{"--reset", "1"}, ""},
+		{[]string{"3", "--reject", "--reason", "x"}, ""},
+		{[]string{"3", "--rejected"}, "take no proposal id"},
+		{[]string{"3", "--reopen", "1"}, "take no proposal id"},
+		{[]string{"--reopen", "1", "--reset", "1"}, "give one action"},
+		{[]string{"--reason", "x"}, "--reason goes with --reject"},
+		{[]string{"3", "--approve", "--reason", "x"}, "--reason goes with --reject"},
 		{[]string{"--nope"}, "flag provided but not defined"},
 	}
 	for _, c := range cases {
