@@ -558,7 +558,7 @@ func TestCaptureTwoBindings(t *testing.T) {
 	a.must(t, Change, "w1:p2", "idle", GapNone)
 	a.must(t, End, "w1:p1", "", GapNone)
 	r = a.rows(t)
-	var forget store.SessionKey
+	var forget int64
 	for _, s := range r.sessions {
 		switch {
 		case s.Key.HerdrSession == "s2" && (!s.Ended.IsZero() || s.AgentSessionID != "" && s.Key.Kind == store.KeyCapture):
@@ -569,19 +569,20 @@ func TestCaptureTwoBindings(t *testing.T) {
 			if s.AgentSessionID == "" {
 				t.Errorf("session %+v of s1 is not enriched", s)
 			}
-			forget = s.Key
+			forget = s.ID
 		}
 	}
 	a.tx(t, func(tx *sql.Tx) error { return store.ForgetSession(context.Background(), tx, forget) })
 	r = a.rows(t)
 	var s2 int
 	for _, s := range r.sessions {
-		if s.Key.HerdrSession == "s2" {
+		if s.Key.HerdrSession == "s2" && s.Generation == 0 {
 			s2++
 		}
 	}
-	if excerpts, _ := r.text(); len(r.sessions) != 3 || s2 != 2 || len(excerpts) != 3 {
-		t.Errorf("after forget: %d sessions (%d of s2), %d read observations, want 3 (2 of s2) and 3", len(r.sessions), s2, len(excerpts))
+	// Forget keeps the session row: it holds no text (E11-S6).
+	if excerpts, _ := r.text(); len(r.sessions) != 4 || s2 != 2 || len(excerpts) != 3 {
+		t.Errorf("after forget: %d sessions (%d of s2 intact), %d read observations, want 4 (2 of s2) and 3", len(r.sessions), s2, len(excerpts))
 	}
 }
 
@@ -593,5 +594,146 @@ func TestFilter(t *testing.T) {
 	got, cut := filter(strings.Repeat("é", 600))
 	if len([]rune(got)) != excerptLimit || !cut {
 		t.Errorf("filter of 600 characters = %d characters, cut %v, want %d, true", len([]rune(got)), cut, excerptLimit)
+	}
+}
+
+// forgetOnRead makes the next pane.read of k run brain forget --session on the session with
+// id agentID, as a forget that commits while the read waits for its write.
+func (k *capHarness) forgetOnRead(t *testing.T, agentID string, n int) {
+	t.Helper()
+	k.f.mu.Lock()
+	defer k.f.mu.Unlock()
+	k.f.onRead = func(f *fakeHerdr) {
+		if n--; n == 0 {
+			f.onRead = nil
+		}
+		k.tx(t, func(tx *sql.Tx) error {
+			ctx := context.Background()
+			ss, err := store.SessionsByID(ctx, tx, k.gate.Binding.Session, agentID)
+			if err != nil || len(ss) != 1 {
+				t.Errorf("SessionsByID(%s) = %+v, %v, want one session", agentID, ss, err)
+				return err
+			}
+			return store.ForgetSession(ctx, tx, ss[0].ID)
+		})
+	}
+}
+
+// AC (E11-S6): a forget while a pane read waits before its commit, then the release: the read
+// stores nothing, the forgotten text stays absent, and the read after the new baseline is
+// stored. After a restart the screen that still shows the forgotten text is only a baseline:
+// the replay stores nothing, and new text after it is stored.
+func TestCaptureForgetDuringRead(t *testing.T) {
+	dir := t.TempDir()
+	k := newCapture(t, "s1", dir)
+	k.pane("w1:p1", "codex", codexRun2)
+	k.reads(t, "w1:p1", "codex-s31-0-base.txt", "codex-s31-1-working.txt", "codex-s31-2-blocked.txt",
+		"codex-s31-3-working.txt", "codex-s31-4-done.txt")
+	k.must(t, Baseline, "w1:p1", "", GapStart)
+	k.must(t, Change, "w1:p1", "working", GapNone)
+	if excerpts, _ := k.rows(t).text(); len(excerpts) != 1 || !strings.Contains(excerpts[0], "Run touch made.txt") {
+		t.Fatalf("excerpts before forget = %q, want the prompt", excerpts)
+	}
+	k.forgetOnRead(t, codexRun2, 1)
+	k.must(t, Change, "w1:p1", "blocked", GapNone) // the read of the blocked screen waits for the forget
+	r := k.rows(t)
+	if excerpts, gaps := r.text(); len(excerpts) != 0 || !slices.Equal(gaps, []string{gapForget}) {
+		t.Fatalf("after the forget: excerpts %q, gaps %q, want only a %q gap", excerpts, gaps, gapForget)
+	}
+	k.must(t, Change, "w1:p1", "done", GapNone)
+	excerpts, _ := k.rows(t).text()
+	if len(excerpts) != 1 || !strings.Contains(excerpts[0], "with escalated permissions successfully") {
+		t.Fatalf("excerpts after the new baseline = %q, want the new text", excerpts)
+	}
+	forgotten := []string{"Run touch made.txt and request", "Would you like to run", "You approved codex"}
+	noText := func(k *capHarness, when string) {
+		for _, o := range k.rows(t).obs {
+			for _, f := range forgotten {
+				if strings.Contains(o.Excerpt, f) {
+					t.Errorf("%s: observation %+v holds forgotten text %q", when, o, f)
+				}
+			}
+		}
+	}
+	noText(k, "after the forget")
+
+	// Restart: a new brained reads the same screen again.
+	k2 := newCapture(t, "s1", dir)
+	k2.pane("w1:p1", "codex", codexRun2)
+	k2.reads(t, "w1:p1", "codex-s31-3-working.txt", "codex-s31-3-working.txt")
+	k2.must(t, Baseline, "w1:p1", "", GapStart)
+	k2.must(t, Change, "w1:p1", "idle", GapNone)
+	if excerpts, _ := k2.rows(t).text(); len(excerpts) != 1 {
+		t.Fatalf("excerpts after the replay = %q, want only the one of before", excerpts)
+	}
+	noText(k2, "after the replay")
+	k2.f.mu.Lock()
+	k2.f.reads["w1:p1"] = []string{fixture(t, "codex-s31-3-working.txt") + "\n• New text after the forget.\n"}
+	k2.f.mu.Unlock()
+	k2.must(t, Change, "w1:p1", "working", GapNone)
+	if excerpts, _ := k2.rows(t).text(); len(excerpts) != 2 || !strings.Contains(excerpts[1], "New text after the forget") {
+		t.Errorf("excerpts after new text = %q, want the new text stored", excerpts)
+	}
+}
+
+// A forget while a baseline read waits, twice: the read that shows the forgotten text is no
+// base, and a read after the forgets is. A later change stores only the text that follows it
+// (E11-S6, review finding 2).
+func TestCaptureForgetDuringBaseline(t *testing.T) {
+	k := newCapture(t, "s1", t.TempDir())
+	k.pane("w1:p1", "codex", codexRun2)
+	k.reads(t, "w1:p1", "codex-s31-0-base.txt", "codex-s31-1-working.txt", "codex-s31-1-working.txt",
+		"codex-s31-2-blocked.txt", "codex-s31-3-working.txt", "codex-s31-4-done.txt")
+	k.must(t, Baseline, "w1:p1", "", GapStart)
+	k.forgetOnRead(t, codexRun2, 2)
+	k.must(t, Baseline, "w1:p1", "", GapConnect) // the first two reads wait for a forget each
+	k.must(t, Change, "w1:p1", "working", GapNone)
+	k.must(t, Change, "w1:p1", "done", GapNone)
+	excerpts, gaps := k.rows(t).text()
+	for _, o := range excerpts {
+		for _, f := range []string{"Run touch made.txt and request", "Would you like to run"} {
+			if strings.Contains(o, f) {
+				t.Errorf("excerpt %q holds text %q that the screen showed before the forget", o, f)
+			}
+		}
+	}
+	if len(excerpts) == 0 || !strings.Contains(excerpts[len(excerpts)-1], "with escalated permissions successfully") {
+		t.Errorf("excerpts = %q, want the new text last", excerpts)
+	}
+	if !slices.Equal(gaps, []string{string(GapConnect)}) {
+		t.Errorf("gaps = %q, want only the reconnect", gaps)
+	}
+}
+
+// A forget while a change read waits, when a learning switch makes that read a new base: the
+// read is no base, and the text that the screen showed at the forget is not stored (E11-S6).
+func TestCaptureForgetDuringLearningSwitch(t *testing.T) {
+	k := newCapture(t, "s1", t.TempDir())
+	k.pane("w1:p1", "codex", codexRun2)
+	k.reads(t, "w1:p1", "codex-s31-0-base.txt", "codex-s31-1-working.txt", "codex-s31-2-blocked.txt",
+		"codex-s31-3-working.txt", "codex-s31-4-done.txt")
+	k.must(t, Baseline, "w1:p1", "", GapNone)
+	k.must(t, Change, "w1:p1", "working", GapNone)
+	base := k.learning(t, "w1:p1", "w1")
+	for _, on := range []bool{false, true} {
+		k.tx(t, func(tx *sql.Tx) error {
+			return store.SetLearning(context.Background(), tx, store.LearningSetting{Scope: store.LearningPane,
+				HerdrSession: "s1", Target: "w1:p1", On: on, Changed: time.Now()})
+		})
+	}
+	k.forgetOnRead(t, codexRun2, 1)
+	s := Step{Kind: Change, PaneID: "w1:p1", WorkspaceID: "w1", Gate: k.gate, Learning: base,
+		Event: &herdr.Event{Status: "blocked"}}
+	if err := k.c.Handle(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	k.must(t, Change, "w1:p1", "working", GapNone)
+	excerpts, _ := k.rows(t).text()
+	for _, e := range excerpts {
+		for _, f := range []string{"Run touch made.txt and request", "Would you like to run", "You approved codex"} {
+			if strings.Contains(e, f) {
+				t.Errorf("excerpt %q holds text %q that the screen showed at the forget", e, f)
+			}
+		}
 	}
 }

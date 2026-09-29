@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,4 +189,65 @@ func TestRecordStoresNothing(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(f.dir, "data", "retest")); err != nil {
 		t.Errorf("no retest marker: %v", err)
 	}
+}
+
+// A brain forget --session after a hook record noted the capture generation, while it reads
+// its input or before its write, leaves the forgotten text absent. A replay of a stored record
+// stores nothing, and a new record after the forget is stored (E11-S6).
+func TestRecordForgotten(t *testing.T) {
+	f := recordFixture(t)
+	p := claude(t)
+	stop := func(text string) string { return `{"session_id":"s1","last_assistant_message":"` + text + `"}` }
+	run := func(raw string, at time.Time, noted func(), in io.Reader) {
+		t.Helper()
+		if in == nil {
+			in = strings.NewReader(raw)
+		}
+		h := f.hook(p, environ(f.mainSock, "", "w14:p1", "w14"))
+		h.Event = adapter.EventStop
+		h.Now = func() time.Time { return at }
+		h.noted = noted
+		var out bytes.Buffer
+		if err := h.run(context.Background(), in, &out); err != nil || out.Len() != 0 {
+			t.Fatalf("hook = %v, printed %q", err, out.String())
+		}
+	}
+	forget := func() {
+		s := openStore(t, f.mainStore)
+		defer closeStore(t, s)
+		write(t, s, func(tx *sql.Tx) error {
+			ss, err := store.SessionsByID(context.Background(), tx, "default", "cap-1")
+			if err != nil || len(ss) != 1 {
+				t.Fatalf("SessionsByID = %+v, %v", ss, err)
+			}
+			return store.ForgetSession(context.Background(), tx, ss[0].ID)
+		})
+	}
+	first := testNow.Add(time.Second)
+	run(stop("stored before the forget"), first, nil, nil)
+	forget()
+	run(stop("forgotten while it waits"), first.Add(time.Second), forget, nil)
+	run("", first.Add(2*time.Second), nil, &forgetOnRead{r: strings.NewReader(stop("forgotten while it is read")), fn: forget})
+	run(stop("stored before the forget"), first, nil, nil) // the replay after a restart
+	if obs, cmds := recordRows(t, f); len(obs) != 0 || len(cmds) != 0 {
+		t.Fatalf("after the forget: %+v, %+v, want nothing", obs, cmds)
+	}
+	run(stop("new text after the forget"), first.Add(3*time.Second), nil, nil)
+	if obs, _ := recordRows(t, f); len(obs) != 1 || obs[0].Excerpt != "new text after the forget" {
+		t.Errorf("after the new record: %+v, want only its text", obs)
+	}
+}
+
+// forgetOnRead is a reader of r that calls fn once, at the first read.
+type forgetOnRead struct {
+	r  io.Reader
+	fn func()
+}
+
+func (f *forgetOnRead) Read(p []byte) (int, error) {
+	if f.fn != nil {
+		f.fn()
+		f.fn = nil
+	}
+	return f.r.Read(p)
 }

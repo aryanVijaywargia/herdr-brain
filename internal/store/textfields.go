@@ -105,7 +105,7 @@ func noItemTextFields() []Field {
 		{"observations", "capture_identity"},
 		{"observations", "source"},
 		{"observations", "event"},
-		// Pane text, not item text: forget finds it by session key (ForgetSession), never by a
+		// Pane text, not item text: forget finds it by session (ForgetSession), never by a
 		// text search (§6.7).
 		{"observations", "excerpt"},
 		{"observations", "status"},
@@ -113,9 +113,10 @@ func noItemTextFields() []Field {
 		{"observations", "at"},
 		{"cursors", "source"},
 		{"cursors", "position"}, // A capture identity or a byte offset (§6.4).
-		// A captured command and its folder, not item text: forget finds them by session key
+		// A captured command and its folder, not item text: forget finds them by session
 		// (ForgetSession), as the excerpt.
 		{"command_records", "argv"},
 		{"command_records", "cwd"},
+		{"forgotten_captures", "capture_identity"}, // No text (§6.4).
 	}
 }

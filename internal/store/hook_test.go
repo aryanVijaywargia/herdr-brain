@@ -78,7 +78,7 @@ func TestHookRecordsForget(t *testing.T) {
 		if err != nil || len(cmds) != 1 || cmds[0].Argv != "ls" || cmds[0].ExitStatus == nil || *cmds[0].ExitStatus != 2 {
 			t.Errorf("CommandRecords = %+v, %v", cmds, err)
 		}
-		return ForgetSession(ctx, tx, key)
+		return ForgetSession(ctx, tx, id)
 	})
 	write(t, s, func(tx *sql.Tx) error {
 		obs, err := Observations(ctx, tx)

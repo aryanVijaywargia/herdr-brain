@@ -29,7 +29,7 @@ commands:
   review    [<id> [--approve | --reject | --later]]: the queue of proposals (brain review --help)
   pin       [--off] <item>: pin an active item, so it never ages
   undo      <item>: undo the latest revision of an item
-  forget    <item>: remove the text of an item from the store and the output
+  forget    <item> | --session <id>: remove the text of an item, or the capture evidence of a session
   repair    [--confirm]: repair the output and list its conflicts; --confirm deletes them
   pane      review --proposal <id>: the review pane of one proposal (herdr runs it)
   event     workspace-closed: herdr's workspace.closed event (D4); marks the workspace closed

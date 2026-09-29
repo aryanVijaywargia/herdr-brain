@@ -109,6 +109,7 @@ type Hook struct {
 	Now      func() time.Time
 
 	ended func() // tests only: called when the capped run ends, after the cap too
+	noted func() // tests only: called when a hook record has noted the capture generation
 }
 
 // Run reads the hook input from stdin and prints the brief to stdout, or nothing. A result
@@ -146,12 +147,12 @@ func (h Hook) Run(ctx context.Context, stdin io.Reader, stdout io.Writer) error 
 
 // run is Run without the cap.
 func (h Hook) run(ctx context.Context, stdin io.Reader, stdout io.Writer) (err error) {
+	if h.Event != "" && h.Event != adapter.EventStart {
+		return h.record(ctx, stdin)
+	}
 	raw, err := io.ReadAll(stdin)
 	if err != nil {
 		return fmt.Errorf("read hook input: %w", err)
-	}
-	if h.Event != "" && h.Event != adapter.EventStart {
-		return h.record(ctx, raw)
 	}
 	in, err := h.Profile.Parse(raw)
 	if errors.Is(err, adapter.ErrNotStart) {
