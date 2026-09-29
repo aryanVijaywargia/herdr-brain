@@ -99,6 +99,22 @@ func LearningOn(ctx context.Context, tx *sql.Tx, defaultOn bool, session, worksp
 	return offs == 0, nil
 }
 
+// LearningChanged returns the latest change time of the learning settings that apply to pane
+// paneID of herdr session session, in the workspace with key workspaceKey: the zero time when
+// none applies. A newer time than a reader saw means that learning may have been off in
+// between, so the reader starts again from a fresh baseline (E11-S2).
+func LearningChanged(ctx context.Context, tx *sql.Tx, session, workspaceKey, paneID string) (time.Time, error) {
+	var changed time.Time
+	err := tx.QueryRowContext(ctx, `SELECT MAX(changed) FROM learning_settings WHERE scope = ? OR
+		scope = ? AND target = ? AND ? != '' OR
+		scope = ? AND herdr_session = ? AND target = ?`,
+		LearningStore, LearningWorkspace, workspaceKey, workspaceKey, LearningPane, session, paneID).Scan(timeDest{&changed})
+	if err != nil {
+		return time.Time{}, fmt.Errorf("read learning settings: %w", err)
+	}
+	return changed, nil
+}
+
 func onOff(on bool) string {
 	if on {
 		return "on"

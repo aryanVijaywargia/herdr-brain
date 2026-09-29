@@ -107,3 +107,15 @@ func TestManifestReviewPane(t *testing.T) {
 		t.Errorf("review pane command = %s, want it to contain %s", pane["command"], want)
 	}
 }
+
+// D7 (E11-S2): one [[startup]] entry runs `brain brained`, with exec, so the process that
+// herdr starts is brained itself.
+func TestManifestStartup(t *testing.T) {
+	startup := manifestTables(t, "startup")
+	if len(startup) != 1 {
+		t.Fatalf("%d [[startup]] entries, want 1", len(startup))
+	}
+	if !strings.Contains(startup[0]["command"], `exec \"$HERDR_PLUGIN_ROOT/bin/brain\" brained"`) {
+		t.Errorf("startup command = %s, want it to exec bin/brain brained", startup[0]["command"])
+	}
+}

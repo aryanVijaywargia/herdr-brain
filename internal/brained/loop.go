@@ -1,0 +1,431 @@
+package brained
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"io"
+	"sync"
+	"time"
+
+	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
+	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
+	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+)
+
+// mainSubs are the subscriptions of the main stream. herdr 0.9.1 takes no pane for
+// pane.exited and pane.closed, so brained gets them for all panes here.
+var mainSubs = []herdr.Subscription{
+	{Type: herdr.PaneCreated}, {Type: herdr.PaneAgentDetected}, {Type: herdr.PaneExited}, {Type: herdr.PaneClosed},
+}
+
+// daemon is one brained process.
+type daemon struct {
+	env          env
+	sock         herdr.Socket
+	bindingsFile string
+	handler      Handler
+	log          io.Writer
+	tick         <-chan time.Time // each tick checks the plugin, the binding and the learning switches
+	tries        int
+	pause        time.Duration
+	queue        int
+	onBehind     func() // tests only: called after a reader drops an event
+}
+
+// item is one event, or the end of a stream, from a reader.
+type item struct {
+	ev  herdr.Event
+	src *herdr.Stream
+	err error
+}
+
+// pane is a live pane that brained follows.
+type pane struct {
+	workspaceID string
+	agent       bool          // herdr detected an agent in the pane
+	learning    Learning      // the state of the pane's last step
+	stream      *herdr.Stream // the status stream; nil while learning is off
+}
+
+// loop is the state of one run. Only the run goroutine uses it; the readers use only items,
+// behind and wg.
+type loop struct {
+	d      *daemon
+	items  chan item
+	behind chan struct{}
+	wg     sync.WaitGroup
+	main   *herdr.Stream
+	panes  map[string]*pane
+	gate   *Gate // nil while the session is not bound
+}
+
+// run connects, reconciles and then handles events until an ErrStop or ctx ends.
+func (d *daemon) run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	l := &loop{d: d, items: make(chan item, d.queue), behind: make(chan struct{}, 1), panes: map[string]*pane{}}
+	defer func() {
+		cancel()
+		l.closeAll()
+		l.wg.Wait()
+	}()
+	main, err := d.connect(ctx)
+	if err != nil {
+		return err
+	}
+	l.main = main
+	l.read(ctx, main)
+	if err := l.check(ctx); err != nil {
+		return err
+	}
+	l.report(l.reconcile(ctx, GapStart))
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case it := <-l.items:
+			if err := l.item(ctx, it); err != nil {
+				return err
+			}
+		case <-l.behind:
+			if err := l.drain(ctx); err != nil {
+				return err
+			}
+			l.report(l.reconcile(ctx, GapBehind))
+		case <-d.tick:
+			if err := l.check(ctx); err != nil {
+				return err
+			}
+			l.report(l.sync(ctx, GapLearning, false))
+		}
+	}
+}
+
+// connect opens the main stream. It tries again while herdr's socket is not ready.
+func (d *daemon) connect(ctx context.Context) (*herdr.Stream, error) {
+	var err error
+	for i := range d.tries {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(d.pause):
+			}
+		}
+		var st *herdr.Stream
+		st, err = d.subscribe(ctx, mainSubs)
+		if err == nil {
+			return st, nil
+		}
+	}
+	return nil, fmt.Errorf("connect to herdr (%d tries): %w", d.tries, err)
+}
+
+func (d *daemon) subscribe(ctx context.Context, subs []herdr.Subscription) (*herdr.Stream, error) {
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	return d.sock.Subscribe(ctx, subs)
+}
+
+// read starts the reader of st. A reader never waits for the handler: when the queue is
+// full it drops the event and signals behind.
+func (l *loop) read(ctx context.Context, st *herdr.Stream) {
+	l.wg.Add(1)
+	go func() {
+		defer l.wg.Done()
+		for {
+			ev, err := st.Next()
+			var shape *herdr.ShapeError
+			if err != nil && !errors.As(err, &shape) {
+				select {
+				case l.items <- item{src: st, err: err}:
+				case <-ctx.Done():
+				}
+				return
+			}
+			select {
+			case l.items <- item{ev: ev, src: st, err: err}:
+			default:
+				select {
+				case l.behind <- struct{}{}:
+				default: // a reconcile is due already
+				}
+				if l.d.onBehind != nil {
+					l.d.onBehind()
+				}
+			}
+		}
+	}()
+}
+
+// report writes err to the log. brained keeps running: the next check or reconcile tries
+// again, and the handler checks learning before it writes.
+func (l *loop) report(err error) {
+	if err != nil {
+		_, _ = fmt.Fprintf(l.d.log, "brained: %v\n", err) // a failed log write has no other place to go
+	}
+}
+
+// item handles one item of a reader.
+func (l *loop) item(ctx context.Context, it item) error {
+	var shape *herdr.ShapeError
+	switch {
+	case errors.As(it.err, &shape):
+		// An event that brained cannot read is a missed event.
+		l.report(fmt.Errorf("event: %w", it.err))
+		l.report(l.reconcile(ctx, GapBehind))
+		return nil
+	case it.err != nil && it.src == l.main:
+		if errors.Is(it.err, io.EOF) {
+			return fmt.Errorf("%w: herdr closed the event socket", ErrStop)
+		}
+		return fmt.Errorf("event socket: %w", it.err)
+	case it.err != nil:
+		// A status stream ended: brained closed it, or herdr ended. Its pane.exited or
+		// pane.closed, or the main stream's end, comes on the main stream.
+		return nil //nolint:nilerr // the end of a status stream does not stop brained
+	}
+	ev := it.ev
+	p := l.panes[ev.PaneID]
+	switch ev.Kind {
+	case herdr.PaneCreated:
+		if p == nil {
+			l.panes[ev.PaneID] = &pane{workspaceID: ev.WorkspaceID}
+			l.report(l.syncPanes(ctx, []string{ev.PaneID}, GapNone, true, &ev))
+		}
+	case herdr.PaneAgentDetected:
+		if p == nil {
+			return nil
+		}
+		p.agent = !ev.Released
+		if p.learning.On && ev.Released {
+			l.step(ctx, Step{Kind: End, Reason: ReasonAgentLeft}, ev.PaneID, p, &ev)
+		} else if p.learning.On {
+			l.step(ctx, Step{Kind: Baseline, Gap: GapNone}, ev.PaneID, p, &ev)
+		}
+	case herdr.PaneStatusChanged:
+		if p != nil && p.stream == it.src && p.learning.On {
+			l.step(ctx, Step{Kind: Change}, ev.PaneID, p, &ev)
+		}
+	case herdr.PaneExited, herdr.PaneClosed:
+		if p != nil {
+			l.drop(ctx, ev.PaneID, p, &ev)
+		}
+	}
+	return nil
+}
+
+// drain drops the waiting events: the reconcile after it replaces them. It keeps the end of
+// the main stream.
+func (l *loop) drain(ctx context.Context) error {
+	for {
+		select {
+		case it := <-l.items:
+			if it.err == nil {
+				continue
+			}
+			if err := l.item(ctx, it); err != nil {
+				return err
+			}
+		default:
+			return nil
+		}
+	}
+}
+
+// check stops brained when Brain is unlinked or disabled (D7), and reads the binding of the
+// session. An unbound session gets no gate, so learning is off for all its panes.
+func (l *loop) check(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	ps, err := l.d.sock.Plugins(ctx)
+	if err != nil {
+		l.report(err)
+	}
+	if err == nil {
+		if err := pluginState(ps, l.d.env.pluginID); err != nil {
+			return err
+		}
+	}
+	l.gate = nil
+	bs, _, err := bindings.Read(l.d.bindingsFile)
+	if err != nil {
+		l.report(err)
+		return nil
+	}
+	b, ok, err := bindings.BySocket(bs, l.d.env.socket)
+	switch {
+	case err != nil:
+		l.report(err)
+	case ok && b.Session == l.d.env.session:
+		g := NewGate(b)
+		l.gate = &g
+	}
+	return nil
+}
+
+// pluginState returns ErrStop when plugin id is not linked or is disabled.
+func pluginState(ps []herdr.Plugin, id string) error {
+	for _, p := range ps {
+		if p.ID != id {
+			continue
+		}
+		if !p.Enabled {
+			return fmt.Errorf("%w: plugin %s is disabled", ErrStop, id)
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: plugin %s is unlinked", ErrStop, id)
+}
+
+// reconcile reads the live panes. It ends the panes that are gone and gives each live
+// agent with learning on a baseline with gap (§6.2 step 8). brained does not invent the
+// missed text.
+func (l *loop) reconcile(ctx context.Context, gap Gap) error {
+	cctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	live, err := l.d.sock.Panes(cctx)
+	if err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	ids := make([]string, 0, len(live))
+	for _, lp := range live {
+		seen[lp.ID] = true
+		ids = append(ids, lp.ID)
+		p := l.panes[lp.ID]
+		if p == nil {
+			p = &pane{}
+			l.panes[lp.ID] = p
+		}
+		p.workspaceID, p.agent = lp.WorkspaceID, lp.Agent != nil
+	}
+	for id, p := range l.panes {
+		if !seen[id] {
+			l.drop(ctx, id, p, nil)
+		}
+	}
+	return l.syncPanes(ctx, ids, gap, true, nil)
+}
+
+// sync applies the learning state of every pane that brained follows.
+func (l *loop) sync(ctx context.Context, gap Gap, force bool) error {
+	ids := make([]string, 0, len(l.panes))
+	for id := range l.panes {
+		ids = append(ids, id)
+	}
+	return l.syncPanes(ctx, ids, gap, force, nil)
+}
+
+// syncPanes reads the learning state of panes ids and applies it. A pane whose learning
+// turned off ends and loses its status stream. A pane whose learning turned on, or was
+// switched since its last step, gets its stream and a baseline with GapLearning. With force,
+// every pane with learning on gets a baseline with gap. ev is the event of the call, if any.
+func (l *loop) syncPanes(ctx context.Context, ids []string, gap Gap, force bool, ev *herdr.Event) error {
+	states, err := l.learning(ctx, ids)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, id := range ids {
+		p := l.panes[id]
+		was := p.learning
+		p.learning = states[id]
+		switch {
+		case !p.learning.On:
+			l.closeStream(p)
+			if was.On && p.agent {
+				l.step(ctx, Step{Kind: End, Reason: ReasonLearningOff}, id, p, ev)
+			}
+		case force || !was.On || !p.learning.Changed.Equal(was.Changed):
+			g := gap
+			if !force {
+				g = GapLearning
+			}
+			errs = append(errs, l.follow(ctx, id, p))
+			if p.agent {
+				l.step(ctx, Step{Kind: Baseline, Gap: g}, id, p, ev)
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// learning reads the learning state of panes ids in one store transaction. Without a
+// binding, learning is off for every pane.
+func (l *loop) learning(ctx context.Context, ids []string) (_ map[string]Learning, err error) {
+	states := make(map[string]Learning, len(ids))
+	if l.gate == nil || len(ids) == 0 {
+		return states, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	st, err := store.Open(ctx, l.gate.Binding.Store, busyTimeout)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, st.Close()) }()
+	err = st.Write(ctx, func(tx *sql.Tx) error {
+		for _, id := range ids {
+			s, err := l.gate.Learning(ctx, tx, id, l.panes[id].workspaceID)
+			if err != nil {
+				return err
+			}
+			states[id] = s
+		}
+		return nil
+	})
+	return states, err
+}
+
+// follow opens the status stream of pane id, unless it is open.
+func (l *loop) follow(ctx context.Context, id string, p *pane) error {
+	if p.stream != nil {
+		return nil
+	}
+	st, err := l.d.subscribe(ctx, []herdr.Subscription{{Type: herdr.PaneStatusChanged, PaneID: id}})
+	if err != nil {
+		return fmt.Errorf("pane %s: %w", id, err)
+	}
+	p.stream = st
+	l.read(ctx, st)
+	return nil
+}
+
+// drop ends pane id and stops following it.
+func (l *loop) drop(ctx context.Context, id string, p *pane, ev *herdr.Event) {
+	l.closeStream(p)
+	if p.learning.On && p.agent {
+		l.step(ctx, Step{Kind: End, Reason: ReasonGone}, id, p, ev)
+	}
+	delete(l.panes, id)
+}
+
+func (l *loop) closeStream(p *pane) {
+	if p.stream != nil {
+		_ = p.stream.Close() // brained stops reading it; a close error loses nothing
+		p.stream = nil
+	}
+}
+
+// closeAll closes every stream, so that each reader returns.
+func (l *loop) closeAll() {
+	if l.main != nil {
+		_ = l.main.Close() // brained stops; a close error loses nothing
+	}
+	for _, p := range l.panes {
+		l.closeStream(p)
+	}
+}
+
+// step fills in the pane part of s and gives it to the handler.
+func (l *loop) step(ctx context.Context, s Step, id string, p *pane, ev *herdr.Event) {
+	s.PaneID, s.WorkspaceID, s.Event, s.Learning = id, p.workspaceID, ev, p.learning
+	if l.gate != nil {
+		s.Gate = *l.gate
+	}
+	if err := l.d.handler.Handle(ctx, s); err != nil {
+		l.report(fmt.Errorf("%s pane %s: %w", s.Kind, id, err))
+	}
+}
