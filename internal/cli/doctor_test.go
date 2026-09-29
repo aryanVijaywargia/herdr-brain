@@ -217,7 +217,7 @@ func TestDoctorMissingBinary(t *testing.T) {
 	}
 
 	out, err := f.doctor(t, f.sock, "y\n")
-	if err != nil || !strings.Contains(out, "Replaced the Brain hook for claude.") {
+	if err != nil || !strings.Contains(out, "Replaced the Brain SessionStart entry for claude.") {
 		t.Errorf("Doctor(y) = %v\n%s\nwant the replaced entry and all checks passed", err, out)
 	}
 	settings := files(t, f.home)[filepath.Join(f.home, ".claude", "settings.json")]

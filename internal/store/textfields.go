@@ -113,5 +113,9 @@ func noItemTextFields() []Field {
 		{"observations", "at"},
 		{"cursors", "source"},
 		{"cursors", "position"}, // A capture identity or a byte offset (§6.4).
+		// A captured command and its folder, not item text: forget finds them by session key
+		// (ForgetSession), as the excerpt.
+		{"command_records", "argv"},
+		{"command_records", "cwd"},
 	}
 }

@@ -184,7 +184,7 @@ func TestLoadErrors(t *testing.T) {
 	tests := []struct {
 		name, profile, want string
 	}{
-		{"unknown field", good + "events.tool = \"PostToolUse\"\n", `unknown field "events.tool"`},
+		{"unknown field", good + "events.notify = \"PostToolUse\"\n", `unknown field "events.notify"`},
 		{"missing field", strings.Replace(good, `input.cwd = "workspace.dir"`, "", 1), "input.cwd is empty"},
 		{"unknown output form", strings.Replace(good, "hookSpecificOutput.additionalContext", "injectSteps.ephemeralMessage", 1), "unknown output_form"},
 		{"bad condition", strings.Replace(good, "turn.index == 0", "turn.index < 1", 1), "start_condition"},

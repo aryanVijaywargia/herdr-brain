@@ -4,10 +4,18 @@ kind = "codex"
 install_target = "~/.codex/hooks.json"
 # Codex 0.154 fires SessionStart at the first prompt, not at start (M0 item 1).
 events.start = "SessionStart"
+# Hook records (E11-S5, §6.1) stay off: the E11-S1 live hook test of Codex is still open. When
+# they go on, the Stop hook gives the stop record; `notify` is not a Brain source. Each new
+# hook entry needs Codex trust again.
 start_condition = ""
 output_form = "hookSpecificOutput.additionalContext"
 input.session_id = "session_id"
 input.cwd = "cwd"
+# The hook record paths, from the Codex source: the shell command and the turn cwd, with no
+# exit status; the Stop reply can be null.
+input.prompt = "prompt"
+input.command = "tool_input.command"
+input.reply = "last_assistant_message"
 # The version of the M0 test (spike/m0/FINDINGS.md).
 tested_version = "0.154.0"
 # The hook entry sets additionalContextLimit 0, so Codex sends the whole brief inline, not a

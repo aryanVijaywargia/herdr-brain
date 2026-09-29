@@ -147,12 +147,12 @@ func TestAddObservationOnce(t *testing.T) {
 				Sender: SenderAssistant},
 		} {
 			o.Source, o.SegmentID, o.Event, o.At = SourceHerdr, seg, "idle", testNow
-			added, err := AddObservation(ctx, tx, o)
+			id, err := AddObservation(ctx, tx, o)
 			if err != nil {
 				return err
 			}
-			if added != (i != 1) {
-				t.Errorf("AddObservation %d = %v, want %v", i, added, i != 1)
+			if added := id != 0; added != (i != 1) {
+				t.Errorf("AddObservation %d = %d, want new: %v", i, id, i != 1)
 			}
 		}
 		if seen, err := SeenExcerpt(ctx, tx, seg, SenderUnconfirmed, "text"); err != nil || !seen {

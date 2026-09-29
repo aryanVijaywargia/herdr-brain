@@ -1,7 +1,8 @@
 // Package hook is `brain hook` (HLD §8.3, §5.2). At the start of an agent session in a live
 // pane of a bound herdr session, it prints the brief of the current output generation in the
 // output form of the harness profile, and records a receipt. It prefers a missed delivery to a
-// wrong one, and it never fails a session start: on any error it prints nothing.
+// wrong one, and it never fails a session start: on any error it prints nothing. At a prompt,
+// a shell command or a stop it stores one hook record, and prints nothing (E11-S5, §6.1).
 package hook
 
 import (
@@ -13,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -60,11 +62,11 @@ const (
 // errCapped: the hook cap stopped the hook. It printed nothing and wrote nothing (S50).
 var errCapped = errors.New("hook cap reached")
 
-// Main runs the hook for the frozen command `brain hook --profile <name> --event start` with
+// Main runs the hook for the frozen command `brain hook --profile <name> --event <event>` with
 // the process environment environ. The caller prints nothing on the error and exits 0.
 func Main(args, environ []string, stdin io.Reader, stdout io.Writer) error {
 	start := time.Now()
-	name, err := profileArg(args)
+	name, event, err := profileArg(args)
 	if err != nil {
 		return err
 	}
@@ -80,22 +82,25 @@ func Main(args, environ []string, stdin io.Reader, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	h := Hook{Profile: p, Environ: environ, Bindings: file, Retest: filepath.Join(data, retestDir),
+	h := Hook{Profile: p, Event: event, Environ: environ, Bindings: file, Retest: filepath.Join(data, retestDir),
 		Pane: resolver.HerdrPane(environ), Start: start, Now: time.Now}
 	return h.Run(context.Background(), stdin, stdout)
 }
 
-// profileArg reads the profile name from the frozen arguments; any other form is an error.
-func profileArg(args []string) (string, error) {
-	if len(args) != 4 || args[0] != "--profile" || args[1] == "" || args[2] != "--event" || args[3] != "start" {
-		return "", fmt.Errorf("want --profile <name> --event start, got %q", args)
+// profileArg reads the profile name and the event from the frozen arguments; any other form
+// is an error.
+func profileArg(args []string) (string, string, error) {
+	if len(args) != 4 || args[0] != "--profile" || args[1] == "" || args[2] != "--event" ||
+		!slices.Contains([]string{adapter.EventStart, adapter.EventPrompt, adapter.EventTool, adapter.EventStop}, args[3]) {
+		return "", "", fmt.Errorf("want --profile <name> --event start|prompt|tool|stop, got %q", args)
 	}
-	return args[1], nil
+	return args[1], args[3], nil
 }
 
 // Hook is one run of `brain hook`.
 type Hook struct {
 	Profile  *adapter.Profile
+	Event    string // the Brain event; "" is start
 	Environ  []string
 	Bindings string // the bindings file
 	Retest   string // the folder of the retest markers (harness.MarkRetest)
@@ -144,6 +149,9 @@ func (h Hook) run(ctx context.Context, stdin io.Reader, stdout io.Writer) (err e
 	raw, err := io.ReadAll(stdin)
 	if err != nil {
 		return fmt.Errorf("read hook input: %w", err)
+	}
+	if h.Event != "" && h.Event != adapter.EventStart {
+		return h.record(ctx, raw)
 	}
 	in, err := h.Profile.Parse(raw)
 	if errors.Is(err, adapter.ErrNotStart) {

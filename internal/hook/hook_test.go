@@ -703,20 +703,24 @@ func TestPartialBuild(t *testing.T) {
 // TestProfileArg: the hook takes only the frozen arguments.
 func TestProfileArg(t *testing.T) {
 	tests := []struct {
-		args []string
-		want string
-		ok   bool
+		args  []string
+		want  string
+		event string
+		ok    bool
 	}{
-		{[]string{"--profile", "codex", "--event", "start"}, "codex", true},
-		{[]string{"--profile", "codex", "--event", "stop"}, "", false},
-		{[]string{"--event", "start", "--profile", "codex"}, "", false},
-		{[]string{"--profile", "", "--event", "start"}, "", false},
-		{[]string{"--profile", "codex"}, "", false},
+		{[]string{"--profile", "codex", "--event", "start"}, "codex", "start", true},
+		{[]string{"--profile", "claude", "--event", "prompt"}, "claude", "prompt", true},
+		{[]string{"--profile", "claude", "--event", "tool"}, "claude", "tool", true},
+		{[]string{"--profile", "codex", "--event", "stop"}, "codex", "stop", true},
+		{[]string{"--profile", "codex", "--event", "notify"}, "", "", false},
+		{[]string{"--event", "start", "--profile", "codex"}, "", "", false},
+		{[]string{"--profile", "", "--event", "start"}, "", "", false},
+		{[]string{"--profile", "codex"}, "", "", false},
 	}
 	for _, tt := range tests {
-		got, err := profileArg(tt.args)
-		if got != tt.want || (err == nil) != tt.ok {
-			t.Errorf("profileArg(%q) = %q, %v; want %q, ok %v", tt.args, got, err, tt.want, tt.ok)
+		got, event, err := profileArg(tt.args)
+		if got != tt.want || event != tt.event || (err == nil) != tt.ok {
+			t.Errorf("profileArg(%q) = %q, %q, %v; want %q, %q, ok %v", tt.args, got, event, err, tt.want, tt.event, tt.ok)
 		}
 	}
 }

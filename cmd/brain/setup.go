@@ -20,6 +20,7 @@ import (
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
+	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
@@ -43,6 +44,7 @@ const codexTrust = `Codex runs a new hook only after you trust it:
   5. Do not choose "Continue without trusting (hooks won't run)". Brain then gets no context.
   6. Later, type /hooks in Codex to see the trust state or to trust the hook.
   7. Trust again after a Brain update that changes the hook command or timeout.
+     Each new Brain hook entry (a hook record entry too) needs trust again.
   codex exec does not show the review screen. It skips an untrusted hook with no warning.
   Run ` + "`brain doctor`" + ` to check.
 `
@@ -138,7 +140,7 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 	}
 
 	fmt.Fprintln(stdout, "\nStep 4: the Brain hook in each agent CLI.")
-	codex, err := hooks(d, bin, in, stdout)
+	codex, err := hooks(ctx, d, bin, in, stdout)
 	if err != nil {
 		return err
 	}
@@ -385,7 +387,7 @@ func rmdirs(made []string) error {
 // hooks offers the Brain hook entry to each installed CLI (E8-S2). It shows the entry and the
 // uninstall steps before it asks. It reports whether the Codex entry is in place, so that
 // setup shows the trust steps.
-func hooks(d setupDeps, bin string, in *bufio.Reader, stdout io.Writer) (codex bool, err error) {
+func hooks(ctx context.Context, d setupDeps, bin string, in *bufio.Reader, stdout io.Writer) (codex bool, err error) {
 	home, err := paths.Home()
 	if err != nil {
 		return false, err
@@ -424,9 +426,93 @@ func hooks(d setupDeps, bin string, in *bufio.Reader, stdout io.Writer) (codex b
 			}
 		}
 		codex = codex || kind == "codex"
+		if err := offerRecords(ctx, inst, p, in, stdout); err != nil {
+			return false, err
+		}
 	}
 	return codex, nil
 }
+
+// offerRecords offers the hook record entries of p (E11-S5, §6.1) after its start entry is in
+// place. It offers them only when the profile turns them on, after the E11-S1 test, and when
+// the E8 guard does not say retest: a CLI version that no test passed, or hook input of an
+// unknown shape. The user approves all of them with one answer.
+func offerRecords(ctx context.Context, inst *install.Installer, p *adapter.Profile, in *bufio.Reader, stdout io.Writer) error {
+	hs := p.Hooks()[1:]
+	if len(hs) == 0 {
+		return nil
+	}
+	var add []adapter.Hook
+	var target string
+	for _, h := range hs {
+		e, st, err := inst.WouldInstallHook(p, h)
+		if err != nil {
+			return err
+		}
+		switch st {
+		case install.Present:
+		case install.Edited:
+			fmt.Fprintf(stdout, "%s holds a Brain %s entry for %s that you edited. Brain keeps it.\n", e.Target, h.CLIEvent, p.Kind)
+		default:
+			if len(add) == 0 {
+				fmt.Fprintf(stdout, "Brain can also store hook records of %s: prompts, commands and replies.\n", p.Kind)
+			}
+			fmt.Fprintf(stdout, "  %s: %s\n", h.CLIEvent, e.Text)
+			add, target = append(add, h), e.Target
+		}
+	}
+	if len(add) == 0 {
+		return nil
+	}
+	ok, err := guard(ctx, inst, p)
+	if err != nil || !ok {
+		if err == nil {
+			fmt.Fprintf(stdout, "%s needs a retest first (brain doctor). Setup adds no hook record entry.\n", p.Kind)
+		}
+		return err
+	}
+	ok, err = ask(in, stdout, fmt.Sprintf("Add the hook record entries for %s to %s? [y/N] ", p.Kind, target))
+	if err != nil || !ok {
+		if err == nil {
+			fmt.Fprintf(stdout, "No change to %s. Brain reads the %s panes only.\n", target, p.Kind)
+		}
+		return err
+	}
+	for _, h := range add {
+		if _, err := inst.InstallHook(p, h); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(stdout, "Added the hook record entries for %s.\n", p.Kind)
+	if p.Kind == "codex" {
+		fmt.Fprint(stdout, "Codex needs trust again for each new hook entry: type /hooks and press t on each.\n")
+	}
+	return nil
+}
+
+// guard is the E8 guard of p (§8.5): false when harness.Check says retest.
+func guard(ctx context.Context, inst *install.Installer, p *adapter.Profile) (bool, error) {
+	conf, err := paths.ConformanceFile()
+	if err != nil {
+		return false, err
+	}
+	data, err := paths.DataHome()
+	if err != nil {
+		return false, err
+	}
+	// The guard needs no panes: detection does not change retest.
+	ss, err := harness.Check(ctx, noPanes{}, harness.Files{Install: inst.Record, Conformance: conf,
+		Retest: filepath.Join(data, "retest")}, []*adapter.Profile{p})
+	if err != nil {
+		return false, err
+	}
+	return !ss[0].Retest, nil
+}
+
+// noPanes is a pane list with no pane.
+type noPanes struct{}
+
+func (noPanes) Panes(context.Context) ([]herdr.Pane, error) { return nil, nil }
 
 // offerHook shows the hook entry e of p and how to remove it, and adds it on yes.
 func offerHook(inst *install.Installer, p *adapter.Profile, e install.Entry, in *bufio.Reader, stdout io.Writer) (bool, error) {
