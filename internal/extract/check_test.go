@@ -82,11 +82,16 @@ func TestInputScope(t *testing.T) {
 		if strings.Contains(prompt, "tabs in go files") {
 			return claimOf("use tabs")(ctx, prompt)
 		}
-		return claimOf("run make lint")(ctx, prompt)
+		// A global candidate from B is not approved global context.
+		return claudeReply(map[string]any{"claims": []any{replyOf(map[string]any{"rule": "run make lint",
+			"scope_guess": "global", "evidence_refs": promptRefs(prompt)})}})
 	}
 	f.session("a", true, line{"ws-A", "no, use tabs in go files", t0},
 		line{"ws-B", "wrong, run make lint first", t0.Add(time.Minute)})
 	f.mustRun()
+	if n := f.count(`SELECT COUNT(*) FROM candidates WHERE scope = 'global'`); n != 1 {
+		t.Fatalf("global candidates = %d, want 1", n)
+	}
 	a, b := "ws-A", "ws-B"
 	f.activeItem(&a, "brief item of A")
 	f.activeItem(&b, "brief item of B")
@@ -247,9 +252,8 @@ func TestKnownClaim(t *testing.T) {
 	if n := f.count(`SELECT COUNT(*) FROM candidates`); n != 1 {
 		t.Errorf("candidates = %d, want 1: the reworded key has no candidate of its own", n)
 	}
-	if n := f.count(`SELECT COUNT(*) FROM claims WHERE rule = 'always pick pnpm' AND same_as_status = 'proposed'
-		AND same_as = (SELECT c.claim_id FROM proposals p JOIN candidates c ON c.id = p.candidate_id)`); n != 1 {
-		t.Errorf("proposed same_as links = %d, want 1", n)
+	if n := f.count(`SELECT COUNT(*) FROM claims WHERE rule = 'always pick pnpm'`); n != 0 {
+		t.Errorf("claims with the reworded key = %d, want 0", n)
 	}
 	f.cli.reply = claimOf("use pnpm")
 	f.session("c", true, line{"ws-A", pnpm, t0.Add(3 * time.Minute)})
@@ -283,5 +287,33 @@ func TestModelTextFiltered(t *testing.T) {
 		if n := f.count(q); n != 0 {
 			t.Errorf("%s = %d, want 0", q, n)
 		}
+	}
+}
+
+// A forget of a brief item of the input during the call discards the whole result; the next
+// pass extracts again (§6.7, §7.3).
+func TestForgetOfInputItem(t *testing.T) {
+	f := newFixture(t)
+	a := "ws-A"
+	f.activeItem(&a, "brief item of A")
+	sid, obs := f.session("a", true, line{"ws-A", pnpm, t0})
+	f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {
+		if !strings.Contains(prompt, "brief item of A") {
+			t.Errorf("the input has no brief item:\n%s", prompt)
+		}
+		f.write(func(ctx context.Context, tx *sql.Tx) error { return store.EraseItem(ctx, tx, 1, t0) })
+		return claimOf("use pnpm")(ctx, prompt)
+	}
+	f.mustRun()
+	if bs := f.batches(); len(bs) != 1 || bs[0].Status != store.BatchDiscarded || f.watermark(sid, "ws-A") != 0 {
+		t.Fatalf("batches %+v, want one discarded batch and no watermark", bs)
+	}
+	if n := f.count(`SELECT COUNT(*) FROM evidence_links`); n != 0 {
+		t.Errorf("evidence links = %d, want 0", n)
+	}
+	f.cli.reply = claimOf("use pnpm")
+	f.mustRun()
+	if bs := f.batches(); f.cli.calls() != 2 || bs[0].Status != store.BatchCommitted || f.watermark(sid, "ws-A") != obs[0] {
+		t.Errorf("calls %d, batches %+v, want 2 calls and a committed batch", f.cli.calls(), bs)
 	}
 }

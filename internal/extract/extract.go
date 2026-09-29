@@ -333,7 +333,8 @@ func (p Pass) commit(ctx context.Context, j job, id int64, claims []Claim, callE
 }
 
 // stale returns why the result of j must be discarded, or "": extraction or learning went off,
-// the watermark moved, or a forget removed an observation of the input (§7.3).
+// the watermark moved, a forget removed an observation of the input, or the claim keys or the
+// brief items of the input changed, as a forget of an item does (§6.7, §7.3).
 func (p Pass) stale(ctx context.Context, tx *sql.Tx, j job) (string, error) {
 	if on, err := p.allowed(ctx, tx, j); err != nil || !on {
 		return "extraction or learning is off", err
@@ -354,6 +355,13 @@ func (p Pass) stale(ctx context.Context, tx *sql.Tx, j job) (string, error) {
 			return "a forget removed input of the batch", nil
 		}
 	}
+	cur, err := scope(ctx, tx, j)
+	if err != nil {
+		return "", err
+	}
+	if input(cur) != input(j) {
+		return "the claim keys or the brief of the input changed", nil
+	}
 	return "", nil
 }
 
@@ -372,8 +380,8 @@ func untombstoned(ctx context.Context, tx *sql.Tx, refs []ref) ([]ref, error) {
 	return kept, nil
 }
 
-// write stores claim c of batch j: its claim id, a same_as link, and each ref as evidence of
-// the candidate of the claim in its scope. A tombstoned claim or ref adds nothing (§6.7): a
+// write stores claim c of batch j: its claim id, and each ref as evidence of the candidate of
+// the claim in its scope. A tombstoned claim or ref adds nothing (§6.7): a
 // forget erases the claim key, so the tombstone source keys stop the same evidence. A known
 // claim (same_as, or the same claim id) gets the evidence first; propose then drops the
 // duplicate proposal (§7.3). A candidate that reaches its gate gets a proposal.
@@ -383,27 +391,18 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 		return err
 	}
 	c.Situation, c.Rule, c.ExpectedBenefit = redact(c.Situation), redact(c.Rule), redact(c.ExpectedBenefit)
-	claim, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: normal(c.Situation), Rule: normal(c.Rule)}, now)
-	if err != nil {
-		return err
-	}
-	if ts, err := store.TombstonesByClaim(ctx, tx, claim); err != nil || len(ts) > 0 {
-		return err
-	}
-	if c.SameAs != "" && c.SameAs != claim {
-		// The link keeps both claim ids and waits for review (§7.2); the evidence goes to the
-		// candidate of the known claim, which check found in the input.
-		if _, err := store.SameAs(ctx, tx, claim, c.SameAs, store.Match{Permissions: c.TouchesPermission}); err != nil {
-			return err
-		}
-		linked, err := store.ClaimByID(ctx, tx, claim)
+	// A same_as claim is a known claim of the input: its evidence goes to the candidate of that
+	// claim id. Its reworded key is not stored, so a forget of the known claim's item leaves no
+	// copy of the key text (§6.7).
+	claim := c.SameAs
+	if claim == "" {
+		claim, err = store.ClaimID(ctx, tx, store.ClaimKey{Situation: normal(c.Situation), Rule: normal(c.Rule)}, now)
 		if err != nil {
 			return err
 		}
-		claim = linked.SameAs
-		if ts, err := store.TombstonesByClaim(ctx, tx, claim); err != nil || len(ts) > 0 {
-			return err
-		}
+	}
+	if ts, err := store.TombstonesByClaim(ctx, tx, claim); err != nil || len(ts) > 0 {
+		return err
 	}
 	key := j.batch.WorkspaceKey
 	if c.Scope == store.ScopeGlobal {

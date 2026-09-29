@@ -84,12 +84,13 @@ func ClaimByID(ctx context.Context, tx *sql.Tx, id string) (Claim, error) {
 }
 
 // ScopeClaims returns the claims with a key that are open, active or rejected in the scope of
-// workspaceKey or global, by id: the claim keys of the extractor input (§7.3). A claim is open
-// with an open or proposed candidate, active with an active item, and rejected while its
-// rejection holds. A forgotten claim has no key and is not returned.
+// workspaceKey, or active or rejected in global, by id: the claim keys of the extractor input
+// (§7.3). A claim is open with an open or proposed candidate, active with an active item, and
+// rejected while its rejection holds. A global candidate is not approved global context: it can
+// come from another workspace. A forgotten claim has no key and is not returned.
 func ScopeClaims(ctx context.Context, tx *sql.Tx, workspaceKey string) ([]Claim, error) {
 	return query(ctx, tx, `SELECT id, situation, rule, created FROM claims WHERE situation IS NOT NULL AND rule IS NOT NULL AND id IN (
-			SELECT claim_id FROM candidates WHERE status IN (?2, ?3) AND COALESCE(workspace_key, '') IN (?1, '')
+			SELECT claim_id FROM candidates WHERE status IN (?2, ?3) AND workspace_key = ?1
 			UNION SELECT claim_id FROM items WHERE state = ?4 AND COALESCE(workspace_key, '') IN (?1, '')
 			UNION SELECT claim_id FROM rejections WHERE reopened IS NULL AND COALESCE(workspace_key, '') IN (?1, ''))
 		ORDER BY id`,
