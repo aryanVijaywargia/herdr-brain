@@ -21,7 +21,7 @@ import (
 // session is the herdr session of every eval run (HLD §12.1).
 const session = "brain-eval"
 
-// Herdr is the herdr calls of the runner in its test session. *herdr.Client has them; tests
+// Herdr is the herdr calls of the runner in its test session. *client has them; tests
 // replace it.
 type Herdr interface {
 	Panes(ctx context.Context) ([]herdr.Pane, error)
@@ -32,7 +32,8 @@ type Herdr interface {
 	ClosePane(ctx context.Context, id string) error
 	RunInPane(ctx context.Context, id, command string) error
 	WaitOutput(ctx context.Context, id, re string, timeout time.Duration) (string, error)
-	StartAgent(ctx context.Context, name, kind, id string) error
+	// StartAgent starts agent name of kind in pane id with the CLI arguments args.
+	StartAgent(ctx context.Context, name, kind, id string, args []string) error
 	PromptAgent(ctx context.Context, target, text string, timeout time.Duration) error
 	ReadAgent(ctx context.Context, target string, lines int) (string, error)
 	ReadAgentVisible(ctx context.Context, target string) (string, error)
@@ -74,8 +75,10 @@ type Runner struct {
 	Install   string // the install record
 	MainStore string // the main store folder, which a test store must stay apart from
 	Lock      string // the eval lock file
-	Scratch   string // the folder of the scratch git folders; "" is the temp folder
-	Environ   []string
+	// Conformance is <data home>/conformance.json, the one eval output outside the test store.
+	Conformance string
+	Scratch     string // the folder of the scratch git folders; "" is the temp folder
+	Environ     []string
 
 	Herdr       func(herdr.Target) (Herdr, error)
 	Sessions    func(ctx context.Context) ([]herdr.Session, error)
@@ -95,7 +98,8 @@ var errSetup = errors.New("not set up for an eval run")
 // writes nothing before the setup checks pass. It stops at the first failed case: the next
 // case never starts on a state that the runner could not confirm. Once the session is up, it
 // writes the result of each probe to the results file of the test store, also after a failed
-// case: the probes of the cases that did not run are skipped there.
+// case: the probes of the cases that did not run are skipped there. It writes the report of
+// the run next to it, and the conformance record of each harness whose delivery stage it runs.
 func (r *Runner) Run(ctx context.Context, cases []Case) (out []Outcome, err error) {
 	b, skip, err := r.check(cases)
 	if err != nil {
@@ -119,8 +123,20 @@ func (r *Runner) Run(ctx context.Context, cases []Case) (out []Outcome, err erro
 	}()
 	started := r.Now()
 	versions := r.versions(ctx, cases, skip)
+	pending, err := r.startConformance(cases, skip, versions, started)
+	if err != nil {
+		return nil, err
+	}
 	defer func() {
-		err = errors.Join(err, writeResults(b.Store, started, r.Now(), results(cases, out, versions)))
+		finished := r.Now()
+		rs := results(cases, out, versions)
+		failed := err != nil
+		err = errors.Join(err, writeResults(b.Store, started, finished, rs), writeReport(b.Store, cases, rs, r.Stdout))
+		// An interrupted run leaves its pending records. A run that stopped at a failed case
+		// completed, but it is no pass.
+		if ctx.Err() == nil {
+			err = errors.Join(err, r.endConformance(pending, cases, rs, failed, finished))
+		}
 	}()
 	for _, c := range cases {
 		o, err := r.runCase(ctx, h, c, skip)

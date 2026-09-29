@@ -44,12 +44,13 @@ const outDir = "out"
 
 // briefHash returns the hash of the brief that the hook of a pane in workspace wsID prints
 // with the test store of b: the runner reads it after the setup steps and before the probes,
-// so a change that a probe makes does not move it. It is "" when the store has no brief.
-func briefHash(b bindings.Binding, wsID string) (string, error) {
+// so a change that a probe makes does not move it. It is "" when the store has no brief. text
+// is the brief.
+func briefHash(b bindings.Binding, wsID string) (hash, text string, err error) {
 	// The same key and read as the hook: a workspace part only for a mapped workspace.
 	m, err := workspace.For(b).Lookup(wsID)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	var key string
 	if m.State == workspace.Mapped {
@@ -57,13 +58,14 @@ func briefHash(b bindings.Binding, wsID string) (string, error) {
 	}
 	br, err := output.Read(filepath.Join(b.Store, outDir), key)
 	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, output.ErrInconsistent) {
-		return "", nil
+		return "", "", nil
 	}
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	sum := sha256.Sum256([]byte(brief.Text(br.Global, br.Workspace)))
-	return hex.EncodeToString(sum[:]), nil
+	text = brief.Text(br.Global, br.Workspace)
+	sum := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(sum[:]), text, nil
 }
 
 // receipt reads the newest receipt of pane of harness in the test store of b. ok is false
@@ -157,7 +159,19 @@ func results(cases []Case, outs []Outcome, versions map[string]string) []store.E
 			rep := o.Replies[j]
 			res := base(c, rep.Harness, o, rep, versions)
 			lb, rule := labelReply(c, o.Markers, rep)
+			// A pass of a full-brief case whose brief is not full size, or of a forget case
+			// whose store still holds the forgotten text, does not show what the stage tests.
+			switch {
+			case lb != Pass:
+			case o.BriefCheck != "":
+				lb, rule = Unsure, o.BriefCheck
+			case o.Leak != "":
+				lb, rule = Stale, o.Leak
+			}
 			res.Label, res.Rule = string(lb), rule
+			if rep.Record != "" {
+				res.Why = strings.TrimPrefix(res.Why+"; ", "; ") + "record: " + rep.Record
+			}
 			rs = append(rs, res)
 		}
 	}
@@ -198,13 +212,16 @@ func deref(s *string) string {
 // labelReply labels one reply. A skipped reply gets no label and a reply that the runner
 // could not see whole is UNSURE. A reply without its brief gets no label, as it cannot show
 // what Brain did: only a control, which runs with no seed, and an exclusion case, whose brief
-// must leave the fact out, get one then. An ad-hoc case has no check and gets no label.
+// must leave the fact out, get one then. A hook case is labeled by what the hook printed. An
+// ad-hoc case has no check and gets no label.
 func labelReply(c Case, markers map[string]string, rep Reply) (Label, string) {
 	switch {
 	case rep.Status == Skipped:
 		return "", ""
 	case rep.Status == Incomplete:
 		return Unsure, "reply incomplete"
+	case c.Hook != "":
+		return hookLabel(c, markers, rep.Text)
 	case rep.Status == NotDelivered && !c.Control && c.Stage != "exclusion":
 		return "", ""
 	case len(c.Check.Expect) == 0 && len(c.Check.Stale) == 0 && !c.Check.Decline:

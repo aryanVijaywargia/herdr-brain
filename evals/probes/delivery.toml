@@ -1,0 +1,54 @@
+# Delivery probes (HLD §12.1 "Stages", E10-S3). A run of this stage is the conformance test
+# of each CLI (§8.5): it writes conformance.json.
+#
+# setup: shell steps, run in order in the case's shell pane in a fresh scratch git folder. A
+# step "agent <claude|codex>: <prompt>" prompts a fresh CLI in its own pane instead.
+# {{marker}}, {{marker2}} and so on get a fresh opaque marker in each case. The runner runs
+# each probe twice: once as written, and once as its control, with no setup steps.
+
+[[probe]]
+id = "delivery-global"
+stage = "delivery"
+source = "synthetic marker"
+setup = [
+  'brain remember "The deploy code word of this project is {{marker}}." --global',
+  "brain review 1 --approve",
+]
+ask = "What is the deploy code word of this project? Answer with the code word only."
+expect = ["{{marker}}"]
+harnesses = ["claude", "codex"]
+
+[[probe]]
+id = "delivery-workspace"
+stage = "delivery"
+source = "synthetic marker"
+setup = [
+  'brain remember "The build code word of this workspace is {{marker}}."',
+  "brain review 1 --approve",
+]
+ask = "What is the build code word of this workspace? Answer with the code word only."
+expect = ["{{marker}}"]
+harnesses = ["claude", "codex"]
+
+# A full-size brief (about 9,400 of 9,500 bytes) with the marker item in its middle. A Codex
+# pass needs this case: a model that gets only a preview of the hook output does not see the
+# marker (E8-S2). The padding items are no rule, only size. [NEW] the padding counts: 431 global
+# words, and 112 and 570 workspace words around the marker item.
+[[probe]]
+id = "delivery-full-brief"
+stage = "delivery"
+source = "synthetic marker, Codex inline check"
+full_brief = true
+setup = [
+  "brain remember \"Padding item for a size test, not a rule: $(printf 'pad%04d ' $(seq 1 431))\" --global",
+  "brain remember \"Padding item for a size test, not a rule: $(printf 'pad%04d ' $(seq 1001 1112))\"",
+  'brain remember "The release code word of this workspace is {{marker}}."',
+  "brain remember \"Padding item for a size test, not a rule: $(printf 'pad%04d ' $(seq 2001 2570))\"",
+  "brain review 1 --approve",
+  "brain review 2 --approve",
+  "brain review 3 --approve",
+  "brain review 4 --approve",
+]
+ask = "What is the release code word of this workspace? Answer with the code word only."
+expect = ["{{marker}}"]
+harnesses = ["claude", "codex"]

@@ -32,7 +32,10 @@ type Case struct {
 	Probes  []Probe
 	// Check is what each reply is checked against. An ad-hoc case has none and gets no label.
 	Check          Check
-	ExpectRevision int64 // the revision that a right answer comes from; 0 when not set
+	ExpectRevision int64    // the revision that a right answer comes from; 0 when not set
+	Hook           string   // an exclusion case: the hook mode of hookModes; "" for a CLI probe
+	FullBrief      bool     // a delivery case whose brief must be full size, with {{marker}} in its middle
+	Forgotten      []string // a forget case: the answers that the store must not hold after the setup
 }
 
 // Probe is one prompt to a fresh official CLI.
@@ -49,6 +52,11 @@ type Outcome struct {
 	Session string            // the store binding of the case: its herdr session
 	Store   string            // and its store folder
 	Replies []Reply
+	// BriefCheck is why the brief of a full-brief case is not full size with its marker in the
+	// middle; "" when it is.
+	BriefCheck string
+	// Leak is where the store still holds a forgotten answer of a forget case; "" when nowhere.
+	Leak string
 }
 
 // Reply is what one probe returned: the reply text with its run status and receipt.
@@ -60,6 +68,7 @@ type Reply struct {
 	Status  Status
 	Why     string          // why the status is not delivered, or skipped
 	Receipt *store.Delivery // the newest receipt of the pane; nil when there is none
+	Record  string          // a usefulness case: what the probe changed in the scratch folder
 }
 
 // caseLabel starts the label of the workspace of each case.
@@ -108,29 +117,86 @@ func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]s
 		return Outcome{}, err
 	}
 	opened = append(opened, shell.ID)
-	for i, step := range c.Setup {
-		if err := r.step(ctx, h, shell.ID, fill(step, markers), marker, i); err != nil {
-			return Outcome{}, fmt.Errorf("setup step %d: %w", i+1, err)
-		}
-	}
-	want, err := briefHash(b, shell.WorkspaceID)
+	o = Outcome{CaseID: c.ID, Marker: marker, Markers: markers, Session: b.Session, Store: b.Store}
+	skipCase, err := r.setup(ctx, h, shell, dir, c, markers, &opened) // why no probe of the case can run
 	if err != nil {
 		return Outcome{}, err
 	}
-	o = Outcome{CaseID: c.ID, Marker: marker, Markers: markers, Session: b.Session, Store: b.Store}
+	want, err := r.checkOutput(ctx, b, c, shell.WorkspaceID, &o)
+	if err != nil {
+		return Outcome{}, err
+	}
 	for i, p := range c.Probes {
-		p.Prompt = fill(p.Prompt, markers)
-		if why, ok := skip[p.Harness]; ok {
+		why, ok := skip[p.Harness]
+		if skipCase != "" {
+			why, ok = skipCase, true
+		}
+		if ok {
 			o.Replies = append(o.Replies, Reply{Harness: p.Harness, Status: Skipped, Why: why})
 			continue
 		}
-		rep, err := r.probe(ctx, h, shell, dir, fmt.Sprintf("probe-%s-%d", marker, i+1), p, b, want, &opened)
+		rep, err := r.runProbe(ctx, h, shell, dir, c, p, b, markers, want, i, &opened)
 		if err != nil {
 			return o, fmt.Errorf("probe %d (%s): %w", i+1, p.Harness, err)
 		}
 		o.Replies = append(o.Replies, rep)
 	}
 	return o, nil
+}
+
+// checkOutput returns the hash of the brief that the setup built for workspace wsID. It checks
+// the brief of a full-brief case and the store of a forget case into o.
+func (r *Runner) checkOutput(ctx context.Context, b bindings.Binding, c Case, wsID string, o *Outcome) (want string, err error) {
+	want, text, err := briefHash(b, wsID)
+	if err != nil {
+		return "", err
+	}
+	if c.FullBrief && !c.Control {
+		o.BriefCheck = briefCheck(text, o.Marker)
+	}
+	if len(c.Forgotten) > 0 && !c.Control {
+		if o.Leak, err = r.leak(ctx, b, fillAll(c.Forgotten, o.Markers)); err != nil {
+			return "", err
+		}
+	}
+	return want, nil
+}
+
+// runProbe runs probe i of case c: a hook call for an exclusion case, else a fresh CLI. The
+// reply of a usefulness case gets its record.
+func (r *Runner) runProbe(ctx context.Context, h Herdr, shell herdr.Pane, dir string, c Case, p Probe, b bindings.Binding, markers map[string]string, want string, i int, opened *[]string) (rep Reply, err error) {
+	marker := markers["marker"]
+	p.Prompt = fill(p.Prompt, markers)
+	if c.Hook != "" {
+		rep, err = r.hookProbe(ctx, h, shell, dir, c, p, b, marker, i, opened)
+	} else {
+		rep, err = r.probe(ctx, h, shell, dir, fmt.Sprintf("probe-%s-%d", marker, i+1), p, b, want, opened)
+	}
+	if err == nil && c.Stage == "usefulness" && rep.Status != Skipped {
+		rep.Record = r.record(ctx, dir)
+	}
+	return rep, err
+}
+
+// setup runs the setup steps of case c in order. skip is why no probe of the case can run: a
+// setup CLI that did not get ready. The steps after it do not run then.
+func (r *Runner) setup(ctx context.Context, h Herdr, shell herdr.Pane, dir string, c Case, markers map[string]string, opened *[]string) (skip string, err error) {
+	marker := markers["marker"]
+	for i, step := range c.Setup {
+		step = fill(step, markers)
+		if harness, prompt, ok := parseAgentStep(step); ok {
+			skip, err = r.runAgentStep(ctx, h, shell, dir, fmt.Sprintf("setup-%s-%d", marker, i+1), harness, prompt, opened)
+		} else {
+			err = r.step(ctx, h, shell.ID, step, marker, i)
+		}
+		if err != nil {
+			return "", fmt.Errorf("setup step %d: %w", i+1, err)
+		}
+		if skip != "" {
+			return skip, nil
+		}
+	}
+	return "", nil
 }
 
 // workspaceLabel is the label of the workspace of case c.
@@ -145,7 +211,7 @@ func workspaceLabel(c Case) string {
 // c (§12.1 "fresh opaque markers").
 func newMarkers(c Case) (map[string]string, error) {
 	names := []string{"marker"}
-	texts := slices.Concat(c.Setup, c.Check.Expect, c.Check.Stale)
+	texts := slices.Concat(c.Setup, c.Check.Expect, c.Check.Stale, c.Forgotten)
 	for _, p := range c.Probes {
 		texts = append(texts, p.Prompt)
 	}
@@ -234,14 +300,15 @@ func (r *Runner) guard(ctx context.Context, h Herdr) error {
 
 // reset empties the test store folder: the database with its WAL files, the workspace map,
 // and the compiled generations with their pointer (HLD §12.1). The folder stays: the
-// binding needs it. The results file stays too: it holds only the markers of old cases.
+// binding needs it. The results file and the report stay too: they hold only the markers of
+// old cases.
 func reset(store string) error {
 	entries, err := os.ReadDir(store)
 	if err != nil {
 		return err
 	}
 	for _, e := range entries {
-		if filepath.Join(store, e.Name()) == paths.EvalResults(store) {
+		if p := filepath.Join(store, e.Name()); p == paths.EvalResults(store) || p == paths.EvalReport(store) {
 			continue
 		}
 		if err := os.RemoveAll(filepath.Join(store, e.Name())); err != nil {
@@ -331,8 +398,12 @@ func (r *Runner) probe(ctx context.Context, h Herdr, shell herdr.Pane, dir, name
 	}
 	*opened = append(*opened, pane.ID)
 	rep.Pane = pane.ID
+	args, err := startArgs(p.Harness, dir, false)
+	if err != nil {
+		return Reply{}, err
+	}
 	if _, err := call(ctx, r.Timeouts.Start, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, h.StartAgent(ctx, name, p.Harness, pane.ID)
+		return struct{}{}, h.StartAgent(ctx, name, p.Harness, pane.ID, args)
 	}); err != nil {
 		if hasCode(err, "agent_not_ready") {
 			rep.Status, rep.Why = Skipped, fmt.Sprintf("the CLI did not get ready, for example at its folder-trust dialog, which the runner does not answer: %v", err)

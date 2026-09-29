@@ -149,6 +149,9 @@ func TestEvalResults(t *testing.T) {
 	if got, want := EvalResults("/data/test"), "/data/test/eval-results.json"; got != want {
 		t.Errorf("EvalResults(/data/test) = %q, want %q", got, want)
 	}
+	if got, want := EvalReport("/data/test"), "/data/test/eval-report.md"; got != want {
+		t.Errorf("EvalReport(/data/test) = %q, want %q", got, want)
+	}
 }
 
 func TestPluginDirs(t *testing.T) {

@@ -38,6 +38,7 @@ type fakePane struct {
 	closed  bool
 	ran     []string // the commands typed into the pane
 	prompts []string // the prompts sent to its agent
+	args    []string // the CLI arguments of its agent
 }
 
 // fakeHerdr is the brain-eval session in memory. RunInPane runs the command with sh in the
@@ -184,7 +185,7 @@ func (f *fakeHerdr) WaitOutput(_ context.Context, id, re string, _ time.Duration
 	return "", errors.New("wait-output timed out")
 }
 
-func (f *fakeHerdr) StartAgent(_ context.Context, name, kind, id string) error {
+func (f *fakeHerdr) StartAgent(_ context.Context, name, kind, id string, args []string) error {
 	p, err := f.get(id)
 	if err != nil {
 		return err
@@ -196,6 +197,7 @@ func (f *fakeHerdr) StartAgent(_ context.Context, name, kind, id string) error {
 		f.onStart(id, kind)
 	}
 	p.pane.Agent = &kind
+	p.args = args
 	p.fg = append(p.fg, herdr.Process{Name: kind, PID: f.pid()})
 	f.agents[name] = id
 	return nil
@@ -288,8 +290,10 @@ func newEnv(t *testing.T) *env {
 		Install:   filepath.Join(e.data, "install.json"),
 		MainStore: e.mainStore,
 		Lock:      filepath.Join(e.data, "eval.lock"),
-		Scratch:   t.TempDir(),
-		Environ:   []string{"PATH=" + os.Getenv("PATH"), "HOME=" + e.home},
+		// Conformance is only written for a delivery stage.
+		Conformance: filepath.Join(e.data, "conformance.json"),
+		Scratch:     t.TempDir(),
+		Environ:     []string{"PATH=" + os.Getenv("PATH"), "HOME=" + e.home},
 		Herdr: func(tg herdr.Target) (Herdr, error) {
 			e.targets = append(e.targets, tg)
 			return e.fake, nil

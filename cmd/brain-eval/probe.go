@@ -31,10 +31,23 @@ type probeEntry struct {
 	Stale          []string `toml:"stale"`
 	Decline        bool     `toml:"decline"`
 	Harnesses      []string `toml:"harnesses"`
+	// Hook makes an exclusion probe a direct `brain hook` call with test input in one of
+	// hookModes, in place of a CLI and its ask (E10-S3).
+	Hook string `toml:"hook"`
+	// FullBrief makes a delivery probe check that its brief is full size, with {{marker}} in
+	// its middle: the Codex inline check (E8-S2).
+	FullBrief bool `toml:"full_brief"`
+	// Forgotten are the answers that a forget probe removed: the store must not hold them.
+	Forgotten []string `toml:"forgotten"`
 }
 
 // stages are the eval stages of §12.1.
 var stages = []string{"delivery", "exclusion", "transfer", "update", "restraint", "forget", "usefulness"}
+
+// hookModes are the herdr states in which an exclusion probe calls the hook (§12.1
+// exclusion): no herdr, a closed pane, no herdr answer in time, a socket with no binding, and
+// a workspace with no map entry, which gets only the global part.
+var hookModes = []string{"no-herdr-env", "closed-pane", "no-herdr-answer", "unbound-session", "other-workspace"}
 
 // harnesses are the CLIs that a probe can ask.
 var harnesses = []string{"claude", "codex"}
@@ -103,11 +116,23 @@ func (p probeEntry) check() error {
 	if !slices.Contains(stages, p.Stage) {
 		errs = append(errs, fmt.Errorf("stage %q: want one of %s", p.Stage, strings.Join(stages, ", ")))
 	}
-	if strings.TrimSpace(p.Ask) == "" {
+	switch {
+	case p.Hook == "" && strings.TrimSpace(p.Ask) == "":
 		errs = append(errs, errors.New("ask is empty"))
+	case p.Hook != "" && p.Ask != "":
+		errs = append(errs, errors.New("a hook probe has no ask: the runner calls the hook, not a CLI"))
 	}
-	if len(p.Expect) == 0 && !p.Decline {
-		errs = append(errs, errors.New("expect is empty; only a decline probe (decline = true) has no expected answer"))
+	if p.Hook != "" && (p.Stage != "exclusion" || !slices.Contains(hookModes, p.Hook)) {
+		errs = append(errs, fmt.Errorf("hook %q: want an exclusion probe with one of %s", p.Hook, strings.Join(hookModes, ", ")))
+	}
+	if len(p.Expect) == 0 && !p.Decline && p.Hook == "" {
+		errs = append(errs, errors.New("expect is empty; only a decline probe (decline = true) or a hook probe has no expected answer"))
+	}
+	if p.FullBrief && p.Stage != "delivery" {
+		errs = append(errs, errors.New("full_brief: want a delivery probe"))
+	}
+	if len(p.Forgotten) > 0 && p.Stage != "forget" {
+		errs = append(errs, errors.New("forgotten: want a forget probe"))
 	}
 	if p.ExpectRevision < 0 {
 		errs = append(errs, fmt.Errorf("expect_revision %d: want 1 or more", p.ExpectRevision))
@@ -123,10 +148,10 @@ func (p probeEntry) check() error {
 			errs = append(errs, fmt.Errorf("harness %q is listed twice", h))
 		}
 	}
-	if slices.ContainsFunc(slices.Concat(p.Setup, p.Expect, p.Stale), func(s string) bool { return strings.TrimSpace(s) == "" }) {
-		errs = append(errs, errors.New("an empty entry in setup, expect or stale"))
+	if slices.ContainsFunc(slices.Concat(p.Setup, p.Expect, p.Stale, p.Forgotten), func(s string) bool { return strings.TrimSpace(s) == "" }) {
+		errs = append(errs, errors.New("an empty entry in setup, expect, stale or forgotten"))
 	}
-	for _, s := range slices.Concat(p.Setup, []string{p.Ask}, p.Expect, p.Stale) {
+	for _, s := range slices.Concat(p.Setup, []string{p.Ask}, p.Expect, p.Stale, p.Forgotten) {
 		for _, m := range slot.FindAllStringSubmatch(s, -1) {
 			if !markerName.MatchString(m[1]) {
 				errs = append(errs, fmt.Errorf("placeholder %s: want {{marker}} or {{marker<n>}}", m[0]))
@@ -140,6 +165,7 @@ func (p probeEntry) toCase() Case {
 	c := Case{
 		ID: p.ID, Stage: p.Stage, Source: p.Source, Setup: p.Setup, ExpectRevision: p.ExpectRevision,
 		Check: Check{Expect: p.Expect, Stale: p.Stale, Decline: p.Decline},
+		Hook:  p.Hook, FullBrief: p.FullBrief, Forgotten: p.Forgotten,
 	}
 	for _, h := range p.Harnesses {
 		c.Probes = append(c.Probes, Probe{Harness: h, Prompt: p.Ask})

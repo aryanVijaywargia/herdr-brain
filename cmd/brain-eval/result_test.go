@@ -22,8 +22,15 @@ import (
 // part "facts", and the hook of an agent start writes a receipt of the pane with result res and
 // brief hash hash. hash "" is the hash of the brief of that generation.
 func (e *env) hook(t *testing.T, res store.Result, hash string) {
-	const global = "facts\n"
+	e.hookText(t, res, hash, func() string { return "facts\n" })
+}
+
+// hookText is hook with the global part text(), which each Brain call of a setup step reads
+// again.
+func (e *env) hookText(t *testing.T, res store.Result, hash string, text func() string) {
+	var global string
 	e.fake.onRun = func() {
+		global = text()
 		out := filepath.Join(e.testStore, "out")
 		sum := sha256.Sum256([]byte(global))
 		m, err := json.Marshal(map[string]any{"generation": 1, "built_at": time.Now().UTC(), "files": map[string]any{
@@ -37,12 +44,13 @@ func (e *env) hook(t *testing.T, res store.Result, hash string) {
 		write(t, filepath.Join(out, "current"), "gen-1\n")
 	}
 	e.fake.onStart = func(pane, kind string) {
-		if hash == "" {
+		h := hash
+		if h == "" {
 			sum := sha256.Sum256([]byte(brief.Text(global, "")))
-			hash = hex.EncodeToString(sum[:])
+			h = hex.EncodeToString(sum[:])
 		}
 		sess, gen, version := session, int64(1), "2.1.0"
-		d := store.Delivery{Profile: kind, HerdrSession: &sess, PaneID: pane, BriefHash: &hash, OutputGeneration: &gen,
+		d := store.Delivery{Profile: kind, HerdrSession: &sess, PaneID: pane, BriefHash: &h, OutputGeneration: &gen,
 			ItemRevisions: []store.RevisionRef{{Item: 1, Revision: 2}}, CLIVersion: &version, Result: res, At: time.Now()}
 		s, err := store.Open(context.Background(), e.testStore, time.Second)
 		if err != nil {

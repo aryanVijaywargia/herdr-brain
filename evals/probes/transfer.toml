@@ -1,0 +1,27 @@
+# Transfer probes (HLD §12.1 "Stages", E10-S3): one CLI saves an item, you approve it, and a
+# fresh session of the other CLI asks for it. A setup step "agent <cli>: <prompt>" prompts a
+# fresh CLI in its own pane of the case workspace.
+
+[[probe]]
+id = "transfer-claude-to-codex"
+stage = "transfer"
+source = "synthetic marker"
+setup = [
+  'agent claude: Run this shell command once, and do nothing else: brain remember "The deploy code word of this workspace is {{marker}}."',
+  "brain review 1 --approve",
+]
+ask = "What is the deploy code word of this workspace? Answer with the code word only."
+expect = ["{{marker}}"]
+harnesses = ["codex"]
+
+[[probe]]
+id = "transfer-codex-to-claude"
+stage = "transfer"
+source = "synthetic marker"
+setup = [
+  'agent codex: Run this shell command once, and do nothing else: brain remember "The deploy code word of all projects is {{marker}}." --global',
+  "brain review 1 --approve",
+]
+ask = "What is the deploy code word of this project? Answer with the code word only."
+expect = ["{{marker}}"]
+harnesses = ["claude"]
