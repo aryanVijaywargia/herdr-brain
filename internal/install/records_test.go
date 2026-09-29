@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 )
 
 // The hook record entries of E11-S5: each goes to its own event array with the tool matcher,
@@ -37,6 +39,31 @@ func TestRecordEntries(t *testing.T) {
 	if rec.Entries[p.Kind] != startEntry || len(rec.Records) != 4 {
 		t.Fatalf("record = %+v, want the same start entry and 4 hook record entries", rec)
 	}
+	checkGroups(t, path, p, rec)
+	eq := func(a, b json.RawMessage) bool { return string(a) == string(b) }
+	if !slices.EqualFunc(startGroups(t, read(t, path)), startGroups(t, start), eq) {
+		t.Errorf("the start array changed after the hook record entries")
+	}
+
+	if st, err := in.WouldUninstall(p); err != nil || st != Removed {
+		t.Errorf("WouldUninstall = %q, %v, want removed", st, err)
+	}
+	expect(t, "Uninstall", Removed)(in.Uninstall(p))
+	if got := read(t, path); string(got) != string(orig) {
+		t.Errorf("after uninstall:\n%s\nwant the original:\n%s", got, orig)
+	}
+	if _, err := os.Stat(in.Record); !os.IsNotExist(err) {
+		if rec, err := Read(in.Record); err != nil || len(rec.Entries) != 0 || len(rec.Records) != 0 {
+			t.Errorf("record after uninstall = %+v, %v, want no entries", rec, err)
+		}
+	}
+	expect(t, "Uninstall again", NotInstalled)(in.Uninstall(p))
+}
+
+// checkGroups checks that the last group of each event array of p in the hook file path is
+// the recorded Brain entry, with the matcher of the hook.
+func checkGroups(t *testing.T, path string, p *adapter.Profile, rec Record) {
+	t.Helper()
 	var doc struct {
 		Hooks map[string][]struct {
 			Matcher string `json:"matcher"`
@@ -60,22 +87,4 @@ func TestRecordEntries(t *testing.T) {
 			t.Errorf("%s group = %+v, want the matcher %q and a command that ends in %q", h.CLIEvent, g, h.Matcher, want)
 		}
 	}
-	eq := func(a, b json.RawMessage) bool { return string(a) == string(b) }
-	if !slices.EqualFunc(startGroups(t, read(t, path)), startGroups(t, start), eq) {
-		t.Errorf("the start array changed after the hook record entries")
-	}
-
-	if st, err := in.WouldUninstall(p); err != nil || st != Removed {
-		t.Errorf("WouldUninstall = %q, %v, want removed", st, err)
-	}
-	expect(t, "Uninstall", Removed)(in.Uninstall(p))
-	if got := read(t, path); string(got) != string(orig) {
-		t.Errorf("after uninstall:\n%s\nwant the original:\n%s", got, orig)
-	}
-	if _, err := os.Stat(in.Record); !os.IsNotExist(err) {
-		if rec, err := Read(in.Record); err != nil || len(rec.Entries) != 0 || len(rec.Records) != 0 {
-			t.Errorf("record after uninstall = %+v, %v, want no entries", rec, err)
-		}
-	}
-	expect(t, "Uninstall again", NotInstalled)(in.Uninstall(p))
 }
