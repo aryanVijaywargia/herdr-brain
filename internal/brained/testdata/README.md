@@ -73,7 +73,6 @@ columns.
 
 ## Noise profiles
 
-`noise/codex.toml` and `noise/claude.toml` are `adapters/codex.toml` and
-`adapters/claude.toml` with test `noise_lines`: the screen lines of the reads above that
-change on each read (the spinner, the tip, the composer or prompt box, and the footer). The
-shipped profiles have none, so their hash and their conformance results stay the same.
+The shipped `adapters/codex.toml` and `adapters/claude.toml` carry the `noise_lines` of the
+reads above (E11-S4): the screen lines that change on each read (the spinner, the done line,
+the rules, the tip, the composer or prompt box, and the footer). The capture tests use the shipped profiles.

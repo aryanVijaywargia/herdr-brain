@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -29,8 +28,8 @@ type capHarness struct {
 	clock time.Time
 }
 
-// newCapture binds herdr session session to the store in dir and returns its Capture. Codex
-// gets the noise patterns of testdata/noise.
+// newCapture binds herdr session session to the store in dir and returns its Capture, with the
+// noise lines of the shipped profiles.
 func newCapture(t *testing.T, session, dir string) *capHarness {
 	t.Helper()
 	f := newFakeHerdr(t)
@@ -41,7 +40,6 @@ func newCapture(t *testing.T, session, dir string) *capHarness {
 		k.clock = k.clock.Add(time.Second)
 		return k.clock
 	}
-	k.c.profile = func(h string) (*adapter.Profile, error) { return adapter.LoadFS(os.DirFS("testdata/noise"), h) }
 	t.Cleanup(func() { onlyReads(t, f) })
 	return k
 }
@@ -150,14 +148,22 @@ func (k *capHarness) rows(t *testing.T) rows {
 	return r
 }
 
-// text returns the excerpts of the text observations, and the events of the gaps.
+// text returns the excerpts of the text observations, one for each read (its parts joined
+// with a line break), and the events of the gaps.
 func (r rows) text() (excerpts, gaps []string) {
+	var last string
 	for _, o := range r.obs {
-		if o.Status == store.ObservationGap {
+		// The capture identity of a part is the identity of its read and the part number.
+		read := o.CaptureIdentity[:strings.LastIndex(o.CaptureIdentity, "/")]
+		switch {
+		case o.Status == store.ObservationGap:
 			gaps = append(gaps, o.Event)
-		} else {
+		case len(excerpts) > 0 && read == last:
+			excerpts[len(excerpts)-1] += "\n" + o.Excerpt
+		default:
 			excerpts = append(excerpts, o.Excerpt)
 		}
+		last = read
 	}
 	return excerpts, gaps
 }
@@ -438,7 +444,12 @@ func TestNewPartRepeatAbove(t *testing.T) {
 		{"repeat", []string{"P", "A"}, []string{"A"}, []string{"P", "A"}, []string{"P"}},
 		{"dialog", []string{"36", "37", "W"}, []string{"37", "W", "D"}, []string{"36", "37", "W", "N"}, []string{"N"}},
 	} {
-		if got, _ := newPart(tc.old, tc.back, read{lines: tc.read}); !slices.Equal(got, tc.want) {
+		idx, _ := newPart(tc.old, tc.back, read{lines: tc.read})
+		var got []string
+		for _, i := range idx {
+			got = append(got, tc.read[i])
+		}
+		if !slices.Equal(got, tc.want) {
 			t.Errorf("%s: newPart = %q, want %q", tc.name, got, tc.want)
 		}
 	}
@@ -479,9 +490,14 @@ func TestCaptureReconnect(t *testing.T) {
 	if len(r.sessions) != 1 || len(r.segments) != 2 || r.segments[0].Ended.IsZero() {
 		t.Fatalf("rows = %+v, want one session with two segments", r)
 	}
-	if len(r.obs) != 2 || r.obs[0].Event != string(GapConnect) || r.obs[1].SegmentID != r.segments[1].ID ||
-		strings.Contains(r.obs[1].Excerpt, "Would you like") {
+	excerpts, gaps := r.text()
+	if !slices.Equal(gaps, []string{string(GapConnect)}) || len(excerpts) != 1 || strings.Contains(excerpts[0], "Would you like") {
 		t.Errorf("observations = %+v, want the gap, then only text after the new baseline", r.obs)
+	}
+	for _, o := range r.obs {
+		if o.SegmentID != r.segments[1].ID {
+			t.Errorf("observation %+v is not in the new segment", o)
+		}
 	}
 }
 
@@ -534,8 +550,8 @@ func TestCaptureTwoBindings(t *testing.T) {
 		}
 	}
 	r := a.rows(t)
-	if len(r.sessions) != 4 || len(r.obs) != 4 {
-		t.Fatalf("rows = %+v, want 4 sessions and 4 observations", r)
+	if excerpts, _ := r.text(); len(r.sessions) != 4 || len(excerpts) != 4 {
+		t.Fatalf("rows = %+v, want 4 sessions and 4 read observations", r)
 	}
 	// Enrich: the claude agent of s1 gets an id; end: the codex agent of s1 ends.
 	a.pane("w1:p2", "claude", "6a345ec1-3050-4e61-b736-d0e9d2edab82")
@@ -564,18 +580,17 @@ func TestCaptureTwoBindings(t *testing.T) {
 			s2++
 		}
 	}
-	if len(r.sessions) != 3 || s2 != 2 || len(r.obs) != 3 {
-		t.Errorf("after forget: %d sessions (%d of s2), %d observations, want 3 (2 of s2) and 3", len(r.sessions), s2, len(r.obs))
+	if excerpts, _ := r.text(); len(r.sessions) != 3 || s2 != 2 || len(excerpts) != 3 {
+		t.Errorf("after forget: %d sessions (%d of s2), %d read observations, want 3 (2 of s2) and 3", len(r.sessions), s2, len(excerpts))
 	}
 }
 
 // The excerpt filter drops secrets and cuts to 500 characters.
 func TestFilter(t *testing.T) {
-	got, cut := filter("key AKIAIOSFODNN7EXAMPLE here")
-	if strings.Contains(got, "AKIA") || cut {
-		t.Errorf("filter = %q, %v, want the key dropped", got, cut)
+	if got := redact("", []string{"key AKIAIOSFODNN7EXAMPLE here"}); got[0] != "key [secret] here" {
+		t.Errorf("redact = %q, want the key dropped", got)
 	}
-	got, cut = filter(strings.Repeat("é", 600))
+	got, cut := filter(strings.Repeat("é", 600))
 	if len([]rune(got)) != excerptLimit || !cut {
 		t.Errorf("filter of 600 characters = %d characters, cut %v, want %d, true", len([]rune(got)), cut, excerptLimit)
 	}

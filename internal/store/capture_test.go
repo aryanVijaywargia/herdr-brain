@@ -32,7 +32,10 @@ func TestCaptureBindingsApart(t *testing.T) {
 			}
 			o := Observation{CaptureIdentity: k.HerdrSession + k.ID, Source: SourceHerdr, SegmentID: seg,
 				Event: "idle", Excerpt: "text", Status: ObservationComplete, At: testNow}
-			if err := AddObservation(ctx, tx, o); err != nil {
+			if _, err := AddObservation(ctx, tx, o); err != nil {
+				return err
+			}
+			if err := MoveCursor(ctx, tx, id, SourceHerdr, o.CaptureIdentity); err != nil {
 				return err
 			}
 		}
@@ -117,6 +120,68 @@ func TestOpenSessionAgain(t *testing.T) {
 		if len(ss) != 2 || !ss[0].Ended.IsZero() || ss[0].PaneID != "w2:p1" || ss[0].WorkspaceKey != "k2" ||
 			ss[1].Key != capture || ss[1].AgentSessionID != "x" {
 			t.Errorf("sessions = %+v, want the agent session open in w2:p1, and the capture session with id x", ss)
+		}
+		return nil
+	})
+}
+
+// A known capture identity adds no row and does not count again (S34). Brain-origin text and
+// a gap never count. The cursor keeps the last position of each source, and a forget drops it.
+func TestAddObservationOnce(t *testing.T) {
+	ctx := context.Background()
+	s := openM1(t)
+	key := SessionKey{HerdrSession: "default", Harness: "codex", Kind: KeyCapture, ID: "cap-1"}
+	write(t, s, func(tx *sql.Tx) error {
+		id, err := OpenSession(ctx, tx, key, "w1:p1", "", testNow)
+		if err != nil {
+			return err
+		}
+		seg, err := StartSegment(ctx, tx, id, "w1:p1", "", "visible", testNow)
+		if err != nil {
+			return err
+		}
+		for i, o := range []Observation{
+			{CaptureIdentity: "a", Excerpt: "text", Status: ObservationComplete, Counts: true},
+			{CaptureIdentity: "a", Excerpt: "other", Status: ObservationComplete, Counts: true},
+			{CaptureIdentity: "b", Excerpt: "brief", Status: ObservationComplete, Counts: true, BrainOrigin: true,
+				Sender: SenderAssistant},
+		} {
+			o.Source, o.SegmentID, o.Event, o.At = SourceHerdr, seg, "idle", testNow
+			added, err := AddObservation(ctx, tx, o)
+			if err != nil {
+				return err
+			}
+			if added != (i != 1) {
+				t.Errorf("AddObservation %d = %v, want %v", i, added, i != 1)
+			}
+		}
+		if seen, err := SeenExcerpt(ctx, tx, seg, SenderUnconfirmed, "text"); err != nil || !seen {
+			t.Errorf("SeenExcerpt = %v, %v, want true", seen, err)
+		}
+		for _, pos := range []string{"a", "b"} {
+			if err := MoveCursor(ctx, tx, id, SourceHerdr, pos); err != nil {
+				return err
+			}
+		}
+		if pos, err := Cursor(ctx, tx, id, SourceHerdr); err != nil || pos != "b" {
+			t.Errorf("Cursor = %q, %v, want b", pos, err)
+		}
+		if pos, err := Cursor(ctx, tx, id, "hook"); err != nil || pos != "" {
+			t.Errorf("Cursor of a source with no row = %q, %v, want empty", pos, err)
+		}
+		obs, err := Observations(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if len(obs) != 2 || obs[0].Excerpt != "text" || !obs[0].Counts || obs[0].Sender != SenderUnconfirmed ||
+			obs[1].Counts || !obs[1].BrainOrigin || obs[1].Sender != SenderAssistant {
+			t.Errorf("observations = %+v, want text that counts and a Brain-origin text that does not", obs)
+		}
+		if err := ForgetSession(ctx, tx, key); err != nil {
+			return err
+		}
+		if pos, err := Cursor(ctx, tx, id, SourceHerdr); err != nil || pos != "" {
+			t.Errorf("Cursor after forget = %q, %v, want empty", pos, err)
 		}
 		return nil
 	})
