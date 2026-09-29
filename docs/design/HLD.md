@@ -674,7 +674,7 @@ Limits:
 - **Forget evidence:** `brain forget --session <id>` deletes the observations, command records and prompt index rows of one session. First it lists the items and candidates that use them. You choose: keep those items, or also forget them.
 - **Forget content:** `brain forget <item>` removes the item text from items, revisions, proposals (with change requests and review previews), candidates, claim text, rejection reasons, applied edits, the prompt index, the extraction queue and every output generation. Brain builds a new generation and deletes the old ones (§7.5). Brain keeps only a tombstone with non-text ids (claim id, source keys), so the same evidence does not come back.
   - Forget acts on one scoped item. If another scope holds its own copy of the same claim, Brain lists it and does not erase it.
-  - Forget reports **done** only when no output generation holds the text. Until then it reports **pending**, and the hook withholds the brief ("withheld: forget pending").
+  - Forget reports **done** only when no output generation and no skill or tool revision file holds the text (owner decision 2026-09-29). Until then it reports **pending**, and the hook withholds the brief ("withheld: forget pending").
 - **Forget during extraction:** if a forget touches the input of an active batch, Brain discards the batch result. A later batch extracts again from the kept evidence (§7.3).
 - New derived records in later milestones join this list before they ship.
 - **Limits:** Brain cannot remove text from backups, from sessions that already got it, or from a CLI's own memory. It does not promise secure physical erase.
@@ -783,19 +783,21 @@ SQLite is the authority. Files are outputs.
 
 1. **Plan:** compute the new item revision and the new file content.
 2. **Commit:** one SQLite transaction checks the expected revision, writes the new revision, and records the new **output generation** (a counter). A stale revision fails.
-3. **Build:** the compiler takes one local lock file. It writes the new generation into its own folder `out/gen-<n>/`: the global part, the workspace parts and one manifest with the hash of each file. Then it replaces one pointer file `out/current` with a temp file and a rename. The switch is atomic, so a reader sees the whole old generation or the whole new one. [NEW]
+3. **Build:** the compiler takes one local lock file. First it writes each new skill and tool revision file (§8.2, §10.1) with a temp file and a rename. Then it writes the new generation into its own folder `out/gen-<n>/`: the global part, the workspace parts and one manifest with the hash of each file. The manifest also lists each skill and tool file that the brief names, with its exact path, its hash and its (item id, revision) pair (owner decision 2026-09-29) [ASTRA8]. Then it replaces one pointer file `out/current` with a temp file and a rename. The switch is atomic, so a reader sees the whole old generation or the whole new one. [NEW]
 4. **Stale builds:** before it switches the pointer, the compiler checks that its generation is still the newest. An older build stops. It never replaces a newer pointer.
-5. **Own files only:** the compiler writes only Brain's own files in `~/.local/share/brain/`. It never writes a shared file (§8.1). Before it builds, it checks the files of the current generation against their manifest. If you edited a file by hand, it reports a **conflict** and asks before it replaces the generation.
-   - You confirm with `brain repair --confirm`. It deletes the hand-edited generation folder and builds it again.
+5. **Own files only:** the compiler writes only Brain's own files in `<store>` (§8.3). It never writes a shared file (§8.1). Before it builds, it checks the files of the current generation against their manifest: the generation folder, and the skill and tool files that the manifest lists. If you edited a file by hand, it reports a **conflict** and asks before it replaces the generation.
+   - You confirm with `brain repair --confirm`. It deletes the hand-edited generation folder and builds it again. A hand-edited skill or tool file stays until you confirm. Then repair writes that revision file again.
+   - A skill or tool file that no generation lists yet is not a conflict. An interrupted or stale build leaves only such files. The next build uses a file whose hash matches, or writes it again (owner decision 2026-09-29) [ASTRA8].
    - `brain status` and `brain doctor` show the conflict (E9-S2, E9-S3).
 6. **Repair:** on each `brain` call and in `brain doctor`, the compiler builds any output that is behind the store, with the same hash check.
 7. **Log:** each applied edit stores the file, the before and after content, the generation and the proposal id.
 8. **Old generations:** Brain deletes a generation only when it is not current, and the pointer moved away from it more than one hook time cap ago. This is a practical cleanup rule, not a guarantee: a stopped process can wake later. That is safe, because a hook that finds a file missing prints nothing. Forget deletes old generations the same way and reports "pending" until they are gone (§6.7).
+   - **Skill and tool files:** all revision files of an active item stay, so a running session can still read the path in its brief (§5.5). When the item is retired or forgotten, Brain deletes its revision files with the same rule: no current generation lists them, and the pointer moved away more than one hook time cap ago. Forget of a skill or tool reports "pending" until every revision file of the item is gone (owner decision 2026-09-29) [ASTRA8].
 9. **One authority for publishing:** the pointer file says which generation is published. The `outputs.current` column is a copy. Repair makes the copy match the pointer. It never points to a folder that is not complete.
 
 **Undo.** Each revision stores all fields that you can undo: text, scope, workspace key, state, pinned, the exception link and the conflict links.
 - `brain undo <item>` undoes the latest revision. It makes a new revision that copies the fields of the revision before it. Brain records which revision it undid, so a second undo of that revision does nothing.
-- Undo of a creation retires the item. Undo of a promotion returns it to its workspace scope. Undo of a retirement restores the item.
+- Undo of a creation retires the item. Undo of a promotion returns it to its workspace scope. Undo of a retirement restores the item. Undo of a link move returns the item to its old workspace key. It works only from a pane in the new workspace, while the old one is not live (§9.4).
 - Undo of an automation binding (M4) disables future runs. It cannot reverse effects that already happened.
 
 ---
@@ -804,7 +806,7 @@ SQLite is the authority. Files are outputs.
 
 ### 8.1 Rules
 
-- The compiler writes **only Brain's own files**: the brief parts, the manifest and the skills in `~/.local/share/brain/`. It never edits text that you wrote.
+- The compiler writes **only Brain's own files**: the brief parts, the manifest, and the skill and tool files in `<store>` (§8.3). It never edits text that you wrote.
 - **Shared files** are only the CLI hook config files (for example `~/.claude/settings.json`) and, in M4, the MCP registration. Brain changes them only at install and uninstall, after you approve. The compiler never writes them.
 - In a shared file, Brain adds one entry and stores its hash (`entry_sha256`). It reads the file again just before each write.
 - Before the first edit of a shared file, Brain stores the original bytes of the file. This snapshot is **recovery material only**. Uninstall does not restore it, because you may have changed the file since.
@@ -833,8 +835,10 @@ The facts below come from vendor docs and source, read on 2026-09-27. None is te
 | Plan | M1 profile | M1 profile | profile after M0 | profile + shim after M0 | profile + shim after M0 | gap in `brain status` |
 
 - **Skills are M3.** The M1 compiler builds only the brief (the global and workspace parts).
-- **Workspace skills outside repos:** a workspace skill lives in `~/.local/share/brain/workspaces/<key>/skills/<name>/SKILL.md`. The hook adds a short list to the workspace part of the brief: name, one-line description and the absolute path. The agent reads the file when the skill is relevant. So two workspaces that share a checkout do not share skills.
-- **Global skills:** a global skill lives in `~/.local/share/brain/global/skills/<name>/SKILL.md`. The hook lists it in the global part of the brief, in the same way. Brain writes no skill into a CLI's own skill folder, because a CLI reads that folder outside herdr too.
+- **Skill files outside repos:** each skill revision has its own file: `<store>/skills/<item id>/r<revision>/SKILL.md`. The file never changes after the write. A new revision gets a new file (§7.5). Two items never share a file (owner decision 2026-09-29) [ASTRA8].
+- **Workspace skills:** the hook adds a short list to the workspace part of the brief: name, one-line description and the absolute path of the current revision file. The agent reads the file when the skill is relevant. The receipt names the item revisions, so it names the exact skill text that the session got. So two workspaces that share a checkout do not share skills.
+- **Global skills:** the hook lists a global skill in the global part of the brief, in the same way. Brain writes no skill into a CLI's own skill folder, because a CLI reads that folder outside herdr too.
+- **One name in each scope:** only one active skill has a given name in one scope (one workspace key, or global). Approval, promotion (§9.3) and link (§9.4) check the name in the same transaction as the revision. A clash refuses and asks for a new name (owner decision 2026-09-29) [ASTRA8].
 - **Skill entries (M3):** the reviewed content of each skill names its required tools and gives one example of use. If a required tool is not available in a CLI, the list entry says so. Skills are tested together with the negative prompt set, so one skill does not take the prompts of another (§12.1).
 - **No export:** Brain never writes an item or a skill to a CLI's own rules file or to a repo file. All Brain effects stay inside herdr (§1.2).
 
@@ -848,7 +852,7 @@ What `brain hook` does at session start:
 3. **Resolve and check (G1):** the resolver (below) finds the store from `HERDR_SOCKET_PATH`. Then it asks that herdr session for `HERDR_PANE_ID`. If the session is not bound, the pane does not exist, or the pane is not in `HERDR_WORKSPACE_ID`: print nothing, and record "withheld" with the reason (no receipt for an unbound session, because no store is open). If herdr does not answer before the lookup deadline: print nothing and write nothing; `brain status` shows "unknown" (S50). So an inherited `HERDR_ENV=1` from a closed pane gets nothing.
    - **Limit:** this checks the target pane, not the calling process. A detached child of a pane that is still live can pass. M0 result `[M0]`: at hook time, herdr does not yet show the agent or its `agent_session` in the pane. herdr fills it in after the hook exits. Later, the value matches the hook's `session_id` (Claude and Codex). So the hook cannot check the match. The hook records (pane id, session id), and the next `brain` call checks the match. A nested agent (for example `claude -p` inside an agent pane) sees the parent's `agent_session`, so the later check marks it "not this pane's agent". Brain claims only this: stale or missing panes get nothing.
 4. Read the pointer to the current output generation of that store once (§7.5). Read the workspace map. **If the workspace is not mapped** (a new workspace since the last `brain` call): print the global part only, and record "unmapped". The next `brain` call maps it. A new workspace never gets the items of another workspace with the same root folder. **If it is mapped**, read its saved `identity_cwd` from `<session_dir>/session.json` and check that it is the recorded project folder or lies beneath it (canonical paths, §11). The hook only compares paths: it never runs git and never calls `workspace list`. A root outside the project folder, or a root that cannot be read, gives no workspace part: print the global part only, and record "withheld: identity" (owner decision 2026-09-28).
-5. Check each part against the manifest of that generation. On a missing file or a hash mismatch: print nothing, and record "withheld: inconsistent". Check the deadline again. Else print the brief from the same bytes that passed the check: the global part and the workspace part, with scope labels, one byte budget and one manifest. The output form comes from the profile, for example:
+5. Check each part against the manifest of that generation. On a missing file or a hash mismatch: print nothing, and record "withheld: inconsistent". The hook checks only the brief parts. A hand-edited skill or tool file does not withhold the brief: it shows a conflict (§7.5 step 5), and repair writes it again (owner decision 2026-09-29). Check the deadline again. Else print the brief from the same bytes that passed the check: the global part and the workspace part, with scope labels, one byte budget and one manifest. The output form comes from the profile, for example:
    ```
    {"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"<brief>"}}
    ```
@@ -863,7 +867,7 @@ Rules:
 **Session bindings and the resolver** (F1) [NEW]
 - There is one **main store**. `brain setup` binds your default herdr session to it. `brain setup --session <name>` binds another real herdr session to the same main store. So global items reach every workspace in every real herdr session.
 - A **test binding** has its own store: `brain setup --session <name> --test <folder>`. There are two: the eval test session (§12.1), with learning off, and the M2 exit session (§13), with learning on.
-- The bindings live in one small config file outside every store. A binding names the herdr session, its socket path and its store folder.
+- The bindings live in one small config file outside every store. A binding names the herdr session, its socket path and its store folder. In this HLD, `<store>` is that store folder. For the main store, it is `~/.local/share/brain/main`. Each store has its own outputs, skill files and tool files (owner decision 2026-09-29) [ASTRA8].
 - Setup refuses a test store that resolves to, holds or sits inside the main store or another test store, after it resolves links and aliases. A real herdr session can never bind to a test store.
 - A bad test binding does not stop the other sessions. The resolver drops a test binding that fails its checks or conflicts with a main binding (two conflicting test bindings: both), and that session gets no store. A bad main binding, or main bindings that disagree, stop every session.
 - **Every entry point uses one resolver:** the hook, `remember`, `review`, `undo`, `forget`, `learn`, `status`, `doctor`, the M2 listener and hook records, and the M4 gateway. The resolver reads the bindings once for each call. It returns the herdr session, the pane, the workspace and the store.
@@ -954,11 +958,11 @@ shim = ""                                      # "ts" for OpenCode and pi
 ### 9.2 Cleanup and aging
 
 A fact that works is invisible, because the mistake does not happen. So "not used" is a weak signal. Brain uses simple rules:
-- An item with no relevant session in its workspace for 90 days shows as an **archive candidate** in `brain status`. There is no forced prompt (D7). One action keeps or archives all of them. For a global item, "its workspace" means any workspace.
+- An item with no relevant session in its workspace for 90 days shows as an **archive candidate** in `brain status`. There is no forced prompt (D7). One action keeps or archives all of them, except the items of a closed key. You act on those after a link (§9.4) (owner decision 2026-09-29). For a global item, "its workspace" means any workspace.
 - **Pinned items never age.** A rare procedure that you pin stays active after long inactivity.
 - A full block (§8.1) forces a choice when a new item comes.
 - An item with 2 comebacks on one revision (§5.4) gets a proposal for a rewrite or removal.
-- M4: tools use real call counts from `brain run`.
+- M4: tools use real call counts: `tool_calls` rows with the result `ran`, from `brain run` and `run_tool` (§10.2).
 - **Retire, not delete.** A retired item or skill stays in the store. `brain review --retired` lists it, and you can restore it (a new revision).
 - **Skill patches (M3):** a change to an active skill is a proposal with a small diff, not a full rewrite. You approve it like any other proposal.
 
@@ -978,7 +982,10 @@ A fact that works is invisible, because the mistake does not happen. So "not use
 - **Restart of herdr:** the workspace id stays the same. Nothing changes.
 - **Close:** Brain marks the workspace closed. Its items stay in the store, without delivery.
 - **Same root again:** Brain does not link by itself, and it does not ask. `brain status` notes the closed workspace with the same root. You relink on request: `brain workspace link <old> <new>`.
-- **Closed workspaces** appear as archive candidates in `brain status`. There is no forced 90-day prompt (D7).
+- **Link scope** (owner decision 2026-09-29) [ASTRA8]: you run the link from a pane in `<new>`, inside one store. `<old>` must be an entry of the relink list in `brain status`. `<old>` must not be live. Brain checks this by the current map entry of `<old>`, not only by its herdr workspace id (S83). A call from a pane outside `<new>`, or with a live `<old>`, is refused.
+- **What moves:** only the items of `<old>`. Each item gets a new revision with the key of `<new>`. Its evidence keeps its source. Observations, candidates, rejections, proposals, outcomes, the prompt index and the settings stay with `<old>`. The items of `<new>` stay. Nothing merges. A skill or tool name that is already active in `<new>` refuses the link (§8.2).
+- **Link undo:** undo of a link move works from a pane in `<new>` while `<old>` is not live. It returns the item to `<old>`. This is the only exception to the scope rule of undo (E4). Every other undo across workspaces stays refused.
+- **Closed workspaces** appear as archive candidates in `brain status`: one count for each closed key, with no item text. There is no forced 90-day prompt (D7). No pane can read or archive the items of a closed key. You act on them after a link (owner decision 2026-09-29) [ASTRA8].
 
 ---
 
@@ -988,7 +995,7 @@ M4 is at direction level (D10). The capabilities, the safety contracts and the e
 
 ### 10.1 Tool form and `brain run`
 
-A tool is a small folder in Brain's store, outside repos: `~/.local/share/brain/workspaces/<key>/tools/<name>/` (or the global folder). Its main file is `tool.toml`:
+A tool is a small folder in Brain's store, outside repos. Each tool revision has its own folder: `<store>/tools/<item id>/r<revision>/`. Its files never change after the write, like skill files (§7.5, §8.2). Only one active tool has a given name in one scope. A clash refuses and asks for a new name (owner decision 2026-09-29) [ASTRA8]. Its main file is `tool.toml`:
 
 ```toml
 name = "test-package"
@@ -1015,7 +1022,7 @@ pattern = "^[a-z0-9@/._-]{1,64}$"
 **`brain run <tool> [--<input> <value>]`:**
 - The agent calls it with its own shell tool. So the CLI's normal permission prompt applies.
 - It runs as a child of the agent's shell, inside the agent's sandbox. **`brain run` is not a sandbox.**
-- It checks live workspace membership, approval, the contract hash and the inputs. It sets the cwd and the timeout. It returns the output and the exit code, and it logs the call.
+- It checks live workspace membership, approval, the contract hash and the inputs. It sets the cwd and the timeout. It returns the output and the exit code. It logs each call of a known tool in `tool_calls`, with the hash of the checked contract and the result: `ran`, or `refused` when a check fails (§11).
 - An agent can also run the command directly and skip these checks. Your review covers the tool. `brain run` covers normal use.
 
 **Discovery:** the brief lists a bounded catalog (default: 10 tools, one line each). `brain tools` lists all approved tools with their input schemas.
@@ -1043,7 +1050,7 @@ Rules:
 - **Scope:** on each call, the server checks the bound pane and its workspace live with herdr, like the hook (§8.3). The inherited environment is only a hint. It uses the resolver of §8.3, so it opens only the store of its own bound herdr session. If the check fails, it shows no tools, and it refuses every direct call: `find_tool`, `run_tool`, `recall` and `remember`. An empty tool list alone is not enough (G1).
 - **Approved only:** draft tools are not visible.
 - **Permissions:** it is not known yet whether each CLI prompts for each MCP call. M4 checks this first. Until then, `run_tool` runs only tools with a reviewed read-only restriction. A label alone is not a guarantee. Other tools run through `brain run` in the agent's shell.
-- **Usage log:** every call is logged. This is the only real "used" signal for cleanup.
+- **Usage log:** every gateway call writes one `gateway_calls` row: method, result and time. A `run_tool` call also writes a `tool_calls` row, like `brain run` (§10.1). Only `tool_calls` rows with the result `ran` are real calls. They are the only real "used" signal for cleanup. `find_tool` and `recall` calls and refused calls do not count (owner decision 2026-09-29) [ASTRA8].
 - **Setup:** Brain registers the server with each CLI's official command. It asks you first and shows the uninstall steps.
 - **Outside herdr:** the CLI can still start the server, because the registration is global. If `HERDR_ENV` is not `1`, the server returns an empty tool list.
 - **Agents are not the main signal.** The main signals stay outside the agent.
@@ -1069,26 +1076,27 @@ Rules:
 |---|---|
 | Trigger | One tested "agent stopped working" condition for the CLI of the bound agent: `working → done` or `working → idle`. The M0 records set which one for each CLI. |
 | Folder | One pinned folder in the bound workspace |
-| Tool | One approved tool, pinned to its contract hash |
+| Tool | One approved tool, pinned to its contract hash. The tool has no required input, and its approved cwd is the pinned folder. The approval refuses any other tool (owner decision 2026-09-29) [ASTRA8]. Fixed input values are a later owner choice (#151). |
 | Scope | One workspace key |
 | Approval | Your explicit approval of this exact tool on this trigger in this folder. A native hook can run with no prompt, so this approval is the permission. |
 | Enabled | on or paused |
 | Last result | ok, failed, skipped, cancelled or unknown, with the time |
 
-**Claim before run** (from Prime [PRIME] `cron-jobs.ts:718-742`, `:1749-1795`):
-1. The event arrives. Brain builds an event key from (pane, agent session id, `state_change_seq` from `agent get`) [NEW]. herdr events have no id and no time.
-2. Brain inserts one row (automation id, event key) in `automation_runs`. The pair is unique. If the row exists, Brain does nothing. This prevents duplicate runs. It is not exactly-once.
-3. Brain checks that the binding is still enabled and that the contract hash is unchanged.
+**Claim before run** (from Prime [PRIME] `cron-jobs.ts:718-742`, `:1749-1795`; order changed by owner decision 2026-09-29 [ASTRA8]):
+1. The event arrives. Brain builds an event key from (pane, agent session id, `state_change_seq` from `agent get`) [NEW]. herdr events have no id and no time. Brain finds the source agent with the binding and the capture identity (§6.2). It skips an event that it cannot join to a stop of that agent. After a restart or a reconnect of `brained`, the current agent state is a baseline, not a stop.
+2. **Claim:** one SQLite transaction checks that the binding still exists and is enabled, and that its tool is approved at the pinned contract hash. Then it inserts one row (automation id, event key) in `automation_runs`. The pair is unique. If the row exists or a check fails, Brain does nothing. So a paused binding claims nothing. This prevents duplicate runs. It is not exactly-once.
+3. **Caller context:** Brain builds the caller context from the triggering pane and binding, and resolves it again with the resolver (§8.3). The resolved workspace key must be the key of the automation. Brain never uses the pane that `brained` started in.
 4. If an agent in the workspace is `working` in the pinned folder, Brain skips the run and records **skipped**.
-5. Brain runs the tool through `brain run`, as its own process in the pinned folder, with the timeout. It marks the run as **Brain-origin**.
-6. Brain writes the result to the row: ok, failed or skipped. A crash leaves the row as **unknown**. You review it. Brain does not retry.
+5. **Launch mark:** one short transaction checks the binding, the enabled state and the approval again, and marks the run **started**. Pause, removal and undo use the same mark. Brain holds no transaction or lock while the tool runs.
+6. Brain runs the tool with the `brain run` checks (§10.1), as its own process in the pinned folder, with the timeout. It marks the run as **Brain-origin**.
+7. Brain writes the result to the row: ok, failed or skipped. A crash leaves the row as **unknown**. You review it. Brain does not retry.
 
 Rules:
 - **No backfill.** Events that arrive while `brained` is down do not run later.
 - **No chains.** Brain-origin runs are marked. Brain excludes them from learning and never triggers on them.
-- **Pause** stops new launches at once. A paused binding claims nothing. **Cancel** is separate: `brain automation cancel <run>` stops an active run and records **cancelled**.
-- **Removal** stops all future runs.
-- **Undo** disables future runs. It cannot reverse effects that already happened. The review screen says this.
+- **Pause** stops new launches at once. A paused binding claims nothing. After a pause completes, a claimed run with no launch mark does not start (step 5). **Cancel** is separate: `brain automation cancel <run>` stops an active run and records **cancelled**.
+- **Removal** stops all future runs. After a removal completes, a claimed run with no launch mark does not start.
+- **Undo** disables future runs. After an undo completes, a claimed run with no launch mark does not start. Undo cannot reverse effects that already happened. The review screen says this.
 - **Failure feedback:** a failed or unknown result shows in `brain status` and the pane label. A later opt-in profile may add it to the next context refresh of the agent. Brain never resumes or prompts the agent, and it never retries by itself.
 
 **M4 exit test:** a duplicate event runs once; pause stops the next run; removal stops all runs; a failure shows in status; a missed event does not run later; a run is skipped while an agent works in the folder; a Brain-origin run does not trigger or teach anything (S51, S59, S62).
@@ -1123,9 +1131,10 @@ The M column says the first milestone that needs the table. M1 builds only the M
 | `candidates` | M2 | id, claim id, scope, workspace key, kind, harnesses, count, priority, first seen, last seen, status (open/proposed/expired) |
 | `outcomes` | M2 | item id, revision, session key, kind (comeback/uncertain/delivery gap/unknown), observation id, at |
 | `tools` | M4 | id, name, scope, workspace key, `tool.toml` contract, contract hash, cwd, timeout, effects, restriction, approved |
-| `tool_calls` | M4 | tool id, session key, origin (agent/automation), at, exit code, duration |
+| `tool_calls` | M4 | tool id, contract hash (of the checked contract that the call used), session key, origin (agent/automation), result (ran/refused), at, exit code (none when refused), duration |
+| `gateway_calls` | M4 | method (find_tool/run_tool/recall/remember), result, at [NEW] |
 | `automations` | M4 | id, workspace key, folder, trigger condition, CLI kind, tool id, contract hash, approved at, enabled, last result, last run |
-| `automation_runs` | M4 | automation id + event key (unique), claimed at, finished at, result (ok/failed/skipped/cancelled/unknown) |
+| `automation_runs` | M4 | automation id + event key (unique), claimed at, started at (the launch mark, §10.4), finished at, result (ok/failed/skipped/cancelled/unknown) |
 
 File snapshots and adapter states are not store tables. They live in `<data home>/install.json` (E8), because the CLI files are shared by all bindings.
 
@@ -1356,7 +1365,7 @@ The full goal needs all four milestones. M1 alone is useful, but it is not the f
 | S63 | A process inherits `HERDR_ENV=1` from a pane that closed, or from a pane that moved to another workspace | The hook prints nothing, also no global part. It records "withheld" with the reason. (A detached child of a live pane is not covered until §17 item 29.) In M4, the gateway shows no tools and refuses a direct `run_tool`, `recall` or `remember` call. |
 | S64 | An agent starts in a pane of a herdr session that `brain setup` did not bind; it also calls `brain remember` | The hook prints nothing. `remember` writes nothing. No store is opened. |
 | S65 | The hook runs while a compile stops between two files | The hook prints one whole generation, or nothing. Never a new global part with an old workspace part. |
-| S66 | A file of the current generation does not match its manifest hash | The hook prints nothing and records "withheld: inconsistent". `brain status` shows a conflict. |
+| S66 | A brief part file of the current generation does not match its manifest hash (owner decision 2026-09-29) | The hook prints nothing and records "withheld: inconsistent". `brain status` shows a conflict. |
 | S67 | Global "use npm" and workspace "use pnpm" in one brief | Linked in review: the brief shows the pnpm item as an exception to the npm item. Not linked: the precedence line applies. A workspace item never relaxes a global permission or safety rule. |
 | S68 (M2) | `brain forget --session <id>` for a session whose prompts are in the prompt index | The prompt text and hash rows are gone. Proposals that used them are listed first. |
 | S69 (M2) | A crash after the extractor returns and before the commit; a crash after the commit; a forget during extraction | First: the retry counts once. Second: nothing counts twice. Third: the batch result is discarded, and a later batch extracts from the kept evidence. |
@@ -1517,6 +1526,7 @@ Tags used in §3. Paths are relative to `docs/research/`.
 | [ASTRA5] | Astra's study of waku-agent: `astra-brain-20260927/WAKU_AGENT_LEARNINGS.md` (2026-09-27), gaps G1-G9 and the §3.3 test sheet |
 | [ASTRA7] | Astra's final review of v1.6: `astra-brain-20260927/HLD_V16_REVIEW.md` (2026-09-27), findings 1-3. No further review round. |
 | [ASTRA6] | Astra's review of v1.5: `astra-brain-20260927/HLD_V15_REVIEW.md` (2026-09-27), findings F1-F11 |
+| [ASTRA8] | Astra's plan reviews of E16 and E17: `astra-brain-20260927/PLAN_E16_REVIEW.md` and `PLAN_E17_REVIEW.md` (2026-09-29), findings 1-6 in each |
 | [F] | `self-improving-loop-20260926/FINDINGS.md`, as cited in [V] |
 | [R] | `meta-harness-hld-v4-20260927/REFERENCE_NOTES.md`: dsh-continual-harness and prime-agent ideas #1-#17, amfs ideas A1-A14 |
 | [AMFS] | amfs source at commit `9fcd4d0`, as listed in `astra-brain-20260927/OSS_SOURCES.md` P3 |
