@@ -41,6 +41,8 @@ func TestRun(t *testing.T) {
 		{[]string{"learn"}, 1, ""},
 		{[]string{"learn", "off"}, 1, ""}, // not in a herdr pane
 		{[]string{"help"}, 0, "learn     on|off [--workspace <id> | --pane <id>]"},
+		{[]string{"extract"}, 1, ""},
+		{[]string{"help"}, 0, "extract   on|off [--workspace <id>]"},
 	}
 	for _, c := range cases {
 		var out, errOut bytes.Buffer

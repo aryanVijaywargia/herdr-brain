@@ -24,7 +24,8 @@ commands:
   version   print the Brain version
   status    show Brain status
   doctor    check the Brain setup and print the fix of each failed check
-  setup     [--session <name> [--test <folder>]]: bind a herdr session, add the agent hooks
+  setup     [--session <name> [--test <folder>]] [--extractor]: bind a herdr session, add the agent hooks,
+            choose the extractor CLI
   remember  "<text>" [--global | --workspace <w>] [--kind <k>]: draft an item for your review
   review    [<id> [--approve | --reject | --later]]: the queue of proposals (brain review --help)
   pin       [--off] <item>: pin an active item, so it never ages
@@ -34,6 +35,7 @@ commands:
   pane      review --proposal <id>: the review pane of one proposal (herdr runs it)
   event     workspace-closed: herdr's workspace.closed event (D4); marks the workspace closed
   learn     on|off [--workspace <id> | --pane <id>]: record the learning switch; delivery stays on
+  extract   on|off [--workspace <id>]: record the extraction switch; capture and rules keep running
   uninstall [--apply] [--data]: list what uninstall removes; --apply removes it, --data the stores too
   hook      --profile <name> --event start|prompt|tool|stop: the agent hooks (start prints the brief or nothing)
   brained   the herdr listener of one herdr session (herdr starts it; D7)
@@ -52,6 +54,7 @@ var commands = map[string]func(context.Context, cli.Env, []string) error{
 	"status":    cli.Status,
 	"doctor":    cli.Doctor,
 	"learn":     cli.Learn,
+	"extract":   cli.Extract,
 }
 
 func main() {
@@ -75,7 +78,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "brain %s\n", version)
 	case "setup":
 		err = setup(context.Background(), osSetupDeps(os.Environ()), args[1:], in, stdout)
-	case "status", "doctor", "remember", "review", "pin", "undo", "forget", "repair", "pane", "uninstall", "learn":
+	case "status", "doctor", "remember", "review", "pin", "undo", "forget", "repair", "pane", "uninstall", "learn", "extract":
 		err = command(commands[args[0]], args[1:], in, stdout, stderr)
 	case "event":
 		err = event.Main(context.Background(), args[1:], os.Environ())

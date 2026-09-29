@@ -17,6 +17,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/brief"
+	"github.com/aryanVijaywargia/herdr-brain/internal/extract"
 	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
@@ -381,12 +382,14 @@ func gap(ctx context.Context, tx *sql.Tx, session, kind string, p herdr.Pane) (s
 	return string(d.Result), nil
 }
 
-// queue prints the count and the oldest age of the pending proposals that the caller sees.
+// queue prints the count and the oldest age of the pending proposals that the caller sees in
+// the default brain review list: a proposal of a candidate below its gate is not counted.
 func (s *statusCall) queue(ctx context.Context, tx *sql.Tx) error {
 	ids, err := store.PendingProposalIDs(ctx, tx)
 	if err != nil {
 		return err
 	}
+	gates := store.DefaultGates()
 	n := 0
 	var oldest time.Time
 	for _, id := range ids {
@@ -396,6 +399,13 @@ func (s *statusCall) queue(ctx context.Context, tx *sql.Tx) error {
 		}
 		if err != nil {
 			return err
+		}
+		below, err := belowGate(ctx, tx, gates, p)
+		if err != nil {
+			return err
+		}
+		if below {
+			continue
 		}
 		if n == 0 || p.Created.Before(oldest) {
 			oldest = p.Created
@@ -410,21 +420,71 @@ func (s *statusCall) queue(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-// extraction prints the extraction batches that failed or gave an invalid response (S70).
-// Their watermark stays, so their evidence waits for the next pass.
+// extraction prints the extractor and its switches, the use of the daily caps, the work of
+// this herdr session that waits with its oldest age and why by workspace key (§7.3, S15), and
+// the batches that failed or gave an invalid response (S70). Their watermark stays, so their
+// evidence waits for the next pass.
 func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
+	if err := s.extractor(ctx, tx); err != nil {
+		return err
+	}
+	p := extract.Pass{HerdrSession: s.Binding.Session, DefaultOn: learningDefault(s.Binding), Now: s.Now}
+	d, err := p.Day(ctx, tx)
+	if err != nil {
+		return err
+	}
+	s.w.printf("  last 24h: %d of %d extractor calls, %d of %d new proposals\n", d.Calls, d.Caps.Calls,
+		d.Proposals, d.Caps.Proposals)
+	ws, err := p.Waiting(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if len(ws) == 0 {
+		s.w.printf("  waiting: none\n")
+	}
+	for _, w := range ws {
+		s.w.printf("  waiting in workspace %s: %d batches, the oldest %s old; %s\n", w.WorkspaceKey, w.Batches,
+			age(s.Now().Sub(w.Oldest)), cmp.Or(w.Why, "the next pass takes them"))
+	}
 	bs, err := store.FailedBatches(ctx, tx)
 	if err != nil {
 		return err
 	}
 	if len(bs) == 0 {
-		s.w.printf("extraction: no failed batch\n")
+		s.w.printf("  failed batches: none\n")
 		return nil
 	}
-	s.w.printf("extraction: %d failed batches; their evidence waits for the next pass\n", len(bs))
+	s.w.printf("  failed batches: %d; their evidence waits for the next pass\n", len(bs))
 	for _, b := range bs {
-		s.w.printf("  batch %d, session %d, workspace %s: %s, %s, %s ago\n", b.ID, b.SessionID, b.WorkspaceKey,
+		s.w.printf("    batch %d, session %d, workspace %s: %s, %s, %s ago\n", b.ID, b.SessionID, b.WorkspaceKey,
 			b.Status, b.Reason, age(s.Now().Sub(b.At)))
+	}
+	return nil
+}
+
+// extractor prints the extraction line: the chosen CLI and the switches. Extraction off is
+// apart from learning off: capture and the rules keep running (D9).
+func (s *statusCall) extractor(ctx context.Context, tx *sql.Tx) error {
+	x, err := store.Extractor(ctx, tx)
+	if err != nil {
+		return err
+	}
+	offs, err := store.ExtractionOffKeys(ctx, tx)
+	if err != nil {
+		return err
+	}
+	switch {
+	case x.CLI == "":
+		s.w.printf("extraction: no extractor CLI is chosen, so Brain makes no extractor call; run brain setup\n")
+	case !x.On:
+		s.w.printf("extraction: off for the whole store; capture and rules keep running\n")
+	case len(offs) > 0:
+		s.w.printf("extraction: on; off for workspace %s; capture and rules keep running\n", strings.Join(offs, ", "))
+	default:
+		s.w.printf("extraction: on\n")
+	}
+	if x.CLI != "" {
+		s.w.printf("  extractor: %s, %s\n", x.CLI, cmp.Or(x.Model, "its default model"))
 	}
 	return nil
 }

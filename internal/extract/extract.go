@@ -33,6 +33,7 @@ type Pass struct {
 	DefaultOn    bool   // learning with no store setting: false for a test store (§12.1)
 	Now          func() time.Time
 	Gates        store.Gates // nil for store.DefaultGates
+	Caps         Caps        // the zero value for DefaultCaps
 }
 
 // ref is one observation of the input of a batch, with its ref id in the prompt.
@@ -53,12 +54,17 @@ type job struct {
 }
 
 // Run runs the pass: it forms the batches of the finished sessions, and extracts and commits
-// them one after the other, so a session has one active batch at a time. A failed batch does
-// not stop the others.
+// them one after the other in round robin order across workspace keys, so a session has one
+// active batch at a time. The caps stop the calls; the rest waits for a later pass (§7.3). A
+// failed batch does not stop the others.
 func (p Pass) Run(ctx context.Context) error {
 	var jobs []job
 	err := p.Store.Write(ctx, func(tx *sql.Tx) (err error) {
-		jobs, err = p.plan(ctx, tx)
+		if jobs, err = p.plan(ctx, tx); err != nil {
+			return err
+		}
+		last, err := store.LastCalls(ctx, tx)
+		jobs = order(jobs, last)
 		return err
 	})
 	if err != nil {
@@ -91,47 +97,23 @@ func (p Pass) gates() store.Gates {
 // evidence that waits for extraction (§7.2).
 func (p Pass) plan(ctx context.Context, tx *sql.Tx) ([]job, error) {
 	now := p.Now()
-	ins, err := store.SignalInputs(ctx, tx)
-	if err != nil {
-		return nil, err
-	}
-	sigs := signal.Find(ins)
-	byID := map[int64]store.SignalInput{}
-	bySession := map[int64][]store.SignalInput{}
-	for _, in := range ins {
-		byID[in.ID] = in
-		bySession[in.SessionID] = append(bySession[in.SessionID], in)
-	}
-	sessions, err := store.Sessions(ctx, tx)
+	runs, sigs, byID, err := p.finished(ctx, tx)
 	if err != nil {
 		return nil, err
 	}
 	var jobs []job
 	var oldest time.Time
-	for _, s := range sessions {
-		obs := bySession[s.ID]
-		if s.Key.HerdrSession != p.HerdrSession || len(obs) == 0 {
-			continue
+	for _, r := range runs {
+		if oldest.IsZero() || r.obs[0].At.Before(oldest) {
+			oldest = r.obs[0].At
 		}
-		slices.SortFunc(obs, func(a, b store.SignalInput) int { return int(a.ID - b.ID) })
-		if s.Ended.IsZero() && now.Sub(obs[len(obs)-1].At) < idle {
-			continue
-		}
-		wm, err := store.Watermarks(ctx, tx, s.ID)
+		j := p.job(r, sigs, byID)
+		ok, err := p.batch(ctx, tx, j)
 		if err != nil {
 			return nil, err
 		}
-		for _, run := range uncovered(obs, wm) {
-			if oldest.IsZero() || run[0].At.Before(oldest) {
-				oldest = run[0].At
-			}
-			j, ok, err := p.batch(ctx, tx, s, run, wm[run[0].WorkspaceKey], sigs, byID)
-			if err != nil {
-				return nil, err
-			}
-			if ok {
-				jobs = append(jobs, j)
-			}
+		if ok {
+			jobs = append(jobs, j)
 		}
 	}
 	var queued time.Duration
@@ -142,6 +124,51 @@ func (p Pass) plan(ctx context.Context, tx *sql.Tx) ([]job, error) {
 		return nil, err
 	}
 	return jobs, nil
+}
+
+// pending is the uncovered part obs of one run of session s, after the watermark start.
+type pending struct {
+	s     store.Session
+	obs   []store.SignalInput
+	start int64
+}
+
+// finished returns the uncovered runs of the finished sessions of the pass, with the signals of
+// the store and its signal inputs by id.
+func (p Pass) finished(ctx context.Context, tx *sql.Tx) ([]pending, []signal.Signal, map[int64]store.SignalInput, error) {
+	ins, err := store.SignalInputs(ctx, tx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	byID := map[int64]store.SignalInput{}
+	bySession := map[int64][]store.SignalInput{}
+	for _, in := range ins {
+		byID[in.ID] = in
+		bySession[in.SessionID] = append(bySession[in.SessionID], in)
+	}
+	sessions, err := store.Sessions(ctx, tx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	var runs []pending
+	for _, s := range sessions {
+		obs := bySession[s.ID]
+		if s.Key.HerdrSession != p.HerdrSession || len(obs) == 0 {
+			continue
+		}
+		slices.SortFunc(obs, func(a, b store.SignalInput) int { return int(a.ID - b.ID) })
+		if s.Ended.IsZero() && p.Now().Sub(obs[len(obs)-1].At) < idle {
+			continue
+		}
+		wm, err := store.Watermarks(ctx, tx, s.ID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		for _, run := range uncovered(obs, wm) {
+			runs = append(runs, pending{s: s, obs: run, start: wm[run[0].WorkspaceKey]})
+		}
+	}
+	return runs, signal.Find(ins), byID, nil
 }
 
 // uncovered returns, for each workspace key of obs (in id order), the part after the watermark
@@ -165,38 +192,40 @@ func uncovered(obs []store.SignalInput, wm map[string]int64) [][]store.SignalInp
 	return runs
 }
 
-// batch returns the job of run, the uncovered part of one run of session s, with start
-// watermark start. It returns false when the batch waits: extraction or learning is off for
-// its key, no CLI is chosen, or it failed less than retryAfter ago. A run with no signal is
-// recorded as an empty batch here.
-func (p Pass) batch(ctx context.Context, tx *sql.Tx, s store.Session, run []store.SignalInput, start int64,
-	sigs []signal.Signal, byID map[int64]store.SignalInput) (job, bool, error) {
+// job returns the job of run r, cut to the input cap.
+func (p Pass) job(r pending, sigs []signal.Signal, byID map[int64]store.SignalInput) job {
+	run, rs := p.fit(r.obs, refs(r.obs, sigs, byID))
 	last := run[len(run)-1]
-	j := job{session: s, batch: store.Batch{SessionID: s.ID, WorkspaceKey: last.WorkspaceKey,
-		FirstCapture: run[0].CaptureIdentity, LastCapture: last.CaptureIdentity, StartWatermark: start,
+	return job{session: r.s, refs: rs, batch: store.Batch{SessionID: r.s.ID, WorkspaceKey: last.WorkspaceKey,
+		FirstCapture: run[0].CaptureIdentity, LastCapture: last.CaptureIdentity, StartWatermark: r.start,
 		LastObservation: last.ID}}
+}
+
+// batch reports whether job j is extracted now. It returns false when the batch waits:
+// extraction or learning is off for its key, no CLI is chosen, or it failed less than
+// retryAfter ago. A job with no signal is recorded as an empty batch here.
+func (p Pass) batch(ctx context.Context, tx *sql.Tx, j job) (bool, error) {
 	if on, err := p.allowed(ctx, tx, j); err != nil || !on {
-		return job{}, false, err
+		return false, err
 	}
-	j.refs = refs(run, sigs, byID)
 	if len(j.refs) == 0 {
 		if err := store.EmptyBatch(ctx, tx, j.batch, p.Now()); err != nil {
-			return job{}, false, err
+			return false, err
 		}
-		return job{}, false, store.MoveWatermark(ctx, tx, j.batch)
+		return false, store.MoveWatermark(ctx, tx, j.batch)
 	}
 	old, err := store.FindBatch(ctx, tx, j.batch)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		return j, true, nil
+		return true, nil
 	case err != nil:
-		return job{}, false, err
+		return false, err
 	case old.Done():
-		return job{}, false, nil
+		return false, nil
 	case (old.Status == store.BatchFailed || old.Status == store.BatchInvalid) && p.Now().Sub(old.At) < retryAfter:
-		return job{}, false, nil
+		return false, nil
 	}
-	return j, true, nil
+	return true, nil
 }
 
 // allowed reports whether batch j may call the extractor: extraction is on for its workspace
@@ -259,6 +288,11 @@ func (p Pass) extract(ctx context.Context, j job) error {
 			return err
 		}
 		if wm, err := store.Watermark(ctx, tx, j.batch.SessionID, j.batch.WorkspaceKey); err != nil || wm != j.batch.StartWatermark {
+			skip = true
+			return err
+		}
+		d, err := p.Day(ctx, tx)
+		if err != nil || d.Full() != "" {
 			skip = true
 			return err
 		}
@@ -445,6 +479,10 @@ func candidateKind(c Claim) store.CandidateKind {
 // through store.ProposeCandidate. Its draft item gets the scope and workspace key of the
 // candidate. E13-S5 adds the rest of the §7.4 fields.
 func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now time.Time) error {
+	// Over the daily cap, the candidate keeps its evidence and waits for its next evidence (§7.3 caps).
+	if d, err := p.Day(ctx, tx); err != nil || d.Proposals >= d.Caps.Proposals {
+		return err
+	}
 	cand, err := store.CandidateByID(ctx, tx, id)
 	if err != nil || !p.gates().Reached(cand) {
 		return err

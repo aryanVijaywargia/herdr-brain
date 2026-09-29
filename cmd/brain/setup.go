@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
@@ -24,13 +25,18 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
+	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-const setupUsage = `usage: brain setup [--session <name> [--test <folder>]]`
+const setupUsage = `usage: brain setup [--session <name> [--test <folder>]] [--extractor]`
 
 // setupHerdrDeadline is the deadline of each herdr call of setup. [NEW] 5 s, as the store
 // commands: a person waits for setup, not an agent start.
 const setupHerdrDeadline = 5 * time.Second
+
+// setupBusyTimeout is how long setup waits for the store lock of another Brain process. [NEW]
+// 5 s, as the store commands.
+const setupBusyTimeout = 5 * time.Second
 
 // harnesses are the CLIs that setup offers to hook, in order (M1 profiles, HLD §8.2).
 var harnesses = []string{"claude", "codex"}
@@ -47,6 +53,16 @@ const codexTrust = `Codex runs a new hook only after you trust it:
      Each new Brain hook entry (a hook record entry too) needs trust again.
   codex exec does not show the review screen. It skips an untrusted hook with no warning.
   Run ` + "`brain doctor`" + ` to check.
+`
+
+// locality explains where the excerpts of an extractor call go (§7.3 D9, D4).
+const locality = `Brain learns lessons from your finished sessions with one headless call of an official CLI
+that you choose: claude -p or codex exec, with no tools. Each call sends short excerpts of your
+sessions, after the secret filter, to the provider that this CLI is set up for, with the CLI's own
+sign-in. Brain never reads its tokens. Your agents already send their sessions to their provider
+the same way. Extraction is on after this step. To stop the calls for one workspace or for all:
+brain extract off [--workspace <id>]. Capture and the signal rules keep running then.
+Brain never picks or switches the extractor CLI by itself.
 `
 
 const firstUse = `First use:
@@ -99,6 +115,7 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 	flags.SetOutput(io.Discard)
 	name := flags.String("session", "", "")
 	test := flags.String("test", "", "")
+	again := flags.Bool("extractor", false, "")
 	if err := flags.Parse(args); err != nil {
 		return fmt.Errorf("%w\n%s", err, setupUsage)
 	}
@@ -122,7 +139,8 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 	} else {
 		fmt.Fprintf(stdout, "\nStep 2: bind herdr session %q to the test store %s.\n", *name, *test)
 	}
-	if err := bind(d, sess, *test, in, stdout); err != nil {
+	storeDir, err := bind(d, sess, *test, in, stdout)
+	if err != nil {
 		return err
 	}
 
@@ -144,11 +162,97 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 	if err != nil {
 		return err
 	}
+	if err := chooseExtractor(ctx, d, storeDir, *again, in, stdout); err != nil {
+		return err
+	}
 	if codex {
-		fmt.Fprint(stdout, "\nStep 5: trust the hook in Codex.\n"+codexTrust)
+		fmt.Fprint(stdout, "\nStep 6: trust the hook in Codex.\n"+codexTrust)
 	}
 	fmt.Fprint(stdout, "\n"+firstUse)
 	return nil
+}
+
+// chooseExtractor asks which CLI runs the extractor of the store in folder dir, and its model,
+// and records the answer in the store (D4). It first explains where the excerpts go (D9). A
+// store with a chosen CLI keeps it with no question, unless again. Setup makes no store for
+// the question: with no binding (dir "") the step waits for one.
+func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, in *bufio.Reader, stdout io.Writer) error {
+	fmt.Fprintln(stdout, "\nStep 5: the extractor CLI.")
+	if dir == "" {
+		fmt.Fprintln(stdout, "No binding, so no store: run brain setup again to bind it and choose the extractor CLI.")
+		return nil
+	}
+	fmt.Fprint(stdout, locality)
+	cur, err := readExtractor(ctx, dir)
+	if err != nil {
+		return err
+	}
+	if cur.CLI != "" && !again {
+		fmt.Fprintf(stdout, "Extractor: %s, %s. To change it: brain setup --extractor\n", cur.CLI,
+			cmp.Or(cur.Model, "its default model"))
+		return nil
+	}
+	answer, err := askLine(in, stdout, "Which CLI runs the extractor: claude, codex or none? [none] ")
+	if err != nil {
+		return err
+	}
+	cli := store.ExtractorCLI(strings.ToLower(answer))
+	switch cli {
+	case store.ExtractorClaude, store.ExtractorCodex:
+	case "", "none":
+		fmt.Fprintln(stdout, "No extractor CLI chosen: Brain makes no extractor call, and brain status says so. "+
+			"To choose one later: brain setup --extractor")
+		return nil
+	default:
+		fmt.Fprintf(stdout, "Unknown answer %q: no extractor CLI chosen. To choose one: brain setup --extractor\n", answer)
+		return nil
+	}
+	if _, err := d.lookPath(string(cli)); err != nil {
+		fmt.Fprintf(stdout, "%s is not on PATH: each call fails, and brain doctor says why, until it is.\n", cli)
+	}
+	model, err := askLine(in, stdout, "Model (empty for the default model of the CLI): ")
+	if err != nil {
+		return err
+	}
+	s, err := store.Open(ctx, dir, setupBusyTimeout)
+	if err != nil {
+		return err
+	}
+	var on bool
+	err = s.Write(ctx, func(tx *sql.Tx) error {
+		if err := store.SetExtractorCLI(ctx, tx, cli, model, d.now()); err != nil {
+			return err
+		}
+		x, err := store.Extractor(ctx, tx)
+		on = x.On
+		return err
+	})
+	if err := errors.Join(err, s.Close()); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Extractor: %s, %s.\n", cli, cmp.Or(model, "its default model"))
+	if !on {
+		fmt.Fprintln(stdout, "Extraction stays off for the whole store, as you set it: brain extract on turns it on.")
+	}
+	return nil
+}
+
+// readExtractor returns the extractor setting of the store in folder dir. A folder with no
+// store file has no chosen CLI: setup does not make the store only to read it.
+func readExtractor(ctx context.Context, dir string) (store.ExtractorSetting, error) {
+	if _, err := os.Stat(filepath.Join(dir, store.FileName)); errors.Is(err, fs.ErrNotExist) {
+		return store.ExtractorSetting{}, nil
+	}
+	s, err := store.Open(ctx, dir, setupBusyTimeout)
+	if err != nil {
+		return store.ExtractorSetting{}, err
+	}
+	var x store.ExtractorSetting
+	err = s.Write(ctx, func(tx *sql.Tx) (err error) {
+		x, err = store.Extractor(ctx, tx)
+		return err
+	})
+	return x, errors.Join(err, s.Close())
 }
 
 // herdrSession finds the herdr session name and checks the version of its server (D6). An
@@ -184,25 +288,25 @@ func herdrSession(ctx context.Context, d setupDeps, name string, stdout io.Write
 // bind binds sess to the main store, or to the test store folder test (§8.3). It refuses a
 // test store that is, holds or sits inside the main store or another test store, after links
 // and aliases (S76), and a real session on a test store. A binding that is already right
-// stays as it is.
-func bind(d setupDeps, sess herdr.Session, test string, in *bufio.Reader, stdout io.Writer) error {
+// stays as it is. It returns the store folder of the binding, or "" when you said no.
+func bind(d setupDeps, sess herdr.Session, test string, in *bufio.Reader, stdout io.Writer) (string, error) {
 	file, err := paths.BindingsFile()
 	if err != nil {
-		return err
+		return "", err
 	}
 	want, err := wantBinding(sess, test)
 	if err != nil {
-		return err
+		return "", err
 	}
 	// Another setup can write the file while this one waits for the answer. writeBinding
 	// compares the file with these bytes, so it never drops that change.
 	before, err := readBindingsFile(file)
 	if err != nil {
-		return err
+		return "", err
 	}
 	bs, dropped, err := bindings.Read(file)
 	if err != nil {
-		return fmt.Errorf("%w; fix or remove the bindings file, then run brain setup again", err)
+		return "", fmt.Errorf("%w; fix or remove the bindings file, then run brain setup again", err)
 	}
 	var cur *bindings.Binding
 	for i, b := range bs {
@@ -213,9 +317,9 @@ func bind(d setupDeps, sess herdr.Session, test string, in *bufio.Reader, stdout
 	switch {
 	case cur != nil && cur.Socket == want.Socket && cur.Store == want.Store && cur.Kind == want.Kind:
 		fmt.Fprintf(stdout, "Session %q is already bound to %s.\n", sess.Name, want.Store)
-		return nil
+		return want.Store, nil
 	case want.Kind == bindings.KindTest && (sess.Default || cur != nil && cur.Kind == bindings.KindMain):
-		return fmt.Errorf("refused: session %q is a real herdr session, and a real session cannot use a test store", sess.Name)
+		return "", fmt.Errorf("refused: session %q is a real herdr session, and a real session cannot use a test store", sess.Name)
 	}
 
 	// The new file: every kept binding of another session, and want. A bad test binding that
@@ -227,7 +331,7 @@ func bind(d setupDeps, sess herdr.Session, test string, in *bufio.Reader, stdout
 	// is made only after the answer yes, and the checks run again then.
 	if _, err := os.Stat(want.Store); err == nil {
 		if err := checkBinding(file, next, want); err != nil {
-			return err
+			return "", err
 		}
 	}
 
@@ -238,13 +342,13 @@ func bind(d setupDeps, sess herdr.Session, test string, in *bufio.Reader, stdout
 		if err == nil {
 			fmt.Fprintf(stdout, "No binding written. Brain gives session %q nothing until it is bound.\n", sess.Name)
 		}
-		return err
+		return "", err
 	}
 	if err := writeBinding(file, before, next, want); err != nil {
-		return err
+		return "", err
 	}
 	fmt.Fprintf(stdout, "Bound session %q to %s.\n", sess.Name, want.Store)
-	return nil
+	return want.Store, nil
 }
 
 // showReplaced shows the binding of session that setup replaces, and the bad test bindings of
@@ -590,14 +694,20 @@ func offerLink(bin, link string, in *bufio.Reader, stdout io.Writer) error {
 // ask prints question and reads one answer line. Only "y" or "yes" is yes; EOF with no answer
 // means "no". It ends the line after the answer, as a terminal shows it.
 func ask(in *bufio.Reader, stdout io.Writer, question string) (bool, error) {
+	answer, err := askLine(in, stdout, question)
+	a := strings.ToLower(answer)
+	return a == "y" || a == "yes", err
+}
+
+// askLine asks question and returns the answer line with no spaces around it. No answer is "".
+func askLine(in *bufio.Reader, stdout io.Writer, question string) (string, error) {
 	fmt.Fprint(stdout, question)
 	answer, err := in.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
-		return false, fmt.Errorf("read answer: %w", err)
+		return "", fmt.Errorf("read answer: %w", err)
 	}
 	fmt.Fprintln(stdout)
-	a := strings.ToLower(strings.TrimSpace(answer))
-	return a == "y" || a == "yes", nil
+	return strings.TrimSpace(answer), nil
 }
 
 func onPath(dir string) bool {

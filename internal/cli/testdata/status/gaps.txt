@@ -23,7 +23,10 @@ withheld history:
   codex: none
 
 review queue: 1 pending, the oldest 3h old
-extraction: no failed batch
+extraction: no extractor CLI is chosen, so Brain makes no extractor call; run brain setup
+  last 24h: 0 of 10 extractor calls, 0 of 5 new proposals
+  waiting: none
+  failed batches: none
 
 brief (output generation 1):
   global: 270 of 3800 bytes

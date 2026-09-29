@@ -421,8 +421,8 @@ func TestStatusFailedBatch(t *testing.T) {
 	})
 	closeStore(t, s)
 	out := f.mustStatus(t)
-	want := "extraction: 1 failed batches; their evidence waits for the next pass\n" +
-		"  batch 1, session 1, workspace ws_a14: invalid, claude gave no structured output, 3h ago\n"
+	want := "  failed batches: 1; their evidence waits for the next pass\n" +
+		"    batch 1, session 1, workspace ws_a14: invalid, claude gave no structured output, 3h ago\n"
 	if !strings.Contains(out, want) {
 		t.Errorf("brain status:\n%s\nwant it to hold:\n%s", out, want)
 	}
