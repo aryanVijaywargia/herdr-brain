@@ -113,6 +113,16 @@ func (c *Capture) Handle(ctx context.Context, s Step) error {
 // pane and starts a new segment, with a gap observation when gap is not "".
 func (c *Capture) baseline(ctx context.Context, s Step, gap string) error {
 	cp := c.panes[s.PaneID]
+	// A forget during the read may delete text that the read shows, so that read is no base
+	// of the new generation: the baseline notes the forgets before it reads (§6.7).
+	var forgets int64
+	err := c.write(ctx, s, func(tx *sql.Tx, _ time.Time, _ Learning) (err error) {
+		forgets, err = store.Forgets(ctx, tx)
+		return err
+	})
+	if err != nil {
+		return err
+	}
 	r, err := c.read(ctx, s.PaneID)
 	switch {
 	case err != nil:
@@ -140,7 +150,8 @@ func (c *Capture) baseline(ctx context.Context, s Step, gap string) error {
 	}
 	cp.workspace, cp.base, cp.lines, cp.back, cp.ok, cp.segment = r.pane.WorkspaceID, s.Learning, r.lines, nil, true, 0
 	_, cp.open = parts(r, nil, nil)
-	return c.write(ctx, s, func(tx *sql.Tx, now time.Time, learning Learning) error {
+	stale := false
+	err = c.write(ctx, s, func(tx *sql.Tx, now time.Time, learning Learning) error {
 		if old != nil && old.session != 0 && !c.held(old.key, s.PaneID) {
 			if err := store.EndSession(ctx, tx, old.key, now); err != nil {
 				return err
@@ -149,8 +160,16 @@ func (c *Capture) baseline(ctx context.Context, s Step, gap string) error {
 		if !sameLearning(learning, s.Learning) || !learning.On {
 			return nil // the next change sees the switch and takes a new baseline
 		}
+		n, err := store.Forgets(ctx, tx)
+		if stale = n != forgets; err != nil || stale {
+			return err
+		}
 		return c.begin(ctx, tx, s, cp, r, gap, now)
 	})
+	if err != nil || !stale {
+		return err
+	}
+	return c.baseline(ctx, s, gap) // a forget ran during the read: read the pane again
 }
 
 // change reads the pane and stores its new part as one observation.
@@ -172,6 +191,12 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 	added, status := newPart(cp.lines, cp.back, r)
 	ps, open := parts(r, added, cp.open)
 	err = c.write(ctx, s, func(tx *sql.Tx, now time.Time, learning Learning) error {
+		if learning.On && cp.session != 0 {
+			// The read is no base of a new segment either when a forget ran since the baseline.
+			if err := store.CheckGeneration(ctx, tx, cp.session, cp.gen); err != nil {
+				return err
+			}
+		}
 		if !sameLearning(learning, cp.base) {
 			// Learning switched since the base: drop the read, and it is the new base.
 			cp.base, cp.segment = learning, 0

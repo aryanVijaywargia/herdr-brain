@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -28,12 +29,28 @@ var senders = map[string]store.Sender{
 	adapter.EventStop:   store.SenderAssistant,
 }
 
-// record stores one hook record of h.Event from the hook input raw (E11-S5, §6.1): one
+// record stores one hook record of h.Event from the hook input stdin (E11-S5, §6.1): one
 // observation and, for a tool, one command record. It uses the same resolver and live check
 // as the start hook, and it prints nothing. It stores nothing when the profile does not turn
 // the event on, when learning is off, or when capture has no open segment of the pane: a hook
 // record joins the session that capture keeps.
-func (h Hook) record(ctx context.Context, raw []byte) (err error) {
+func (h Hook) record(ctx context.Context, stdin io.Reader) (err error) {
+	var r *resolver.Resolved
+	var rs records
+	var session, gen int64
+	if h.Profile.On(h.Event) {
+		r, rs, session, gen, err = h.note(ctx)
+		if r != nil {
+			defer func() { err = errors.Join(err, r.Store.Close()) }()
+		}
+		if err != nil {
+			return err
+		}
+	}
+	raw, err := io.ReadAll(stdin)
+	if err != nil {
+		return fmt.Errorf("read hook input: %w", err)
+	}
 	if !h.Profile.On(h.Event) {
 		return nil
 	}
@@ -41,9 +58,25 @@ func (h Hook) record(ctx context.Context, raw []byte) (err error) {
 	if errors.Is(err, adapter.ErrRetest) {
 		return errors.Join(err, harness.MarkRetest(h.Retest, h.Profile.Kind, h.Now()))
 	}
-	if err != nil {
+	if err != nil || session == 0 {
 		return err
 	}
+	err = rs.s.Write(ctx, func(tx *sql.Tx) error {
+		return h.write(ctx, tx, r, in, session, gen, h.Now().UTC())
+	})
+	if errors.Is(err, store.ErrForgotten) {
+		return nil
+	}
+	return err
+}
+
+// note resolves the pane of the hook and notes the capture session of the pane and its
+// generation, before the record reads its text: the write refuses a newer generation, as a
+// brain forget --session between the two deleted the evidence (§6.7). r is nil when no store
+// is open or the pane failed the live check, and session is 0 when capture has no open
+// segment of the pane; a hook record writes nothing then. rs is the store of r, and the caller
+// closes it.
+func (h Hook) note(ctx context.Context) (r *resolver.Resolved, rs records, session, gen int64, err error) {
 	open := func(ctx context.Context, dir string) (resolver.Store, error) {
 		s, err := store.Open(ctx, dir, busyTimeout)
 		if err != nil {
@@ -53,43 +86,24 @@ func (h Hook) record(ctx context.Context, raw []byte) (err error) {
 	}
 	// No agent session goes to the resolver: a hook record writes no delivery record.
 	res, err := resolver.New(h.Bindings, open, h.pane).Resolve(ctx, h.Environ, "")
-	if err != nil {
-		return err
+	if r, _ = res.(*resolver.Resolved); err != nil || r == nil {
+		return nil, rs, 0, 0, err
 	}
-	r, ok := res.(*resolver.Resolved)
-	if !ok {
-		// No store, or a pane that failed the live check: a hook record writes nothing.
-		return nil
-	}
-	defer func() { err = errors.Join(err, r.Store.Close()) }()
 	rs, ok := r.Store.(records)
 	if !ok {
 		panic(fmt.Sprintf("hook: resolver store is %T, want the hook's own", r.Store))
 	}
-	// The record notes the capture generation of its session before it filters and stores
-	// the text, and the write refuses a newer one: a brain forget --session between the two
-	// deleted the evidence, so the record stores nothing (§6.7).
-	var session, gen int64
 	err = rs.s.Write(ctx, func(tx *sql.Tx) (err error) {
-		if session, _, err = store.HookSegment(ctx, tx, r.Binding.Session, h.Profile.Kind, r.PaneID, in.SessionID); err != nil || session == 0 {
+		if session, _, err = store.HookSegment(ctx, tx, r.Binding.Session, h.Profile.Kind, r.PaneID, ""); err != nil || session == 0 {
 			return err
 		}
 		gen, err = store.Generation(ctx, tx, session)
 		return err
 	})
-	if err != nil || session == 0 {
-		return err
-	}
-	if h.noted != nil {
+	if err == nil && h.noted != nil {
 		h.noted()
 	}
-	err = rs.s.Write(ctx, func(tx *sql.Tx) error {
-		return h.write(ctx, tx, r, in, session, gen, h.Now().UTC())
-	})
-	if errors.Is(err, store.ErrForgotten) {
-		return nil
-	}
-	return err
+	return r, rs, session, gen, err
 }
 
 // write stores the hook record in in tx, after the learning check of the pane, in session
@@ -102,7 +116,7 @@ func (h Hook) write(ctx context.Context, tx *sql.Tx, r *resolver.Resolved, in ad
 	kind := h.Profile.Kind
 	session, segment, err := store.HookSegment(ctx, tx, r.Binding.Session, kind, r.PaneID, in.SessionID)
 	if err != nil || segment == 0 || session != noted {
-		return err // another session holds the pane now: the note does not cover it
+		return err // another agent session, or another session holds the pane now: the note does not cover it
 	}
 	if err := store.CheckGeneration(ctx, tx, session, gen); err != nil {
 		return err

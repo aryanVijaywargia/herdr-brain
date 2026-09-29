@@ -163,6 +163,15 @@ func Generation(ctx context.Context, tx *sql.Tx, sessionID int64) (int64, error)
 	return gen, nil
 }
 
+// Forgets returns the sum of the capture generations of all sessions. Each brain forget
+// --session raises it, and session rows are never deleted, so a changed sum says that a forget
+// ran in between. A pane read notes it before a baseline, when the session is not yet known.
+func Forgets(ctx context.Context, tx *sql.Tx) (int64, error) {
+	var n int64
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(generation), 0) FROM sessions`).Scan(&n)
+	return n, err
+}
+
 // CheckGeneration returns ErrForgotten when the capture generation of session sessionID is
 // no longer gen, the value that the writer noted before it collected its text.
 func CheckGeneration(ctx context.Context, tx *sql.Tx, sessionID, gen int64) error {
