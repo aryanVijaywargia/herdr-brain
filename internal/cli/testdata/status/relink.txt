@@ -18,6 +18,7 @@ withheld history:
   codex: none
 
 review queue: empty
+extraction: no failed batch
 
 brief (output generation 1):
   global: 270 of 3800 bytes

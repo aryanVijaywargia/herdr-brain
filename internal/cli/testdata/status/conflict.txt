@@ -17,6 +17,7 @@ withheld history:
   codex: none
 
 review queue: empty
+extraction: no failed batch
 
 brief: <tmp>/main/out/gen-1: global.md changed: output files do not match their manifest
 output conflicts: 1 (brain repair --confirm deletes them)

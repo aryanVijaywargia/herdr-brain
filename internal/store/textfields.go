@@ -146,5 +146,18 @@ func noItemTextFields() []Field {
 		{"rejections", "workspace_key"},
 		{"rejections", "at"},
 		{"rejections", "reopened"},
+		{"extraction_batches", "workspace_key"},
+		{"extraction_batches", "first_capture"},
+		{"extraction_batches", "last_capture"},
+		{"extraction_batches", "status"},
+		{"extraction_batches", "reason"}, // A fixed reason of Brain; no model text.
+		{"extraction_batches", "at"},
+		{"extraction_watermarks", "workspace_key"},
+		{"extraction_watermarks", "capture_identity"},
+		{"extractor_settings", "workspace_key"},
+		{"extractor_settings", "extraction"},
+		{"extractor_settings", "cli"},
+		{"extractor_settings", "model"},
+		{"extractor_settings", "changed"},
 	}
 }

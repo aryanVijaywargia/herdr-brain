@@ -33,7 +33,8 @@ type daemon struct {
 	tries        int
 	pause        time.Duration
 	queue        int
-	onBehind     func() // tests only: called after a reader drops an event
+	onBehind     func()                                  // tests only: called after a reader drops an event
+	extract      func(ctx context.Context, g Gate) error // one extraction pass of the store of g; nil for none
 }
 
 // item is one event, or the end of a stream, from a reader.
@@ -62,6 +63,10 @@ type loop struct {
 	panes  map[string]*pane
 	gate   *Gate // nil while the session is not bound
 	redo   *Gap  // the gap of a reconcile that failed; the next tick tries it again
+
+	extracting  bool       // an extraction pass runs
+	lastExtract time.Time  // the start of the last extraction pass
+	extracted   chan error // the end of an extraction pass
 }
 
 // run connects, reconciles and then handles events until an ErrStop or ctx ends.
@@ -97,12 +102,33 @@ func (d *daemon) run(ctx context.Context) error {
 			} else {
 				l.report(l.sync(ctx, GapLearning, false))
 			}
+			l.extract(ctx)
+		case err := <-l.extracted:
+			l.extracting = false
+			l.report(err)
 		}
 	}
 }
 
 func newLoop(d *daemon) *loop {
-	return &loop{d: d, items: make(chan item, d.queue), behind: make(chan struct{}, 1), panes: map[string]*pane{}}
+	return &loop{d: d, items: make(chan item, d.queue), behind: make(chan struct{}, 1), panes: map[string]*pane{},
+		extracted: make(chan error, 1)}
+}
+
+// extract starts an extraction pass of the bound store (§7.3), unless one runs or the last
+// one started less than extractEvery ago. The pass runs beside the loop: an extractor call
+// takes seconds or minutes, and the events do not wait for it. The end of ctx stops it.
+func (l *loop) extract(ctx context.Context) {
+	if l.d.extract == nil || l.gate == nil || l.extracting || time.Since(l.lastExtract) < extractEvery {
+		return
+	}
+	l.extracting, l.lastExtract = true, time.Now()
+	g := *l.gate
+	l.wg.Add(1)
+	go func() {
+		defer l.wg.Done()
+		l.extracted <- l.d.extract(ctx, g)
+	}()
 }
 
 // start connects, checks and reconciles with GapStart.

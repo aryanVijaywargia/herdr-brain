@@ -15,8 +15,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
+	"github.com/aryanVijaywargia/herdr-brain/internal/extract"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
+	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
 const (
@@ -36,6 +39,10 @@ const (
 	// busyTimeout is how long a store transaction waits for the lock. [NEW] 5 s, as brain
 	// event: nobody waits for brained.
 	busyTimeout = 5 * time.Second
+	// extractEvery is the least pause between the starts of two extraction passes. [NEW] 1
+	// minute: a session is finished after 10 minutes idle (§7.3), so a pass each minute is soon
+	// enough.
+	extractEvery = time.Minute
 )
 
 // ErrStop means that brained stops as D7 wants: herdr closed the event socket, or Brain is
@@ -66,9 +73,24 @@ func Main(ctx context.Context, environ []string, log io.Writer) error {
 	d := &daemon{
 		env: e, sock: herdr.Socket{Path: e.socket}, bindingsFile: bf,
 		handler: NewCapture(herdr.Socket{Path: e.socket}), log: log, tick: t.C,
-		tries: connectTries, pause: connectPause, queue: queueSize,
+		tries: connectTries, pause: connectPause, queue: queueSize, extract: extractPass,
 	}
 	return d.run(ctx)
+}
+
+// extractPass runs one extraction pass of the store of g with the extractor CLI (§7.3).
+func extractPass(ctx context.Context, g Gate) (err error) {
+	st, err := store.Open(ctx, g.Binding.Store, busyTimeout)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, st.Close()) }()
+	p := extract.Pass{Store: st, Runner: extract.ExecRunner{}, HerdrSession: g.Binding.Session,
+		DefaultOn: g.Binding.Kind != bindings.KindTest, Now: time.Now}
+	if err := p.Run(ctx); err != nil {
+		return fmt.Errorf("extract: %w", err)
+	}
+	return nil
 }
 
 // env is what brained reads from the [[startup]] environment.
