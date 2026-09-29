@@ -302,6 +302,47 @@ func TestCaptureS36(t *testing.T) {
 	}
 }
 
+// The end of the old pane id after a move does not end the session and segment of the pane
+// with the new id (S36).
+func TestCaptureMovedEnd(t *testing.T) {
+	k := newCapture(t, "s1", t.TempDir())
+	k.pane("w1:p1", "codex", codexRun2)
+	k.reads(t, "w1:p1", "codex-run2-0-idle.txt")
+	k.must(t, Baseline, "w1:p1", "", GapNone)
+	k.f.mu.Lock()
+	k.f.panes["w2:p1"] = &fakePane{ws: "w2", agent: "codex", session: codexRun2}
+	delete(k.f.panes, "w1:p1")
+	k.f.reads["w2:p1"] = k.f.reads["w1:p1"]
+	k.f.mu.Unlock()
+	k.must(t, Baseline, "w2:p1", "", GapNone)
+	k.must(t, End, "w1:p1", "", GapNone)
+	r := k.rows(t)
+	if len(r.segments) != 2 || !r.segments[1].Ended.IsZero() || !r.sessions[0].Ended.IsZero() {
+		t.Errorf("rows = %+v, want the session and the w2:p1 segment open", r)
+	}
+	k.must(t, End, "w2:p1", "", GapNone)
+	if r = k.rows(t); r.sessions[0].Ended.IsZero() {
+		t.Errorf("session %+v is open after the end of w2:p1", r.sessions[0])
+	}
+}
+
+// An end that fails to write keeps the pane state, so the next end step closes the session.
+func TestCaptureEndRetry(t *testing.T) {
+	k := newCapture(t, "s1", t.TempDir())
+	k.pane("w1:p1", "codex", codexRun2)
+	k.reads(t, "w1:p1", "codex-run2-0-idle.txt")
+	k.must(t, Baseline, "w1:p1", "", GapNone)
+	s := Step{Kind: End, PaneID: "w1:p1", WorkspaceID: "w1", Reason: ReasonGone, Gate: k.gate}
+	s.Gate.Binding.Store = filepath.Join(t.TempDir(), "missing", "dir")
+	if err := k.c.Handle(context.Background(), s); err == nil {
+		t.Fatal("end with a bad store: no error")
+	}
+	k.must(t, End, "w1:p1", "", GapNone)
+	if r := k.rows(t); r.sessions[0].Ended.IsZero() {
+		t.Errorf("session %+v is open after the second end", r.sessions[0])
+	}
+}
+
 // S38: a repaint and a resize give no observation. A screen that lost text is partial.
 func TestCaptureS38(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
@@ -321,6 +362,18 @@ func TestCaptureS38(t *testing.T) {
 	}
 	if len(r.sessions) != 1 || r.sessions[0].Key.Kind != store.KeyCapture {
 		t.Errorf("sessions = %+v, want one with a capture id", r.sessions)
+	}
+}
+
+// S38: a screen that lost the old text and shows nothing new is a gap.
+func TestCaptureScreenLost(t *testing.T) {
+	k := newCapture(t, "s1", t.TempDir())
+	k.pane("w1:p1", "claude", "")
+	k.reads(t, "w1:p1", "claude-visible-1.txt", "claude-visible-empty.txt")
+	k.must(t, Baseline, "w1:p1", "", GapNone)
+	k.must(t, Change, "w1:p1", "idle", GapNone)
+	if excerpts, gaps := k.rows(t).text(); len(excerpts) != 0 || !slices.Equal(gaps, []string{gapLost}) {
+		t.Errorf("excerpts %q, gaps %v, want only a %q gap", excerpts, gaps, gapLost)
 	}
 }
 

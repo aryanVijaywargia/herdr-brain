@@ -23,3 +23,4 @@ Claude, `visible` (M0 E11-S1: the alternate screen):
 
 `noise/codex.toml` is `adapters/codex.toml` with test `noise_lines`. The shipped profiles have
 none, so their hash and their conformance results stay the same.
+- `claude-visible-empty.txt`: an empty screen, as after an alternate screen closes (S38).

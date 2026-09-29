@@ -39,6 +39,7 @@ const (
 	gapMoved   = "pane moved"     // the pane is in another workspace or has a new id (S36)
 	gapUnsure  = "unstable read"  // the pane changed during the read
 	gapSession = "session change" // another agent or agent session holds the pane
+	gapLost    = "screen lost"    // the screen lost the old text, with nothing new
 )
 
 // Capture is the Handler that reads panes (E11-S3, HLD §6.2). It keeps the last read of each
@@ -134,7 +135,7 @@ func (c *Capture) baseline(ctx context.Context, s Step, gap string) error {
 	}
 	cp.workspace, cp.base, cp.lines, cp.ok, cp.segment = r.pane.WorkspaceID, s.Learning, r.lines, true, 0
 	return c.write(ctx, s, func(tx *sql.Tx, now time.Time, learning Learning) error {
-		if old != nil && old.session != 0 {
+		if old != nil && old.session != 0 && !c.held(old.key, s.PaneID) {
 			if err := store.EndSession(ctx, tx, old.key, now); err != nil {
 				return err
 			}
@@ -185,6 +186,12 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 			return c.begin(ctx, tx, s, cp, r, gapNoBase, now)
 		}
 		if len(added) == 0 {
+			if status == store.ObservationPartial && len(cp.lines) > 0 {
+				// The screen lost the old text and shows nothing new, as an alternate screen
+				// that closes: the lost text shows as a gap (S38).
+				return store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: identity(s, cp.segment, now),
+					Source: store.SourceHerdr, SegmentID: cp.segment, Event: gapLost, Status: store.ObservationGap, At: now})
+			}
 			return nil // a repaint or a resize: nothing new (S38)
 		}
 		excerpt, truncated := filter(strings.Join(added, "\n"))
@@ -271,13 +278,28 @@ func (c *Capture) lose(ctx context.Context, s Step, cp *capturePane, err error) 
 // end ends the session of the pane and drops its last read. An end writes no text, so it
 // needs no learning check.
 func (c *Capture) end(ctx context.Context, s Step, cp *capturePane) error {
-	delete(c.panes, s.PaneID)
-	if cp == nil || cp.session == 0 {
-		return nil
+	if cp != nil && cp.session != 0 && !c.held(cp.key, s.PaneID) {
+		err := c.write(ctx, s, func(tx *sql.Tx, now time.Time, _ Learning) error {
+			return store.EndSession(ctx, tx, cp.key, now)
+		})
+		if err != nil {
+			return err // the state stays, so the next end step closes the session
+		}
 	}
-	return c.write(ctx, s, func(tx *sql.Tx, now time.Time, _ Learning) error {
-		return store.EndSession(ctx, tx, cp.key, now)
-	})
+	delete(c.panes, s.PaneID)
+	return nil
+}
+
+// held says whether a pane other than paneID holds session key k. After a move, the pane
+// with the new id holds the session, and the end of the old id must not end it (S36). Its
+// new segment has ended the old one.
+func (c *Capture) held(k store.SessionKey, paneID string) bool {
+	for id, cp := range c.panes {
+		if id != paneID && cp.key == k {
+			return true
+		}
+	}
+	return false
 }
 
 // write runs fn in one store transaction, with the time and the learning state of the pane
