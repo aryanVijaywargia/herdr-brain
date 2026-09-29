@@ -32,7 +32,8 @@ harnesses = ["claude", "codex"]
 
 # A full-size brief (about 9,400 of 9,500 bytes) with the marker item in its middle. A Codex
 # pass needs this case: a model that gets only a preview of the hook output does not see the
-# marker (E8-S2). The padding items are no rule, only size.
+# marker (E8-S2). The padding items are no rule, only size. [NEW] the padding counts: 431 global
+# words, and 112 and 570 workspace words around the marker item.
 [[probe]]
 id = "delivery-full-brief"
 stage = "delivery"

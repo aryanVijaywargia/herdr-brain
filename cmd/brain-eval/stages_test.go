@@ -246,6 +246,21 @@ func TestConformanceRecord(t *testing.T) {
 	}
 }
 
+// A run that stops at a failed case completed, but gives no pass: its delivery probes that
+// passed before the failure make it inconclusive, not pending.
+func TestConformanceFailedRun(t *testing.T) {
+	e := newEnv(t)
+	e.fake.answer = knows
+	e.hook(t, store.ResultEmitted, "")
+	cs := append(deliveryCase("claude"), Case{ID: "broken", Stage: "update", Setup: []string{"false"}})
+	if _, err := e.r.Run(context.Background(), cs); err == nil {
+		t.Fatal("Run() = nil, want the failed setup step")
+	}
+	if got := readConformance(t, e)["claude"].Result; got != resultInconclusive {
+		t.Errorf("record after a failed run %q, want inconclusive", got)
+	}
+}
+
 // A run of another stage, or of the delivery stage of the other CLI, leaves the record alone.
 func TestConformanceUnrequested(t *testing.T) {
 	e := newEnv(t)
@@ -535,8 +550,8 @@ func TestTableLeaks(t *testing.T) {
 	}
 }
 
-// A restraint case passes only when its control passes too; a result without a label fails;
-// a control and an ad-hoc case get no verdict.
+// A restraint case passes only when its control passes too, and fails when its control was
+// skipped; a result without a label fails; a control and an ad-hoc case get no verdict.
 func TestVerdicts(t *testing.T) {
 	r := func(c, stage string, control bool, status Status, label Label) store.EvalResult {
 		return store.EvalResult{Case: c, Stage: stage, Control: control, Harness: "claude", Status: string(status), Label: string(label)}
@@ -551,17 +566,19 @@ func TestVerdicts(t *testing.T) {
 		r("l", "restraint", true, NotDelivered, Stale),
 		r("s", "restraint", false, Delivered, Pass),
 		r("s", "restraint", true, Skipped, ""),
+		r("w", "restraint", false, Delivered, Pass),
+		r("w", "restraint", true, Incomplete, Unsure),
 		r("u", "update", false, Incomplete, Unsure),
 		r("k", "update", false, Skipped, ""),
 		r("pm", "usefulness", false, Delivered, Miss),
 		r("adhoc", "", false, Delivered, Pass),
 	}
-	want := []string{verdictPass, "", verdictFail, verdictPass, "", verdictFail, "", verdictUnsure, "", verdictUnsure,
-		verdictSkipped, verdictRecord, ""}
+	want := []string{verdictPass, "", verdictFail, verdictPass, "", verdictFail, "", verdictFail, "", verdictUnsure, "",
+		verdictUnsure, verdictSkipped, verdictRecord, ""}
 	if got := verdicts(rs); !slices.Equal(got, want) {
 		t.Errorf("verdicts() = %q, want %q", got, want)
 	}
-	if got := score(want); got != "score: 2 pass, 2 fail, 2 unsure, 1 skipped, 1 record, of 8 probes" {
+	if got := score(want); got != "score: 2 pass, 3 fail, 2 unsure, 1 skipped, 1 record, of 9 probes" {
 		t.Errorf("score() = %q", got)
 	}
 }

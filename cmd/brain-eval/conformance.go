@@ -64,10 +64,15 @@ func (r *Runner) startConformance(cases []Case, skip map[string]string, versions
 	return out, nil
 }
 
-// endConformance writes the result of each pending record after a completed run.
-func (r *Runner) endConformance(pending []harness.Result, cases []Case, rs []store.EvalResult, finished time.Time) error {
+// endConformance writes the result of each pending record after a run that was not
+// interrupted. A run that stopped at a failed case gives no pass: its result is inconclusive,
+// or fail when a delivery probe failed.
+func (r *Runner) endConformance(pending []harness.Result, cases []Case, rs []store.EvalResult, failed bool, finished time.Time) error {
 	for _, res := range pending {
 		res.Result, res.At = conformance(cases, rs, res.Harness), finished
+		if failed && res.Result == harness.Pass {
+			res.Result = resultInconclusive
+		}
 		fmt.Fprintf(r.Stdout, "conformance %s %s: %s\n", res.Harness, res.CLIVersion, res.Result)
 		if err := harness.WriteConformance(r.Conformance, res); err != nil {
 			return err

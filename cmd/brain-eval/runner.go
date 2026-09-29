@@ -127,14 +127,15 @@ func (r *Runner) Run(ctx context.Context, cases []Case) (out []Outcome, err erro
 	if err != nil {
 		return nil, err
 	}
-	completed := false
 	defer func() {
 		finished := r.Now()
 		rs := results(cases, out, versions)
+		failed := err != nil
 		err = errors.Join(err, writeResults(b.Store, started, finished, rs), writeReport(b.Store, cases, rs, r.Stdout))
-		// An interrupted or failed run leaves its pending records: it is not a completed run.
-		if completed {
-			err = errors.Join(err, r.endConformance(pending, cases, rs, finished))
+		// An interrupted run leaves its pending records. A run that stopped at a failed case
+		// completed, but it is no pass.
+		if ctx.Err() == nil {
+			err = errors.Join(err, r.endConformance(pending, cases, rs, failed, finished))
 		}
 	}()
 	for _, c := range cases {
@@ -146,7 +147,6 @@ func (r *Runner) Run(ctx context.Context, cases []Case) (out []Outcome, err erro
 			return out, fmt.Errorf("case %s: %w", c.ID, err)
 		}
 	}
-	completed = ctx.Err() == nil
 	return out, nil
 }
 

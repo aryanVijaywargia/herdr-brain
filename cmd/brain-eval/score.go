@@ -23,12 +23,12 @@ const (
 
 // verdicts returns the verdict of each result of rs, in order: "" for a control and for an
 // ad-hoc case. A result with no label did not get its brief, so it fails. A restraint case
-// must pass in its control too: it fails when its control does not pass, and it is unsure when
-// its control has no label (§12.1).
+// must pass in its control too: it fails when its control does not pass, also when its control
+// was skipped, and it is unsure while its control is UNSURE (§12.1).
 func verdicts(rs []store.EvalResult) []string {
 	ctl := map[[2]string]string{}
 	for _, r := range rs {
-		if r.Control && r.Status != string(Skipped) {
+		if r.Control {
 			ctl[[2]string{r.Case, r.Harness}] = r.Label
 		}
 	}
@@ -47,10 +47,10 @@ func verdicts(rs []store.EvalResult) []string {
 		case r.Stage != "restraint":
 			out[i] = verdictPass
 		default:
-			switch lb, ok := ctl[[2]string{r.Case, r.Harness}]; {
-			case lb == string(Pass):
+			switch ctl[[2]string{r.Case, r.Harness}] {
+			case string(Pass):
 				out[i] = verdictPass
-			case !ok || lb == "" || lb == string(Unsure):
+			case string(Unsure):
 				out[i] = verdictUnsure
 			default:
 				out[i] = verdictFail
