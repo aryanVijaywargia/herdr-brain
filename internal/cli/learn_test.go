@@ -161,6 +161,19 @@ func TestLearnChangesNothingElse(t *testing.T) {
 	}
 }
 
+// E11-S2 AC: brain remember still works while learning is off.
+func TestLearnOffKeepsRemember(t *testing.T) {
+	f := newFixture(t)
+	f.mustLearn(t, f.sock, "off")
+	before := f.rows(t)
+	var out bytes.Buffer
+	if err := Remember(context.Background(), f.env(f.sock, "w14:p1", "w14", &out), []string{"use pnpm"}); err != nil {
+		t.Fatalf("Remember while off = %v", err)
+	}
+	ws := "ws_a14"
+	checkDraft(t, []string{"use pnpm"}, "use pnpm", before, f.rows(t), store.KindFact, &ws)
+}
+
 // AC: store off plus pane on: learning is off for that pane.
 func TestLearnStoreOffWins(t *testing.T) {
 	f := newFixture(t)

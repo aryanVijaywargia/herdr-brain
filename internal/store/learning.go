@@ -30,6 +30,15 @@ type LearningSetting struct {
 
 // SetLearning records s. It replaces the earlier setting of the same scope and target.
 func SetLearning(ctx context.Context, tx *sql.Tx, s LearningSetting) error {
+	// Each change time is later than every stored one, also within one millisecond of the
+	// store's time precision: a reader of LearningChanged sees each off time (E11-S2).
+	var last time.Time
+	if err := tx.QueryRowContext(ctx, `SELECT MAX(changed) FROM learning_settings`).Scan(timeDest{&last}); err != nil {
+		return fmt.Errorf("read learning settings: %w", err)
+	}
+	if !last.IsZero() && !s.Changed.Truncate(time.Millisecond).After(last) {
+		s.Changed = last.Add(time.Millisecond)
+	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO learning_settings (scope, herdr_session, target, learning, changed)
 		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT (scope, herdr_session, target) DO UPDATE SET learning = excluded.learning, changed = excluded.changed`,
@@ -97,6 +106,22 @@ func LearningOn(ctx context.Context, tx *sql.Tx, defaultOn bool, session, worksp
 		return false, fmt.Errorf("read learning settings: %w", err)
 	}
 	return offs == 0, nil
+}
+
+// LearningChanged returns the latest change time of the learning settings that apply to pane
+// paneID of herdr session session, in the workspace with key workspaceKey: the zero time when
+// none applies. A newer time than a reader saw means that learning may have been off in
+// between, so the reader starts again from a fresh baseline (E11-S2).
+func LearningChanged(ctx context.Context, tx *sql.Tx, session, workspaceKey, paneID string) (time.Time, error) {
+	var changed time.Time
+	err := tx.QueryRowContext(ctx, `SELECT MAX(changed) FROM learning_settings WHERE scope = ? OR
+		scope = ? AND target = ? AND ? != '' OR
+		scope = ? AND herdr_session = ? AND target = ?`,
+		LearningStore, LearningWorkspace, workspaceKey, workspaceKey, LearningPane, session, paneID).Scan(timeDest{&changed})
+	if err != nil {
+		return time.Time{}, fmt.Errorf("read learning settings: %w", err)
+	}
+	return changed, nil
 }
 
 func onOff(on bool) string {

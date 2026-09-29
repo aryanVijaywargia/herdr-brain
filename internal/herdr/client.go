@@ -139,15 +139,20 @@ func failure(err error, stderr []byte) error {
 		} `json:"error"`
 	}
 	if json.Unmarshal(stderr, &reply) == nil && reply.Error.Code != "" {
-		if reply.Error.Code == "pane_not_found" {
-			return fmt.Errorf("%s: %w", reply.Error.Message, ErrPaneNotFound)
-		}
-		return fmt.Errorf("%s (%s)", reply.Error.Message, reply.Error.Code)
+		return apiError(reply.Error.Code, reply.Error.Message)
 	}
 	if msg := bytes.TrimSpace(stderr); len(msg) > 0 {
 		return fmt.Errorf("%s: %w", msg, err)
 	}
 	return err
+}
+
+// apiError is the error of a request that the herdr server refused with code and message.
+func apiError(code, message string) error {
+	if code == "pane_not_found" {
+		return fmt.Errorf("%s: %w", message, ErrPaneNotFound)
+	}
+	return fmt.Errorf("%s (%s)", message, code)
 }
 
 // result runs herdr, checks that the reply is {"result":{"type":want,...}} and decodes the
@@ -163,16 +168,21 @@ func (c *Client) result(ctx context.Context, want string, v any, args ...string)
 	if err := json.Unmarshal(out, &reply); err != nil {
 		return &ShapeError{Reason: err.Error()}
 	}
+	return decodeResult(reply.Result, want, v)
+}
+
+// decodeResult checks that result is {"type":want,...} and decodes it into v.
+func decodeResult(result json.RawMessage, want string, v any) error {
 	var head struct {
 		Type *string `json:"type"`
 	}
-	if err := json.Unmarshal(reply.Result, &head); err != nil || head.Type == nil {
+	if err := json.Unmarshal(result, &head); err != nil || head.Type == nil {
 		return &ShapeError{Field: "result.type", Reason: "missing, or the result is not an object"}
 	}
 	if *head.Type != want {
 		return &ShapeError{Field: "result.type", Reason: fmt.Sprintf("%q, want %q", *head.Type, want)}
 	}
-	return decode(reply.Result, v)
+	return decode(result, v)
 }
 
 func decode(data []byte, v any) error {
@@ -251,16 +261,25 @@ func (c *Client) Panes(ctx context.Context) ([]Pane, error) {
 	if err := c.result(ctx, "pane_list", &r, "pane", "list"); err != nil {
 		return nil, fmt.Errorf("herdr pane list: %w", err)
 	}
+	ps, err := parsePanes(r.Panes)
+	if err != nil {
+		return nil, fmt.Errorf("herdr pane list: %w", err)
+	}
+	return ps, nil
+}
+
+// parsePanes parses the panes field of a pane_list result.
+func parsePanes(panes *[]*rawPane) ([]Pane, error) {
 	var ck check
-	raw := req(&ck, r.Panes, "panes")
+	raw := req(&ck, panes, "panes")
 	if ck.err != nil {
-		return nil, fmt.Errorf("herdr pane list: %w", ck.err)
+		return nil, ck.err
 	}
 	ps := make([]Pane, len(raw))
 	for i, rp := range raw {
 		p, err := rp.parse(fmt.Sprintf("panes[%d]", i))
 		if err != nil {
-			return nil, fmt.Errorf("herdr pane list: %w", err)
+			return nil, err
 		}
 		ps[i] = p
 	}

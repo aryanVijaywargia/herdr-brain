@@ -78,8 +78,8 @@ func TestLearningSettings(t *testing.T) {
 	at := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
 	in := []LearningSetting{
 		{Scope: LearningPane, HerdrSession: "default", Target: "w1:p1", On: false, Changed: at},
-		{Scope: LearningWorkspace, Target: "ws_a", On: false, Changed: at},
-		{Scope: LearningStore, On: true, Changed: at},
+		{Scope: LearningWorkspace, Target: "ws_a", On: false, Changed: at.Add(time.Second)},
+		{Scope: LearningStore, On: true, Changed: at.Add(2 * time.Second)},
 	}
 	err := s.Write(ctx, func(tx *sql.Tx) error {
 		for _, set := range in {
@@ -107,6 +107,92 @@ func TestLearningSettings(t *testing.T) {
 	}
 }
 
+// E11-S2: an off and on within one millisecond, or with a clock that went back, still gives
+// a later LearningChanged, so a reader sees the off time.
+func TestSetLearningOrder(t *testing.T) {
+	_, s := newTestStore(t)
+	ctx := context.Background()
+	at := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	err := s.Write(ctx, func(tx *sql.Tx) error {
+		var last time.Time
+		for _, set := range []LearningSetting{
+			{Scope: LearningStore, On: true, Changed: at},
+			{Scope: LearningPane, HerdrSession: "default", Target: "w1:p1", On: false, Changed: at.Add(300 * time.Microsecond)},
+			{Scope: LearningPane, HerdrSession: "default", Target: "w1:p1", On: true, Changed: at.Add(-time.Second)},
+		} {
+			if err := SetLearning(ctx, tx, set); err != nil {
+				return err
+			}
+			got, err := LearningChanged(ctx, tx, "default", "", "w1:p1")
+			if err != nil {
+				return err
+			}
+			if !got.After(last) {
+				t.Errorf("LearningChanged after %+v = %v, want later than %v", set, got, last)
+			}
+			last = got
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func sameSetting(a, b LearningSetting) bool {
 	return a.Scope == b.Scope && a.HerdrSession == b.HerdrSession && a.Target == b.Target && a.On == b.On
+}
+
+// TestLearningChanged: the latest change of the settings that apply to one pane (E11-S2). A
+// setting of another workspace, pane or herdr session does not count.
+func TestLearningChanged(t *testing.T) {
+	t1 := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	t2 := t1.Add(time.Minute)
+	t3 := t2.Add(time.Minute)
+	tests := []struct {
+		name     string
+		settings []LearningSetting
+		key      string
+		want     time.Time
+	}{
+		{name: "none", key: "ws_a"},
+		{name: "store", settings: []LearningSetting{{Scope: LearningStore, On: true, Changed: t1}}, key: "ws_a", want: t1},
+		{name: "workspace is newer", key: "ws_a", want: t2, settings: []LearningSetting{
+			{Scope: LearningStore, On: true, Changed: t1},
+			{Scope: LearningWorkspace, Target: "ws_a", On: true, Changed: t2}}},
+		{name: "unmapped pane skips workspaces", key: "", want: t1, settings: []LearningSetting{
+			{Scope: LearningStore, On: true, Changed: t1},
+			{Scope: LearningWorkspace, Target: "ws_a", On: true, Changed: t2}}},
+		{name: "pane is newest", key: "ws_a", want: t3, settings: []LearningSetting{
+			{Scope: LearningWorkspace, Target: "ws_a", On: false, Changed: t2},
+			{Scope: LearningPane, HerdrSession: "default", Target: "w1:p1", On: true, Changed: t3}}},
+		{name: "other targets", key: "ws_a", settings: []LearningSetting{
+			{Scope: LearningWorkspace, Target: "ws_b", On: false, Changed: t2},
+			{Scope: LearningPane, HerdrSession: "other", Target: "w1:p1", On: false, Changed: t2},
+			{Scope: LearningPane, HerdrSession: "default", Target: "w1:p2", On: false, Changed: t3}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, s := newTestStore(t)
+			ctx := context.Background()
+			err := s.Write(ctx, func(tx *sql.Tx) error {
+				for _, set := range tt.settings {
+					if err := SetLearning(ctx, tx, set); err != nil {
+						return err
+					}
+				}
+				got, err := LearningChanged(ctx, tx, "default", tt.key, "w1:p1")
+				if err != nil {
+					return err
+				}
+				if !got.Equal(tt.want) {
+					t.Errorf("LearningChanged(default, %q, w1:p1) = %v, want %v", tt.key, got, tt.want)
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 }

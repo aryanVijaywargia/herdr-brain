@@ -64,3 +64,9 @@ command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" pane review --prop
 [[events]]
 on = "workspace.closed"
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" event workspace-closed"]
+
+# D7 (E11-S2): herdr starts brained once for each herdr session, after its socket is ready.
+# herdr does not supervise it: brained exits on the end of the event socket, and when Brain
+# is disabled or unlinked. A lock in HERDR_PLUGIN_STATE_DIR keeps one brained per session.
+[[startup]]
+command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" brained"]
