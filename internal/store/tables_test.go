@@ -50,7 +50,7 @@ func addFixture(t *testing.T, s *Store) fixture {
 		item: Item{ClaimID: "c1", CurrentRevision: 1, Kind: KindFact, Scope: ScopeWorkspace,
 			WorkspaceKey: ptr("k1"), State: StateActive, Anchors: []string{"a.go"}, Created: testNow},
 		proposal: Proposal{Text: "use pnpm", Scope: ScopeWorkspace, Target: "fact", Diff: "+use pnpm",
-			ExpectedBenefit: "stops the npm lockfile mistake", TriggerPrompts: []string{"h1"},
+			ExpectedBenefit: "stops the npm lockfile mistake", TriggerPrompts: []string{"h1"}, ConflictsWith: []int64{1},
 			Status: ProposalPending, Created: testNow},
 	}
 	write(t, s, func(tx *sql.Tx) error {
@@ -121,10 +121,10 @@ func columns(t *testing.T, s *Store, table string) []column {
 // coordinator's brief says the 9 of the issue's table list (adapters and file_snapshots move
 // to install.json, E8). E9-S4 adds learning_settings; E11-S3 and E11-S4 add the capture tables; E11-S5 adds command_records;
 // E11-S6 adds forgotten_captures; E12-S2 adds claims, candidates and evidence_links; E12-S3 adds rejections;
-// E13-S2 adds extraction_batches, extraction_watermarks and extractor_settings; E13-S4 adds extraction_calls.
+// E13-S2 adds extraction_batches, extraction_watermarks and extractor_settings; E13-S4 adds extraction_calls; E13-S5 adds change_requests.
 func TestM1Tables(t *testing.T) {
 	s := openM1(t)
-	want := []string{"applied_edits", "candidates", "claims", "command_records", "cursors", "deliveries", "evidence_links",
+	want := []string{"applied_edits", "candidates", "change_requests", "claims", "command_records", "cursors", "deliveries", "evidence_links",
 		"extraction_batches", "extraction_calls", "extraction_watermarks", "extractor_settings", "forgotten_captures", "item_revisions", "items", "learning_settings",
 		"observations", "outputs", "proposals", "rejections", "review_panes", "segments", "sessions", "tombstones", "workspaces"}
 	if got := tableNames(t, s); !slices.Equal(got, want) {
@@ -132,12 +132,11 @@ func TestM1Tables(t *testing.T) {
 	}
 }
 
-func TestNoM2Columns(t *testing.T) {
+// E3 left out the M2 column proposals.conflicts_with; E13-S5 adds it (§11).
+func TestProposalConflictsColumn(t *testing.T) {
 	s := openM1(t)
-	for _, c := range columns(t, s, "proposals") {
-		if c.name == "conflicts_with" {
-			t.Errorf("proposals has the M2 column conflicts_with")
-		}
+	if !slices.ContainsFunc(columns(t, s, "proposals"), func(c column) bool { return c.name == "conflicts_with" }) {
+		t.Errorf("proposals has no conflicts_with column")
 	}
 }
 

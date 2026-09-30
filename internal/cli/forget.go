@@ -109,7 +109,7 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 			return err
 		}
 		for _, s := range ss {
-			if err := store.ForgetSession(ctx, tx, s.ID, e.Now()); err != nil {
+			if err := store.ForgetSession(ctx, tx, s.ID); err != nil {
 				return err
 			}
 		}
