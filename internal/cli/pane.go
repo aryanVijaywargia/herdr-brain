@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -93,7 +94,10 @@ type reviewPane struct {
 	view   string      // the E4-S3 view of the proposal, read before each screen
 	scope  store.Scope // "" keeps the proposed scope
 	pin    bool
-	msg    string // the result of the last key
+	// conflict is the approve choice for a conflict: "" (keep both, with the mark), replace or
+	// exception [NEW key x].
+	conflict string
+	msg      string // the result of the last key
 }
 
 // run shows the proposal and reads keys until a decision, q or the end of input. It reads
@@ -129,6 +133,11 @@ func (p *reviewPane) key(ctx context.Context, k rune) (done bool, err error) {
 		return p.approve(ctx, nil)
 	case 'e':
 		return p.edit(ctx)
+	case 'c':
+		return p.change(ctx)
+	case 'x':
+		p.conflict = map[string]string{"": conflictReplace, conflictReplace: conflictException}[p.conflict]
+		p.msg = ""
 	case 'r':
 		return p.decide(ctx, "--reject")
 	case 'l':
@@ -179,6 +188,9 @@ func (p *reviewPane) approve(ctx context.Context, edit *string) (done bool, err 
 	if p.pin {
 		args = append(args, "--pin")
 	}
+	if p.conflict != "" {
+		args = append(args, "--"+p.conflict)
+	}
 	out, err := p.review(ctx, args...)
 	if !errors.Is(err, errConfirm) {
 		return p.show(out, err)
@@ -195,36 +207,57 @@ func (p *reviewPane) approve(ctx context.Context, edit *string) (done bool, err 
 	return p.decide(ctx, append(args, "--confirm")...)
 }
 
-// edit reads a new text in the pane and approves the proposal with it. The text stays in
-// memory: no temp file, no $EDITOR (E5-S1). Esc goes back.
+// edit reads a new text in the pane and approves the proposal with it. Esc goes back.
 func (p *reviewPane) edit(ctx context.Context) (bool, error) {
+	s, ok, err := p.line("new text (Enter approves, Esc goes back): ", "the edit is empty")
+	if !ok {
+		return false, err
+	}
+	return p.approve(ctx, &s)
+}
+
+// change reads your change request in the pane and asks for a change with it (S56): the
+// proposal is not published, and the pane closes as after the other decisions. Esc goes back.
+// [NEW key c].
+func (p *reviewPane) change(ctx context.Context) (bool, error) {
+	s, ok, err := p.line("change request (Enter sends, Esc goes back): ", "the change request is empty")
+	if !ok {
+		return false, err
+	}
+	return p.decide(ctx, "--change", s)
+}
+
+// line reads one line of text in the pane after prompt. The text stays in memory: no temp
+// file, no $EDITOR (E5-S1). ok is false on Esc, on an empty text (with message empty), and on
+// a text that the secret filter refuses: the filter runs before E4 gets the text, and a
+// refused text is dropped.
+func (p *reviewPane) line(prompt, empty string) (s string, ok bool, err error) {
 	var text []rune
 	// Each key redraws only the text-entry line, from the saved cursor: the proposal can be
 	// forgotten while you type, and the pane must not show its text again.
 	p.draw("\x1b7")
 	for {
-		_, _ = io.WriteString(p.Stdout, "\x1b8\x1b[Jnew text (Enter approves, Esc goes back): "+string(text)) // as in draw
+		_, _ = io.WriteString(p.Stdout, "\x1b8\x1b[J"+prompt+string(text)) // as in draw
 		k, _, err := p.keys.ReadRune()
 		if err != nil {
-			return false, err
+			return "", false, err
 		}
 		if k == keyEsc {
 			p.msg = ""
-			return false, nil
+			return "", false, nil
 		}
 		switch {
 		case k == '\r' || k == '\n':
 			s := string(text)
 			if strings.TrimSpace(s) == "" {
-				p.msg = "the edit is empty"
-				return false, nil
+				p.msg = empty
+				return "", false, nil
 			}
-			// The filter runs before E4 gets the text, and a refused text is dropped.
 			if err := secret.Check(s); err != nil {
 				p.msg = err.Error()
-				return false, err
+				return "", false, err
 			}
-			return p.approve(ctx, &s)
+			return s, true, nil
 		case k == keyDel || k == keyBS:
 			if len(text) > 0 {
 				text = text[:len(text)-1]
@@ -243,9 +276,10 @@ func (p *reviewPane) draw(prompt string) {
 		scope = string(p.scope)
 	}
 	pin := map[bool]string{true: "yes", false: "no"}[p.pin]
+	conflict := cmp.Or(p.conflict, conflictKeep)
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s%s\napprove with scope: %s, pin: %s\n\n", clearScreen, p.view, scope, pin)
-	b.WriteString("a approve  e edit  r reject  l later  s scope  p pin  q close\n")
+	fmt.Fprintf(&b, "%s%s\napprove with scope: %s, pin: %s, on a conflict: %s\n\n", clearScreen, p.view, scope, pin, conflict)
+	b.WriteString("a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  q close\n")
 	if p.msg != "" {
 		fmt.Fprintf(&b, "\n%s\n", strings.TrimSpace(p.msg))
 	}
