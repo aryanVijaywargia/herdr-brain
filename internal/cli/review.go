@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/extract"
 	"github.com/aryanVijaywargia/herdr-brain/internal/secret"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
@@ -289,11 +290,18 @@ func warningMark(p store.Proposal) string {
 
 func warns(p store.Proposal) bool { return p.PermissionWarning || permissionWords.MatchString(p.Text) }
 
-// show prints one proposal: text, scope, target, diff, revision and source (§7.4).
+// excerptsShown is the most excerpts that a proposal shows (§7.4: 1-3).
+const excerptsShown = 3
+
+// show prints one proposal with the §7.4 fields: the text, the claim id, the revision it
+// creates, the scope, the target, the diff, the expected benefit, the items it conflicts with,
+// and 1-3 source excerpts with sender, session, workspace and date. The excerpts come from the
+// evidence links at show time, through the secret filter: the proposal holds no copy.
 func (cl caller) show(ctx context.Context, id int64) error {
 	var p store.Proposal
 	var it store.Item
 	var cur store.ItemRevision
+	var excerpts, conflicts []string
 	// The review pane shows a pending proposal only: it closes on one that another surface
 	// decided (E5-S1).
 	read := cl.proposal
@@ -301,7 +309,13 @@ func (cl caller) show(ctx context.Context, id int64) error {
 		read = cl.pending
 	}
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) (err error) {
-		p, it, cur, err = read(ctx, tx, id)
+		if p, it, cur, err = read(ctx, tx, id); err != nil {
+			return err
+		}
+		if excerpts, err = cl.excerpts(ctx, tx, p); err != nil {
+			return err
+		}
+		conflicts, err = cl.conflicts(ctx, tx, p)
 		return err
 	})
 	if err != nil {
@@ -316,17 +330,85 @@ func (cl caller) show(ctx context.Context, id int64) error {
 		source = fmt.Sprintf("a change to %s item %d, asked in review", it.State, it.ID)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "proposal %d (%s)\ntext:     %s\nscope:    %s\ntarget:   %s\n", p.ID, p.Status, text, p.Scope, p.Target)
+	fmt.Fprintf(&b, "proposal %d (%s)\ntext:     %s\n", p.ID, p.Status, text)
+	if it.ClaimID != "" {
+		fmt.Fprintf(&b, "claim:    %s\n", it.ClaimID)
+	}
+	fmt.Fprintf(&b, "scope:    %s\ntarget:   %s\n", p.Scope, p.Target)
 	fmt.Fprintf(&b, "revision: item %d revision %d, from revision %d (now %d)\n", it.ID, *p.BaseRevision+1, *p.BaseRevision, it.CurrentRevision)
-	fmt.Fprintf(&b, "diff:\n  %s\nsource:   %s, %s\n", strings.ReplaceAll(p.Diff, "\n", "\n  "), source, p.Created.Format("2006-01-02 15:04"))
+	fmt.Fprintf(&b, "diff:\n  %s\n", strings.ReplaceAll(p.Diff, "\n", "\n  "))
+	if p.ExpectedBenefit != "" {
+		fmt.Fprintf(&b, "benefit:  %s\n", oneLine(p.ExpectedBenefit))
+	}
+	for _, c := range conflicts {
+		fmt.Fprintf(&b, "conflict: %s\n", c)
+	}
+	if len(excerpts) > 0 {
+		fmt.Fprintf(&b, "excerpts:\n  %s\n", strings.Join(excerpts, "\n  "))
+	}
+	fmt.Fprintf(&b, "source:   %s, %s\n", source, p.Created.Format("2006-01-02 15:04"))
+	if p.ChangeRequest != nil {
+		fmt.Fprintf(&b, "change:   %s\n", oneLine(*p.ChangeRequest))
+	}
 	if warns(p) {
 		b.WriteString("warning:  this may change a permission, an allow rule or a safety rule; approve needs --confirm\n")
 	}
 	if p.Status == store.ProposalPending && cl.surface != store.SurfacePane {
-		fmt.Fprintf(&b, "actions:  brain review %d --approve [--edit \"<text>\"] [--scope global|workspace] [--pin] | --reject | --later\n", p.ID)
+		fmt.Fprintf(&b, "actions:  brain review %d --approve [--edit \"<text>\"] [--scope global|workspace] [--pin] | --reject | --later", p.ID)
+		if p.CandidateID != nil {
+			b.WriteString(` | --change "<text>"`)
+		}
+		b.WriteString("\n")
+		if len(conflicts) > 0 {
+			b.WriteString("          on approve, the conflict: --replace (retire the item) | --exception (link as an exception) | --keep-both (the default: the brief asks the agent to ask you)\n")
+		}
 	}
 	_, err = io.WriteString(cl.Stdout, b.String())
 	return err
+}
+
+// excerpts are the lines of up to excerptsShown source excerpts of p, the newest first: the
+// evidence of its candidate that is still in the store, in a scope that the caller sees
+// [NEW], through the secret filter.
+func (cl caller) excerpts(ctx context.Context, tx *sql.Tx, p store.Proposal) ([]string, error) {
+	if p.CandidateID == nil {
+		return nil, nil
+	}
+	es, err := store.CandidateExcerpts(ctx, tx, *p.CandidateID)
+	if err != nil {
+		return nil, err
+	}
+	var lines []string
+	for _, e := range es {
+		if len(lines) == excerptsShown {
+			break
+		}
+		if e.WorkspaceKey == "" || !cl.sees(&e.WorkspaceKey) {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s, session %d (%s), workspace %s, %s: %s", e.Sender, e.SessionID, e.Harness,
+			cl.label, e.At.Format("2006-01-02 15:04"), extract.Redact(oneLine(e.Excerpt))))
+	}
+	return lines, nil
+}
+
+// conflicts are the lines of the active items that p conflicts with, when the caller sees
+// them.
+func (cl caller) conflicts(ctx context.Context, tx *sql.Tx, p store.Proposal) ([]string, error) {
+	var lines []string
+	for _, id := range p.ConflictsWith {
+		it, cur, err := cl.item(ctx, tx, id)
+		switch {
+		case errors.Is(err, errNotFound):
+			continue
+		case err != nil:
+			return nil, err
+		}
+		if it.State == store.StateActive {
+			lines = append(lines, fmt.Sprintf("item %d (%s): %s", it.ID, cl.target(it.Scope), oneLine(cur.Text)))
+		}
+	}
+	return lines, nil
 }
 
 // decide runs the approve, reject or later of r.
