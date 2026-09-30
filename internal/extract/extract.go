@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/fingerprint"
 	"github.com/aryanVijaywargia/herdr-brain/internal/secret"
 	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -55,10 +56,11 @@ type job struct {
 	refs    []ref
 	known   []store.Claim        // the claims that the input names by claim id
 	brief   []store.ItemRevision // the current brief items
+	change  *change              // a change request instead of a batch; nil for a batch
 }
 
-// Run runs the pass: it forms the batches of the finished sessions, and extracts and commits
-// them one after the other in round robin order across workspace keys, so a session has one
+// Run runs the pass: it forms the batches of the finished sessions and takes the change
+// requests that wait, and extracts and commits them one after the other in round robin order across workspace keys, so a session has one
 // active batch at a time. The caps stop the calls; the rest waits for a later pass (§7.3). A
 // failed batch does not stop the others.
 func (p Pass) Run(ctx context.Context) error {
@@ -67,6 +69,12 @@ func (p Pass) Run(ctx context.Context) error {
 		if jobs, err = p.plan(ctx, tx); err != nil {
 			return err
 		}
+		// A change request is its own entry of the queue (§7.4).
+		reqs, err := p.requests(ctx, tx)
+		if err != nil {
+			return err
+		}
+		jobs = append(jobs, reqs...)
 		last, err := store.LastCalls(ctx, tx)
 		jobs = order(jobs, last)
 		return err
@@ -76,7 +84,11 @@ func (p Pass) Run(ctx context.Context) error {
 	}
 	var errs []error
 	for _, j := range jobs {
-		if err := p.extract(ctx, j); err != nil {
+		run := p.extract
+		if j.change != nil {
+			run = p.runChange
+		}
+		if err := run(ctx, j); err != nil {
 			if ctx.Err() != nil {
 				return err
 			}
@@ -424,7 +436,7 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	if c.Refs = kept; err != nil || len(kept) == 0 {
 		return err
 	}
-	c.Situation, c.Rule, c.ExpectedBenefit = redact(c.Situation), redact(c.Rule), redact(c.ExpectedBenefit)
+	c.Situation, c.Rule, c.ExpectedBenefit = Redact(c.Situation), Redact(c.Rule), Redact(c.ExpectedBenefit)
 	claim, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: normal(c.Situation), Rule: normal(c.Rule)}, now)
 	if err != nil {
 		return err
@@ -488,7 +500,8 @@ func candidateKind(c Claim) store.CandidateKind {
 // propose makes a proposal of candidate id when it reached its gate and its claim has no
 // pending proposal, no item and no rejection in its scope (§7.2, §7.3). The proposal goes
 // through store.ProposeCandidate. Its draft item gets the scope and workspace key of the
-// candidate. E13-S5 adds the rest of the §7.4 fields.
+// candidate. It stores the §7.4 fields: the excerpts stay in the evidence links, and the
+// proposal holds the hashes of its trigger prompts and the items that it conflicts with.
 func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now time.Time) error {
 	cand, err := store.CandidateByID(ctx, tx, id)
 	if err != nil || !p.gates().Reached(cand) {
@@ -514,20 +527,27 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 	case err != nil:
 		return err
 	}
-	kind := store.KindPreference // [NEW] E13-S5 sets the item kind
+	// [NEW] a fact claim makes a fact; every other claim kind makes a preference, the kind of
+	// a lesson. Skills, tools and automations come from later epics.
+	kind := store.KindPreference
 	if c.Kind == "fact" {
 		kind = store.KindFact
+	}
+	triggers, conflicts, err := marks(ctx, tx, cand, c)
+	if err != nil {
+		return err
 	}
 	item, err := store.InsertItem(ctx, tx, store.Item{ClaimID: cand.ClaimID, CurrentRevision: 1, Kind: kind,
 		Scope: cand.Scope, WorkspaceKey: key, State: store.StateDraft, Created: now})
 	if err != nil {
 		return err
 	}
-	text := c.Situation + ": " + c.Rule // [NEW] E13-S5 sets the proposal text
+	text := claimText(c)
 	base := int64(1)
 	pid, err := store.ProposeCandidate(ctx, tx, id, store.Proposal{ItemID: &item, BaseRevision: &base, Text: text,
 		Scope: cand.Scope, Target: target, Diff: "+ " + text, ExpectedBenefit: c.ExpectedBenefit,
-		PermissionWarning: c.TouchesPermission, TriggerPrompts: []string{}, Status: store.ProposalPending, Created: now})
+		PermissionWarning: c.TouchesPermission, ConflictsWith: conflicts, TriggerPrompts: triggers,
+		Status: store.ProposalPending, Created: now})
 	if err != nil {
 		return err
 	}
@@ -537,6 +557,36 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 		return err
 	}
 	return store.MarkProposed(ctx, tx, id)
+}
+
+// claimText is the item text of claim c [NEW]: "situation: rule".
+func claimText(c Claim) string { return c.Situation + ": " + c.Rule }
+
+// marks returns the trigger prompts and the conflicts of a proposal of claim c for candidate
+// cand. The trigger prompts are the fingerprints of the prompt observations among the evidence
+// of cand: the text that you sent (§7.3, E14-S1). The conflicts are the active items of the
+// claim that c names in conflicts_with, in the scope of cand. [NEW] a claim with no active item
+// gives no conflict: there is nothing in the brief to conflict with.
+func marks(ctx context.Context, tx *sql.Tx, cand store.Candidate, c Claim) ([]string, []int64, error) {
+	es, err := store.CandidateExcerpts(ctx, tx, cand.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	triggers := []string{}
+	for _, e := range es {
+		if e.Sender != store.SenderYou && e.Sender != store.SenderUnconfirmed || e.Excerpt == "" {
+			continue
+		}
+		if h := fingerprint.Prompt(e.Excerpt); !slices.Contains(triggers, h) {
+			triggers = append(triggers, h)
+		}
+	}
+	slices.Sort(triggers)
+	if c.ConflictsWith == "" {
+		return triggers, nil, nil
+	}
+	conflicts, err := store.ActiveClaimItems(ctx, tx, c.ConflictsWith, cand.WorkspaceKey)
+	return triggers, conflicts, err
 }
 
 // target names the brief part of candidate c, as brain remember does. It returns
@@ -552,9 +602,10 @@ func target(ctx context.Context, tx *sql.Tx, c store.Candidate) (string, error) 
 	return fmt.Sprintf("workspace %s (%s)", w.HerdrWorkspaceID, w.Label), nil
 }
 
-// redact replaces each secret that the secret filter finds in s with "[secret]" [NEW]: model
-// text goes through the filter before Brain stores it.
-func redact(s string) string {
+// Redact replaces each secret that the secret filter finds in s with "[secret]" [NEW]: model
+// text goes through the filter before Brain stores it, and an excerpt before a proposal shows
+// it (§7.4).
+func Redact(s string) string {
 	var b strings.Builder
 	end := 0
 	for _, h := range secret.Find(s) {
