@@ -242,6 +242,9 @@ type Proposal struct {
 	Diff              string
 	ExpectedBenefit   string
 	PermissionWarning bool
+	// ConflictsWith are the items that the proposal conflicts with (§7.4, M2): the active
+	// items of the claim that the extractor named.
+	ConflictsWith []int64
 	// TriggerPrompts are the hashes of the prompts that led to the proposal.
 	TriggerPrompts []string
 	ChangeRequest  *string
@@ -256,11 +259,11 @@ type Proposal struct {
 func InsertProposal(ctx context.Context, tx *sql.Tx, p Proposal) (int64, error) {
 	return insertRow(ctx, tx, "proposal", `INSERT INTO proposals
 		(candidate_id, item_id, base_revision, text, scope, target, diff, expected_benefit,
-		permission_warning, trigger_prompts, change_request, status, surface, created, decided,
-		review_seconds)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		permission_warning, conflicts_with, trigger_prompts, change_request, status, surface, created,
+		decided, review_seconds)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.CandidateID, p.ItemID, p.BaseRevision, p.Text, p.Scope, p.Target, p.Diff, p.ExpectedBenefit,
-		p.PermissionWarning, jsonList[string](p.TriggerPrompts), p.ChangeRequest, p.Status, p.Surface,
+		p.PermissionWarning, jsonList[int64](p.ConflictsWith), jsonList[string](p.TriggerPrompts), p.ChangeRequest, p.Status, p.Surface,
 		timeArg(p.Created), timeArg(p.Decided), p.ReviewSeconds)
 }
 
@@ -268,10 +271,10 @@ func InsertProposal(ctx context.Context, tx *sql.Tx, p Proposal) (int64, error) 
 func ProposalByID(ctx context.Context, tx *sql.Tx, id int64) (Proposal, error) {
 	var p Proposal
 	err := tx.QueryRowContext(ctx, `SELECT id, candidate_id, item_id, base_revision, text, scope, target,
-		diff, expected_benefit, permission_warning, trigger_prompts, change_request, status, surface,
-		created, decided, review_seconds FROM proposals WHERE id = ?`, id).Scan(
+		diff, expected_benefit, permission_warning, conflicts_with, trigger_prompts, change_request, status,
+		surface, created, decided, review_seconds FROM proposals WHERE id = ?`, id).Scan(
 		&p.ID, &p.CandidateID, &p.ItemID, &p.BaseRevision, &p.Text, &p.Scope, &p.Target, &p.Diff,
-		&p.ExpectedBenefit, &p.PermissionWarning, listDest[string]{&p.TriggerPrompts}, &p.ChangeRequest,
+		&p.ExpectedBenefit, &p.PermissionWarning, listDest[int64]{&p.ConflictsWith}, listDest[string]{&p.TriggerPrompts}, &p.ChangeRequest,
 		&p.Status, &p.Surface, timeDest{&p.Created}, timeDest{&p.Decided}, &p.ReviewSeconds)
 	if err != nil {
 		return Proposal{}, fmt.Errorf("read proposal %d: %w", id, err)
