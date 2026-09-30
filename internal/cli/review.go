@@ -106,13 +106,9 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 	return cl.list(ctx)
 }
 
-func parseReview(args []string) (review, error) {
-	var r review
-	fs := flag.NewFlagSet("review", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	fs.BoolVar(&r.approve, "approve", false, "")
-	fs.BoolVar(&r.reject, "reject", false, "")
-	fs.BoolVar(&r.later, "later", false, "")
+// decisionFlags adds the text flags of a decision on one proposal to fs, and the approve
+// choices for a conflict, of which at most one sets r.conflict.
+func decisionFlags(fs *flag.FlagSet, r *review) {
 	fs.Func("edit", "", func(s string) error { r.edit = &s; return nil })
 	fs.Func("reason", "", func(s string) error { r.reason = &s; return nil })
 	fs.Func("change", "", func(s string) error { r.change = &s; return nil })
@@ -125,6 +121,16 @@ func parseReview(args []string) (review, error) {
 			return nil
 		})
 	}
+}
+
+func parseReview(args []string) (review, error) {
+	var r review
+	fs := flag.NewFlagSet("review", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.BoolVar(&r.approve, "approve", false, "")
+	fs.BoolVar(&r.reject, "reject", false, "")
+	fs.BoolVar(&r.later, "later", false, "")
+	decisionFlags(fs, &r)
 	scope := fs.String("scope", "", "")
 	fs.BoolVar(&r.pin, "pin", false, "")
 	fs.BoolVar(&r.confirm, "confirm", false, "")
@@ -354,17 +360,23 @@ func (cl caller) show(ctx context.Context, id int64) error {
 		b.WriteString("warning:  this may change a permission, an allow rule or a safety rule; approve needs --confirm\n")
 	}
 	if p.Status == store.ProposalPending && cl.surface != store.SurfacePane {
-		fmt.Fprintf(&b, "actions:  brain review %d --approve [--edit \"<text>\"] [--scope global|workspace] [--pin] | --reject | --later", p.ID)
-		if p.CandidateID != nil {
-			b.WriteString(` | --change "<text>"`)
-		}
-		b.WriteString("\n")
-		if len(conflicts) > 0 {
-			b.WriteString("          on approve, the conflict: --replace (retire the item) | --exception (link as an exception) | --keep-both (the default: the brief asks the agent to ask you)\n")
-		}
+		actions(&b, p, len(conflicts) > 0)
 	}
 	_, err = io.WriteString(cl.Stdout, b.String())
 	return err
+}
+
+// actions writes the action lines of pending proposal p to b: the change request for an
+// extractor proposal, and the conflict choices when p has an open conflict.
+func actions(b *strings.Builder, p store.Proposal, conflict bool) {
+	fmt.Fprintf(b, "actions:  brain review %d --approve [--edit \"<text>\"] [--scope global|workspace] [--pin] | --reject | --later", p.ID)
+	if p.CandidateID != nil {
+		b.WriteString(` | --change "<text>"`)
+	}
+	b.WriteString("\n")
+	if conflict {
+		b.WriteString("          on approve, the conflict: --replace (retire the item) | --exception (link as an exception) | --keep-both (the default: the brief asks the agent to ask you)\n")
+	}
 }
 
 // excerpts are the lines of up to excerptsShown source excerpts of p, the newest first: the

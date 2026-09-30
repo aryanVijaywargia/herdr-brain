@@ -279,7 +279,7 @@ func TestChangeRequestInvalid(t *testing.T) {
 	f := newFixture(t)
 	p := f.proposed()
 	cr := f.ask(p, "split it")
-	f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {
+	f.cli.reply = func(_ context.Context, prompt string) ([]byte, error) {
 		refs := refID.FindAllStringSubmatch(prompt, -1)
 		one := map[string]any{"kind": "correction", "situation": "s", "rule": "r", "scope_guess": "workspace",
 			"evidence_refs": []string{refs[0][1]}, "same_as": nil, "conflicts_with": nil, "touches_permission": false,
