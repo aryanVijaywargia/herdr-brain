@@ -71,14 +71,20 @@ func (cl caller) linked(r review, cur store.ItemRevision, g store.Item, gcur sto
 		}
 		return next, nil
 	}
-	// A workspace item never relaxes a global permission or safety rule (§7.4, §8.1).
+	return except(next, g, gcur)
+}
+
+// except links revision next as an exception to global item g, whose current revision is
+// gcur, and drops its conflict mark with g. A workspace item never relaxes a global permission
+// or safety rule (§7.4, §8.1): except refuses such a g.
+func except(next store.ItemRevision, g store.Item, gcur store.ItemRevision) (store.ItemRevision, error) {
 	if permissionWords.MatchString(gcur.Text) {
 		return store.ItemRevision{}, fmt.Errorf("item %d may be a permission, an allow rule or a safety rule: a workspace item cannot be an exception to it; mark a conflict with --conflicts-with %d; nothing was written",
 			g.ID, g.ID)
 	}
 	// The exception resolves a conflict between the two items.
 	next.ExceptionToItem, next.ExceptionToRevision = &g.ID, &g.CurrentRevision
-	next.ConflictsWith = slices.DeleteFunc(next.ConflictsWith, func(id int64) bool { return id == g.ID })
+	next.ConflictsWith = slices.DeleteFunc(slices.Clone(next.ConflictsWith), func(id int64) bool { return id == g.ID })
 	return next, nil
 }
 

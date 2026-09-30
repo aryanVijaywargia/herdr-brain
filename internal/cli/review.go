@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -18,7 +19,9 @@ const reviewUsage = `usage:
   brain review                                   list the proposals that wait for you
   brain review <id>                              show one proposal
   brain review <id> --approve [--edit "<text>"] [--scope global|workspace] [--pin] [--confirm]
+                             [--replace | --exception | --keep-both]   for a proposal with a conflict
   brain review <id> --reject [--reason "<text>"] | --later
+  brain review <id> --change "<text>"              ask for a new draft of an extractor proposal
   brain review --retired                         list the retired items
   brain review --all                             list the candidates too, below the gate as well
   brain review --rejected                        list the rejections, with the new evidence since each
@@ -35,6 +38,8 @@ type review struct {
 	id                     int64 // the proposal; 0 for none
 	approve, reject, later bool
 	edit                   *string // the new text; nil for none
+	change                 *string // your change request (S56); nil for none
+	conflict               string  // replace, exception or keep-both: what approve does with a conflict
 	reason                 *string // your reason for a reject; nil for none
 	scope                  store.Scope
 	pin, confirm           bool
@@ -89,7 +94,7 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 		return cl.endRejection(ctx, r.reset, false)
 	case r.restore != 0:
 		return cl.restore(ctx, r.restore)
-	case r.approve || r.reject || r.later:
+	case r.approve || r.reject || r.later || r.change != nil:
 		if err := cl.decide(ctx, r); err != nil {
 			return err
 		}
@@ -109,6 +114,16 @@ func parseReview(args []string) (review, error) {
 	fs.BoolVar(&r.later, "later", false, "")
 	fs.Func("edit", "", func(s string) error { r.edit = &s; return nil })
 	fs.Func("reason", "", func(s string) error { r.reason = &s; return nil })
+	fs.Func("change", "", func(s string) error { r.change = &s; return nil })
+	for _, c := range []string{conflictReplace, conflictException, conflictKeep} {
+		fs.BoolFunc(c, "", func(string) error {
+			if r.conflict != "" && r.conflict != c {
+				return errors.New("give one of --replace, --exception and --keep-both")
+			}
+			r.conflict = c
+			return nil
+		})
+	}
 	scope := fs.String("scope", "", "")
 	fs.BoolVar(&r.pin, "pin", false, "")
 	fs.BoolVar(&r.confirm, "confirm", false, "")
@@ -154,13 +169,13 @@ func parseReview(args []string) (review, error) {
 // check refuses a mix of flags that has no single meaning.
 func (r review) check() error {
 	actions := 0
-	for _, on := range []bool{r.approve, r.reject, r.later, r.retired, r.all, r.rejected, r.reopen != 0, r.reset != 0,
-		r.restore != 0, r.item != 0} {
+	for _, on := range []bool{r.approve, r.reject, r.later, r.change != nil, r.retired, r.all, r.rejected, r.reopen != 0,
+		r.reset != 0, r.restore != 0, r.item != 0} {
 		if on {
 			actions++
 		}
 	}
-	modifiers := r.scope != "" || r.pin || r.confirm
+	modifiers := r.scope != "" || r.pin || r.confirm || r.conflict != ""
 	switch {
 	case actions > 1:
 		return errors.New("give one action")
@@ -170,6 +185,8 @@ func (r review) check() error {
 		return fmt.Errorf("unknown scope %q", r.scope)
 	case r.edit != nil && strings.TrimSpace(*r.edit) == "":
 		return errors.New("the --edit text is empty")
+	case r.change != nil && (strings.TrimSpace(*r.change) == "" || r.id == 0):
+		return errors.New("--change needs a proposal id and a text")
 	case r.item != 0:
 		changes := 0
 		for _, on := range []bool{r.edit != nil, r.retire, r.exceptionTo != 0, r.conflictsWith != 0} {
@@ -187,7 +204,7 @@ func (r review) check() error {
 			return errors.New("--approve needs a proposal id")
 		}
 	case modifiers || r.edit != nil:
-		return errors.New("--edit, --scope, --pin and --confirm go with --approve")
+		return errors.New("--edit, --scope, --pin, --confirm, --replace, --exception and --keep-both go with --approve")
 	case (r.reject || r.later) && r.id == 0:
 		return errors.New("--reject and --later need a proposal id")
 	case (r.retired || r.all || r.rejected || r.reopen != 0 || r.reset != 0 || r.restore != 0) && r.id != 0:
@@ -317,6 +334,8 @@ func (cl caller) decide(ctx context.Context, r review) error {
 	switch {
 	case r.approve:
 		return cl.approve(ctx, r)
+	case r.change != nil:
+		return cl.askChange(ctx, r.id, *r.change)
 	case r.reject:
 		reason := ""
 		if r.reason != nil {
@@ -331,6 +350,7 @@ func (cl caller) decide(ctx context.Context, r review) error {
 // (§7.4). The proposal's base revision must still be the item's current one.
 func (cl caller) approve(ctx context.Context, r review) error {
 	var next store.ItemRevision
+	var retired []store.ItemRevision
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		p, it, cur, err := cl.pending(ctx, tx, r.id)
 		if err != nil {
@@ -343,17 +363,39 @@ func (cl caller) approve(ctx context.Context, r review) error {
 		if next, err = cl.approved(r, p, it, cur); err != nil {
 			return err
 		}
+		if retired, err = cl.resolve(ctx, tx, r, p, &next); err != nil {
+			return err
+		}
 		if err := store.DecideProposal(ctx, tx, p.ID, store.ProposalApproved, cl.surface, cl.Now()); err != nil {
 			return err
 		}
-		_, err = store.WriteRevision(ctx, tx, *p.BaseRevision, next)
-		return err
+		if _, err = store.WriteRevision(ctx, tx, *p.BaseRevision, next); err != nil {
+			return err
+		}
+		for _, rt := range retired {
+			if _, err := store.WriteRevision(ctx, tx, rt.Revision-1, rt); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(cl.Stdout, "proposal %d approved: item %d is %s at revision %d (%s)\n",
 		r.id, next.ItemID, next.State, next.Revision, cl.target(next.Scope))
+	for _, rt := range retired {
+		if err == nil {
+			_, err = fmt.Fprintf(cl.Stdout, "item %d retired at revision %d: the new item replaces it\n", rt.ItemID, rt.Revision)
+		}
+	}
+	if err == nil && next.ExceptionToItem != nil {
+		_, err = fmt.Fprintf(cl.Stdout, "item %d is an exception to global item %d\n", next.ItemID, *next.ExceptionToItem)
+	}
+	if err == nil && len(next.ConflictsWith) > 0 {
+		_, err = fmt.Fprintf(cl.Stdout, "item %d keeps its conflict with %s: the brief asks the agent to ask you\n",
+			next.ItemID, itemList(next.ConflictsWith))
+	}
 	// The build runs even when the message fails: the commit is done (§7.5, as in undo).
 	return errors.Join(err, cl.deliver(ctx, &r.id))
 }
@@ -733,5 +775,109 @@ func (cl caller) proposeChange(ctx context.Context, r review) error {
 		return err
 	}
 	_, err = fmt.Fprintf(cl.Stdout, "proposal %d: a change to item %d, waiting for your review (brain review %d)\n", pid, r.item, pid)
+	return err
+}
+
+// The approve choices for a proposal that conflicts with an item (§7.4) [NEW flags].
+const (
+	conflictReplace   = "replace"   // retire the conflicting items
+	conflictException = "exception" // link the new workspace item as an exception to the global item
+	conflictKeep      = "keep-both" // keep both, with the conflict mark
+)
+
+// resolve applies your choice r.conflict for the conflicts of p to next, the revision that
+// approve writes, and returns the revisions that retire the replaced items (§7.4). Only the
+// active conflicting items that the caller sees count. Keep both, and an approve with no
+// choice, write the conflicts on next: the brief shows them as "(conflicts with <id>; ask the
+// user)" (E6). Replace retires them, as an approved retire does, with --confirm for a
+// permission or safety rule. Exception uses the E4 link, with its refusal to relax a global
+// permission or safety rule.
+func (cl caller) resolve(ctx context.Context, tx *sql.Tx, r review, p store.Proposal, next *store.ItemRevision) ([]store.ItemRevision, error) {
+	var its []store.Item
+	var curs []store.ItemRevision
+	for _, id := range p.ConflictsWith {
+		it, cur, err := cl.item(ctx, tx, id)
+		switch {
+		case errors.Is(err, errNotFound):
+			continue
+		case err != nil:
+			return nil, err
+		}
+		if it.State == store.StateActive && it.ID != next.ItemID {
+			its, curs = append(its, it), append(curs, cur)
+		}
+	}
+	if len(its) == 0 {
+		if r.conflict != "" {
+			return nil, fmt.Errorf("proposal %d has no open conflict: approve it without --%s; nothing was written", p.ID, r.conflict)
+		}
+		return nil, nil
+	}
+	switch r.conflict {
+	case conflictReplace:
+		retired := make([]store.ItemRevision, len(its))
+		for i, it := range its {
+			if permissionWords.MatchString(curs[i].Text) && !r.confirm {
+				return nil, fmt.Errorf("item %d %w: replace it with --confirm; nothing was written", it.ID, errConfirm)
+			}
+			retired[i] = nextRevision(curs[i], cl.Now())
+			retired[i].Revision, retired[i].State = it.CurrentRevision+1, store.StateRetired
+		}
+		return retired, nil
+	case conflictException:
+		if len(its) != 1 || next.Scope != store.ScopeWorkspace || its[0].Scope != store.ScopeGlobal {
+			return nil, fmt.Errorf("proposal %d: --exception links one workspace item to one global item; it conflicts with %s; nothing was written",
+				p.ID, itemList(p.ConflictsWith))
+		}
+		linked, err := except(*next, its[0], curs[0])
+		*next = linked
+		return nil, err
+	}
+	for _, it := range its {
+		if !slices.Contains(next.ConflictsWith, it.ID) {
+			next.ConflictsWith = append(next.ConflictsWith, it.ID)
+		}
+	}
+	return nil, nil
+}
+
+// itemList names item ids for a message: "item 3" or "items 3, 5".
+func itemList(ids []int64) string {
+	s := make([]string, len(ids))
+	for i, id := range ids {
+		s[i] = strconv.FormatInt(id, 10)
+	}
+	if len(ids) == 1 {
+		return "item " + s[0]
+	}
+	return "items " + strings.Join(s, ", ")
+}
+
+// askChange records your change request text on pending proposal id and queues it (S56): the
+// proposal becomes changed and is not published, and the extractor drafts a new proposal in
+// the background. runReview filtered the text for secrets. [NEW] only an extractor proposal,
+// one with a candidate, takes a change request: its draft needs the evidence of the candidate.
+func (cl caller) askChange(ctx context.Context, id int64, text string) error {
+	var cr store.ChangeRequest
+	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
+		p, _, _, err := cl.pending(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		c, err := cl.candidate(ctx, tx, p)
+		if err != nil {
+			return err
+		}
+		if c == nil {
+			return fmt.Errorf("proposal %d has no extractor evidence: approve it with --edit instead; nothing was written", id)
+		}
+		cr, err = store.AskChange(ctx, tx, id, *c, text, cl.surface, cl.Now())
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(cl.Stdout, "proposal %d: change asked (request %d); it is not published, and a new draft comes later as a new proposal\n",
+		id, cr.ID)
 	return err
 }
