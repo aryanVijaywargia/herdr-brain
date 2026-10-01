@@ -291,3 +291,81 @@ func TestChangeRequestInvalid(t *testing.T) {
 		t.Errorf("request %+v, want invalid and no draft", got)
 	}
 }
+
+// A global proposal has evidence from a workspace. With extraction off there, its change
+// request sends nothing and waits; with extraction on again, it is drafted (§7.3).
+func TestChangeRequestWorkspaceOff(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {
+		out, err := claimOf("use pnpm")(ctx, prompt)
+		return []byte(strings.Replace(string(out), `"scope_guess":"workspace"`, `"scope_guess":"global"`, 1)), err
+	}
+	p := f.proposed()
+	if p.Scope != store.ScopeGlobal {
+		t.Fatalf("proposal scope = %s, want global", p.Scope)
+	}
+	f.write(func(ctx context.Context, tx *sql.Tx) error { return store.SetExtraction(ctx, tx, "ws-A", false, f.now) })
+	cr := f.ask(p, "say pnpm for every install")
+	calls := f.cli.calls()
+	f.mustRun()
+	if f.cli.calls() != calls || f.request(cr.ID).Status != store.ChangeQueued {
+		t.Fatalf("calls %d, request %+v: want no call and the request waiting", f.cli.calls(), f.request(cr.ID))
+	}
+	f.write(func(ctx context.Context, tx *sql.Tx) error { return store.SetExtraction(ctx, tx, "ws-A", true, f.now) })
+	f.mustRun()
+	if f.cli.calls() != calls+1 || f.request(cr.ID).Status != store.ChangeCommitted {
+		t.Errorf("calls %d, request %+v: want one call and a draft", f.cli.calls(), f.request(cr.ID))
+	}
+}
+
+// Two passes on one change request: a second pass leaves a running attempt alone. After a
+// crash (an active attempt older than changeStale), a later pass starts it again; the old
+// attempt then commits nothing, so one draft comes.
+func TestChangeRequestOneAttempt(t *testing.T) {
+	f := newFixture(t)
+	p := f.proposed()
+	cr := f.ask(p, "say pnpm for every install")
+	calls := f.cli.calls()
+	first := true
+	f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {
+		if first {
+			first = false
+			f.mustRun() // a second pass while the first call runs
+			if f.cli.calls() != calls+1 {
+				t.Errorf("calls = %d, want %d: the second pass called again", f.cli.calls(), calls+1)
+			}
+			f.now = f.now.Add(changeStale + time.Minute)
+			f.mustRun() // a pass after the stale time takes the request over and commits
+		}
+		return claimOf("use pnpm for every install")(ctx, prompt)
+	}
+	f.mustRun()
+	if n := len(f.proposals()); n != 2 {
+		t.Errorf("proposals = %d, want the original and one draft", n)
+	}
+	if got := f.request(cr.ID); got.Status != store.ChangeCommitted || got.ModelCalls != 2 {
+		t.Errorf("request = %+v, want committed after 2 calls", got)
+	}
+}
+
+// The commit of an old attempt adds nothing while a newer attempt of the request is active.
+func TestChangeRequestOldAttempt(t *testing.T) {
+	f := newFixture(t)
+	p := f.proposed()
+	cr := f.ask(p, "say pnpm for every install")
+	var old int
+	f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
+		if old, err = store.StartChange(ctx, tx, cr.ID, f.now, f.now); err != nil {
+			return err
+		}
+		_, err = store.StartChange(ctx, tx, cr.ID, f.now, f.now.Add(time.Hour)) // the crash take-over
+		return err
+	})
+	j := job{change: &change{req: cr, attempt: old}}
+	if err := f.pass().commitChange(context.Background(), j, []Claim{{Situation: "s", Rule: "r"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.request(cr.ID); got.Status != store.ChangeActive || got.ModelCalls != 2 || len(f.proposals()) != 1 {
+		t.Errorf("request = %+v, %d proposals; want the newer attempt active and no draft", got, len(f.proposals()))
+	}
+}

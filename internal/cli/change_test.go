@@ -109,6 +109,10 @@ func TestReviewChangeRefused(t *testing.T) {
 	if _, err := f.review(t, fmt.Sprint(pid), "--change", "token sk-ant-abcdefghijklmnopqrstuvwxyz"); !errors.As(err, new(*secret.Error)) {
 		t.Errorf("--change with a secret = %v, want a secret error", err)
 	}
+	// A line pattern finds the secret in the request text alone, not after the id and flag.
+	if _, err := f.review(t, fmt.Sprint(pid), "--change", "MY_TOKEN=abcdef"); !errors.As(err, new(*secret.Error)) {
+		t.Errorf("--change with an .env line = %v, want a secret error", err)
+	}
 	if p := f.rows(t).proposals; p[len(p)-1].Status != store.ProposalPending || p[len(p)-1].ChangeRequest != nil {
 		t.Errorf("proposal = %+v, want it pending with no request", p[len(p)-1])
 	}
