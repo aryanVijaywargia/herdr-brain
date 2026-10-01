@@ -30,21 +30,10 @@ func newPromptStore(t *testing.T) *promptStore {
 func (p *promptStore) prompt(ctx context.Context, tx *sql.Tx, ws, text string) (int64, error) {
 	seg, ok := p.segments[ws]
 	if !ok {
-		if ws != "" {
-			if err := InsertWorkspace(ctx, tx, Workspace{Key: ws, HerdrSession: "default", HerdrWorkspaceID: "w-" + ws,
-				Label: ws, Status: WorkspaceLive, LastSeen: testNow}); err != nil {
-				return 0, err
-			}
-		}
-		key := SessionKey{HerdrSession: "default", Harness: "claude", Kind: KeyCapture, ID: "cap-" + ws}
-		sid, err := OpenSession(ctx, tx, key, "w1:p1", ws, testNow)
-		if err != nil {
+		var err error
+		if seg, err = p.segment(ctx, tx, ws); err != nil {
 			return 0, err
 		}
-		if seg, err = StartSegment(ctx, tx, sid, "w1:p1", ws, "visible", testNow); err != nil {
-			return 0, err
-		}
-		p.segments[ws] = seg
 	}
 	p.n++
 	o, err := AddObservation(ctx, tx, Observation{CaptureIdentity: fmt.Sprint("p", p.n), Source: SourceHook,
@@ -56,10 +45,28 @@ func (p *promptStore) prompt(ctx context.Context, tx *sql.Tx, ws, text string) (
 	return o, IndexPrompt(ctx, tx, o, fingerprint.Prompt(text), text)
 }
 
-// propose stores prompt text in workspace ws and a pending proposal of scope that it led to,
+// segment adds workspace ws and a capture session and segment in it, in tx, and returns the
+// segment id.
+func (p *promptStore) segment(ctx context.Context, tx *sql.Tx, ws string) (int64, error) {
+	if err := InsertWorkspace(ctx, tx, Workspace{Key: ws, HerdrSession: "default", HerdrWorkspaceID: "w-" + ws,
+		Label: ws, Status: WorkspaceLive, LastSeen: testNow}); err != nil {
+		return 0, err
+	}
+	key := SessionKey{HerdrSession: "default", Harness: "claude", Kind: KeyCapture, ID: "cap-" + ws}
+	sid, err := OpenSession(ctx, tx, key, "w1:p1", ws, testNow)
+	if err != nil {
+		return 0, err
+	}
+	seg, err := StartSegment(ctx, tx, sid, "w1:p1", ws, "visible", testNow)
+	p.segments[ws] = seg
+	return seg, err
+}
+
+// propose stores prompt text in workspace ws-A and a pending proposal of scope that it led to,
 // and returns the proposal id and its item id.
-func (p *promptStore) propose(t *testing.T, ws, text string, scope Scope) (int64, int64) {
+func (p *promptStore) propose(t *testing.T, text string, scope Scope) (int64, int64) {
 	t.Helper()
+	ws := "ws-A"
 	ctx := context.Background()
 	var id, item int64
 	write(t, p.Store, func(tx *sql.Tx) error {
@@ -127,7 +134,7 @@ func TestMatchPromptExact(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := newPromptStore(t)
-			id, _ := p.propose(t, "ws-A", tc.trigger, ScopeWorkspace)
+			id, _ := p.propose(t, tc.trigger, ScopeWorkspace)
 			var want []int64
 			if tc.match {
 				want = []int64{id}
@@ -144,8 +151,8 @@ func TestMatchPromptExact(t *testing.T) {
 // and a rejected one gets no link.
 func TestMatchPromptScope(t *testing.T) {
 	p := newPromptStore(t)
-	ws, _ := p.propose(t, "ws-A", "run make Foo", ScopeWorkspace)
-	global, _ := p.propose(t, "ws-A", "run make Bar", ScopeGlobal)
+	ws, _ := p.propose(t, "run make Foo", ScopeWorkspace)
+	global, _ := p.propose(t, "run make Bar", ScopeGlobal)
 	for _, tc := range []struct {
 		ws, prompt string
 		want       []int64
@@ -197,8 +204,8 @@ func TestMatchPromptScope(t *testing.T) {
 // so its prompt matches nothing (§6.7). Other rows stay.
 func TestEraseItemPromptIndex(t *testing.T) {
 	p := newPromptStore(t)
-	_, item := p.propose(t, "ws-A", "run make Foo", ScopeWorkspace)
-	kept, _ := p.propose(t, "ws-A", "run make Bar", ScopeWorkspace)
+	_, item := p.propose(t, "run make Foo", ScopeWorkspace)
+	kept, _ := p.propose(t, "run make Bar", ScopeWorkspace)
 	ctx := context.Background()
 	write(t, p.Store, func(tx *sql.Tx) error {
 		if err := EraseItem(ctx, tx, item, testNow); err != nil {
