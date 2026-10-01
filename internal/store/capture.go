@@ -197,16 +197,18 @@ type Evidence struct {
 	Observations   int
 	CommandRecords int
 	EvidenceLinks  int // links of its observations to candidates
+	Prompts        int // its prompt index rows
 }
 
-// SessionEvidence counts the observations, the command records and the evidence links of
-// session sessionID.
+// SessionEvidence counts the observations, the command records, the evidence links and the
+// prompt index rows of session sessionID.
 func SessionEvidence(ctx context.Context, tx *sql.Tx, sessionID int64) (Evidence, error) {
 	var e Evidence
 	err := tx.QueryRowContext(ctx, `SELECT count(o.id), count(c.observation_id),
-		(SELECT count(*) FROM evidence_links WHERE session_id = ?1) FROM observations o
+		(SELECT count(*) FROM evidence_links WHERE session_id = ?1),
+		(SELECT count(*) FROM prompt_index WHERE session_id = ?1) FROM observations o
 		JOIN segments s ON s.id = o.segment_id LEFT JOIN command_records c ON c.observation_id = o.id
-		WHERE s.session_id = ?1`, sessionID).Scan(&e.Observations, &e.CommandRecords, &e.EvidenceLinks)
+		WHERE s.session_id = ?1`, sessionID).Scan(&e.Observations, &e.CommandRecords, &e.EvidenceLinks, &e.Prompts)
 	if err != nil {
 		return Evidence{}, fmt.Errorf("count evidence of session %d: %w", sessionID, err)
 	}
@@ -214,7 +216,7 @@ func SessionEvidence(ctx context.Context, tx *sql.Tx, sessionID int64) (Evidence
 }
 
 // ForgetSession deletes the evidence of session sessionID: its evidence links, observations,
-// command records, cursors and extraction watermarks, and the change requests of the
+// command records, prompt index rows, cursors and extraction watermarks, and the change requests of the
 // proposals that used that evidence (§6.7). The candidates that used the links are counted again, with the default gates until a config sets them, and one with no
 // evidence left goes. It raises the capture generation, so a pane read or a hook record that noted the old value stores nothing, and it keeps the
 // capture identities of the deleted observations, so a replay stores nothing again. The
@@ -237,6 +239,7 @@ func ForgetSession(ctx context.Context, tx *sql.Tx, sessionID int64) error {
 		`INSERT INTO forgotten_captures (capture_identity) SELECT capture_identity FROM observations
 			WHERE id IN (` + obs + `) ON CONFLICT DO NOTHING`,
 		`DELETE FROM command_records WHERE observation_id IN (` + obs + `)`,
+		`DELETE FROM prompt_index WHERE observation_id IN (` + obs + `)`,
 		`DELETE FROM observations WHERE id IN (` + obs + `)`,
 		`DELETE FROM cursors WHERE session_id = ?1`,
 		// The observation ids of the watermark are gone, and SQLite can give them again.

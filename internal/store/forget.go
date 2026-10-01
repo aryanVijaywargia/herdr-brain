@@ -22,7 +22,8 @@ func ForgetPending(ctx context.Context, tx *sql.Tx) (bool, error) {
 
 // itemRows is the WHERE clause of the rows of item ?1 in each table of ItemTextFields: the
 // item, its revisions, its proposals, the applied edits whose file held it at any revision
-// (AppliedEditsWithItem), its claim, and the rejections of its claim in its scope. Forget finds them by id, never by a text search (§6.7).
+// (AppliedEditsWithItem), its claim, the rejections of its claim in its scope, and the prompt
+// index rows that link a proposal of the item. Forget finds them by id, never by a text search (§6.7).
 // The claim key is shared by the scopes: while another item, or a candidate in another scope,
 // uses the claim, that scope keeps its copy of the claim and its key text (§6.7, §7.2).
 var itemRows = map[string]string{
@@ -36,7 +37,12 @@ var itemRows = map[string]string{
 			WHERE c.claim_id = claims.id AND COALESCE(c.workspace_key, '') != COALESCE(i.workspace_key, ''))`,
 	"rejections": `claim_id = (SELECT claim_id FROM items WHERE id = ?1)
 		AND COALESCE(workspace_key, '') = (SELECT COALESCE(workspace_key, '') FROM items WHERE id = ?1)`,
+	"prompt_index": promptRowsOfItem,
 }
+
+// promptRowsOfItem is the WHERE clause of the prompt index rows that link a proposal of item ?1.
+const promptRowsOfItem = `EXISTS (SELECT 1 FROM json_each(proposal_ids) j JOIN proposals p ON p.id = j.value
+	WHERE p.item_id = ?1)`
 
 // blanks is the value that forget writes into a field of ItemTextFields; any other field gets
 // "". A nullable field gets NULL, and a list field an empty list.
@@ -76,8 +82,13 @@ func rowsOf(f Field) string {
 
 // EraseItem removes the text of item and of its derivatives from every field in
 // ItemTextFields, and supersedes its pending proposals, so no blank proposal waits in the
-// queue (§6.7). The rows and their ids stay. now is the decision time of those proposals.
+// queue (§6.7). The rows and their ids stay, except the prompt index rows of its proposals:
+// they go with their hashes, so no prompt matches the item again. now is the decision time of
+// those proposals.
 func EraseItem(ctx context.Context, tx *sql.Tx, item int64, now time.Time) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM prompt_index WHERE `+promptRowsOfItem, item); err != nil {
+		return fmt.Errorf("delete prompt index rows of item %d: %w", item, err)
+	}
 	for _, f := range ItemTextFields() {
 		// The table and column names come from ItemTextFields, not from input.
 		q := fmt.Sprintf(`UPDATE %s SET %s = %s WHERE %s`, f.Table, f.Column, blank(f), rowsOf(f))

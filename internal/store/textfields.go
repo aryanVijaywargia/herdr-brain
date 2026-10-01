@@ -26,6 +26,9 @@ func ItemTextFields() []Field {
 		{"claims", "rule"},
 		// Your reason for a rejection of the claim of the item (§6.7, §7.2).
 		{"rejections", "reason"},
+		// The prompts that led to a proposal of the item or matched it (§6.7, E14-S1). Forget
+		// deletes the rows, with their hashes; brain forget --session deletes them by session.
+		{"prompt_index", "text"},
 	}
 }
 
@@ -168,5 +171,9 @@ func noItemTextFields() []Field {
 		{"change_requests", "reason"}, // A fixed reason of Brain; no model text.
 		{"change_requests", "created"},
 		{"change_requests", "at"},
+		{"prompt_index", "hash"}, // A prompt hash: forget deletes it with the row of its text.
+		{"prompt_index", "workspace_key"},
+		{"prompt_index", "proposal_ids"},
+		{"prompt_index", "at"},
 	}
 }
