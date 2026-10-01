@@ -36,9 +36,9 @@ func Forget(ctx context.Context, e Env, args []string) error {
 }
 
 // forgetSession runs `brain forget --session <id>` (§6.7, E11-S6). id is a capture session id
-// or an agent session id in the caller's herdr session. It lists the evidence of the session
-// and the candidates that use it first, then deletes its observations, command records and
-// evidence links in one transaction that raises the capture generation, so a pane read or
+// or an agent session id in the caller's herdr session. It lists the evidence of the session,
+// the candidates that use it and the proposals that used its prompts first (S68), then deletes
+// its observations, command records, prompt index rows and evidence links in one transaction that raises the capture generation, so a pane read or
 // hook record that collected the text before the forget stores nothing. The candidates are
 // counted again. New text after the forget is captured as usual.
 func forgetSession(ctx context.Context, e Env, args []string) (err error) {
@@ -59,6 +59,7 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 	var ss []store.Session
 	var ev []store.Evidence
 	var cs []store.Candidate
+	var ps []int64
 	err = c.Store.Write(ctx, func(tx *sql.Tx) (err error) {
 		if ss, err = store.SessionsByID(ctx, tx, c.Binding.Session, *id); err != nil {
 			return err
@@ -69,7 +70,10 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 				return err
 			}
 		}
-		cs, err = newCandidates(ctx, tx, ss, nil)
+		if cs, err = newCandidates(ctx, tx, ss, nil); err != nil {
+			return err
+		}
+		ps, err = newProposals(ctx, tx, ss, nil)
 		return err
 	})
 	if err != nil {
@@ -85,16 +89,20 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 		if s.Key.Kind == store.KeyAgent {
 			agent = s.Key.ID
 		}
-		if _, err := fmt.Fprintf(w, "session %d: %s in pane %s, %s id %s, agent session %q: %d observations, %d command records, %d evidence links\n",
-			s.ID, s.Key.Harness, s.PaneID, s.Key.Kind, s.Key.ID, agent, ev[i].Observations, ev[i].CommandRecords, ev[i].EvidenceLinks); err != nil {
+		if _, err := fmt.Fprintf(w, "session %d: %s in pane %s, %s id %s, agent session %q: %d observations, %d command records, %d evidence links, %d prompt index rows\n",
+			s.ID, s.Key.Harness, s.PaneID, s.Key.Kind, s.Key.ID, agent, ev[i].Observations, ev[i].CommandRecords, ev[i].EvidenceLinks,
+			ev[i].Prompts); err != nil {
 			return err
 		}
 	}
 	if err := listCandidates(w, cs); err != nil {
 		return err
 	}
+	if err := listProposals(w, ps); err != nil {
+		return err
+	}
 	// E13 (extraction batches) adds the items and proposals that use this evidence, and the
-	// choice to keep them or forget them too; E14 adds the prompt index rows.
+	// choice to keep them or forget them too.
 	if _, err := fmt.Fprintf(w, "%d candidates use this evidence; no item uses capture evidence yet: nothing else to keep or forget\n", len(cs)); err != nil {
 		return err
 	}
@@ -106,6 +114,13 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 			return err
 		}
 		if err := listCandidates(w, late); err != nil {
+			return err
+		}
+		lateProposals, err := newProposals(ctx, tx, ss, ps)
+		if err != nil {
+			return err
+		}
+		if err := listProposals(w, lateProposals); err != nil {
 			return err
 		}
 		for _, s := range ss {
@@ -131,6 +146,35 @@ func listCandidates(w io.Writer, cs []store.Candidate) error {
 		}
 	}
 	return nil
+}
+
+// listProposals prints the proposals that used the prompt index rows of a session to forget
+// (S68).
+func listProposals(w io.Writer, ps []int64) error {
+	for _, id := range ps {
+		if _, err := fmt.Fprintf(w, "proposal %d used its prompts: it stays, and its prompt index rows go\n", id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// newProposals returns the ids of the proposals that used the prompt index rows of sessions
+// ss and are not in listed, each once.
+func newProposals(ctx context.Context, tx *sql.Tx, ss []store.Session, listed []int64) ([]int64, error) {
+	var ps []int64
+	for _, s := range ss {
+		more, err := store.SessionPromptProposals(ctx, tx, s.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, id := range more {
+			if !slices.Contains(listed, id) && !slices.Contains(ps, id) {
+				ps = append(ps, id)
+			}
+		}
+	}
+	return ps, nil
 }
 
 // newCandidates returns the candidates with evidence from sessions ss that are not in listed,

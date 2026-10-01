@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/fingerprint"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -483,7 +484,7 @@ func TestForgetSession(t *testing.T) {
 	if err := Forget(ctx, e, []string{"--session", "agent-1"}); err != nil {
 		t.Fatalf("forget --session = %v", err)
 	}
-	want := "session 1: claude in pane w14:p1, capture id cap-1, agent session \"agent-1\": 2 observations, 1 command records, 2 evidence links\n" +
+	want := "session 1: claude in pane w14:p1, capture id cap-1, agent session \"agent-1\": 2 observations, 1 command records, 2 evidence links, 0 prompt index rows\n" +
 		"candidate 1: workspace failure of claim " + claim + ", 4 occurrences in 2 sessions: its links to this evidence go, and it is counted again\n" +
 		"1 candidates use this evidence; no item uses capture evidence yet: nothing else to keep or forget\n" +
 		"forget session agent-1: done; its text is deleted, and new text is captured as usual\n"
@@ -519,6 +520,96 @@ func TestForgetSession(t *testing.T) {
 	if got := f.scan(t, liveText); len(got) == 0 {
 		t.Error("the forget of a session removed an item")
 	}
+}
+
+// AC S68 (index part): brain forget --session lists the proposals that used the prompt index
+// rows of the session while the rows still exist, then deletes their text and hashes. The
+// proposal stays.
+func TestForgetSessionPromptIndex(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	const marker = "zq-prompt-index-marker"
+	prompt := "run make Foo " + marker
+	hash := fingerprint.Prompt(prompt)
+	var proposal int64
+	s := openStore(t, f.store)
+	write(t, s, func(tx *sql.Tx) error {
+		claim, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: "make", Rule: "run make Foo"}, testNow)
+		if err != nil {
+			return err
+		}
+		key := store.SessionKey{HerdrSession: "default", Harness: "claude", Kind: store.KeyCapture, ID: "cap-1"}
+		id, err := store.OpenSession(ctx, tx, key, "w14:p1", "ws_a14", testNow)
+		if err != nil {
+			return err
+		}
+		seg, err := store.StartSegment(ctx, tx, id, "w14:p1", "ws_a14", "visible", testNow)
+		if err != nil {
+			return err
+		}
+		o, err := store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: "p1", Source: store.SourceHook,
+			SegmentID: seg, Event: "prompt", Excerpt: prompt, Status: store.ObservationComplete,
+			Sender: store.SenderUnconfirmed, Counts: true, At: testNow})
+		if err != nil {
+			return err
+		}
+		if err := store.IndexPrompt(ctx, tx, o, hash, prompt); err != nil {
+			return err
+		}
+		cand, err := store.Attach(ctx, tx, store.Candidate{ClaimID: claim, Scope: store.ScopeWorkspace,
+			WorkspaceKey: "ws_a14", Kind: store.CandidateCorrection}, o, store.DefaultGates(), signal.Supports)
+		if err != nil {
+			return err
+		}
+		ws := "ws_a14"
+		item, err := store.InsertItem(ctx, tx, store.Item{ClaimID: claim, CurrentRevision: 1, Kind: store.KindPreference,
+			Scope: store.ScopeWorkspace, WorkspaceKey: &ws, State: store.StateDraft, Created: testNow})
+		if err != nil {
+			return err
+		}
+		base := int64(1)
+		proposal, err = store.ProposeCandidate(ctx, tx, cand, store.Proposal{ItemID: &item, BaseRevision: &base,
+			Text: "make: run make Foo", Scope: store.ScopeWorkspace, Target: "workspace", Diff: "+ make: run make Foo",
+			Status: store.ProposalPending, Created: testNow})
+		return err
+	})
+	closeStore(t, s)
+
+	rows := -1
+	out := &onWrite{fn: func(p string) {
+		if strings.HasPrefix(p, "proposal ") {
+			rows = len(f.scan(t, marker)) // the proposal list shows before the delete
+		}
+	}}
+	e := f.env(f.sock, "w14:p1", "w14", &bytes.Buffer{})
+	e.Stdout = out
+	if err := Forget(ctx, e, []string{"--session", "cap-1"}); err != nil {
+		t.Fatalf("forget --session = %v", err)
+	}
+	for _, want := range []string{"1 prompt index rows\n", fmt.Sprintf("\nproposal %d used its prompts", proposal)} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("forget --session printed\n%s\nwant %q", out.String(), want)
+		}
+	}
+	if rows < 2 {
+		t.Errorf("at the proposal list the prompt was in %d fields, want the observation and the prompt index", rows)
+	}
+	if got := f.scan(t, marker); len(got) != 0 {
+		t.Errorf("after the forget %v hold the prompt", got)
+	}
+	s = openStore(t, f.store)
+	defer closeStore(t, s)
+	write(t, s, func(tx *sql.Tx) error {
+		var n int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM prompt_index WHERE hash = ?`, hash).Scan(&n); err != nil || n != 0 {
+			t.Errorf("prompt index rows with the hash = %d, %v, want 0", n, err)
+		}
+		p, err := store.ProposalByID(ctx, tx, proposal)
+		if err == nil && p.Status != store.ProposalPending {
+			t.Errorf("proposal after the forget = %+v, want it pending", p)
+		}
+		return err
+	})
 }
 
 // sessionLinks is the number of evidence links of capture session id.

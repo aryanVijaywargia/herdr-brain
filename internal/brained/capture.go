@@ -222,7 +222,7 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 				// The screen lost the old text and shows nothing new, as an alternate screen
 				// that closes: the lost text shows as a gap (S38).
 				return record(ctx, tx, cp, store.Observation{CaptureIdentity: identity(s, cp.segment, now),
-					Source: store.SourceHerdr, SegmentID: cp.segment, Event: gapLost, Status: store.ObservationGap, At: now})
+					Source: store.SourceHerdr, SegmentID: cp.segment, Event: gapLost, Status: store.ObservationGap, At: now}, "")
 			}
 			return nil // a repaint or a resize: nothing new (S38)
 		}
@@ -242,7 +242,7 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 				}
 				o.Counts = !seen
 			}
-			if err := record(ctx, tx, cp, o); err != nil {
+			if err := record(ctx, tx, cp, o, panePrompt(cp.agent, p.lines)); err != nil {
 				return err
 			}
 		}
@@ -290,7 +290,7 @@ func (c *Capture) begin(ctx context.Context, tx *sql.Tx, s Step, cp *capturePane
 		return nil
 	}
 	return record(ctx, tx, cp, store.Observation{CaptureIdentity: identity(s, cp.segment, now),
-		Source: store.SourceHerdr, SegmentID: cp.segment, Event: gap, Status: store.ObservationGap, At: now})
+		Source: store.SourceHerdr, SegmentID: cp.segment, Event: gap, Status: store.ObservationGap, At: now}, "")
 }
 
 // record stores observation o of the session of cp and moves the cursor of the session in tx,
@@ -298,8 +298,9 @@ func (c *Capture) begin(ctx context.Context, tx *sql.Tx, s Step, cp *capturePane
 // the caller writes only when the learning state is the one of its base. A known capture
 // identity is a retry or a duplicate: it adds nothing and moves no cursor. A gap has no text,
 // so it never counts. A hook record with the same text enriches the new observation (S35).
-// A forget of the session since the baseline fails the write with store.ErrForgotten.
-func record(ctx context.Context, tx *sql.Tx, cp *capturePane, o store.Observation) error {
+// A prompt gets its prompt index row from full, its full text (E14-S1). A forget of the
+// session since the baseline fails the write with store.ErrForgotten.
+func record(ctx context.Context, tx *sql.Tx, cp *capturePane, o store.Observation, full string) error {
 	if err := store.CheckGeneration(ctx, tx, cp.session, cp.gen); err != nil {
 		return err
 	}
@@ -311,6 +312,9 @@ func record(ctx context.Context, tx *sql.Tx, cp *capturePane, o store.Observatio
 		return err
 	}
 	o.ID = id
+	if err := IndexPrompt(ctx, tx, o, full); err != nil {
+		return err
+	}
 	if err := Match(ctx, tx, cp.agent, cp.session, o); err != nil {
 		return err
 	}
@@ -345,7 +349,7 @@ func (c *Capture) lose(ctx context.Context, s Step, cp *capturePane, err error) 
 				return nil
 			}
 			return record(ctx, tx, cp, store.Observation{CaptureIdentity: identity(s, cp.segment, now),
-				Source: store.SourceHerdr, SegmentID: cp.segment, Event: gap, Status: store.ObservationGap, At: now})
+				Source: store.SourceHerdr, SegmentID: cp.segment, Event: gap, Status: store.ObservationGap, At: now}, "")
 		})
 		cp.segment = 0
 		if werr != nil && !errors.Is(werr, store.ErrForgotten) {
