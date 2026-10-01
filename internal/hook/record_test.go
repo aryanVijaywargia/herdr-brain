@@ -310,28 +310,27 @@ func TestRecordPromptIndex(t *testing.T) {
 
 // AC: an index write that waits after its note, then a brain forget --session of its source,
 // an item forget or a learn off, then the release: the forgotten prompt index rows do not come
-// back, and the waiting record adds no row. After an item forget the new prompt is new
-// evidence: its row gets no link to the forgotten proposal, and nothing matches it. A learn off
-// deletes nothing: it only stops capture (§6.7).
+// back, and the waiting record adds no row: an item forget raises the capture generation of
+// the sessions of its rows, as a session forget does. A learn off deletes nothing: it only
+// stops capture (§6.7).
 func TestRecordPromptIndexWaits(t *testing.T) {
 	const prompt = `{"session_id":"s1","prompt":"run make Foo"}`
 	hash := fingerprint.Prompt("run make Foo")
 	ctx := context.Background()
 	for _, tc := range []struct {
-		name   string
-		fn     func(tx *sql.Tx, sessionID, item int64) error
-		rows   int // the rows of the old and the new prompt after the release
-		newRow bool
+		name string
+		fn   func(tx *sql.Tx, sessionID, item int64) error
+		rows int // the rows after the release
 	}{
 		{"forget session", func(tx *sql.Tx, sessionID, _ int64) error {
 			return store.ForgetSession(ctx, tx, sessionID)
-		}, 0, false},
+		}, 0},
 		{"forget item", func(tx *sql.Tx, _, item int64) error {
 			return store.EraseItem(ctx, tx, item, testNow)
-		}, 1, true},
+		}, 0},
 		{"learn off", func(tx *sql.Tx, _, _ int64) error {
 			return store.SetLearning(ctx, tx, store.LearningSetting{Scope: store.LearningStore, On: false, Changed: testNow})
-		}, 1, false},
+		}, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := recordFixture(t)
@@ -359,14 +358,11 @@ func TestRecordPromptIndexWaits(t *testing.T) {
 				t.Fatalf("prompt index after the release = %+v, want %d rows", es, tc.rows)
 			}
 			for _, e := range es {
-				if tc.newRow && e.ObservationID == 1 {
-					t.Errorf("forgotten row %+v came back", e)
-				}
-				if e.ObservationID != 1 && (!tc.newRow || len(e.ProposalIDs) != 0) {
-					t.Errorf("new row %+v after the release, want none, or one with no link after an item forget", e)
+				if e.ObservationID != 1 {
+					t.Errorf("new row %+v after the release, want none", e)
 				}
 			}
-			if !tc.newRow && tc.rows != 0 {
+			if tc.rows != 0 {
 				return // learn off keeps the stored prompt and its proposal
 			}
 			s := openStore(t, f.mainStore)

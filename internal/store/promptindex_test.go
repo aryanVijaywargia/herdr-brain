@@ -181,13 +181,26 @@ func TestMatchPromptScope(t *testing.T) {
 		_, err := p.prompt(ctx, tx, "ws-A", "run make Bar")
 		return err
 	})
+	// A pending global proposal whose item another proposal moved into ws-A matches only there.
+	moved, _ := p.propose(t, "run make Baz", ScopeGlobal)
+	write(t, p.Store, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE items SET scope = 'workspace', workspace_key = 'ws-A'
+			WHERE id = (SELECT item_id FROM proposals WHERE id = ?)`, moved)
+		return err
+	})
+	if got := p.match(t, "ws-B", "run make Baz"); got != nil {
+		t.Errorf("MatchPrompt of a moved item in ws-B = %v, want none", got)
+	}
+	if got := p.match(t, "ws-A", "run make Baz"); !slices.Equal(got, []int64{moved}) {
+		t.Errorf("MatchPrompt of a moved item in ws-A = %v, want [%d]", got, moved)
+	}
 	var es []PromptEntry
 	write(t, p.Store, func(tx *sql.Tx) (err error) {
 		es, err = PromptEntries(ctx, tx)
 		return err
 	})
-	if len(es) != 4 {
-		t.Fatalf("prompt index = %+v, want 4 rows", es)
+	if len(es) != 5 {
+		t.Fatalf("prompt index = %+v, want 5 rows", es)
 	}
 	for i, want := range [][]int64{{ws}, {global}, {ws}, {}} {
 		if !slices.Equal(es[i].ProposalIDs, want) {
@@ -197,6 +210,58 @@ func TestMatchPromptScope(t *testing.T) {
 	if e := es[2]; e.Hash != fingerprint.Prompt("run make Foo") || e.Text != "run make Foo" || e.WorkspaceKey != "ws-A" ||
 		e.SessionID == 0 || e.ObservationID == 0 || !e.At.Equal(testNow) {
 		t.Errorf("row 2 = %+v, want the prompt in ws-A", e)
+	}
+}
+
+// A pane observation that a hook record enriches is the evidence, and the hook record holds
+// the full prompt: the trigger prompts hold the hashes of both, and both rows link the
+// proposal (S35, E14-S1).
+func TestTriggerPromptsEnriched(t *testing.T) {
+	p := newPromptStore(t)
+	ctx := context.Background()
+	const part, full = "run the long deploy", "run the long deploy and then check every log of it"
+	var id int64
+	write(t, p.Store, func(tx *sql.Tx) error {
+		pane, err := p.prompt(ctx, tx, "ws-A", part)
+		if err != nil {
+			return err
+		}
+		hook, err := p.prompt(ctx, tx, "ws-A", full)
+		if err != nil {
+			return err
+		}
+		if err := Enrich(ctx, tx, pane, hook); err != nil {
+			return err
+		}
+		claim, err := ClaimID(ctx, tx, ClaimKey{"deploy", "check the logs"}, testNow)
+		if err != nil {
+			return err
+		}
+		cand, err := Attach(ctx, tx, Candidate{ClaimID: claim, Scope: ScopeGlobal, Kind: CandidateProcedure},
+			pane, DefaultGates(), supportsForTest)
+		if err != nil {
+			return err
+		}
+		item, err := InsertItem(ctx, tx, Item{ClaimID: claim, CurrentRevision: 1, Kind: KindPreference, Scope: ScopeGlobal,
+			State: StateDraft, Created: testNow})
+		if err != nil {
+			return err
+		}
+		id, err = ProposeCandidate(ctx, tx, cand, Proposal{ItemID: &item, BaseRevision: ptr(int64(1)), Text: "deploy",
+			Scope: ScopeGlobal, Target: "global", Diff: "+ deploy", Status: ProposalPending, Created: testNow})
+		if err != nil {
+			return err
+		}
+		pr, err := ProposalByID(ctx, tx, id)
+		want := []string{fingerprint.Prompt(part), fingerprint.Prompt(full)}
+		slices.Sort(want)
+		if !slices.Equal(pr.TriggerPrompts, want) {
+			t.Errorf("trigger prompts = %v, want %v", pr.TriggerPrompts, want)
+		}
+		return err
+	})
+	if got := p.match(t, "ws-B", full); !slices.Equal(got, []int64{id}) {
+		t.Errorf("MatchPrompt(full prompt) = %v, want [%d]", got, id)
 	}
 }
 

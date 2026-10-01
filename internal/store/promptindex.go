@@ -50,20 +50,25 @@ func IndexPrompt(ctx context.Context, tx *sql.Tx, obs int64, hash, text string) 
 // MatchPrompt returns the ids of the ready proposals that prompt fingerprint hash matches
 // exactly, in the workspace with key workspaceKey ("" for none), by id (§5.5). A row of the
 // index with hash links them: the trigger prompts of a proposal and the later prompts that
-// matched it. A proposal applies when it is global or its item is in that workspace (the E4
-// scope check). It makes no model call.
+// matched it. A proposal applies when it is global or its item is in that workspace, and its
+// item is still global or in that workspace: another proposal can move the item (the E4 scope
+// check). It makes no model call.
 func MatchPrompt(ctx context.Context, tx *sql.Tx, hash, workspaceKey string) ([]int64, error) {
 	return query(ctx, tx, `SELECT DISTINCT p.id FROM prompt_index x, json_each(x.proposal_ids) j
 		JOIN proposals p ON p.id = j.value JOIN items i ON i.id = p.item_id
-		WHERE x.hash = ?1 AND p.status = ?2 AND (p.scope = ?3 OR i.workspace_key = ?4) ORDER BY p.id`,
+		WHERE x.hash = ?1 AND p.status = ?2 AND (p.scope = ?3 OR i.workspace_key = ?4)
+		AND (i.workspace_key IS NULL OR i.workspace_key = ?4) ORDER BY p.id`,
 		scanID, hash, ProposalPending, ScopeGlobal, workspaceKey)
 }
 
 // candidatePrompts is the WHERE clause of the prompt index rows of the evidence of candidate
-// ?1 that is still in the store.
+// ?1 that is still in the store, and of the hook records that enrich it: a pane read can show
+// only a part of a long prompt, and its hook record holds the full prompt (S35).
 const candidatePrompts = `observation_id IN (SELECT o.id FROM evidence_links l
 	JOIN observations o ON o.id = l.observation_id AND o.capture_identity = l.capture_identity
-	WHERE l.candidate_id = ?1)`
+	WHERE l.candidate_id = ?1 UNION SELECT o.enriched_by FROM evidence_links l
+	JOIN observations o ON o.id = l.observation_id AND o.capture_identity = l.capture_identity
+	WHERE l.candidate_id = ?1 AND o.enriched_by IS NOT NULL)`
 
 // triggerPrompts returns the fingerprints of the prompts among the evidence of candidate id,
 // each once, sorted: the trigger prompts of its proposal (§11). They come from the index rows,
