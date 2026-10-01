@@ -214,13 +214,21 @@ func SessionEvidence(ctx context.Context, tx *sql.Tx, sessionID int64) (Evidence
 }
 
 // ForgetSession deletes the evidence of session sessionID: its evidence links, observations,
-// command records, cursors and extraction watermarks (§6.7). The candidates that used the
-// links are counted again, with the default gates until a config sets them, and one with no
+// command records, cursors and extraction watermarks, and the change requests of the
+// proposals that used that evidence (§6.7). The candidates that used the links are counted again, with the default gates until a config sets them, and one with no
 // evidence left goes. It raises the capture generation, so a pane read or a hook record that noted the old value stores nothing, and it keeps the
 // capture identities of the deleted observations, so a replay stores nothing again. The
 // session row and its segments hold no text, and they stay: the counter must not go back,
 // and new text after the forget is captured as usual.
 func ForgetSession(ctx context.Context, tx *sql.Tx, sessionID int64) error {
+	// The change requests of the proposals that used the evidence go too, before the links
+	// that name those proposals go (§6.7).
+	if err := discardChanges(ctx, tx, `SELECT p.id FROM proposals p JOIN evidence_links l
+		ON l.candidate_id = p.candidate_id WHERE l.session_id = ?1`, `SELECT i.id FROM items i
+		JOIN candidates c ON c.claim_id = i.claim_id JOIN evidence_links l ON l.candidate_id = c.id
+		WHERE l.session_id = ?1`, sessionID, time.Now()); err != nil {
+		return err
+	}
 	if err := forgetEvidence(ctx, tx, sessionID, DefaultGates()); err != nil {
 		return err
 	}

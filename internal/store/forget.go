@@ -90,7 +90,7 @@ func EraseItem(ctx context.Context, tx *sql.Tx, item int64, now time.Time) error
 	if err != nil {
 		return fmt.Errorf("supersede proposals of item %d: %w", item, err)
 	}
-	return nil
+	return discardChanges(ctx, tx, `SELECT id FROM proposals WHERE item_id = ?1`, `SELECT ?1`, item, now)
 }
 
 // ItemTextLeft returns the fields of ItemTextFields that still hold text of item or of its

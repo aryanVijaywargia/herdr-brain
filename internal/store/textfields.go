@@ -48,6 +48,7 @@ func noItemTextFields() []Field {
 		{"items", "created"},
 		{"proposals", "scope"},
 		{"proposals", "trigger_prompts"}, // Prompt hashes (§11).
+		{"proposals", "conflicts_with"},  // Item ids (§11).
 		{"proposals", "status"},
 		{"proposals", "surface"},
 		{"proposals", "created"},
@@ -161,5 +162,11 @@ func noItemTextFields() []Field {
 		{"extractor_settings", "cli"},
 		{"extractor_settings", "model"},
 		{"extractor_settings", "changed"},
+		{"change_requests", "source"},
+		{"change_requests", "workspace_key"},
+		{"change_requests", "status"},
+		{"change_requests", "reason"}, // A fixed reason of Brain; no model text.
+		{"change_requests", "created"},
+		{"change_requests", "at"},
 	}
 }

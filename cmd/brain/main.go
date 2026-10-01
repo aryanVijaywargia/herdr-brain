@@ -27,7 +27,7 @@ commands:
   setup     [--session <name> [--test <folder>]] [--extractor]: bind a herdr session, add the agent hooks,
             choose the extractor CLI
   remember  "<text>" [--global | --workspace <w>] [--kind <k>]: draft an item for your review
-  review    [<id> [--approve | --reject | --later]]: the queue of proposals (brain review --help)
+  review    [<id> [--approve | --reject | --later | --change "<text>"]]: the queue of proposals (brain review --help)
   pin       [--off] <item>: pin an active item, so it never ages
   undo      <item>: undo the latest revision of an item
   forget    <item> | --session <id>: remove the text of an item, or the capture evidence of a session
