@@ -111,20 +111,24 @@ func OpenChangeRequests(ctx context.Context, tx *sql.Tx) ([]ChangeRequest, error
 		func(rows *sql.Rows) (ChangeRequest, error) { return scanChange(rows) })
 }
 
-// StartChange makes change request id active and records one extractor call for it, under
-// the daily call cap (§7.3 caps). A crash leaves it active: the next pass starts it again.
-func StartChange(ctx context.Context, tx *sql.Tx, id int64, now time.Time) error {
+// StartChange makes change request id active, records one extractor call for it under the
+// daily call cap (§7.3 caps), and returns its model call count: the attempt that the commit
+// must match. An active request is started again only when it became active before stale: a
+// crash stopped it. Else it returns sql.ErrNoRows: another pass runs it.
+func StartChange(ctx context.Context, tx *sql.Tx, id int64, now, stale time.Time) (int, error) {
 	var key string
-	err := tx.QueryRowContext(ctx, `UPDATE change_requests SET status = ?, model_calls = model_calls + 1, reason = '',
-		at = ? WHERE id = ? AND status IN `+openChanges+` RETURNING workspace_key`, ChangeActive, timeArg(now), id).Scan(&key)
+	var calls int
+	err := tx.QueryRowContext(ctx, `UPDATE change_requests SET status = ?1, model_calls = model_calls + 1, reason = '',
+		at = ?2 WHERE id = ?3 AND (status IN ('queued', 'failed', 'invalid') OR status = ?1 AND at < ?4)
+		RETURNING workspace_key, model_calls`, ChangeActive, timeArg(now), id, timeArg(stale)).Scan(&key, &calls)
 	if err != nil {
-		return fmt.Errorf("start change request %d: %w", id, err)
+		return 0, fmt.Errorf("start change request %d: %w", id, err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO extraction_calls (change_request_id, workspace_key, at) VALUES (?, ?, ?)`,
 		id, key, timeArg(now)); err != nil {
-		return fmt.Errorf("record extractor call: %w", err)
+		return 0, fmt.Errorf("record extractor call: %w", err)
 	}
-	return nil
+	return calls, nil
 }
 
 // EndChange sets the status of open change request id to status, with reason and the new

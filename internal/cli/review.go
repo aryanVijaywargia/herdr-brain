@@ -71,6 +71,16 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 	if err != nil {
 		return err
 	}
+	// Each stored text alone too: a line pattern such as an .env line does not match after
+	// the id and the flag in the joined arguments.
+	for _, t := range []*string{r.change, r.edit, r.reason} {
+		if t == nil {
+			continue
+		}
+		if err := secret.Check(*t); err != nil {
+			return err
+		}
+	}
 	c, err := e.Open(ctx)
 	if err != nil {
 		return err

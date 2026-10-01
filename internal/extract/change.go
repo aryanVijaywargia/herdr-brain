@@ -13,10 +13,17 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
+// changeStale is how long an active change request belongs to the pass that started it. A
+// pass of another herdr session can take a global request too, so a younger active request is
+// not started again. [NEW] the call time limit and 1 minute: after that, its call has ended,
+// and an active request means a crash stopped it.
+const changeStale = callTimeout + time.Minute
+
 // change is the change request of a job (§7.4 "ask for a change", S56): the request, its
 // original proposal, the candidate of that proposal and the current revision of its item.
 type change struct {
 	req      store.ChangeRequest
+	attempt  int // the model call count of the attempt that runs; its commit must match
 	proposal store.Proposal
 	cand     store.Candidate
 	item     store.ItemRevision
@@ -35,7 +42,8 @@ func (p Pass) requests(ctx context.Context, tx *sql.Tx) ([]job, error) {
 	var jobs []job
 	for _, r := range rs {
 		if r.Source != store.ChangeProposal ||
-			(r.Status == store.ChangeFailed || r.Status == store.ChangeInvalid) && p.Now().Sub(r.At) < retryAfter {
+			(r.Status == store.ChangeFailed || r.Status == store.ChangeInvalid) && p.Now().Sub(r.At) < retryAfter ||
+			r.Status == store.ChangeActive && p.Now().Sub(r.At) < changeStale {
 			continue
 		}
 		if r.WorkspaceKey != "" {
@@ -105,11 +113,11 @@ func (p Pass) changeJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) 
 	if ts, err := store.TombstonesByClaim(ctx, tx, cand.ClaimID); err != nil || len(ts) > 0 {
 		return job{}, "the claim is forgotten", err
 	}
-	refs, err := p.allowedEvidence(ctx, tx, cand)
+	refs, off, err := p.allowedEvidence(ctx, tx, cand)
 	if err != nil {
 		return job{}, "", err
 	}
-	if len(refs) == 0 {
+	if len(refs) == 0 && !off {
 		return job{}, "no evidence of the proposal is left", nil
 	}
 	j := job{batch: store.Batch{WorkspaceKey: cand.WorkspaceKey}, refs: refs,
@@ -120,25 +128,31 @@ func (p Pass) changeJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) 
 
 // allowedEvidence returns the evidence of candidate cand that a change request may send, as
 // refs in the scope of cand: the observations that are still in the store, that no tombstone
-// names, and whose pane and workspace have learning on (§6.7 exclusion). The newest come
-// first until the input cap, then they go in id order.
-func (p Pass) allowedEvidence(ctx context.Context, tx *sql.Tx, cand store.Candidate) ([]ref, error) {
+// names, whose pane and workspace have learning on (§6.7 exclusion), and whose workspace has
+// extraction on (§7.3): the evidence of a global candidate comes from workspaces. The newest
+// come first until the input cap, then they go in id order. off reports evidence that a
+// learning or extraction switch holds back: the request waits for it, as a batch does.
+func (p Pass) allowedEvidence(ctx context.Context, tx *sql.Tx, cand store.Candidate) (refs []ref, off bool, err error) {
 	es, err := store.CandidateExcerpts(ctx, tx, cand.ID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	var refs []ref
 	size := 0
 	for _, e := range es {
 		stopped, err := store.Tombstoned(ctx, tx, e.CaptureIdentity)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		on, err := store.LearningOn(ctx, tx, p.DefaultOn, e.HerdrSession, e.WorkspaceKey, e.PaneID)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
-		if stopped || !on {
+		extracted, err := store.ExtractionOn(ctx, tx, e.WorkspaceKey)
+		if err != nil {
+			return nil, false, err
+		}
+		if stopped || !on || !extracted {
+			off = off || !stopped
 			continue
 		}
 		if size += len(e.Excerpt); size > p.caps().InputBytes && len(refs) > 0 {
@@ -148,13 +162,16 @@ func (p Pass) allowedEvidence(ctx context.Context, tx *sql.Tx, cand store.Candid
 			workspace: cand.WorkspaceKey, sender: e.Sender, excerpt: e.Excerpt, kind: signal.Kind(cand.Kind)})
 	}
 	slices.SortFunc(refs, func(a, b ref) int { return int(a.obs - b.obs) })
-	return refs, nil
+	return refs, off, nil
 }
 
 // changeAllowed reports whether change request job j may call the extractor: extraction is on
 // for its scope, a CLI is chosen, and learning is on for the store and its workspace (§7.3).
 func (p Pass) changeAllowed(ctx context.Context, tx *sql.Tx, j job) (bool, error) {
 	key := j.batch.WorkspaceKey
+	if len(j.refs) == 0 { // a switch holds back all its evidence
+		return false, nil
+	}
 	if on, err := store.ExtractionOn(ctx, tx, key); err != nil || !on {
 		return false, err
 	}
@@ -213,7 +230,12 @@ func (p Pass) runChange(ctx context.Context, j job) error {
 			return err
 		}
 		j = cur
-		return store.StartChange(ctx, tx, r.ID, p.Now())
+		// Another pass may run the request: only one attempt is active at a time.
+		j.change.attempt, err = store.StartChange(ctx, tx, r.ID, p.Now(), p.Now().Add(-changeStale))
+		if errors.Is(err, sql.ErrNoRows) {
+			skip, err = true, nil
+		}
+		return err
 	})
 	if err != nil || skip {
 		return err
@@ -242,7 +264,7 @@ func (p Pass) commitChange(ctx context.Context, j job, claims []Claim, callErr e
 	return p.Store.Write(ctx, func(tx *sql.Tx) error {
 		now := p.Now()
 		r, err := store.ChangeRequestByID(ctx, tx, j.change.req.ID)
-		if err != nil || r.Status != store.ChangeActive {
+		if err != nil || r.Status != store.ChangeActive || r.ModelCalls != j.change.attempt {
 			return err
 		}
 		if callErr != nil {
