@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
+	"github.com/aryanVijaywargia/herdr-brain/internal/fingerprint"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
@@ -428,6 +429,50 @@ func TestCaptureS40(t *testing.T) {
 			if !strings.Contains(excerpts[0], tc.reply) || strings.Count(excerpts[1], tc.prompt) != 1 ||
 				strings.Count(excerpts[1], tc.reply) != 1 {
 				t.Errorf("excerpts = %q, want the reply, then the prompt and the reply once", excerpts)
+			}
+		})
+	}
+}
+
+// A pane read writes a prompt index row for each stored prompt part, in the transaction of its
+// observation: the hash of the prompt without its sender mark, the same hash as the hook prompt
+// of the same text. A reply gets no row (E14-S1).
+func TestCapturePromptIndex(t *testing.T) {
+	for _, tc := range []struct{ harness, session, prefix, status string }{
+		{"codex", codexRun2, "codex-s40", "done"},
+		{"claude", "", "claude-s40", "idle"},
+	} {
+		t.Run(tc.harness, func(t *testing.T) {
+			k := newCapture(t, "s1", t.TempDir())
+			k.pane("w1:p1", tc.harness, tc.session)
+			k.reads(t, "w1:p1", tc.prefix+"-0-base.txt", tc.prefix+"-1-"+tc.status+".txt", tc.prefix+"-2-"+tc.status+".txt")
+			k.must(t, Baseline, "w1:p1", "", GapNone)
+			k.must(t, Change, "w1:p1", tc.status, GapNone)
+			k.must(t, Change, "w1:p1", tc.status, GapNone)
+			const prompt = "Reply with only the word ready."
+			var es []store.PromptEntry
+			k.tx(t, func(tx *sql.Tx) (err error) {
+				es, err = store.PromptEntries(context.Background(), tx)
+				return err
+			})
+			senders := map[int64]store.Sender{}
+			for _, o := range k.rows(t).obs {
+				senders[o.ID] = o.Sender
+			}
+			found := false
+			for _, e := range es {
+				if senders[e.ObservationID] != store.SenderUnconfirmed {
+					t.Errorf("row %+v is of a %s observation, want prompts only", e, senders[e.ObservationID])
+				}
+				if e.Hash == fingerprint.Prompt(prompt) && e.Text == prompt {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("prompt index = %+v, want a row of %q without its mark", es, prompt)
+			}
+			if h := fingerprint.Prompt(HookPrompt(tc.harness, prompt)); h != fingerprint.Prompt(prompt) {
+				t.Errorf("hook prompt hash = %s, want the pane hash", h)
 			}
 		})
 	}

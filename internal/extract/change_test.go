@@ -125,6 +125,31 @@ func TestTriggerPrompts(t *testing.T) {
 	}
 }
 
+// A trigger prompt is the fingerprint of the full prompt in the prompt index, not of its
+// stored excerpt: a long prompt and one with blank lines match their own trigger (E14-S1).
+func TestTriggerPromptsFullText(t *testing.T) {
+	f := newFixture(t)
+	full := pnpm + "\n\n" + strings.Repeat("and keep the lockfile ", 30)
+	f.full = map[string]string{pnpm: full}
+	f.session("z", true, line{"ws-A", pnpm, t0})
+	f.session("a", true, line{"ws-A", pnpm, t0.Add(time.Minute)})
+	f.mustRun()
+	ps := f.proposals()
+	if len(ps) != 1 {
+		t.Fatalf("proposals = %+v, want 1", ps)
+	}
+	if want := []string{fingerprint.Prompt(full)}; !slices.Equal(ps[0].TriggerPrompts, want) {
+		t.Errorf("trigger prompts = %v, want %v, the hash of the full prompt", ps[0].TriggerPrompts, want)
+	}
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		ids, err := store.MatchPrompt(ctx, tx, fingerprint.Prompt(full), "ws-A")
+		if err != nil || !slices.Equal(ids, []int64{ps[0].ID}) {
+			t.Errorf("MatchPrompt(full) = %v, %v, want [%d]", ids, err, ps[0].ID)
+		}
+		return nil
+	})
+}
+
 // conflicts_with names a claim; the proposal stores the active items of that claim in its
 // scope. A claim with no active item gives no conflict [NEW].
 func TestConflictsWith(t *testing.T) {

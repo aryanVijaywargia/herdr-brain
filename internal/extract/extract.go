@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aryanVijaywargia/herdr-brain/internal/fingerprint"
 	"github.com/aryanVijaywargia/herdr-brain/internal/secret"
 	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -501,7 +500,8 @@ func candidateKind(c Claim) store.CandidateKind {
 // pending proposal, no item and no rejection in its scope (§7.2, §7.3). The proposal goes
 // through store.ProposeCandidate. Its draft item gets the scope and workspace key of the
 // candidate. It stores the §7.4 fields: the excerpts stay in the evidence links, and the
-// proposal holds the hashes of its trigger prompts and the items that it conflicts with.
+// proposal holds the hashes of its trigger prompts (store.ProposeCandidate) and the items that
+// it conflicts with.
 func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now time.Time) error {
 	cand, err := store.CandidateByID(ctx, tx, id)
 	if err != nil || !p.gates().Reached(cand) {
@@ -533,7 +533,7 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 	if c.Kind == "fact" {
 		kind = store.KindFact
 	}
-	triggers, conflicts, err := marks(ctx, tx, cand, c)
+	conflicts, err := conflictItems(ctx, tx, cand, c)
 	if err != nil {
 		return err
 	}
@@ -546,7 +546,7 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 	base := int64(1)
 	pid, err := store.ProposeCandidate(ctx, tx, id, store.Proposal{ItemID: &item, BaseRevision: &base, Text: text,
 		Scope: cand.Scope, Target: target, Diff: "+ " + text, ExpectedBenefit: c.ExpectedBenefit,
-		PermissionWarning: c.TouchesPermission, ConflictsWith: conflicts, TriggerPrompts: triggers,
+		PermissionWarning: c.TouchesPermission, ConflictsWith: conflicts,
 		Status: store.ProposalPending, Created: now})
 	if err != nil {
 		return err
@@ -562,31 +562,15 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 // claimText is the item text of claim c [NEW]: "situation: rule".
 func claimText(c Claim) string { return c.Situation + ": " + c.Rule }
 
-// marks returns the trigger prompts and the conflicts of a proposal of claim c for candidate
-// cand. The trigger prompts are the fingerprints of the prompt observations among the evidence
-// of cand: the text that you sent (§7.3, E14-S1). The conflicts are the active items of the
-// claim that c names in conflicts_with, in the scope of cand. [NEW] a claim with no active item
-// gives no conflict: there is nothing in the brief to conflict with.
-func marks(ctx context.Context, tx *sql.Tx, cand store.Candidate, c Claim) ([]string, []int64, error) {
-	es, err := store.CandidateExcerpts(ctx, tx, cand.ID)
-	if err != nil {
-		return nil, nil, err
-	}
-	triggers := []string{}
-	for _, e := range es {
-		if e.Sender != store.SenderYou && e.Sender != store.SenderUnconfirmed || e.Excerpt == "" {
-			continue
-		}
-		if h := fingerprint.Prompt(e.Excerpt); !slices.Contains(triggers, h) {
-			triggers = append(triggers, h)
-		}
-	}
-	slices.Sort(triggers)
+// conflictItems returns the conflicts of a proposal of claim c for candidate cand: the active
+// items of the claim that c names in conflicts_with, in the scope of cand. [NEW] a claim with
+// no active item gives no conflict: there is nothing in the brief to conflict with. The
+// trigger prompts come from the prompt index (store.ProposeCandidate, E14-S1).
+func conflictItems(ctx context.Context, tx *sql.Tx, cand store.Candidate, c Claim) ([]int64, error) {
 	if c.ConflictsWith == "" {
-		return triggers, nil, nil
+		return nil, nil
 	}
-	conflicts, err := store.ActiveClaimItems(ctx, tx, c.ConflictsWith, cand.WorkspaceKey)
-	return triggers, conflicts, err
+	return store.ActiveClaimItems(ctx, tx, c.ConflictsWith, cand.WorkspaceKey)
 }
 
 // target names the brief part of candidate c, as brain remember does. It returns

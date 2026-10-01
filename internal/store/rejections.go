@@ -60,7 +60,8 @@ func Rejected(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string) (bo
 
 // ProposeCandidate adds p as a proposal of candidate id and returns its id. It refuses with
 // ErrRejected when you rejected the claim of the candidate in its scope (§7.2). E13 makes its
-// proposals through it.
+// proposals through it. The trigger prompts of p are the fingerprints of the prompt index rows
+// of the evidence of the candidate, and those rows link the new proposal (E14-S1).
 func ProposeCandidate(ctx context.Context, tx *sql.Tx, id int64, p Proposal) (int64, error) {
 	c, err := CandidateByID(ctx, tx, id)
 	if err != nil {
@@ -74,7 +75,14 @@ func ProposeCandidate(ctx context.Context, tx *sql.Tx, id int64, p Proposal) (in
 		return 0, fmt.Errorf("candidate %d: claim %s is %w in its scope", id, c.ClaimID, ErrRejected)
 	}
 	p.CandidateID = &id
-	return InsertProposal(ctx, tx, p)
+	if p.TriggerPrompts, err = triggerPrompts(ctx, tx, id); err != nil {
+		return 0, err
+	}
+	pid, err := InsertProposal(ctx, tx, p)
+	if err != nil {
+		return 0, err
+	}
+	return pid, linkPrompts(ctx, tx, id, pid)
 }
 
 // rejectionColumns are the columns that scanRejection reads, in order. The evidence count now

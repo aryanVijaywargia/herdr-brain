@@ -322,13 +322,13 @@ func (p Pass) redraft(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.
 	if ch.item.State != store.StateDraft {
 		diff = strings.Join([]string{"- " + ch.item.Text, diff}, "\n")
 	}
-	triggers, conflicts, err := marks(ctx, tx, ch.cand, c)
+	conflicts, err := conflictItems(ctx, tx, ch.cand, c)
 	if err != nil {
 		return 0, err
 	}
 	base := ch.req.Revision
 	return store.ProposeCandidate(ctx, tx, ch.cand.ID, store.Proposal{ItemID: &ch.item.ItemID, BaseRevision: &base,
 		Text: text, Scope: ch.proposal.Scope, Target: ch.proposal.Target, Diff: diff, ExpectedBenefit: c.ExpectedBenefit,
-		PermissionWarning: c.TouchesPermission, ConflictsWith: conflicts, TriggerPrompts: triggers,
+		PermissionWarning: c.TouchesPermission, ConflictsWith: conflicts,
 		Status: store.ProposalPending, Created: now})
 }

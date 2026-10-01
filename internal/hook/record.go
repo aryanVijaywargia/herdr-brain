@@ -128,6 +128,7 @@ func (h Hook) write(ctx context.Context, tx *sql.Tx, r *resolver.Resolved, in ad
 		Status: store.ObservationComplete, Sender: senders[h.Event], Counts: true, At: now,
 	}
 	var cmd store.CommandRecord
+	var prompt string
 	if h.Event == adapter.EventTool {
 		cmd = command(in)
 		if !cmd.SecretFound {
@@ -136,7 +137,14 @@ func (h Hook) write(ctx context.Context, tx *sql.Tx, r *resolver.Resolved, in ad
 	} else {
 		o.Excerpt, o.Truncated, o.BrainOrigin = brained.HookText(kind, in.Text)
 	}
+	if h.Event == adapter.EventPrompt {
+		prompt = brained.HookPrompt(kind, in.Text)
+	}
 	if o.ID, err = store.AddObservation(ctx, tx, o); err != nil || o.ID == 0 {
+		return err
+	}
+	// The prompt index row joins the transaction of its observation (E14-S1).
+	if err := brained.IndexPrompt(ctx, tx, o, prompt); err != nil {
 		return err
 	}
 	if h.Event == adapter.EventTool {
