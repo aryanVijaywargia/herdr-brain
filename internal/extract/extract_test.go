@@ -1,6 +1,7 @@
 package extract
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/fingerprint"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
@@ -67,6 +69,7 @@ type fixture struct {
 	cli   *fakeCLI
 	now   time.Time
 	panes int
+	full  map[string]string // the full prompt of an excerpt, for the prompt index; none when it is the excerpt
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -142,6 +145,10 @@ func (f *fixture) session(id string, ended bool, lines ...line) (int64, []int64)
 				Source: store.SourceHerdr, SegmentID: seg, Event: "working", Excerpt: l.text,
 				Status: store.ObservationComplete, Sender: store.SenderYou, Counts: true, At: l.at})
 			if err != nil {
+				return err
+			}
+			full := cmp.Or(f.full[l.text], l.text)
+			if err := store.IndexPrompt(ctx, tx, o, fingerprint.Prompt(full), l.text); err != nil {
 				return err
 			}
 			obs = append(obs, o)
