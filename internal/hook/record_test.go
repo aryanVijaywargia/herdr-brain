@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -14,6 +15,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
+	"github.com/aryanVijaywargia/herdr-brain/internal/fingerprint"
+	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
@@ -250,4 +253,173 @@ func (f *forgetOnRead) Read(p []byte) (int, error) {
 		f.fn = nil
 	}
 	return f.r.Read(p)
+}
+
+// promptEntries reads the prompt index of the fixture store.
+func promptEntries(t *testing.T, f *fixture) []store.PromptEntry {
+	t.Helper()
+	s := openStore(t, f.mainStore)
+	defer closeStore(t, s)
+	var es []store.PromptEntry
+	write(t, s, func(tx *sql.Tx) (err error) {
+		es, err = store.PromptEntries(context.Background(), tx)
+		return err
+	})
+	return es
+}
+
+// A prompt record writes one prompt index row in the transaction of its observation. Its hash
+// is the fingerprint of the full prompt with the secret masked, blank lines and length kept;
+// its text is filtered and cut to 500 characters. A tool or a stop record writes no row
+// (E14-S1).
+func TestRecordPromptIndex(t *testing.T) {
+	f := recordFixture(t)
+	p := claude(t)
+	clock := testNow
+	full := "deploy with KEY=" + anthropicKey + "\n\n" + strings.Repeat("then check the logs ", 40)
+	raw, err := json.Marshal(map[string]string{"session_id": "s1", "prompt": full})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []struct{ event, raw string }{
+		{adapter.EventPrompt, string(raw)},
+		{adapter.EventTool, `{"session_id":"s1","tool_input":{"command":"ls"}}`},
+		{adapter.EventStop, `{"session_id":"s1","last_assistant_message":"done"}`},
+	} {
+		if err := runRecord(t, f, p, r.event, "w14:p1", r.raw, &clock); err != nil {
+			t.Fatalf("hook --event %s: %v", r.event, err)
+		}
+	}
+	es := promptEntries(t, f)
+	obs, _ := recordRows(t, f)
+	if len(es) != 1 || len(obs) != 3 {
+		t.Fatalf("prompt index = %+v for %d observations, want 1 row", es, len(obs))
+	}
+	masked := strings.Replace(full, anthropicKey, "[secret]", 1)
+	e := es[0]
+	if e.Hash != fingerprint.Prompt(masked) || e.ObservationID != obs[0].ID || e.WorkspaceKey != "ws_a14" {
+		t.Errorf("row = %+v, want the hash of the masked full prompt for observation %d", e, obs[0].ID)
+	}
+	if e.Hash == fingerprint.Prompt(obs[0].Excerpt) {
+		t.Error("the hash is the hash of the cut excerpt, want the full prompt")
+	}
+	if strings.Contains(e.Text, anthropicKey) || utf8.RuneCountInString(e.Text) != 500 || !strings.HasPrefix(e.Text, "deploy with KEY=[secret]") {
+		t.Errorf("row text = %q, want the masked prompt cut to 500 characters", e.Text)
+	}
+}
+
+// AC: an index write that waits after its note, then a brain forget --session of its source,
+// an item forget or a learn off, then the release: the forgotten prompt index rows do not come
+// back, and the waiting record adds no row. After an item forget the new prompt is new
+// evidence: its row gets no link to the forgotten proposal, and nothing matches it. A learn off
+// deletes nothing: it only stops capture (§6.7).
+func TestRecordPromptIndexWaits(t *testing.T) {
+	const prompt = `{"session_id":"s1","prompt":"run make Foo"}`
+	hash := fingerprint.Prompt("run make Foo")
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name   string
+		fn     func(tx *sql.Tx, sessionID, item int64) error
+		rows   int // the rows of the old and the new prompt after the release
+		newRow bool
+	}{
+		{"forget session", func(tx *sql.Tx, sessionID, _ int64) error {
+			return store.ForgetSession(ctx, tx, sessionID)
+		}, 0, false},
+		{"forget item", func(tx *sql.Tx, _, item int64) error {
+			return store.EraseItem(ctx, tx, item, testNow)
+		}, 1, true},
+		{"learn off", func(tx *sql.Tx, _, _ int64) error {
+			return store.SetLearning(ctx, tx, store.LearningSetting{Scope: store.LearningStore, On: false, Changed: testNow})
+		}, 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := recordFixture(t)
+			p := claude(t)
+			clock := testNow
+			if err := runRecord(t, f, p, adapter.EventPrompt, "w14:p1", prompt, &clock); err != nil {
+				t.Fatal(err)
+			}
+			sessionID, item := proposeFrom(t, f, promptEntries(t, f)[0].ObservationID)
+			h := f.hook(p, environ(f.mainSock, "", "w14:p1", "w14"))
+			h.Event = adapter.EventPrompt
+			at := clock.Add(time.Second)
+			h.Now = func() time.Time { return at }
+			h.noted = func() {
+				s := openStore(t, f.mainStore)
+				defer closeStore(t, s)
+				write(t, s, func(tx *sql.Tx) error { return tc.fn(tx, sessionID, item) })
+			}
+			var out bytes.Buffer
+			if err := h.run(ctx, strings.NewReader(prompt), &out); err != nil {
+				t.Fatal(err)
+			}
+			es := promptEntries(t, f)
+			if len(es) != tc.rows {
+				t.Fatalf("prompt index after the release = %+v, want %d rows", es, tc.rows)
+			}
+			for _, e := range es {
+				if tc.newRow && e.ObservationID == 1 {
+					t.Errorf("forgotten row %+v came back", e)
+				}
+				if e.ObservationID != 1 && (!tc.newRow || len(e.ProposalIDs) != 0) {
+					t.Errorf("new row %+v after the release, want none, or one with no link after an item forget", e)
+				}
+			}
+			if !tc.newRow && tc.rows != 0 {
+				return // learn off keeps the stored prompt and its proposal
+			}
+			s := openStore(t, f.mainStore)
+			defer closeStore(t, s)
+			write(t, s, func(tx *sql.Tx) error {
+				ids, err := store.MatchPrompt(ctx, tx, hash, "ws_a14")
+				if len(ids) != 0 {
+					t.Errorf("MatchPrompt after the release = %v, want none", ids)
+				}
+				return err
+			})
+		})
+	}
+}
+
+// proposeFrom makes a pending global proposal whose trigger prompt is observation obs, and
+// returns the capture session of obs and the item of the proposal.
+func proposeFrom(t *testing.T, f *fixture, obs int64) (sessionID, item int64) {
+	t.Helper()
+	ctx := context.Background()
+	s := openStore(t, f.mainStore)
+	defer closeStore(t, s)
+	write(t, s, func(tx *sql.Tx) error {
+		ss, err := store.SessionsByID(ctx, tx, "default", "cap-1")
+		if err != nil || len(ss) != 1 {
+			t.Fatalf("SessionsByID = %+v, %v", ss, err)
+		}
+		sessionID = ss[0].ID
+		claim, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: "make", Rule: "run make Foo"}, testNow)
+		if err != nil {
+			return err
+		}
+		cand, err := store.Attach(ctx, tx, store.Candidate{ClaimID: claim, Scope: store.ScopeGlobal,
+			Kind: store.CandidateProcedure}, obs, store.DefaultGates(), signal.Supports)
+		if err != nil {
+			return err
+		}
+		if item, err = store.InsertItem(ctx, tx, store.Item{ClaimID: claim, CurrentRevision: 1, Kind: store.KindPreference,
+			Scope: store.ScopeGlobal, State: store.StateDraft, Created: testNow}); err != nil {
+			return err
+		}
+		base := int64(1)
+		id, err := store.ProposeCandidate(ctx, tx, cand, store.Proposal{ItemID: &item, BaseRevision: &base,
+			Text: "make: run make Foo", Scope: store.ScopeGlobal, Target: "global", Diff: "+ make: run make Foo",
+			Status: store.ProposalPending, Created: testNow})
+		if err != nil {
+			return err
+		}
+		ids, err := store.MatchPrompt(ctx, tx, fingerprint.Prompt("run make Foo"), "ws_a14")
+		if len(ids) != 1 || ids[0] != id {
+			t.Fatalf("MatchPrompt before the forget = %v, want [%d]", ids, id)
+		}
+		return err
+	})
+	return sessionID, item
 }
