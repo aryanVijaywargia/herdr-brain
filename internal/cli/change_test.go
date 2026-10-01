@@ -246,3 +246,41 @@ func (f *fixture) extractorProposalIn(t *testing.T, ws string) (int64, string) {
 	}
 	return pid, claim
 }
+
+// AC (§6.7): brain forget of the item of a proposal forgets its claim too (the claim key text
+// goes, and a tombstone holds the claim id). It removes the change request text and discards
+// the queue entry, so no draft comes of it.
+func TestForgetRemovesChangeRequest(t *testing.T) {
+	f := newFixture(t)
+	pid, claim := f.extractorProposal(t)
+	f.mustReview(t, fmt.Sprint(pid), "--change", "say pnpm for every install")
+	r := f.rows(t)
+	item := *r.proposals[len(r.proposals)-1].ItemID
+	f.mustForget(t, clock(), fmt.Sprint(item))
+
+	s := openStore(t, f.store)
+	defer closeStore(t, s)
+	var crs []store.ChangeRequest
+	var ts []store.Tombstone
+	var c store.Claim
+	write(t, s, func(tx *sql.Tx) (err error) {
+		ctx := context.Background()
+		if crs, err = store.ChangeRequests(ctx, tx); err != nil {
+			return err
+		}
+		if ts, err = store.TombstonesByClaim(ctx, tx, claim); err != nil {
+			return err
+		}
+		c, err = store.ClaimByID(ctx, tx, claim)
+		return err
+	})
+	if len(crs) != 1 || crs[0].Status != store.ChangeDiscarded {
+		t.Errorf("change requests = %+v, want one discarded", crs)
+	}
+	if len(ts) != 1 || c.Key != (store.ClaimKey{}) {
+		t.Errorf("tombstones %d, claim key %+v; want the claim forgotten", len(ts), c.Key)
+	}
+	if p := f.rows(t).proposals; p[len(p)-1].ChangeRequest != nil {
+		t.Errorf("change request text = %q, want none", *p[len(p)-1].ChangeRequest)
+	}
+}
