@@ -459,7 +459,7 @@ func (f *suggestFixture) repeat(t *testing.T) brained.Dispatch {
 // and no new proposal of the claim comes in the workspace.
 func TestSuggestRejectNoNag(t *testing.T) {
 	f := newSuggestFixture(t)
-	f.setCLI(t, store.ExtractorClaude)
+	f.setClaude(t)
 	f.suggest(t, f.reserve(t), nil)
 	if len(f.herdr.notes) != 1 || len(f.herdr.opened) != 1 {
 		t.Fatalf("notifications %q, opened %+v, want the one suggestion", f.herdr.notes, f.herdr.opened)

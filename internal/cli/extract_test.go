@@ -51,16 +51,19 @@ func (f *fixture) signalSession(t *testing.T, ws, name string) {
 	})
 }
 
-func (f *fixture) setCLI(t *testing.T, cli store.ExtractorCLI) {
+// setClaude chooses claude as the extractor CLI.
+func (f *fixture) setClaude(t *testing.T) {
 	t.Helper()
-	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error { return store.SetExtractorCLI(ctx, tx, cli, "", testNow) })
+	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
+		return store.SetExtractorCLI(ctx, tx, store.ExtractorClaude, "", testNow)
+	})
 }
 
 // AC: brain extract off for a workspace records its switch by the Brain key and leaves
 // learning on. Status tells extraction off apart from capture (learning) off.
 func TestExtractSwitch(t *testing.T) {
 	f := newStatusFixture(t)
-	f.setCLI(t, store.ExtractorClaude)
+	f.setClaude(t)
 	out, err := f.extract(t, "off", "--workspace", "w14")
 	if err != nil || !strings.Contains(out, "extraction is off for workspace w14 (shop, key ws_a14)") {
 		t.Fatalf("extract off = %q, %v", out, err)
@@ -164,7 +167,7 @@ func (c *failingCLI) Run(context.Context, extract.Command) ([]byte, error) {
 // from the stored reason.
 func TestSignedOutExtractor(t *testing.T) {
 	f := newDoctorFixture(t)
-	f.setCLI(t, store.ExtractorClaude)
+	f.setClaude(t)
 	f.signalSession(t, "ws_a14", "a1")
 	s := openStore(t, f.store)
 	cli := &failingCLI{}

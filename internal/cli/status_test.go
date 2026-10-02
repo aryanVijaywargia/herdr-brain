@@ -461,7 +461,7 @@ func capture(ctx context.Context, tx *sql.Tx, k store.SessionKey, paneID, ws str
 func TestStatusCounts(t *testing.T) {
 	f := newStatusFixture(t)
 	f.signalSession(t, "ws_a14", "a1") // claude, week of 2026-09-28: no receipt, waits for extraction
-	f.setCLI(t, store.ExtractorClaude)
+	f.setClaude(t)
 	approved, edited, rejected, changed := f.remember(t, "use pnpm"), f.remember(t, "run make lint"),
 		f.remember(t, "use tabs"), f.remember(t, "keep a changelog")
 	later := f.remember(t, "squash merge")
