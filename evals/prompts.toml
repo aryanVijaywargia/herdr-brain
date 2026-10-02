@@ -1,0 +1,499 @@
+# Labeled prompt set (HLD §12.1 "Labeled prompt set", S71, E14-S2). Go tests of Brain's own
+# matcher load this file: internal/store/promptset_test.go. No agent and no model.
+#
+# [[proposal]]: a fixture proposal and its trigger prompts. The test stores each trigger
+# prompt as a prompt observation with its prompt index row in the workspace of the proposal,
+# and proposes it in its scope ("workspace" or "global").
+#
+# [[prompt]]: a prompt with its label: the expected proposal id, or "no match". S71 checks
+# that each one gives its label with exact match only. kind is one of: repeat, language,
+# unicode, everyday, negation, arguments, repo, unrelated. A negation or arguments case
+# names the proposal that it tests in proposal; each proposal has both. No proposal has a
+# parameter, so other arguments are "no match".
+#
+# [[near]]: a repeat with a small change (case, punctuation, a polite word) that exact match
+# cannot see. Only a close matcher can give its label. Exact match must give no match.
+#
+# part splits the set [NEW]: a close-match threshold comes from "tune" and is checked on
+# "held-out" (§12.1). The Unicode cases follow the three kinds of waku
+# waku/memory/semantic/store.py:31-64: text with no spaces, accents and command punctuation.
+# The workspace of a case is "ws-A" when it has none; "" is a workspace with no Brain key.
+
+[[proposal]]
+id = "make-test"
+scope = "workspace"
+workspace = "ws-A"
+triggers = ["run make test and fix the failures"]
+
+[[proposal]]
+id = "pnpm"
+scope = "global"
+workspace = "ws-A"
+triggers = ["use pnpm, not npm, when you install packages", "use pnpm not npm to install packages"]
+
+[[proposal]]
+id = "migrate"
+scope = "workspace"
+workspace = "ws-A"
+triggers = ["run the database migrations before you start the server"]
+
+[[proposal]]
+id = "deploy-staging"
+scope = "workspace"
+workspace = "ws-B"
+triggers = ["deploy the api service to the staging cluster and run the smoke tests"]
+
+[[proposal]]
+id = "ja-commit"
+scope = "global"
+workspace = "ws-A"
+triggers = ["テストを実行してからコミットして"]
+
+[[proposal]]
+id = "es-lint"
+scope = "workspace"
+workspace = "ws-A"
+triggers = ["ejecuta el linter antes de hacer commit"]
+
+[[proposal]]
+id = "cafe-notes"
+scope = "global"
+workspace = "ws-A"
+triggers = ["résumé the café notes"]
+
+[[proposal]]
+id = "push-lease"
+scope = "workspace"
+workspace = "ws-A"
+triggers = ['git commit -m "fix: x" && git push --force-with-lease']
+
+[[proposal]]
+id = "zh-docs"
+scope = "global"
+workspace = "ws-A"
+triggers = ["更新文档然后提交"]
+
+[[proposal]]
+id = "de-format"
+scope = "workspace"
+workspace = "ws-B"
+triggers = ["formatiere den Code mit gofmt bevor du committest"]
+
+# Real repeats.
+
+[[prompt]]
+text = "run make test and fix the failures"
+label = "make-test"
+kind = "repeat"
+part = "tune"
+
+[[prompt]]
+text = "  run make test and fix the failures\n"
+label = "make-test"
+kind = "repeat"
+part = "held-out"
+
+[[prompt]]
+text = "use pnpm not npm to install packages"
+label = "pnpm"
+kind = "repeat"
+part = "tune"
+
+[[prompt]]
+text = "use pnpm, not npm, when you install packages"
+workspace = "ws-B"
+label = "pnpm"
+kind = "repeat"
+part = "held-out"
+
+[[prompt]]
+text = "run the database migrations before you start the server"
+label = "migrate"
+kind = "repeat"
+part = "held-out"
+
+[[prompt]]
+text = "deploy the api service to the staging cluster and run the smoke tests"
+workspace = "ws-B"
+label = "deploy-staging"
+kind = "repeat"
+part = "tune"
+
+# Other languages.
+
+[[prompt]]
+text = "ejecuta el linter antes de hacer commit"
+label = "es-lint"
+kind = "language"
+part = "tune"
+
+[[prompt]]
+text = "formatiere den Code mit gofmt bevor du committest"
+workspace = "ws-B"
+label = "de-format"
+kind = "language"
+part = "held-out"
+
+[[prompt]]
+text = "テストを実行してからコミットして"
+label = "ja-commit"
+kind = "language"
+part = "held-out"
+
+[[prompt]]
+text = "更新文档然后提交"
+workspace = "ws-B"
+label = "zh-docs"
+kind = "language"
+part = "tune"
+
+# Unicode: accents in NFD form, text with no spaces, command punctuation.
+
+[[prompt]]
+text = "re\u0301sume\u0301 the cafe\u0301 notes" # NFD: the accents are combining marks
+label = "cafe-notes"
+kind = "unicode"
+part = "tune"
+
+[[prompt]]
+text = 'git commit -m "fix: x" && git push --force-with-lease'
+label = "push-lease"
+kind = "unicode"
+part = "held-out"
+
+[[prompt]]
+text = "\tテストを実行してからコミットして "
+workspace = ""
+label = "ja-commit"
+kind = "unicode"
+part = "tune"
+
+[[prompt]]
+text = "resume the cafe notes"
+label = "no match"
+kind = "unicode"
+part = "held-out"
+
+[[prompt]]
+text = "测试然后提交"
+label = "no match"
+kind = "unicode"
+part = "tune"
+
+[[prompt]]
+text = "更新文档然后提交代码"
+label = "no match"
+kind = "unicode"
+part = "held-out"
+
+[[prompt]]
+text = "git commit -m 'fix: x' && git push --force-with-lease"
+label = "no match"
+kind = "unicode"
+part = "tune"
+
+[[prompt]]
+text = 'git commit -m "fix: x" || git push --force-with-lease'
+label = "no match"
+kind = "unicode"
+part = "held-out"
+
+# Everyday requests.
+
+[[prompt]]
+text = "what does this function do?"
+label = "no match"
+kind = "everyday"
+part = "tune"
+
+[[prompt]]
+text = "fix the typo in the README"
+label = "no match"
+kind = "everyday"
+part = "held-out"
+
+[[prompt]]
+text = "run the tests"
+label = "no match"
+kind = "everyday"
+part = "tune"
+
+[[prompt]]
+text = "continue"
+label = "no match"
+kind = "everyday"
+part = "held-out"
+
+[[prompt]]
+text = "explain the error above"
+label = "no match"
+kind = "everyday"
+part = "tune"
+
+[[prompt]]
+text = "thanks, that works"
+label = "no match"
+kind = "everyday"
+part = "held-out"
+
+# Negation, one or more for each proposal.
+
+[[prompt]]
+text = "do not run make test and fix the failures"
+label = "no match"
+kind = "negation"
+proposal = "make-test"
+part = "tune"
+
+[[prompt]]
+text = "don't use pnpm, use npm, when you install packages"
+label = "no match"
+kind = "negation"
+proposal = "pnpm"
+part = "held-out"
+
+[[prompt]]
+text = "do not run the database migrations before you start the server"
+label = "no match"
+kind = "negation"
+proposal = "migrate"
+part = "held-out"
+
+[[prompt]]
+text = "don't deploy the api service to the staging cluster and run the smoke tests"
+workspace = "ws-B"
+label = "no match"
+kind = "negation"
+proposal = "deploy-staging"
+part = "tune"
+
+[[prompt]]
+text = "テストを実行しないでコミットして"
+label = "no match"
+kind = "negation"
+proposal = "ja-commit"
+part = "tune"
+
+[[prompt]]
+text = "no ejecutes el linter antes de hacer commit"
+label = "no match"
+kind = "negation"
+proposal = "es-lint"
+part = "held-out"
+
+[[prompt]]
+text = "do not résumé the café notes"
+label = "no match"
+kind = "negation"
+proposal = "cafe-notes"
+part = "held-out"
+
+[[prompt]]
+text = 'git commit -m "fix: x" && do not git push --force-with-lease'
+label = "no match"
+kind = "negation"
+proposal = "push-lease"
+part = "tune"
+
+[[prompt]]
+text = "不要更新文档然后提交"
+label = "no match"
+kind = "negation"
+proposal = "zh-docs"
+part = "held-out"
+
+[[prompt]]
+text = "formatiere den Code nicht mit gofmt bevor du committest"
+workspace = "ws-B"
+label = "no match"
+kind = "negation"
+proposal = "de-format"
+part = "tune"
+
+# Other arguments, one or more for each proposal.
+
+[[prompt]]
+text = "run make lint and fix the failures"
+label = "no match"
+kind = "arguments"
+proposal = "make-test"
+part = "held-out"
+
+[[prompt]]
+text = "use yarn, not npm, when you install packages"
+label = "no match"
+kind = "arguments"
+proposal = "pnpm"
+part = "tune"
+
+[[prompt]]
+text = "run the database seeds before you start the server"
+label = "no match"
+kind = "arguments"
+proposal = "migrate"
+part = "tune"
+
+[[prompt]]
+text = "deploy the api service to the production cluster and run the smoke tests"
+workspace = "ws-B"
+label = "no match"
+kind = "arguments"
+proposal = "deploy-staging"
+part = "held-out"
+
+[[prompt]]
+text = "テストを実行してからプッシュして"
+label = "no match"
+kind = "arguments"
+proposal = "ja-commit"
+part = "held-out"
+
+[[prompt]]
+text = "ejecuta los tests antes de hacer commit"
+label = "no match"
+kind = "arguments"
+proposal = "es-lint"
+part = "tune"
+
+[[prompt]]
+text = "résumé the hotel notes"
+label = "no match"
+kind = "arguments"
+proposal = "cafe-notes"
+part = "tune"
+
+[[prompt]]
+text = 'git commit -m "fix: y" && git push --force-with-lease'
+label = "no match"
+kind = "arguments"
+proposal = "push-lease"
+part = "held-out"
+
+[[prompt]]
+text = "更新代码然后提交"
+label = "no match"
+kind = "arguments"
+proposal = "zh-docs"
+part = "tune"
+
+[[prompt]]
+text = "formatiere den Code mit goimports bevor du committest"
+workspace = "ws-B"
+label = "no match"
+kind = "arguments"
+proposal = "de-format"
+part = "held-out"
+
+# Another repo: a workspace proposal matches only in its workspace.
+
+[[prompt]]
+text = "run make test and fix the failures"
+workspace = "ws-B"
+label = "no match"
+kind = "repo"
+part = "tune"
+
+[[prompt]]
+text = "deploy the api service to the staging cluster and run the smoke tests"
+label = "no match"
+kind = "repo"
+part = "held-out"
+
+[[prompt]]
+text = "ejecuta el linter antes de hacer commit"
+workspace = ""
+label = "no match"
+kind = "repo"
+part = "held-out"
+
+[[prompt]]
+text = "formatiere den Code mit gofmt bevor du committest"
+label = "no match"
+kind = "repo"
+part = "tune"
+
+# Unrelated Unicode text.
+
+[[prompt]]
+text = "今日はいい天気ですね"
+label = "no match"
+kind = "unrelated"
+part = "tune"
+
+[[prompt]]
+text = "这个函数是做什么的"
+label = "no match"
+kind = "unrelated"
+part = "held-out"
+
+[[prompt]]
+text = "naïve café open late"
+label = "no match"
+kind = "unrelated"
+part = "tune"
+
+[[prompt]]
+text = "🚀 ship it"
+label = "no match"
+kind = "unrelated"
+part = "held-out"
+
+[[prompt]]
+text = "привет, как дела?"
+label = "no match"
+kind = "unrelated"
+part = "tune"
+
+# Near repeats: only a close matcher can give these labels.
+
+[[near]]
+text = "Run make test and fix the failures."
+label = "make-test"
+part = "tune"
+
+[[near]]
+text = "run make test and fix the failures please"
+label = "make-test"
+part = "held-out"
+
+[[near]]
+text = "use pnpm, not npm, when you install packages."
+label = "pnpm"
+part = "held-out"
+
+[[near]]
+text = "run the database migrations before you start the server!"
+label = "migrate"
+part = "tune"
+
+[[near]]
+text = "deploy the api service to the staging cluster and run the smoke tests now"
+workspace = "ws-B"
+label = "deploy-staging"
+part = "held-out"
+
+[[near]]
+text = "テストを実行してからコミットしてください"
+label = "ja-commit"
+part = "tune"
+
+[[near]]
+text = "ejecuta el linter antes de hacer commit, por favor"
+label = "es-lint"
+part = "held-out"
+
+[[near]]
+text = "Résumé the café notes"
+label = "cafe-notes"
+part = "tune"
+
+[[near]]
+text = "更新文档然后提交。"
+label = "zh-docs"
+part = "held-out"
+
+[[near]]
+text = "formatiere den Code mit gofmt, bevor du committest"
+workspace = "ws-B"
+label = "de-format"
+part = "tune"
