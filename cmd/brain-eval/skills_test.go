@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -135,34 +136,48 @@ func TestLoadSkillErrors(t *testing.T) {
 }
 
 // skillLabel: the example of a skill must use its marker, every other prompt and every
-// control must not; a negation, or a reply that the runner cannot see whole, is UNSURE.
+// control must not, also the marker of the control's seeded run. A negation, a refusal, a
+// marker that shows only in the printed skill file, or a reply that the runner cannot see
+// whole is UNSURE.
 func TestSkillLabel(t *testing.T) {
-	const m = "kest-1234"
+	sk := FixtureSkill{Name: "a", Steps: "# Steps\n\n1. Start the reply with the line `Skill marker: {{marker}}`.\n2. Be short.\n"}
 	pos := Case{Stage: skillStage, SkillFor: "a"}
 	neg := Case{Stage: skillStage, SkillFor: "b"}
 	ctl := Case{Stage: skillStage, SkillFor: "a", Control: true}
 	ok := func(text string) Reply { return Reply{Status: Delivered, Text: text} }
+	// A Codex screen that prints the skill file with a wrapped step line.
+	file := "• Ran cat /store/skills/1/r1/SKILL.md\n  └ # Steps\n    1. Start the reply with the line\n    `Skill marker: kest-1234`.\n    2. Be short.\n"
 	tests := []struct {
-		name string
-		c    Case
-		rep  Reply
-		want Label
+		name    string
+		c       Case
+		markers []string
+		rep     Reply
+		want    Label
 	}{
-		{"example uses its marker", pos, ok("Skill marker: kest-1234\nDone."), Pass},
-		{"example without its marker", pos, ok("Done."), Miss},
-		{"example with a longer marker", pos, ok("Skill marker: kest-12345"), Miss},
-		{"other prompt uses the marker", neg, ok("Skill marker: kest-1234"), Invented},
-		{"other prompt without the marker", neg, ok("Done."), Pass},
-		{"control uses the marker", ctl, Reply{Status: NotDelivered, Text: "kest-1234"}, Invented},
-		{"control without the marker", ctl, Reply{Status: NotDelivered, Text: "Done."}, Pass},
-		{"negation", pos, ok("I did not use kest-1234."), Unsure},
-		{"reply incomplete", pos, Reply{Status: Incomplete}, Unsure},
-		{"skipped", pos, Reply{Status: Skipped}, ""},
-		{"not delivered", pos, Reply{Status: NotDelivered, Text: "kest-1234"}, ""},
+		{"example uses its marker", pos, nil, ok("Skill marker: kest-1234\nDone."), Pass},
+		{"example without its marker", pos, nil, ok("Done."), Miss},
+		{"example with a longer marker", pos, nil, ok("Skill marker: kest-12345"), Miss},
+		{"other prompt uses the marker", neg, nil, ok("Skill marker: kest-1234"), Invented},
+		{"other prompt without the marker", neg, nil, ok("Done."), Pass},
+		{"control uses the marker", ctl, nil, Reply{Status: NotDelivered, Text: "kest-1234"}, Invented},
+		{"control uses the seeded marker", ctl, []string{"abcd-0000", "kest-1234"}, Reply{Status: NotDelivered, Text: "Skill marker: kest-1234"}, Invented},
+		{"control without the marker", ctl, []string{"abcd-0000", "kest-1234"}, Reply{Status: NotDelivered, Text: "Done."}, Pass},
+		{"negation", pos, nil, ok("I did not use kest-1234."), Unsure},
+		{"refusal with the marker", pos, nil, ok("I don't know.\nSkill marker: kest-1234"), Unsure},
+		{"marker only in the printed file", pos, nil, ok(file + "Done."), Unsure},
+		{"other skill's file printed only", neg, nil, ok(file + "Done."), Unsure},
+		{"printed file and the marker used", pos, nil, ok(file + "Skill marker: kest-1234\nDone."), Pass},
+		{"reply incomplete", pos, nil, Reply{Status: Incomplete}, Unsure},
+		{"skipped", pos, nil, Reply{Status: Skipped}, ""},
+		{"not delivered", pos, nil, Reply{Status: NotDelivered, Text: "kest-1234"}, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got, rule := skillLabel(tt.c, "a", m, tt.rep); got != tt.want {
+			markers := tt.markers
+			if markers == nil {
+				markers = []string{"kest-1234"}
+			}
+			if got, rule := skillLabel(tt.c, sk, markers, tt.rep); got != tt.want {
 				t.Errorf("skillLabel() = %s (%s), want %s", got, rule, tt.want)
 			}
 		})
@@ -453,6 +468,37 @@ func TestSkillChoiceUnsure(t *testing.T) {
 		t.Errorf("UNSURE section:\n%s\nwant the codex result", section)
 	}
 	for _, w := range []string{"- claude: pass", "- codex: unsure"} {
+		if !strings.Contains(report, w) {
+			t.Errorf("report:\n%s\nwant %q", report, w)
+		}
+	}
+}
+
+// A control whose reply has a marker of its seeded run fails the stage: no marker may reach a
+// control (§12.1).
+func TestSkillChoiceControlLeak(t *testing.T) {
+	rs, report, _ := skillRun(t, skillFile, func(e *env) {
+		answer, last := e.fake.answer, ""
+		e.fake.answer = func(p *fakePane, prompt string) string {
+			reply := answer(p, prompt)
+			if m := skillMarkerLine.FindString(reply); m != "" {
+				last = m
+			} else if strings.Contains(prompt, "release notes") && *p.pane.Agent == "claude" {
+				return last + "\nDone." // the control of the release-notes example
+			}
+			return reply
+		}
+	})
+	var invented []string
+	for _, r := range rs {
+		if r.Label == string(Invented) {
+			invented = append(invented, r.Case+" "+r.Harness+" "+fmt.Sprint(r.Control))
+		}
+	}
+	if !slices.Equal(invented, []string{"skill-release-notes/release-notes claude true"}) {
+		t.Errorf("INVENTED results %q, want the claude control of the release-notes example", invented)
+	}
+	for _, w := range []string{"- claude: fail", "- codex: pass"} {
 		if !strings.Contains(report, w) {
 			t.Errorf("report:\n%s\nwant %q", report, w)
 		}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -78,25 +79,33 @@ func (r *Runner) seedSkills(ctx context.Context, b bindings.Binding, c Case, mar
 }
 
 // skillResults makes the results of one reply of skill choice case c: one for each fixture
-// skill. Its case id is the prompt's case id and the skill name.
-func skillResults(c Case, o Outcome, rep Reply, clis map[string]probeCLI) []store.EvalResult {
+// skill. Its case id is the prompt's case id and the skill name. seeded are the markers of the
+// run of c with its skills; a control is checked against them too, as a marker of that run must
+// not reach the control (§12.1).
+func skillResults(c Case, o Outcome, seeded map[string]string, rep Reply, clis map[string]probeCLI) []store.EvalResult {
 	rs := make([]store.EvalResult, 0, len(c.Skills))
 	for _, sk := range c.Skills {
 		res := base(c, rep.Harness, o, rep, clis)
 		res.Case = c.ID + "/" + sk.Name
-		lb, rule := skillLabel(c, sk.Name, o.Markers[skillMarker(sk.Name)], rep)
+		markers := []string{o.Markers[skillMarker(sk.Name)]}
+		if c.Control {
+			markers = append(markers, seeded[skillMarker(sk.Name)])
+		}
+		lb, rule := skillLabel(c, sk, markers, rep)
 		res.Label, res.Rule = string(lb), rule
 		rs = append(rs, res)
 	}
 	return rs
 }
 
-// skillLabel labels reply rep for skill name, whose marker is marker (§12.1 skill choice). The
-// example prompt of the skill must use the marker: only the skill file holds it, so the
-// marker shows that the agent read the file and followed its steps. Every other prompt, and
-// every control, must not use it. A skipped reply gets no label, a reply that the runner could
-// not see whole is UNSURE, and a reply without its brief gets no label, except in a control.
-func skillLabel(c Case, name, marker string, rep Reply) (Label, string) {
+// skillLabel labels reply rep for fixture skill sk, whose markers are markers (§12.1 skill
+// choice). The example prompt of the skill must use its marker: only the skill file holds it,
+// so the marker shows that the agent read the file and followed its steps. Every other prompt,
+// and every control, must not use it. A skipped reply gets no label, a reply that the runner
+// could not see whole is UNSURE, and a reply without its brief gets no label, except in a
+// control. As in label, a marker with a negation or a refusal is UNSURE; so is a marker that
+// shows only in the step text of the skill file, which a CLI can print when it reads the file.
+func skillLabel(c Case, sk FixtureSkill, markers []string, rep Reply) (Label, string) {
 	switch {
 	case rep.Status == Skipped:
 		return "", ""
@@ -105,21 +114,51 @@ func skillLabel(c Case, name, marker string, rep Reply) (Label, string) {
 	case rep.Status == NotDelivered && !c.Control:
 		return "", ""
 	}
-	found, negated := find(normalize(rep.Text), []string{marker})
-	selected := !c.Control && c.SkillFor == name
+	screen := normalize(rep.Text)
+	text := screen
+	for _, m := range markers {
+		for _, re := range sk.stepLines(m) {
+			text = re.ReplaceAllString(text, " ")
+		}
+	}
+	found, negated := find(text, markers)
+	shown, _ := find(screen, markers)
+	selected := !c.Control && c.SkillFor == sk.Name
 	switch {
 	case negated:
-		return Unsure, fmt.Sprintf("the marker of skill %s in a sentence with a negation", name)
+		return Unsure, fmt.Sprintf("the marker of skill %s in a sentence with a negation", sk.Name)
+	case found && refusal(text):
+		return Unsure, fmt.Sprintf("a refusal together with the marker of skill %s", sk.Name)
+	case shown && !found:
+		return Unsure, fmt.Sprintf("the marker of skill %s shows only in the text of its file", sk.Name)
 	case selected && found:
-		return Pass, fmt.Sprintf("the example of skill %s: the reply uses its marker", name)
+		return Pass, fmt.Sprintf("the example of skill %s: the reply uses its marker", sk.Name)
 	case selected:
-		return Miss, fmt.Sprintf("the example of skill %s: the reply does not use its marker", name)
+		return Miss, fmt.Sprintf("the example of skill %s: the reply does not use its marker", sk.Name)
 	case found && c.Control:
-		return Invented, fmt.Sprintf("the reply uses the marker of skill %s, but the control lists no skill", name)
+		return Invented, fmt.Sprintf("the reply uses a marker of skill %s, but the control lists no skill", sk.Name)
 	case found:
-		return Invented, fmt.Sprintf("the reply uses the marker of skill %s, which this prompt must not select", name)
+		return Invented, fmt.Sprintf("the reply uses the marker of skill %s, which this prompt must not select", sk.Name)
 	}
-	return Pass, fmt.Sprintf("no marker of skill %s", name)
+	return Pass, fmt.Sprintf("no marker of skill %s", sk.Name)
+}
+
+// stepLines matches each step line of s that holds its marker, with marker m, in normalized
+// text: a screen that shows the skill file. Line breaks and runs of spaces do not matter,
+// because a CLI wraps long lines. It returns none for an empty m.
+func (s FixtureSkill) stepLines(m string) []*regexp.Regexp {
+	var res []*regexp.Regexp
+	for _, line := range strings.Split(s.Steps, "\n") {
+		if m == "" || !strings.Contains(line, "{{marker}}") {
+			continue
+		}
+		words := strings.Fields(normalize(strings.ReplaceAll(line, "{{marker}}", m)))
+		for i, w := range words {
+			words[i] = regexp.QuoteMeta(w)
+		}
+		res = append(res, regexp.MustCompile(strings.Join(words, `\s+`)))
+	}
+	return res
 }
 
 // skillVerdicts returns the verdict of the skill choice stage of each CLI with a result of the

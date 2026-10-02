@@ -156,10 +156,14 @@ func deliveryStatus(d store.Delivery, ok bool, want string) (Status, string) {
 // the profile hash of each harness.
 func results(cases []Case, outs []Outcome, clis map[string]probeCLI) []store.EvalResult {
 	var rs []store.EvalResult
+	seeded := map[string]map[string]string{} // a skill choice case id to the markers of its run with skills
 	for i, c := range cases {
 		var o Outcome
 		if i < len(outs) {
 			o = outs[i]
+		}
+		if c.Stage == skillStage && !c.Control {
+			seeded[c.ID] = o.Markers
 		}
 		for j, p := range c.Probes {
 			rep := Reply{Harness: p.Harness, Status: Skipped, Why: "the probe did not run"}
@@ -168,7 +172,7 @@ func results(cases []Case, outs []Outcome, clis map[string]probeCLI) []store.Eva
 			}
 			switch {
 			case c.Stage == skillStage:
-				rs = append(rs, skillResults(c, o, rep, clis)...)
+				rs = append(rs, skillResults(c, o, seeded[c.ID], rep, clis)...)
 				continue
 			case j >= len(o.Replies):
 				rs = append(rs, base(c, p.Harness, o, rep, clis))
