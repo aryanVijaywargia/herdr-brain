@@ -83,18 +83,20 @@ func TestTranscriptPath(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, tc := range []struct{ field, want string }{
-			{`,"transcript_path":"/t/s.jsonl"`, "/t/s.jsonl"},
-			{"", ""},
-			{`,"transcript_path":null`, ""},
-			{`,"transcript_path":""`, ""},
-			{`,"transcript_path":7`, ""},
+		for _, tc := range []struct{ name, field, want string }{
+			{"path", `,"transcript_path":"/t/s.jsonl"`, "/t/s.jsonl"},
+			{"none", "", ""},
+			{"null", `,"transcript_path":null`, ""},
+			{"empty", `,"transcript_path":""`, ""},
+			{"number", `,"transcript_path":7`, ""},
 		} {
-			raw := `{"session_id":"s","cwd":"/w"` + tc.field + `}`
-			in, err := p.Parse([]byte(raw))
-			if err != nil || in.TranscriptPath != tc.want {
-				t.Errorf("%s: Parse(%s) = %+v, %v, want transcript path %q", harness, raw, in, err, tc.want)
-			}
+			t.Run(harness+"/"+tc.name, func(t *testing.T) {
+				raw := `{"session_id":"s","cwd":"/w"` + tc.field + `}`
+				in, err := p.Parse([]byte(raw))
+				if err != nil || in.TranscriptPath != tc.want {
+					t.Errorf("Parse(%s) = %+v, %v, want transcript path %q", raw, in, err, tc.want)
+				}
+			})
 		}
 	}
 }

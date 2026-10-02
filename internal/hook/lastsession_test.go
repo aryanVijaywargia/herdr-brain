@@ -151,13 +151,13 @@ func TestNoLastSessionLine(t *testing.T) {
 			t.Helper()
 			start(t, f, claude(t), environ(f.mainSock, "", "w14:p1", "w14"), startInput("claude-1", ""))
 		}}, env: paneA14},
-		// brain forget --session clears the path (internal/cli TestForgetSession).
+		// brain forget --session clears the path (internal/cli TestForgetSessionReceiptOnly).
 		{name: "forgotten session", prep: []func(*testing.T, *fixture){claudeA14, func(t *testing.T, f *fixture) {
 			t.Helper()
 			s := openStore(t, f.mainStore)
 			defer closeStore(t, s)
 			write(t, s, func(tx *sql.Tx) error {
-				return store.ClearTranscriptPaths(context.Background(), tx, "default", "claude", "claude-1")
+				return store.ClearTranscriptPaths(context.Background(), tx, "default", "claude-1")
 			})
 		}}, env: paneA14},
 		{name: "workspace with no items gets the line under its label",

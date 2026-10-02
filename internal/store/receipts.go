@@ -152,11 +152,12 @@ func LastSession(ctx context.Context, tx *sql.Tx, key, agentSession string) (d D
 	return d, true, nil
 }
 
-// TranscriptPaths counts the receipts of agent session agentSession of harness profile in the
-// store binding of herdr session session that hold a transcript path (E15-S4).
-func TranscriptPaths(ctx context.Context, tx *sql.Tx, session, profile, agentSession string) (int, error) {
+// TranscriptPaths counts the receipts of agent session agentSession in the store binding of
+// herdr session session that hold a transcript path, of any harness (E15-S4). A start receipt
+// needs no capture session, so forget finds the receipts by the agent session id alone.
+func TranscriptPaths(ctx context.Context, tx *sql.Tx, session, agentSession string) (int, error) {
 	var n int
-	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM deliveries `+transcriptRows, session, profile, agentSession).Scan(&n)
+	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM deliveries `+transcriptRows, session, agentSession).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count transcript paths of agent session %s: %w", agentSession, err)
 	}
@@ -165,8 +166,8 @@ func TranscriptPaths(ctx context.Context, tx *sql.Tx, session, profile, agentSes
 
 // ClearTranscriptPaths sets the transcript path of the receipts that TranscriptPaths counts to
 // NULL: brain forget --session (E15-S4, §6.7). The receipts stay.
-func ClearTranscriptPaths(ctx context.Context, tx *sql.Tx, session, profile, agentSession string) error {
-	_, err := tx.ExecContext(ctx, `UPDATE deliveries SET transcript_path = NULL `+transcriptRows, session, profile, agentSession)
+func ClearTranscriptPaths(ctx context.Context, tx *sql.Tx, session, agentSession string) error {
+	_, err := tx.ExecContext(ctx, `UPDATE deliveries SET transcript_path = NULL `+transcriptRows, session, agentSession)
 	if err != nil {
 		return fmt.Errorf("clear transcript paths of agent session %s: %w", agentSession, err)
 	}
@@ -174,5 +175,5 @@ func ClearTranscriptPaths(ctx context.Context, tx *sql.Tx, session, profile, age
 }
 
 // transcriptRows is the WHERE clause of the receipts with a transcript path of one agent
-// session: binding, profile and agent session id, in that order.
-const transcriptRows = `WHERE herdr_session = ? AND profile = ? AND agent_session_id = ? AND transcript_path IS NOT NULL`
+// session: binding and agent session id, in that order.
+const transcriptRows = `WHERE herdr_session = ? AND agent_session_id = ? AND transcript_path IS NOT NULL`

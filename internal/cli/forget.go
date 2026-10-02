@@ -40,8 +40,10 @@ func Forget(ctx context.Context, e Env, args []string) error {
 // the candidates that use it and the proposals that used its prompts first (S68), then deletes
 // its observations, command records, prompt index rows, outcomes and evidence links in one transaction that raises the capture generation, so a pane read or
 // hook record that collected the text before the forget stores nothing. The same transaction
-// clears the transcript paths of the receipts of its agent session (E15-S4). The candidates are
-// counted again. New text after the forget is captured as usual.
+// clears the transcript paths of the receipts of id and of the agent sessions of those capture
+// sessions (E15-S4): a start receipt needs no capture session, so an id with receipts only is
+// forgotten too. The candidates are counted again. New text after the forget is captured as
+// usual.
 func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 	fs := flag.NewFlagSet("forget", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -59,6 +61,7 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 	defer func() { err = errors.Join(err, c.Close()) }()
 	var ss []store.Session
 	var ev []store.Evidence
+	var agents []string
 	var paths []int
 	var cs []store.Candidate
 	var ps []int64
@@ -66,12 +69,16 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 		if ss, err = store.SessionsByID(ctx, tx, c.Binding.Session, *id); err != nil {
 			return err
 		}
-		ev, paths = make([]store.Evidence, len(ss)), make([]int, len(ss))
+		ev = make([]store.Evidence, len(ss))
 		for i, s := range ss {
 			if ev[i], err = store.SessionEvidence(ctx, tx, s.ID); err != nil {
 				return err
 			}
-			if paths[i], err = store.TranscriptPaths(ctx, tx, c.Binding.Session, s.Key.Harness, agentOf(s)); err != nil {
+		}
+		agents = agentIDs(*id, ss)
+		paths = make([]int, len(agents))
+		for i, a := range agents {
+			if paths[i], err = store.TranscriptPaths(ctx, tx, c.Binding.Session, a); err != nil {
 				return err
 			}
 		}
@@ -84,15 +91,24 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	if len(ss) == 0 {
+	if len(ss) == 0 && slices.Max(paths) == 0 {
 		return fmt.Errorf("no capture session %q in herdr session %s", *id, c.Binding.Session)
 	}
 	// The list comes first, before anything is deleted (§6.7).
 	w := e.Stdout
 	for i, s := range ss {
-		if _, err := fmt.Fprintf(w, "session %d: %s in pane %s, %s id %s, agent session %q: %d observations, %d command records, %d evidence links, %d prompt index rows, %d outcomes, %d transcript paths\n",
+		if _, err := fmt.Fprintf(w, "session %d: %s in pane %s, %s id %s, agent session %q: %d observations, %d command records, %d evidence links, %d prompt index rows, %d outcomes\n",
 			s.ID, s.Key.Harness, s.PaneID, s.Key.Kind, s.Key.ID, agentOf(s), ev[i].Observations, ev[i].CommandRecords, ev[i].EvidenceLinks,
-			ev[i].Prompts, ev[i].Outcomes, paths[i]); err != nil {
+			ev[i].Prompts, ev[i].Outcomes); err != nil {
+			return err
+		}
+	}
+	for i, a := range agents {
+		if paths[i] == 0 {
+			continue
+		}
+		if _, err := fmt.Fprintf(w, "agent session %q: %d receipts with a transcript path: the paths are cleared, the receipts stay\n",
+			a, paths[i]); err != nil {
 			return err
 		}
 	}
@@ -128,7 +144,9 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 			if err := store.ForgetSession(ctx, tx, s.ID); err != nil {
 				return err
 			}
-			if err := store.ClearTranscriptPaths(ctx, tx, c.Binding.Session, s.Key.Harness, agentOf(s)); err != nil {
+		}
+		for _, a := range agents {
+			if err := store.ClearTranscriptPaths(ctx, tx, c.Binding.Session, a); err != nil {
 				return err
 			}
 		}
@@ -141,8 +159,19 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 	return err
 }
 
-// agentOf returns the agent session id of capture session s, or "" when herdr gave none. A
-// receipt names its agent session by this id, so a session with no id has no receipt to clear.
+// agentIDs returns id and the agent session ids of capture sessions ss, each once: the ids
+// that receipts name. A capture session that herdr gave no agent session id adds none.
+func agentIDs(id string, ss []store.Session) []string {
+	ids := []string{id}
+	for _, s := range ss {
+		if a := agentOf(s); a != "" && !slices.Contains(ids, a) {
+			ids = append(ids, a)
+		}
+	}
+	return ids
+}
+
+// agentOf returns the agent session id of capture session s, or "" when herdr gave none.
 func agentOf(s store.Session) string {
 	if s.Key.Kind == store.KeyAgent {
 		return s.Key.ID

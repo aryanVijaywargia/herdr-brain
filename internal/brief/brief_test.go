@@ -190,12 +190,14 @@ func TestLastSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct{ workspace, want string }{
-		{part, part + line},
-		{"", workspaceLabel + line},
+	for _, tc := range []struct{ name, workspace, want string }{
+		{"workspace part", part, part + line},
+		{"no workspace part", "", workspaceLabel + line},
 	} {
-		if got := LastSession(tc.workspace, "claude", at, "/t/s.jsonl"); got != tc.want {
-			t.Errorf("LastSession(%q) = %q, want %q", tc.workspace, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			if got := LastSession(tc.workspace, "claude", at, "/t/s.jsonl"); got != tc.want {
+				t.Errorf("LastSession(%q) = %q, want %q", tc.workspace, got, tc.want)
+			}
+		})
 	}
 }

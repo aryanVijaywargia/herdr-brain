@@ -109,8 +109,8 @@ func TestLastSession(t *testing.T) {
 	}
 }
 
-// AC E15-S4: forget clears the transcript paths of one agent session of one harness in one
-// binding, and keeps its receipts.
+// AC E15-S4: forget clears the transcript paths of one agent session in one binding, of any
+// harness, and keeps its receipts.
 func TestClearTranscriptPaths(t *testing.T) {
 	_, s := newTestStore(t)
 	ctx := context.Background()
@@ -130,16 +130,16 @@ func TestClearTranscriptPaths(t *testing.T) {
 				return err
 			}
 		}
-		if n, err := TranscriptPaths(ctx, tx, "default", "claude", "a"); err != nil || n != 2 {
-			t.Errorf("TranscriptPaths(a) = %d, %v, want 2", n, err)
+		if n, err := TranscriptPaths(ctx, tx, "default", "a"); err != nil || n != 3 {
+			t.Errorf("TranscriptPaths(a) = %d, %v, want 3", n, err)
 		}
-		if err := ClearTranscriptPaths(ctx, tx, "default", "claude", "a"); err != nil {
+		if err := ClearTranscriptPaths(ctx, tx, "default", "a"); err != nil {
 			return err
 		}
-		if n, err := TranscriptPaths(ctx, tx, "default", "claude", "a"); err != nil || n != 0 {
+		if n, err := TranscriptPaths(ctx, tx, "default", "a"); err != nil || n != 0 {
 			t.Errorf("after the clear TranscriptPaths(a) = %d, %v, want 0", n, err)
 		}
-		for id, want := range map[int64]string{1: "", 2: "", 3: "/t/codex", 4: "/t/other", 5: "/t/b"} {
+		for id, want := range map[int64]string{1: "", 2: "", 3: "", 4: "/t/other", 5: "/t/b"} {
 			d, err := DeliveryByID(ctx, tx, id)
 			if err != nil {
 				return err
