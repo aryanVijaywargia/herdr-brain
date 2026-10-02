@@ -37,8 +37,9 @@ func target(b bindings.Binding) herdr.Target {
 }
 
 // openReviewPane opens the review pane of proposal id beside the calling pane, without focus,
-// and records it in review_panes (§5.1, S52). It returns the new pane id.
-func openReviewPane(ctx context.Context, e Env, c *Call, id int64) (string, error) {
+// and records it in review_panes (§5.1, S52), with also in the same transaction. It returns
+// the new pane id.
+func openReviewPane(ctx context.Context, e Env, c *Call, id int64, also func(tx *sql.Tx, pane string) error) (string, error) {
 	// The split is in the workspace of the calling pane.
 	identity, err := continuity(c.Workspace, c.WorkspaceID)
 	if err != nil {
@@ -58,7 +59,10 @@ func openReviewPane(ctx context.Context, e Env, c *Call, id int64) (string, erro
 	err = c.Store.Write(ctx, func(tx *sql.Tx) error {
 		_, err := store.InsertReviewPane(ctx, tx, store.ReviewPane{HerdrSession: c.Binding.Session,
 			SessionIdentity: identity, PaneID: pp.Pane.ID, BesidePaneID: c.PaneID, ProposalID: id, Opened: e.Now()})
-		return err
+		if err != nil {
+			return err
+		}
+		return also(tx, pp.Pane.ID)
 	})
 	if err != nil {
 		// The pane runs, and closes itself after a decision; Brain only cannot close it.

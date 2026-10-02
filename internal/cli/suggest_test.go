@@ -9,13 +9,16 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/brained"
 	"github.com/aryanVijaywargia/herdr-brain/internal/fingerprint"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
 )
 
 const suggestPrompt = "run make Foo"
@@ -207,6 +210,30 @@ func TestSuggestPaused(t *testing.T) {
 				return err
 			})
 		}, false},
+		{"agent session id", func(_ *testing.T, f *suggestFixture) {
+			// herdr now shows an agent session id that the capture session does not have.
+			p := f.panes["w14:p1"]
+			p.AgentSession = &herdr.AgentSession{Value: "other-session"}
+			f.panes["w14:p1"] = p
+		}, false},
+		{"rebind", func(t *testing.T, f *suggestFixture) {
+			bs, _, err := bindings.Read(f.file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			other := filepath.Join(filepath.Dir(f.store), "other")
+			if err := os.MkdirAll(other, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for i := range bs {
+				if bs[i].Session == "default" {
+					bs[i].Store = other
+				}
+			}
+			if err := bindings.Write(f.file, bs); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
 		{"pane move", func(_ *testing.T, f *suggestFixture) {
 			p := f.panes["w14:p1"]
 			p.ID, p.WorkspaceID = "w20:p1", "w20"
@@ -264,6 +291,9 @@ func TestSuggestPaused(t *testing.T) {
 			switch {
 			case tc.gone && s != nil:
 				t.Errorf("suggestion %+v after the forget, want it gone", *s)
+			case tc.name == "rebind":
+				// The child no longer reaches the store of the suggestion: it shows nothing
+				// and cannot mark it.
 			case !tc.gone && (s == nil || s.Result != store.SuggestionExpired):
 				t.Errorf("suggestion %d = %+v, want it expired", d.Suggestion, s)
 			}
@@ -291,6 +321,43 @@ func TestSuggestOnePane(t *testing.T) {
 	}
 	if ps := f.reviewPanes(t); len(ps) != 2 || ps[0].Closed.IsZero() || !ps[1].Closed.IsZero() {
 		t.Errorf("review panes = %+v, want the old one closed and the new one open", ps)
+	}
+}
+
+// One review pane for each agent also holds for two suggestions of two prompts whose processes
+// run at the same time: the suggestion lock spans the checks, the open and its record.
+func TestSuggestConcurrent(t *testing.T) {
+	f := newSuggestFixture(t)
+	d1, d2 := f.reserve(t), f.reserve(t)
+	e := f.env(f.sock, "w14:p1", "w14", &bytes.Buffer{})
+	e.Config = f.config
+	var mu sync.Mutex
+	sync1 := e.Sync
+	e.Sync = func(ctx context.Context, s workspace.Session, st *store.Store) error {
+		mu.Lock()
+		defer mu.Unlock()
+		return sync1(ctx, s, st)
+	}
+	// The fake herdr shows the opened pane as Brain's review pane, as herdr does.
+	f.herdr.procs["w14:p5"] = reviewProc(f.proposal)
+	begin := make(chan struct{})
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	for i, d := range []brained.Dispatch{d1, d2} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-begin
+			errs[i] = suggester{Env: e}.run(context.Background(), d)
+		}()
+	}
+	close(begin)
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.herdr.opened) != 1 || len(f.herdr.notes) != 1 {
+		t.Errorf("opened %+v, notifications %q, want one pane beside the agent", f.herdr.opened, f.herdr.notes)
 	}
 }
 

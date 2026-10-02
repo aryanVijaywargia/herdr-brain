@@ -644,16 +644,22 @@ func scopeKey(scope store.Scope, key string) *string {
 }
 
 // later leaves the proposal pending: it only mutes it for this review (§7.4, §11 proposals).
-// A shown suggestion of the proposal gets result later, which mutes the proposal for the rest
-// of the capture session of that suggestion (§5.5).
+// The shown suggestion of the proposal in the calling pane, the review pane or its agent, gets
+// result later, which mutes the proposal for the rest of the capture session of that
+// suggestion (§5.5). It holds the suggestion lock, so a suggestion that opens now is either
+// registered before it or not shown yet.
 func (cl caller) later(ctx context.Context, id int64) error {
-	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
+	unlock, err := lockSuggestions(cl.Binding.Store)
+	if err != nil {
+		return err
+	}
+	err = cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		if _, _, _, err := cl.pending(ctx, tx, id); err != nil {
 			return err
 		}
-		return store.DecideSuggestions(ctx, tx, id, store.SuggestionLater)
+		return store.LaterSuggestions(ctx, tx, id, cl.Binding.Session, cl.PaneID)
 	})
-	if err != nil {
+	if err := errors.Join(err, unlock()); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(cl.Stdout, "proposal %d stays in the queue (brain review)\n", id)

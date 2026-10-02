@@ -185,3 +185,16 @@ func SessionInPane(ctx context.Context, tx *sql.Tx, session int64, paneID string
 	}
 	return in, nil
 }
+
+// LaterSuggestions gives result later to the shown suggestions of proposal that wait for you
+// and that pane paneID of herdr session herdrSession shows or is the agent of: "later" mutes
+// the proposal in the session of that suggestion only (§5.5).
+func LaterSuggestions(ctx context.Context, tx *sql.Tx, proposal int64, herdrSession, paneID string) error {
+	_, err := tx.ExecContext(ctx, `UPDATE suggestions SET result = ? WHERE proposal_id = ? AND result IS NULL
+		AND shown_at IS NOT NULL AND herdr_session = ? AND (review_pane_id = ?4 OR agent_pane_id = ?4)`,
+		SuggestionLater, proposal, herdrSession, paneID)
+	if err != nil {
+		return fmt.Errorf("mute suggestions of proposal %d: %w", proposal, err)
+	}
+	return nil
+}

@@ -127,6 +127,43 @@ func TestReserveSuggestionRules(t *testing.T) {
 	}
 }
 
+// "Later" in one pane mutes the proposal in the session of that pane's suggestion only: a
+// shown suggestion of the same global proposal in another session waits on (§5.5).
+func TestLaterSuggestions(t *testing.T) {
+	ctx := context.Background()
+	p := newPromptStore(t)
+	id, _ := p.propose(t, "run make Foo", ScopeGlobal)
+	_, a := p.reserve(t, "ws-A", "run make Foo")
+	write(t, p.Store, func(tx *sql.Tx) error {
+		// ws-B has its own session; move its agent to another pane, as another agent.
+		if _, err := p.segment(ctx, tx, "ws-B"); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE segments SET pane_id = 'w2:p1' WHERE workspace_key = 'ws-B'`)
+		return err
+	})
+	_, b := p.reserve(t, "ws-B", "run make Foo")
+	write(t, p.Store, func(tx *sql.Tx) error {
+		for _, s := range []struct {
+			id   int64
+			pane string
+		}{{a.ID, "w1:p9"}, {b.ID, "w2:p9"}} {
+			if err := ShowSuggestion(ctx, tx, s.id, s.pane, testNow); err != nil {
+				return err
+			}
+		}
+		// Later in the review pane of a.
+		if err := LaterSuggestions(ctx, tx, id, "default", "w1:p9"); err != nil {
+			return err
+		}
+		ss, err := Suggestions(ctx, tx)
+		if len(ss) != 2 || ss[0].Result != SuggestionLater || ss[1].Result != "" {
+			t.Errorf("suggestions = %+v, want a later and b waiting", ss)
+		}
+		return err
+	})
+}
+
 // §6.7: brain forget --session and the item forget delete the suggestions, with their prompt
 // hashes, as they delete the prompt index rows.
 func TestForgetSuggestions(t *testing.T) {

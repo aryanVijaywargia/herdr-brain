@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
+	"syscall"
 
 	"github.com/BurntSushi/toml"
 
@@ -51,6 +54,13 @@ func (sg suggester) run(ctx context.Context, d brained.Dispatch) (err error) {
 	if sg.paused != nil {
 		sg.paused()
 	}
+	// The lock spans the checks, the open and its record: two suggestions for one agent never
+	// both see no pane, and a later in a review pane waits for its suggestion to be recorded.
+	unlock, err := lockSuggestions(c.Binding.Store)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
 	// The checks run before the notification, and again before the open: either can wait.
 	h, err := sg.check(ctx, cl, d)
 	if err == nil {
@@ -62,13 +72,27 @@ func (sg suggester) run(ctx context.Context, d brained.Dispatch) (err error) {
 	if err != nil {
 		return sg.expire(ctx, cl, d, err)
 	}
-	pane, err := openReviewPane(ctx, sg.Env, c, d.Proposal)
+	_, err = openReviewPane(ctx, sg.Env, c, d.Proposal, func(tx *sql.Tx, pane string) error {
+		return store.ShowSuggestion(ctx, tx, d.Suggestion, pane, sg.Now())
+	})
 	if err != nil {
 		return sg.expire(ctx, cl, d, err)
 	}
-	return c.Store.Write(ctx, func(tx *sql.Tx) error {
-		return store.ShowSuggestion(ctx, tx, d.Suggestion, pane, sg.Now())
-	})
+	return nil
+}
+
+// lockSuggestions takes the suggestion lock of the store in folder dir and returns its unlock.
+// [NEW] the lock file <store>/suggest.lock; the herdr deadlines bound how long a holder keeps
+// it.
+func lockSuggestions(dir string) (func() error, error) {
+	f, err := os.OpenFile(filepath.Join(dir, "suggest.lock"), os.O_CREATE|os.O_RDWR, 0o600) // [NEW] 0o600, as the store
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return nil, errors.Join(fmt.Errorf("lock suggestions: %w", err), f.Close())
+	}
+	return f.Close, nil // the close drops the lock
 }
 
 // notify shows the herdr notification of suggestion d beside pane paneID. It names ids only.
@@ -126,8 +150,18 @@ func (sg suggester) check(ctx context.Context, cl caller, d brained.Dispatch) (P
 		return nil, skip("live suggestions are off (%v)", err)
 	}
 	c := cl.Call
-	if c.Binding.Session != d.Binding || c.Binding.Store != d.Store || cl.key != d.Workspace {
-		return nil, skip("the pane resolves to another binding, store or workspace")
+	// The binding and the workspace key are read again: a rebind or a remap can come at any
+	// time (E2-S3).
+	bs, _, err := bindings.Read(cl.Bindings)
+	if err != nil {
+		return nil, skip("read bindings: %v", err)
+	}
+	b, ok, err := bindings.BySocket(bs, c.Binding.Socket)
+	if err != nil || !ok || b != c.Binding || b.Session != d.Binding || b.Store != d.Store {
+		return nil, skip("the pane resolves to another binding or store")
+	}
+	if key, _, err := c.WorkspaceKey(); key != d.Workspace {
+		return nil, skip("the workspace has key %q, want %q (%v)", key, d.Workspace, err)
 	}
 	hctx, cancel := context.WithTimeout(ctx, herdrDeadline)
 	p, err := sg.Pane(hctx, target(c.Binding), c.PaneID)
@@ -218,8 +252,10 @@ func checkProposal(ctx context.Context, tx *sql.Tx, cl caller, d brained.Dispatc
 	return nil
 }
 
-// sameAgent reports whether herdr pane p shows the agent of capture session s: its harness, and
-// its agent session id when both are known.
+// sameAgent reports whether herdr pane p shows the agent of capture session s: its harness and
+// its agent session id. An id that only one side has is a doubt. When herdr gives no id and
+// the session has none, the harness and the open segment of the session in the pane are all
+// there is to check, as for a hook record (store.HookSegment).
 func sameAgent(s store.Session, p herdr.Pane) bool {
 	if p.Agent == nil || *p.Agent != s.Key.Harness {
 		return false
@@ -228,7 +264,7 @@ func sameAgent(s store.Session, p herdr.Pane) bool {
 	if p.AgentSession != nil {
 		native = p.AgentSession.Value
 	}
-	return native == "" || s.AgentSessionID == "" || native == s.AgentSessionID
+	return native == s.AgentSessionID
 }
 
 // checkPanes fails with errSkip when a review pane of rows still runs beside the agent. A row
