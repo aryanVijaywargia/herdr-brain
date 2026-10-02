@@ -23,6 +23,8 @@ const reviewUsage = `usage:
                              [--replace | --exception | --keep-both]   for a proposal with a conflict
   brain review <id> --reject [--reason "<text>"] | --later
   brain review <id> --change "<text>"              ask for a new draft of an extractor proposal
+  brain review <id> --keep | --retire              decide a disputed item: keep it as it is, or retire it
+                                                 (edit it: brain review <id> --approve --edit "<text>")
   brain review --retired                         list the retired items
   brain review --all                             list the candidates too, below the gate as well
   brain review --rejected                        list the rejections, with the new evidence since each
@@ -38,6 +40,7 @@ const reviewUsage = `usage:
 type review struct {
 	id                     int64 // the proposal; 0 for none
 	approve, reject, later bool
+	keep                   bool    // keep a disputed item (E16-S6)
 	edit                   *string // the new text; nil for none
 	change                 *string // your change request (S56); nil for none
 	conflict               string  // replace, exception or keep-both: what approve does with a conflict
@@ -98,7 +101,7 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 		return cl.endRejection(ctx, r.reset, false)
 	case r.restore != 0:
 		return cl.restore(ctx, r.restore)
-	case r.approve || r.reject || r.later || r.change != nil:
+	case r.approve || r.reject || r.later || r.change != nil || r.keep || r.retire && r.item == 0:
 		if err := cl.decide(ctx, r); err != nil {
 			return err
 		}
@@ -133,6 +136,7 @@ func parseReview(args []string) (review, error) {
 	fs.BoolVar(&r.approve, "approve", false, "")
 	fs.BoolVar(&r.reject, "reject", false, "")
 	fs.BoolVar(&r.later, "later", false, "")
+	fs.BoolVar(&r.keep, "keep", false, "")
 	decisionFlags(fs, &r)
 	scope := fs.String("scope", "", "")
 	fs.BoolVar(&r.pin, "pin", false, "")
@@ -193,8 +197,8 @@ func (r review) secrets() error {
 // check refuses a mix of flags that has no single meaning.
 func (r review) check() error {
 	actions := 0
-	for _, on := range []bool{r.approve, r.reject, r.later, r.change != nil, r.retired, r.all, r.rejected, r.reopen != 0,
-		r.reset != 0, r.restore != 0, r.item != 0} {
+	for _, on := range []bool{r.approve, r.reject, r.later, r.change != nil, r.keep, r.retire && r.item == 0, r.retired, r.all,
+		r.rejected, r.reopen != 0, r.reset != 0, r.restore != 0, r.item != 0} {
 		if on {
 			actions++
 		}
@@ -221,8 +225,12 @@ func (r review) check() error {
 		if r.id != 0 || modifiers || changes != 1 {
 			return errors.New("--item takes one of --edit, --retire, --exception-to or --conflicts-with, and no proposal id")
 		}
-	case r.retire || r.exceptionTo != 0 || r.conflictsWith != 0:
-		return errors.New("--retire, --exception-to and --conflicts-with need --item")
+	case r.exceptionTo != 0 || r.conflictsWith != 0:
+		return errors.New("--exception-to and --conflicts-with need --item")
+	case r.retire && r.id == 0:
+		return errors.New("--retire needs --item, or the proposal id of a disputed item")
+	case r.keep && r.id == 0:
+		return errors.New("--keep needs the proposal id of a disputed item")
 	case r.approve:
 		if r.id == 0 {
 			return errors.New("--approve needs a proposal id")
@@ -298,6 +306,9 @@ func belowGate(ctx context.Context, tx *sql.Tx, gates store.Gates, p store.Propo
 
 // summary is the one-line form of p for a list. A proposal with no text retires its item.
 func summary(p store.Proposal, it store.Item) string {
+	if len(p.Dispute) > 0 {
+		return fmt.Sprintf("item %d disputed: %s changed: %s", it.ID, strings.Join(p.Dispute, ", "), oneLine(p.Text))
+	}
 	if p.Text == "" {
 		return fmt.Sprintf("retire item %d", it.ID)
 	}
@@ -350,7 +361,10 @@ func (cl caller) show(ctx context.Context, id int64) error {
 		text = "(none: this proposal retires the item)"
 	}
 	source := fmt.Sprintf("%s, sender unconfirmed", cur.Origin)
-	if it.State != store.StateDraft {
+	switch {
+	case len(p.Dispute) > 0:
+		source = fmt.Sprintf("the anchor check of item %d: %s changed", it.ID, strings.Join(p.Dispute, ", "))
+	case it.State != store.StateDraft:
 		source = fmt.Sprintf("a change to %s item %d, asked in review", it.State, it.ID)
 	}
 	var b strings.Builder
@@ -387,6 +401,10 @@ func (cl caller) show(ctx context.Context, id int64) error {
 // actions writes the action lines of pending proposal p to b: the change request for a
 // proposal with evidence (changeable), and the conflict choices when p has an open conflict.
 func actions(b *strings.Builder, p store.Proposal, changeable, conflict bool) {
+	if len(p.Dispute) > 0 {
+		fmt.Fprintf(b, "actions:  brain review %d --keep | --approve --edit \"<text>\" | --retire | --later\n", p.ID)
+		return
+	}
 	fmt.Fprintf(b, "actions:  brain review %d --approve [--edit \"<text>\"] [--scope global|workspace] [--pin] | --reject | --later", p.ID)
 	if changeable {
 		b.WriteString(` | --change "<text>"`)
@@ -461,6 +479,8 @@ func (cl caller) decide(ctx context.Context, r review) error {
 		return cl.approve(ctx, r)
 	case r.change != nil:
 		return cl.askChange(ctx, r.id, *r.change)
+	case r.keep || r.retire:
+		return cl.settle(ctx, r.id, r.keep)
 	case r.reject:
 		reason := ""
 		if r.reason != nil {
@@ -504,8 +524,10 @@ func (cl caller) approve(ctx context.Context, r review) error {
 				return err
 			}
 		}
-		_, err = store.WriteRevision(ctx, tx, *p.BaseRevision, next)
-		return err
+		if _, err := store.WriteRevision(ctx, tx, *p.BaseRevision, next); err != nil {
+			return err
+		}
+		return anchor(ctx, tx, next)
 	})
 	if err != nil {
 		return skillError(err)
@@ -594,6 +616,9 @@ func (cl caller) reject(ctx context.Context, id int64, reason string) error {
 		p, _, _, err := cl.pending(ctx, tx, id)
 		if err != nil {
 			return err
+		}
+		if len(p.Dispute) > 0 {
+			return fmt.Errorf("proposal %d is a dispute: decide it with --keep, --approve --edit \"<text>\" or --retire; nothing was written", id)
 		}
 		if c, err = cl.candidate(ctx, tx, p); err != nil {
 			return err
@@ -888,8 +913,10 @@ func (cl caller) restore(ctx context.Context, id int64) error {
 		next := nextRevision(cur, cl.Now())
 		next.State = store.StateActive
 		rev = it.CurrentRevision + 1
-		_, err = store.WriteRevision(ctx, tx, it.CurrentRevision, next)
-		return err
+		if _, err := store.WriteRevision(ctx, tx, it.CurrentRevision, next); err != nil {
+			return err
+		}
+		return anchor(ctx, tx, next)
 	})
 	if err != nil {
 		return skillError(err)
