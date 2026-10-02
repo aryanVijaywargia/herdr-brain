@@ -18,6 +18,7 @@
 | 9 | Alternate-screen loss, user message at turn start | PASS for Claude (E11-S1), PASS for Codex (E11-S1b) | Claude draws in the alternate screen. While `working` or `blocked`, only the screen (37 rows here) can be read; rows that scroll off are gone until idle. At idle herdr can scroll-capture the full history (138 of 138 lines), but most idle reads with `--lines` above the history size returned only the screen, with exit 0 (6 of 6, then 15 of 19). The user prompt line is on the screen at turn start. Codex (live, E11-S1b): draws inline; the scrollback grew with the reply (`max_offset_from_bottom` 3 → 102) and no row was lost. Its approval prompt is inline too. The prompt line is on the screen and in the read at turn start. See "Codex live capture (E11-S1b)". |
 | 10 | Hook timing | PASS (E7-S4) | Normal load (M0): whole hook 5.4-10.7 ms. E7-S4, with the manifest check and a SQLite receipt, 100 runs per level: whole hook p95 7.6 ms idle, 8.1 ms with output bursts, 16.5 ms with a flood (max 80.9 ms, from one slow `pane get`). Manifest check ≤ 0.6 ms. Proposed lookup deadline: 150 ms from hook start [NEW]. See "Hook under load and manifest check (E7-S4)". |
 | 11 | Pane split with no focus, then close | PASS | `pane split --no-focus` kept focus. A plugin `split` pane with `--no-focus --env BRAIN_REVIEW=1` kept focus and got the env. `plugin pane close` closed it. `plugin pane close` on a normal pane returned `plugin_pane_not_found` and left it open. `popup` placement: tested in E5-S3; M1 keeps `split` (see "Popup placement and plugin actions (E5-S3)"). |
+| 12 | Agent reads a skill file from an absolute path in the brief, when relevant | TRUE for Claude (E16-S1), TRUE for Codex with the brief in `AGENTS.md` (E16-S1); the Codex hook route stays for the owner hand test | Claude Code 2.1.287 and codex-cli 0.154.0, one fresh session per case: each matching prompt read the right skill file and used its markers and steps; each negative prompt read no skill file; a near-description pair picked the right file. No permission prompt for the read in the modes tested. See "E16-S1: skill files from the brief (§17 item 12)". |
 | 13 | Headless extractor call, no tools, JSON schema | PASS for no file, shell, network, MCP or hook access; PARTIAL for literal "no tools" (E13-S1) | Claude 2.1.283 and codex-cli 0.154.0 both return schema-valid JSON. Claude keeps only `StructuredOutput`. Codex 0.154 with `gpt-6-sol` keeps code-mode `exec`/`wait` (V8, no nested tools) and `request_user_input_async`; no flag removes them. When the output cannot fit, Claude can exit 0 with no structured output; Codex bends a bad prompt to the schema and fails only for an unsatisfiable schema. See "Headless extractor call (E13-S1)". |
 | 14 | Hook payloads: `UserPromptSubmit`, `PostToolUse`, `Stop` | PASS for Claude (live, E11-S1). Codex: PASS from source, live hook OPEN (E11-S1b) | Claude: the `prompt` field is the exact text. An empty hook leaves the prompt unchanged. `PostToolUse` has the command and the shell cwd after the command, but no exit code. A failed command goes to `PostToolUseFailure` with `error` = "Exit code N...". Codex (source): `tool_input.command`, the session cwd, no exit code. See "brained hosting and capture (E11-S1)". Codex live (E11-S1b): a hook set with `-c` still needs the hook-trust step, so no Codex hook ran and the source facts stay. The legacy `notify` command (no trust gate) gave the typed prompt with the @-mention as typed and the final reply. See "Codex live capture (E11-S1b)". |
 | 20 | `recent-unwrapped` while `working` or `blocked` | FAIL for Claude (E11-S1), PASS for Codex (E11-S1b) | Claude: `--lines 300` returns `agent_not_idle` in `working`, `blocked` and just after submit. `--lines 20` (at or below the screen) and `visible` work in every state. At idle, a `--lines` value larger than the history often returns only the screen, with exit 0. Codex (live, E11-S1b): `--lines 300` gave exit 0 in all 112 `working` reads and all 42 `blocked` reads, with the history growing as the reply grew. At idle, `--lines` 300, 1000 and 5000 gave the whole pane history (142 lines) in 9 of 9 reads. `visible` gives the 40-row screen. |
@@ -379,6 +380,112 @@ Codex CLI 0.154, herdr 0.9.1, the test session `brain-spike-e11b`, 2 Codex runs 
 - Still open: the live `PostToolUse` fields (command, cwd, exit code) and an empty `UserPromptSubmit`. Images were not tested.
 - Owner decision (2026-09-29): no live Codex hook check with a `-c` `trusted_hash`. The Codex source facts stay for item 14. The owner's M2 hand test, with normal `/hooks` trust, confirms the real payload later.
 - Owner decision (2026-09-29): Codex `notify` is **not** a Brain turn-end source. Brain uses the `Stop` hook only. Reasons: `notify` is one global config slot, and its first call in a run is a side turn with another thread id.
+
+## E16-S1: skill files from the brief (§17 item 12)
+
+- Date: 2026-10-03. herdr 0.9.1. Claude Code 2.1.287 (`claude --version`), model Sonnet 5.5, effort medium (from the user settings). codex-cli 0.154.0 (`codex --version`), model `gpt-6-astra` (the Codex default here), effort low.
+- Files: `skillread/` (fixture skills, brief text, Claude settings file, hook scripts, run scripts). Raw log: `skillread/runs.txt` (screens, Claude tool calls, skill access times, prompt times).
+- **Setup.**
+  - Named test session `brain-spike-e16s1` beside `default`, with a clean env (`skillread/ht.sh`). Claude ran in pane `w1:p1` in `/private/tmp/e16s1/claude`. Codex ran in pane `w2:p1` in `/private/tmp/e16s1/codex`. Neither folder is a git repo.
+  - No Brain binary, binding or store: a static hook script prints the hand-written brief. The spike checks the agent, not Brain.
+  - Three fixture skills in a test store at the E16-S3 path, `/private/tmp/e16s1/store/skills/<item id>/r1/SKILL.md`, items 41, 42 and 43 (`skillread/skills/`). Their steps hold fresh markers.
+  - The real HOME was used, so the CLIs used their own sign-in. The user's own settings, skills and plugins stayed active, as in normal use.
+- **How a read was detected.** Claude: a `PreToolUse` and `PostToolUse` hook in the `--settings` file logs each tool call and its input. Both CLIs: `skillread/reset-atime.sh` sets the access time of each skill file to 2020 before a case; a new access time after the case means a read. The skill markers in the reply confirm the read. Codex: its screen also shows each read command.
+
+### Brief and entry text
+
+The brief uses the frame of today's hook output (`internal/brief` golden files): markers, precedence line, global part, workspace part. The skill list sits at the end of the workspace part. The `### Skills` heading and its one instruction line are a spike choice [NEW]; E16-S3 decides the final text. Exact text (`skillread/brief.md`):
+
+```
+<!-- brain:begin v1 -->
+Precedence: for ordinary preferences, a workspace item wins over a global item. It never relaxes a global permission or safety rule. A "conflicts with" mark wins over this line.
+## Global (all workspaces)
+- [3] Reply in plain English.
+## This workspace
+- [15] Run the tests with `make test`.
+### Skills
+Read the file of a skill before you do a task that matches it.
+- release-notes: Write the release notes for a new version tag. File: /private/tmp/e16s1/store/skills/41/r1/SKILL.md
+- pg-migration: Add a database migration for the Postgres orders service. File: /private/tmp/e16s1/store/skills/42/r1/SKILL.md
+- sqlite-migration: Add a database migration for the SQLite cache of the CLI. File: /private/tmp/e16s1/store/skills/43/r1/SKILL.md
+<!-- brain:end -->
+```
+
+- Entry form: `- <name>: <one-line description> File: <absolute path>` (§8.2: name, description, absolute path). `pg-migration` and `sqlite-migration` are the near pair.
+- **Claude channel:** `claude --settings /private/tmp/e16s1/hooks/claude-settings.json`. Its `SessionStart` hook prints the brief as `hookSpecificOutput.additionalContext` (as item 1). No hook went into `~/.claude`.
+- **Codex channel:** `/private/tmp/e16s1/codex/AGENTS.md` holds the same brief text. Codex loads it at start. No hook and no hook trust: a live Codex hook needs hook trust, and the owner does not allow it in tests. At "Hooks need review" (3 user hooks), the answer was "Continue without trusting". **The real route (the Brain `SessionStart` hook after `/hooks` trust) stays for the owner hand test.** Codex start: `skillread/codex-run.sh` flags (folder trust with `-c 'projects={...}'`, `check_for_update_on_startup=false`, effort low).
+
+### File form (E16-S3 #154)
+
+A short header with name, description, required tools and example, then the steps. Example (`skillread/skills/43/r1/SKILL.md`):
+
+```
+---
+name: sqlite-migration
+description: Add a database migration for the SQLite cache of the CLI.
+required-tools: none
+example: "Add a migration that adds an expires_at column to the cache table."
+---
+
+# Steps
+
+1. Start the reply with the line `Skill marker: ypyk-7849`.
+2. Name the migration file `cache_<NNN>_<name>.sql`, with a 3-digit number.
+3. End the SQL with the line `PRAGMA user_version = <NNN>;`.
+4. End the reply with the line `Cache checked: vfyh-0643`.
+```
+
+### Results
+
+One fresh CLI session for each case. Prompts: positive "Write the release notes for v1.4.0 of this project in your reply. The changes: ...", negative "In two sentences, say what the README.md in this folder is for.", near pair "Add a migration that adds a hits column to the cache table of the shop CLI." (sqlite) and "... a status column to the orders table of the orders service." (pg). Each prompt also said "Do not create or edit files."
+
+| Case | CLI, mode | Skill files read | Markers in reply | Steps followed | Read prompt |
+|---|---|---|---|---|---|
+| C1 positive | Claude, auto mode (start mode with no flag here) | 41 only (`Read`) | `rlqs-4756`, `phmg-1741` | yes: marker first, `Added`/`Fixed`/`Removed`, `- none`, end line | none |
+| C2 negative | Claude, auto mode | none (read `README.md` only; atimes 2020) | none | — | — |
+| C3 near pair, sqlite | Claude, auto mode | 43 only (`Read`; atime 01:13:02) | `ypyk-7849`, `vfyh-0643` | yes: `cache_001_add_hits.sql`, `PRAGMA user_version = 1;`, end line | none |
+| C4 near pair, pg | Claude, `--permission-mode default` | 42 only (`Read`) | `aoeg-8532` | yes: `pg_20261003_add_orders_status.up.sql`, `BEGIN;` ... `COMMIT;` | none (see below) |
+| C5 positive | Claude, `--setting-sources project`, default mode | not run: "Not logged in" | — | — | unknown |
+| X1 positive | Codex, default ("Approve for me") | 41 only (`cat`; atime 01:19:45) | `rlqs-4756`, `phmg-1741` | yes | none |
+| X2 negative | Codex, default | none (atimes 2020) | none | — | — |
+| X3 near pair, sqlite | Codex, default | 43 only (atime 01:21:11) | `ypyk-7849`, `vfyh-0643` | yes: `cache_001_add_hits.sql`, `PRAGMA user_version = 001;`, end line | none |
+| X4 near pair, pg | Codex, `-s read-only -a on-request -c approvals_reviewer="user"` ("Ask for approval") | 42 only (`cat`; atime 01:21:58) | `aoeg-8532` | yes: `pg_20261003_add_orders_status.up.sql`, `BEGIN;` ... `COMMIT;` | none |
+
+- **Item 12: TRUE for Claude 2.1.287.** In 3 of 3 matching prompts Claude read the right file from the absolute path, before the reply, and followed every step. In the negative prompt it read no skill file.
+- **Item 12: TRUE for Codex 0.154.0, with the brief in `AGENTS.md`.** Same counts: 3 of 3 right files, steps followed, no skill file in the negative prompt. The brief did not come from a hook here. That Codex reacts the same way to a brief from the `SessionStart` hook is likely (item 1: the hook text reaches the model) but not tested; it stays for the owner hand test.
+- **Near descriptions:** each CLI read only the right file of the pair, in both directions (sqlite in C3 and X3, pg in C4 and X4).
+- **File form:** both CLIs followed the header-then-steps form in every matching case. Neither treated the header as a step.
+
+### Read outside the project folder: permission prompts
+
+| CLI | Mode | Prompt for the skill read |
+|---|---|---|
+| Claude 2.1.287 | auto mode (the start mode with no flag on this machine) | none |
+| Claude 2.1.287 | `--permission-mode default` ("manual mode") | none, but the user settings have `permissions.allow` = `["Read"]` |
+| Claude 2.1.287 | default mode with no user settings (no `Read` allow rule) | **unknown**: with `--setting-sources project`, Claude had no sign-in and did not run |
+| Codex 0.154.0 | default ("Approve for me") | none; the read was a `cat` shell command |
+| Codex 0.154.0 | `-s read-only -a on-request`, user reviewer ("Ask for approval") | none; a read-only sandbox allows reads |
+
+- Only the `permissions` keys of `~/.claude/settings.json` were read, to explain C4 (no `env` block). So on this machine the skill read is silent in both Claude modes because of the user's `Read` allow rule. A user without that rule can get a read prompt in Claude's default mode. The owner hand test can check this.
+
+### Other observations
+
+- Claude read with the `Read` tool. Codex read with `cat` in one shell call. In X1 and X4 that call also read the user's own `~/.codex/skills/unslop/SKILL.md`; in X2 Codex read only that user skill. So user skills in a CLI's own folder compete with Brain skills, and the Brain skill was still read.
+- In X3 and X4 Codex also ran `make test` (brief item [15]) with no need. That is a brief-item effect, not a skill effect.
+- In C1 to C4 the user's herdr-projects plugin also ran its progress command in the test pane. In C4 (default mode) it asked for approval twice; the answer was 1 (Yes, once). It is not part of the test.
+
+### Limits
+
+- One run per case, one model per CLI, one machine. Small fixture skills with clear prompts. The prompts named the task in words close to the description. Long skill lists, vague prompts and other models are not tested.
+- The real user settings, skills and plugins were active. That matches normal use, but it is not a clean CLI.
+
+### Side effects and cleanup
+
+- No file went into `~/.claude/skills`, `~/.codex/skills`, a real CLI config or a repo. `ls` of both skill folders was the same before and after (only the parent folder mtime changed).
+- `~/.codex/config.toml` (stat only, not read): same size (10715), but its mtime changed once, at 01:20:43, near the X3 Codex start. The X1, X2 and X4 starts did not change it. The ChatGPT desktop app's Codex app server also runs on this machine and can write this file. The cause is unknown.
+- Claude's folder-trust dialog for `/private/tmp/e16s1/claude` was answered "Yes". That adds a trust entry to `~/.claude.json` (not read or edited), as in E11-S1.
+- Codex keeps its own session logs for the 4 runs in `~/.codex`; they were not read or edited.
+- Cleanup done: the test session `brain-spike-e16s1` is stopped and deleted. `/private/tmp/e16s1` and `~/.claude/projects/-private-tmp-e16s1-claude/` (the 5 test transcripts and an empty `memory/` folder) are removed. The real `default` session and the main server were not touched.
 
 ## Cleanup done
 
