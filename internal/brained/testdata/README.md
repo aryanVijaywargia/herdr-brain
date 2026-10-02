@@ -63,6 +63,9 @@ Claude, `visible` (40 rows):
   1 to 18 off the screen), `2-repaint` (a later read of the same screen, byte for byte).
 - `claude-s40-*.txt` (S40): the prompt "Reply with only the word ready." two times, as for
   Codex. The time lines differ ("Sautéed for 1s", "Crunched for 1s").
+- `claude-e14s3-3-idle.txt` (E14-S3): made for the test from `claude-s40-2-idle.txt`, not
+  recorded. The screen scrolled 6 lines, and the prompt "Reply with only the word ready."
+  comes a third time, after a proposal exists.
 - `claude-visible-empty.txt` (S38): made for the test, not recorded. It is an empty screen,
   as after an alternate screen closes.
 

@@ -9,12 +9,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
+	"github.com/aryanVijaywargia/herdr-brain/internal/brained"
 	"github.com/aryanVijaywargia/herdr-brain/internal/fingerprint"
 	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -418,4 +420,60 @@ func proposeFrom(t *testing.T, f *fixture, obs int64) (sessionID, item int64) {
 		return err
 	})
 	return sessionID, item
+}
+
+// dispatch is one start of a suggestion process by the hook.
+type dispatch struct {
+	environ []string
+	d       brained.Dispatch
+}
+
+// E14-S3 fastest path: a prompt record that matches a ready proposal starts one detached
+// suggestion process with ids only, in the pane's environment, and prints nothing. A record
+// with no match, or of a tool, starts none. The hook does not wait for the process: Dispatch
+// returns at once (brained.Start waits only for the shell).
+func TestRecordSuggestion(t *testing.T) {
+	const prompt = `{"session_id":"s1","prompt":"run make Foo"}`
+	f := recordFixture(t)
+	p := claude(t)
+	clock := testNow
+	if err := runRecord(t, f, p, adapter.EventPrompt, "w14:p1", prompt, &clock); err != nil {
+		t.Fatal(err)
+	}
+	sessionID, _ := proposeFrom(t, f, promptEntries(t, f)[0].ObservationID)
+	env := environ(f.mainSock, "", "w14:p1", "w14")
+	var got []dispatch
+	run := func(event, raw string) {
+		t.Helper()
+		h := f.hook(p, env)
+		h.Event = event
+		clock = clock.Add(time.Second)
+		at := clock
+		h.Now = func() time.Time { return at }
+		h.Dispatch = func(_ context.Context, environ []string, d brained.Dispatch) error {
+			got = append(got, dispatch{environ, d})
+			return nil
+		}
+		var out bytes.Buffer
+		if err := h.run(context.Background(), strings.NewReader(raw), &out); err != nil {
+			t.Fatalf("hook --event %s: %v", event, err)
+		}
+		if out.Len() != 0 {
+			t.Errorf("hook --event %s printed %q, want nothing", event, out.String())
+		}
+	}
+	run(adapter.EventPrompt, prompt)
+	run(adapter.EventTool, `{"session_id":"s1","tool_input":{"command":"run make Foo"}}`)
+	run(adapter.EventPrompt, `{"session_id":"s1","prompt":"run make Bar"}`)
+	obs, _ := recordRows(t, f)
+	want := brained.Dispatch{Suggestion: 1, Binding: "default", Store: f.mainStore, Workspace: "ws_a14",
+		Session: sessionID, Occurrence: obs[1].ID, Generation: 0, Proposal: 1}
+	if len(got) != 1 || got[0].d != want || !slices.Equal(got[0].environ, env) {
+		t.Fatalf("dispatches = %+v, want one of %+v in the pane's environment", got, want)
+	}
+	// No rate cap: the next matching prompt gets its own suggestion.
+	run(adapter.EventPrompt, prompt)
+	if len(got) != 2 || got[1].d.Suggestion != 2 {
+		t.Errorf("dispatches = %+v, want a second suggestion", got)
+	}
 }
