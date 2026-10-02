@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 )
 
 // probeFile is one file evals/probes/*.toml (HLD §12.1 "Probe format").
@@ -49,9 +51,6 @@ var stages = []string{"delivery", "exclusion", "transfer", "update", "restraint"
 // a workspace with no map entry, which gets only the global part.
 var hookModes = []string{"no-herdr-env", "closed-pane", "no-herdr-answer", "unbound-session", "other-workspace"}
 
-// harnesses are the CLIs that a probe can ask.
-var harnesses = []string{"claude", "codex"}
-
 // probeID is the form of a probe id: it goes into a herdr workspace label. [NEW] form.
 var probeID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
@@ -76,6 +75,7 @@ func loadProbes(path string) ([]Case, error) {
 			return nil, fmt.Errorf("%s: no probe file (*.toml)", path)
 		}
 	}
+	kinds := adapter.Kinds(nil)
 	var cases []Case
 	seen := map[string]string{} // probe id to its file
 	for _, f := range files {
@@ -91,7 +91,7 @@ func loadProbes(path string) ([]Case, error) {
 			return nil, fmt.Errorf("%s: no [[probe]]", f)
 		}
 		for i, p := range pf.Probe {
-			if err := p.check(); err != nil {
+			if err := p.check(kinds); err != nil {
 				return nil, fmt.Errorf("%s: probe %d (%q): %w", f, i+1, p.ID, err)
 			}
 			if other, ok := seen[p.ID]; ok {
@@ -107,8 +107,8 @@ func loadProbes(path string) ([]Case, error) {
 	return cases, nil
 }
 
-// check checks the fields of one probe.
-func (p probeEntry) check() error {
+// check checks the fields of one probe; kinds are the profile kinds that a probe can ask.
+func (p probeEntry) check(kinds []string) error {
 	var errs []error
 	if !probeID.MatchString(p.ID) {
 		errs = append(errs, errors.New("id: want lower-case letters, digits and dashes"))
@@ -142,8 +142,8 @@ func (p probeEntry) check() error {
 	}
 	for i, h := range p.Harnesses {
 		switch {
-		case !slices.Contains(harnesses, h):
-			errs = append(errs, fmt.Errorf("harness %q: want claude or codex", h))
+		case !slices.Contains(kinds, h):
+			errs = append(errs, fmt.Errorf("harness %q: want %s", h, oneOf(kinds)))
 		case slices.Contains(p.Harnesses[:i], h):
 			errs = append(errs, fmt.Errorf("harness %q is listed twice", h))
 		}
@@ -159,6 +159,14 @@ func (p probeEntry) check() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// oneOf lists kinds for an error: "claude or codex".
+func oneOf(kinds []string) string {
+	if len(kinds) < 2 {
+		return strings.Join(kinds, "")
+	}
+	return strings.Join(kinds[:len(kinds)-1], ", ") + " or " + kinds[len(kinds)-1]
 }
 
 func (p probeEntry) toCase() Case {

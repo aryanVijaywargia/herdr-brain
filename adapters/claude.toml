@@ -24,6 +24,10 @@ input.command = "tool_input.command"
 input.error = "error"
 input.exit_pattern = '^Exit code (\d+)'
 input.reply = "last_assistant_message"
+# Claude draws in the alternate screen: the eval runner reads its visible screen (E11-S1).
+alt_screen = true
+# A setup agent of the eval runner may run `brain remember` with no ask (E10-S3).
+eval.setup_args = ["--allowedTools", "Bash(brain remember:*)"]
 # The version of the M0 test (spike/m0/FINDINGS.md).
 tested_version = "2.1.283"
 # The Claude screen lines that change on each read and that herdr capture drops (§6.2, E11-S4):

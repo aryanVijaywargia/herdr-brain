@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 )
 
@@ -96,21 +97,24 @@ func lookup(environ []string, key string) string {
 	return v
 }
 
-// agentArgs are the CLI arguments of a fresh CLI of harness in the scratch folder dir, which
-// the runner made itself. Codex asks at start whether to trust a new folder, and the runner
-// never answers that dialog; so Codex gets the trust of dir on its command line only, never in
-// ~/.codex/config.toml. The key is a quoted TOML key, because Codex splits a dotted -c key at
-// each dot (E10-S3). /tmp is a link on macOS, so the key is the real path of dir.
-func agentArgs(harness, dir string) ([]string, error) {
-	if harness != "codex" {
+// dirSlot is the placeholder of the scratch folder in a profile's eval.args.
+const dirSlot = "{{dir}}"
+
+// agentArgs are the eval.args of profile p for a fresh CLI in the scratch folder dir, which the
+// runner made itself. Codex gets the trust of dir this way, because the runner never answers
+// its folder-trust dialog (E10-S3). /tmp is a link on macOS, so dirSlot is the real path of
+// dir, quoted.
+func agentArgs(p *adapter.Profile, dir string) ([]string, error) {
+	if len(p.Eval.Args) == 0 {
 		return nil, nil
 	}
 	realDir, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		return nil, err
 	}
-	return []string{
-		"-c", "projects={" + strconv.Quote(realDir) + "={trust_level=\"trusted\"}}",
-		"-c", "check_for_update_on_startup=false",
-	}, nil
+	args := make([]string, len(p.Eval.Args))
+	for i, a := range p.Eval.Args {
+		args[i] = strings.ReplaceAll(a, dirSlot, strconv.Quote(realDir))
+	}
+	return args, nil
 }

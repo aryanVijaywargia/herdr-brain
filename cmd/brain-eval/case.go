@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
@@ -74,8 +75,8 @@ type Reply struct {
 // caseLabel starts the label of the workspace of each case.
 const caseLabel = "brain-eval-case-"
 
-// writers are the process names of a live writer of a store: an agent CLI or Brain itself.
-var writers = []string{"claude", "codex", "brain"}
+// brainProcess is the process name of Brain itself, a live writer of a store.
+const brainProcess = "brain"
 
 // errExitUnconfirmed stops a run: a process of the last case may still write to the store,
 // so the runner must not reset it (HLD §12.1).
@@ -184,7 +185,7 @@ func (r *Runner) setup(ctx context.Context, h Herdr, shell herdr.Pane, dir strin
 	marker := markers["marker"]
 	for i, step := range c.Setup {
 		step = fill(step, markers)
-		if harness, prompt, ok := parseAgentStep(step); ok {
+		if harness, prompt, ok := parseAgentStep(step, adapter.Kinds(r.Profiles)); ok {
 			skip, err = r.runAgentStep(ctx, h, shell, dir, fmt.Sprintf("setup-%s-%d", marker, i+1), harness, prompt, opened)
 		} else {
 			err = r.step(ctx, h, shell.ID, step, marker, i)
@@ -257,11 +258,12 @@ func fillAll(ss []string, markers map[string]string) []string {
 }
 
 // guard fails when a case workspace of an earlier run is still open, or when a pane that this
-// run did not open holds an agent, or a foreground CLI or Brain process: it could write to
+// run did not open holds an agent, or a foreground process of the CLI of a profile or of Brain: it could write to
 // the test store during or after the reset (HLD §12.1). The runner closes its own panes at
 // the end of each case, so any such pane is foreign here, for example one of an interrupted
 // run.
 func (r *Runner) guard(ctx context.Context, h Herdr) error {
+	kinds := adapter.Kinds(r.Profiles) // the process name of each profile's CLI is its kind
 	ws, err := call(ctx, r.Timeouts.Call, h.Workspaces)
 	if err != nil {
 		return err
@@ -290,7 +292,7 @@ func (r *Runner) guard(ctx context.Context, h Herdr) error {
 			return err
 		}
 		for _, proc := range pi.Processes {
-			if slices.Contains(writers, proc.Name) {
+			if proc.Name == brainProcess || slices.Contains(kinds, proc.Name) {
 				return fmt.Errorf("pane %s runs %s that this run did not start; no reset (close it, then run again)", p.ID, proc.Name)
 			}
 		}
@@ -398,7 +400,11 @@ func (r *Runner) probe(ctx context.Context, h Herdr, shell herdr.Pane, dir, name
 	}
 	*opened = append(*opened, pane.ID)
 	rep.Pane = pane.ID
-	args, err := startArgs(p.Harness, dir, false)
+	prof, err := adapter.LoadFS(r.Profiles, p.Harness)
+	if err != nil {
+		return Reply{}, err
+	}
+	args, err := startArgs(prof, dir, false)
 	if err != nil {
 		return Reply{}, err
 	}
@@ -418,7 +424,7 @@ func (r *Runner) probe(ctx context.Context, h Herdr, shell herdr.Pane, dir, name
 	}
 	rep.Screen, err = call(ctx, r.Timeouts.Call, func(ctx context.Context) (string, error) {
 		// An alternate-screen CLI has only its screen; a longer read scrolls it (HLD §6.2).
-		if altScreen[p.Harness] {
+		if prof.AltScreen {
 			return h.ReadAgentVisible(ctx, name)
 		}
 		return h.ReadAgent(ctx, name, readLines)

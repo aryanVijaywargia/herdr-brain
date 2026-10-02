@@ -45,7 +45,7 @@ func Uninstall(_ context.Context, e Env, args []string) error {
 		return err
 	}
 	u := &uninstaller{out: e.Stdout, apply: *apply}
-	edited, err := u.entries(&install.Installer{Home: home, Record: record})
+	edited, err := u.entries(&install.Installer{Home: home, Record: record}, e.Profiles)
 	if err != nil {
 		return err
 	}
@@ -84,15 +84,15 @@ type uninstaller struct {
 }
 
 // entries removes the Brain hook entry of each profile in the install record whose hash is
-// unchanged. An entry that you edited stays, and Brain reports it (§8.1); edited says whether
-// one did.
-func (u *uninstaller) entries(in *install.Installer) (edited bool, err error) {
+// unchanged; profiles holds the profiles (nil is the embedded set). An entry that you edited
+// stays, and Brain reports it (§8.1); edited says whether one did.
+func (u *uninstaller) entries(in *install.Installer, profiles fs.FS) (edited bool, err error) {
 	rec, err := install.Read(in.Record)
 	if err != nil {
 		return false, err
 	}
 	for _, kind := range slices.Sorted(maps.Keys(rec.Entries)) {
-		p, err := adapter.Load(kind)
+		p, err := adapter.LoadFS(profiles, kind)
 		if err != nil {
 			return false, err
 		}

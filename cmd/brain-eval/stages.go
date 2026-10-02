@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -14,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -25,29 +25,30 @@ import (
 const agentStep = "agent "
 
 // parseAgentStep returns the harness and prompt of an agent step; ok is false for a shell
-// step.
-func parseAgentStep(step string) (harness, prompt string, ok bool) {
+// step. kinds are the profile kinds.
+func parseAgentStep(step string, kinds []string) (harness, prompt string, ok bool) {
 	rest, found := strings.CutPrefix(step, agentStep)
 	if !found {
 		return "", "", false
 	}
 	harness, prompt, found = strings.Cut(rest, ":")
-	if !found || !slices.Contains(harnesses, harness) {
+	if !found || !slices.Contains(kinds, harness) {
 		return "", "", false
 	}
 	return harness, strings.TrimSpace(prompt), true
 }
 
-// startArgs are the CLI arguments of a fresh CLI of harness in the scratch folder dir. A setup
-// agent of Claude may run `brain remember` without an ask: the runner never answers a
-// permission dialog. [NEW] the allowed tool.
-func startArgs(harness, dir string, setup bool) ([]string, error) {
-	args, err := agentArgs(harness, dir)
+// startArgs are the CLI arguments of a fresh CLI of profile p in the scratch folder dir: its
+// eval.args, and for a setup agent also its eval.setup_args. A setup agent of Claude may run
+// `brain remember` without an ask: the runner never answers a permission dialog. [NEW] the
+// allowed tool.
+func startArgs(p *adapter.Profile, dir string, setup bool) ([]string, error) {
+	args, err := agentArgs(p, dir)
 	if err != nil {
 		return nil, err
 	}
-	if setup && harness == "claude" {
-		args = append(args, "--allowedTools", "Bash(brain remember:*)")
+	if setup {
+		args = append(args, p.Eval.SetupArgs...)
 	}
 	return args, nil
 }
@@ -63,7 +64,11 @@ func (r *Runner) runAgentStep(ctx context.Context, h Herdr, shell herdr.Pane, di
 		return "", err
 	}
 	*opened = append(*opened, pane.ID)
-	args, err := startArgs(harness, dir, true)
+	p, err := adapter.LoadFS(r.Profiles, harness)
+	if err != nil {
+		return "", err
+	}
+	args, err := startArgs(p, dir, true)
 	if err != nil {
 		return "", err
 	}
@@ -90,9 +95,13 @@ func (r *Runner) hookProbe(ctx context.Context, h Herdr, shell herdr.Pane, dir s
 	if err != nil {
 		return Reply{}, err
 	}
-	// The same start input for both profiles: neither has a start condition. Input of an
-	// unknown shape would set the adapter to retest, so it must stay valid.
-	in, err := json.Marshal(map[string]string{"session_id": "brain-eval-" + marker, "cwd": dir, "hook_event_name": "SessionStart", "source": "startup"})
+	// Start input of the profile's own shape: input of an unknown shape would set the adapter
+	// to retest, so it must stay valid.
+	prof, err := adapter.LoadFS(r.Profiles, p.Harness)
+	if err != nil {
+		return Reply{}, err
+	}
+	in, err := prof.StartInput("brain-eval-"+marker, dir)
 	if err != nil {
 		return Reply{}, err
 	}

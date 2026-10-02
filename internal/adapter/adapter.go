@@ -24,6 +24,11 @@ import (
 // formAdditionalContext is the output form of Claude and Codex (HLD §8.3, M0 item 1).
 const formAdditionalContext = "hookSpecificOutput.additionalContext"
 
+// TrustCodex is the hook_trust value of a CLI that runs a new or changed hook entry only after
+// you trust it, with the trust state in the hooks.state table of its config.toml, as Codex
+// 0.154 does (spike/m0/FINDINGS.md "E8-S3: trust check").
+const TrustCodex = "codex"
+
 var (
 	// ErrNotStart says that the hook input does not meet the profile's start condition. The
 	// hook prints nothing (§8.3 step 2).
@@ -68,6 +73,21 @@ type Profile struct {
 	// AdditionalContextLimit goes into the hook entry when set. Codex sends a longer
 	// additionalContext to a file and not to the model; 0 turns the limit off (E8 epic).
 	AdditionalContextLimit *int `toml:"additional_context_limit"`
+	// HookTrust [NEW] names the trust step that the CLI needs before it runs a Brain hook entry:
+	// "" for none, or TrustCodex. Setup shows its steps, and doctor checks it (E16-S10).
+	HookTrust string `toml:"hook_trust"`
+	// AltScreen [NEW] says that the CLI draws in the alternate screen: the eval runner reads its
+	// visible screen after idle (E11-S1). An inline CLI keeps its scrollback.
+	AltScreen bool `toml:"alt_screen"`
+	// Eval [NEW] holds the CLI arguments of a fresh CLI that the eval runner starts (E10-S3).
+	Eval struct {
+		// Args go to each fresh CLI. "{{dir}}" in an argument is the real path of the
+		// runner's scratch folder, as a quoted string.
+		Args []string `toml:"args"`
+		// SetupArgs also go to a CLI that runs a setup step, so that it may run
+		// `brain remember` with no ask: the runner never answers a permission dialog.
+		SetupArgs []string `toml:"setup_args"`
+	} `toml:"eval"`
 	// NoiseLines are optional regular expressions of screen lines that herdr capture drops,
 	// for example the input box (§6.3, E11-S3). A line matches when a pattern matches all of it.
 	NoiseLines []string `toml:"noise_lines"`
@@ -99,14 +119,49 @@ type Input struct {
 
 // Load returns the embedded profile of a harness, for example "claude".
 func Load(harness string) (*Profile, error) {
-	return LoadFS(adapters.Profiles, harness)
+	return LoadFS(nil, harness)
 }
 
-// LoadFS reads and checks <harness>.toml from fsys. A profile with a key that M1 does not
-// know, a missing field or an unknown output form is an error.
+// Kinds returns the kind of each profile of fsys, one for each <kind>.toml, in name order. A
+// nil fsys is the embedded set (E16-S10): the entry points take this list, so a new CLI needs
+// only its profile file (S60).
+func Kinds(fsys fs.FS) []string {
+	// fs.Glob returns only a bad pattern error, and this pattern is good.
+	names, _ := fs.Glob(set(fsys), "*.toml")
+	kinds := make([]string, len(names))
+	for i, n := range names {
+		kinds[i] = strings.TrimSuffix(n, ".toml")
+	}
+	return kinds
+}
+
+// LoadAll returns every profile of fsys, in the order of Kinds. A nil fsys is the embedded set.
+func LoadAll(fsys fs.FS) ([]*Profile, error) {
+	kinds := Kinds(fsys)
+	ps := make([]*Profile, len(kinds))
+	for i, k := range kinds {
+		p, err := LoadFS(fsys, k)
+		if err != nil {
+			return nil, err
+		}
+		ps[i] = p
+	}
+	return ps, nil
+}
+
+// set is fsys, or the embedded profiles when fsys is nil.
+func set(fsys fs.FS) fs.FS {
+	if fsys == nil {
+		return adapters.Profiles
+	}
+	return fsys
+}
+
+// LoadFS reads and checks <harness>.toml from fsys; a nil fsys is the embedded set. A profile
+// with a key that M1 does not know, a missing field or an unknown output form is an error.
 func LoadFS(fsys fs.FS, harness string) (*Profile, error) {
 	name := harness + ".toml"
-	data, err := fs.ReadFile(fsys, name)
+	data, err := fs.ReadFile(set(fsys), name)
 	if err != nil {
 		return nil, fmt.Errorf("read profile: %w", err)
 	}
@@ -120,6 +175,10 @@ func LoadFS(fsys fs.FS, harness string) (*Profile, error) {
 	}
 	if err := p.check(); err != nil {
 		return nil, fmt.Errorf("profile %s: %w", name, err)
+	}
+	// The entry points find a profile by its file name (Kinds), and key it by its kind.
+	if p.Kind != harness {
+		return nil, fmt.Errorf("profile %s: kind %q is not the file name", name, p.Kind)
 	}
 	sum := sha256.Sum256(data)
 	p.SHA256 = hex.EncodeToString(sum[:])
@@ -143,6 +202,9 @@ func (p *Profile) check() error {
 	}
 	if p.OutputForm != formAdditionalContext {
 		return fmt.Errorf("unknown output_form %q", p.OutputForm)
+	}
+	if p.HookTrust != "" && p.HookTrust != TrustCodex {
+		return fmt.Errorf("unknown hook_trust %q", p.HookTrust)
 	}
 	for _, c := range []struct{ event, key, path string }{
 		{p.Events.Prompt, "input.prompt", p.Input.Prompt},
@@ -243,6 +305,34 @@ func (p *Profile) Write(w io.Writer, brief string) error {
 		return fmt.Errorf("write hook output: %w", err)
 	}
 	return nil
+}
+
+// StartInput returns hook start input that Parse reads as sessionID and cwd: the two values at
+// the profile's JSON paths, and the value of its start condition. The eval runner calls
+// `brain hook` with it (§12.1 exclusion), so input of the profile's own shape does not set the
+// adapter to retest.
+func (p *Profile) StartInput(sessionID, cwd string) ([]byte, error) {
+	doc := map[string]any{}
+	put(doc, p.Input.SessionID, sessionID)
+	put(doc, p.Input.CWD, cwd)
+	if p.cond.path != "" {
+		put(doc, p.cond.path, p.cond.value)
+	}
+	return json.Marshal(doc)
+}
+
+// put sets the dotted JSON path in doc to v, and makes the nested objects on the way.
+func put(doc map[string]any, path string, v any) {
+	keys := strings.Split(path, ".")
+	for _, k := range keys[:len(keys)-1] {
+		next, ok := doc[k].(map[string]any)
+		if !ok {
+			next = map[string]any{}
+			doc[k] = next
+		}
+		doc = next
+	}
+	doc[keys[len(keys)-1]] = v
 }
 
 // text returns the non-empty string at path in doc, or an error that wraps ErrRetest.

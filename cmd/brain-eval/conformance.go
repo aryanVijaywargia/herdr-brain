@@ -29,7 +29,7 @@ func runID(t time.Time) string { return t.UTC().Format("20060102T150405.000Z") }
 // startConformance writes a pending record for each harness whose delivery stage the run
 // asks (§8.5 conformance test), before any case runs, and returns those records. A harness
 // that the run skips, or whose delivery stage it does not run, keeps its record.
-func (r *Runner) startConformance(cases []Case, skip map[string]string, versions map[string]string, started time.Time) ([]harness.Result, error) {
+func (r *Runner) startConformance(cases []Case, skip map[string]string, clis map[string]probeCLI, started time.Time) ([]harness.Result, error) {
 	var hs []string
 	for _, c := range cases {
 		if c.Stage != "delivery" || c.Control {
@@ -50,11 +50,7 @@ func (r *Runner) startConformance(cases []Case, skip map[string]string, versions
 	}
 	var out []harness.Result
 	for _, h := range hs {
-		p, err := adapter.Load(h)
-		if err != nil {
-			return nil, err
-		}
-		res := harness.Result{Harness: h, CLIVersion: versions[h], ProfileSHA256: p.SHA256,
+		res := harness.Result{Harness: h, CLIVersion: clis[h].Version, ProfileSHA256: clis[h].ProfileSHA256,
 			EntrySHA256: rec.Entries[h].SHA256, RunID: runID(started), Result: resultPending, At: started}
 		if err := harness.WriteConformance(r.Conformance, res); err != nil {
 			return nil, err
@@ -69,7 +65,11 @@ func (r *Runner) startConformance(cases []Case, skip map[string]string, versions
 // or fail when a delivery probe failed.
 func (r *Runner) endConformance(pending []harness.Result, cases []Case, rs []store.EvalResult, failed bool, finished time.Time) error {
 	for _, res := range pending {
-		res.Result, res.At = conformance(cases, rs, res.Harness), finished
+		p, err := adapter.LoadFS(r.Profiles, res.Harness)
+		if err != nil {
+			return err
+		}
+		res.Result, res.At = conformance(cases, rs, res.Harness, p.AdditionalContextLimit != nil), finished
 		if failed && res.Result == harness.Pass {
 			res.Result = resultInconclusive
 		}
@@ -83,10 +83,11 @@ func (r *Runner) endConformance(pending []harness.Result, cases []Case, rs []sto
 
 // conformance is the conformance result of harness h from the delivery results of a completed
 // run: pass when each delivery probe passed; fail when one failed; else inconclusive, for
-// example an UNSURE or a skipped probe. A Codex pass also needs a pass of a full-size brief
-// with the marker in its middle: it shows that Codex gave the model the whole brief inline,
-// not a preview (E8-S2).
-func conformance(cases []Case, rs []store.EvalResult, h string) string {
+// example an UNSURE or a skipped probe. With limit, the profile of h sets an
+// additional_context_limit, as Codex does: a pass then also needs a pass of a full-size brief
+// with the marker in its middle. It shows that the CLI gave the model the whole brief inline,
+// not a preview of a saved file (E8-S2).
+func conformance(cases []Case, rs []store.EvalResult, h string, limit bool) string {
 	full := map[string]bool{}
 	for _, c := range cases {
 		full[c.ID] = c.FullBrief
@@ -106,7 +107,7 @@ func conformance(cases []Case, rs []store.EvalResult, h string) string {
 			result = resultInconclusive
 		}
 	}
-	if h == "codex" && result == harness.Pass && !inline {
+	if limit && result == harness.Pass && !inline {
 		return resultInconclusive
 	}
 	return result

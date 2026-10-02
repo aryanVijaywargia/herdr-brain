@@ -88,6 +88,9 @@ type Runner struct {
 	Now         func() time.Time
 	Version     func(ctx context.Context, harness string) (string, error) // the CLI version of harness
 	Stdout      io.Writer
+	// Profiles holds the harness profiles that the probes can ask (adapter.LoadAll); nil is the
+	// embedded set.
+	Profiles fs.FS
 }
 
 // errSetup is the error of a run that stops because Brain is not set up for it. The runner
@@ -122,14 +125,17 @@ func (r *Runner) Run(ctx context.Context, cases []Case) (out []Outcome, err erro
 		err = errors.Join(err, stop(cctx))
 	}()
 	started := r.Now()
-	versions := r.versions(ctx, cases, skip)
-	pending, err := r.startConformance(cases, skip, versions, started)
+	clis, err := r.clis(ctx, cases, skip)
+	if err != nil {
+		return nil, err
+	}
+	pending, err := r.startConformance(cases, skip, clis, started)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
 		finished := r.Now()
-		rs := results(cases, out, versions)
+		rs := results(cases, out, clis)
 		failed := err != nil
 		err = errors.Join(err, writeResults(b.Store, started, finished, rs), writeReport(b.Store, cases, rs, r.Stdout))
 		// An interrupted run leaves its pending records. A run that stopped at a failed case
@@ -180,7 +186,7 @@ func (r *Runner) check(cases []Case) (bindings.Binding, map[string]string, error
 // hookInstalled checks that the hook file of harness still holds the recorded Brain entry: a
 // record without its entry is a missing install. An entry that you edited counts as there.
 func (r *Runner) hookInstalled(harness string) error {
-	p, err := adapter.Load(harness)
+	p, err := adapter.LoadFS(r.Profiles, harness)
 	if err != nil {
 		return err
 	}
