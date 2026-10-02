@@ -1,0 +1,8 @@
+<!-- brain:begin v1 -->
+Precedence: for ordinary preferences, a workspace item wins over a global item. It never relaxes a global permission or safety rule. A "conflicts with" mark wins over this line.
+## Global (all workspaces)
+## This workspace
+### Skills
+Read the file of a skill before you do a task that matches it.
+- deploy: Deploy the site. File: /s/skills/7/r1/SKILL.md
+<!-- brain:end -->

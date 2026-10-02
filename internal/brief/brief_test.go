@@ -15,9 +15,13 @@ var update = flag.Bool("update", false, "rewrite the golden files in testdata")
 
 // render builds both parts and the whole brief. A part error goes into the output in place
 // of the brief, so the golden file of a failed build holds the error text.
-func render(global, workspace []Item) string {
-	g, gErr := Global(global)
-	w, wErr := Workspace(workspace)
+func render(global, workspace []Item, skills ...[]Skill) string {
+	var gs, ws []Skill
+	if len(skills) == 2 {
+		gs, ws = skills[0], skills[1]
+	}
+	g, gErr := Global(global, gs...)
+	w, wErr := Workspace(workspace, ws...)
 	if err := errors.Join(gErr, wErr); err != nil {
 		return "error: " + err.Error() + "\n"
 	}
@@ -27,9 +31,11 @@ func render(global, workspace []Item) string {
 func TestGolden(t *testing.T) {
 	npm := Item{ID: 3, Text: "Use npm for installs."}
 	tests := []struct {
-		name      string
-		global    []Item
-		workspace []Item
+		name            string
+		global          []Item
+		workspace       []Item
+		globalSkills    []Skill
+		workspaceSkills []Skill
 	}{
 		{name: "empty"},
 		{name: "global-only", global: []Item{
@@ -53,6 +59,24 @@ func TestGolden(t *testing.T) {
 			workspace: []Item{{ID: 9, Text: "Use yarn in this repo.", ConflictsWith: []int64{5, 3}}},
 		},
 		{
+			// AC E16-S3: global and workspace skill entries, one with a required-tool note.
+			name:   "skills",
+			global: []Item{npm},
+			globalSkills: []Skill{{Name: "release-notes", Description: "Write the release notes for a new version tag.",
+				Path: "/home/u/.local/share/brain/main/skills/41/r1/SKILL.md", NotAvailable: "gh in codex"}},
+			workspace: []Item{{ID: 15, Text: "Run the tests with make test."}},
+			workspaceSkills: []Skill{
+				{Name: "sqlite-migration", Description: "Add a database migration for the SQLite cache of the CLI.",
+					Path: "/home/u/.local/share/brain/main/skills/43/r2/SKILL.md"},
+				{Name: "pg-migration", Description: "Add a database migration for the Postgres orders service.",
+					Path: "/home/u/.local/share/brain/main/skills/42/r1/SKILL.md"},
+			},
+		},
+		{
+			name:            "skills-only",
+			workspaceSkills: []Skill{{Name: "deploy", Description: "Deploy the site.", Path: "/s/skills/7/r1/SKILL.md"}},
+		},
+		{
 			name:      "over-budget",
 			global:    []Item{{ID: 1, Text: strings.Repeat("g", globalBudget)}},
 			workspace: []Item{{ID: 2, Text: strings.Repeat("w", workspaceBudget)}},
@@ -60,7 +84,7 @@ func TestGolden(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := render(tt.global, tt.workspace)
+			got := render(tt.global, tt.workspace, tt.globalSkills, tt.workspaceSkills)
 			path := filepath.Join("testdata", tt.name+".golden")
 			if *update {
 				if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
@@ -115,7 +139,7 @@ func fill(t *testing.T, used, limit int) []Item {
 func TestBudgetError(t *testing.T) {
 	tests := []struct {
 		name  string
-		build func([]Item) (string, error)
+		build func([]Item, ...Skill) (string, error)
 		used  int
 		limit int
 		part  string
@@ -150,11 +174,33 @@ func TestItemLines(t *testing.T) {
 	}
 }
 
+// AC E16-S3: the skill list counts in the part budget (§8.1). A part whose items fit exactly
+// is over its budget with one skill more.
+func TestSkillBudget(t *testing.T) {
+	sk := Skill{Name: "deploy", Description: "Deploy the site.", Path: "/s/skills/7/r1/SKILL.md"}
+	list := len(skillsLabel + skillsHint + "- deploy: Deploy the site. File: /s/skills/7/r1/SKILL.md\n")
+	items := fill(t, len(workspaceLabel)+list, workspaceBudget)
+	w, err := Workspace(items, sk)
+	if err != nil {
+		t.Fatalf("Workspace(full with skill) error = %v, want nil", err)
+	}
+	if len(w) != workspaceBudget {
+		t.Errorf("len(Workspace(full with skill)) = %d, want %d", len(w), workspaceBudget)
+	}
+	items[len(items)-1].Text += "x"
+	var be *BudgetError
+	if _, err := Workspace(items, sk); !errors.As(err, &be) {
+		t.Errorf("Workspace(one byte over with skill) error = %v, want *BudgetError", err)
+	}
+}
+
 // TestDeterministic checks that the input order does not change the bytes.
 func TestDeterministic(t *testing.T) {
 	a := []Item{{ID: 2, Text: "b", ConflictsWith: []int64{9, 1}}, {ID: 1, Text: "a"}, {ID: 3, Text: "c"}}
 	b := []Item{{ID: 3, Text: "c"}, {ID: 1, Text: "a"}, {ID: 2, Text: "b", ConflictsWith: []int64{1, 9}}}
-	if x, y := render(a, a), render(b, b); x != y {
+	sa := []Skill{{Name: "b", Description: "b.", Path: "/b"}, {Name: "a", Description: "a.", Path: "/a"}}
+	sb := []Skill{sa[1], sa[0]}
+	if x, y := render(a, a, sa, sa), render(b, b, sb, sb); x != y {
 		t.Errorf("render(order a) = %q, render(order b) = %q, want the same", x, y)
 	}
 	if a[0].ID != 2 || a[0].ConflictsWith[0] != 9 {

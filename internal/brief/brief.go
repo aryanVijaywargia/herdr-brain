@@ -47,6 +47,24 @@ type Item struct {
 	ConflictsWith []int64
 }
 
+// Skill is one active skill as the brief lists it (§8.2): its name, its one-line description,
+// the absolute path of the file of its revision, and the note on a required tool that a CLI
+// does not have ("" for none). The agent reads the file when the skill is relevant.
+type Skill struct {
+	Name        string
+	Description string
+	Path        string
+	// NotAvailable comes from the reviewed text, for example "gh in codex".
+	NotAvailable string
+}
+
+// The skill list at the end of a part. [NEW] the heading, the instruction line and the entry
+// form "- <name>: <description> File: <path>"; E16-S1 tested them with Claude and Codex.
+const (
+	skillsLabel = "### Skills\n"
+	skillsHint  = "Read the file of a skill before you do a task that matches it.\n"
+)
+
 // BudgetError says that a part of the brief is over its budget. The part is not built: Brain
 // never cuts items to make a part fit.
 type BudgetError struct {
@@ -60,15 +78,15 @@ func (e *BudgetError) Error() string {
 		e.Part, e.Size, e.Limit)
 }
 
-// Global renders the global part from the active global items. Its size, with the frame of the
-// brief, must fit the global budget.
-func Global(items []Item) (string, error) {
-	return part("global", globalLabel, len(frame), globalBudget, items)
+// Global renders the global part from the active global items and global skills. Its size,
+// with the frame of the brief, must fit the global budget; the skill list counts in it (§8.1).
+func Global(items []Item, skills ...Skill) (string, error) {
+	return part("global", globalLabel, len(frame), globalBudget, items, skills)
 }
 
-// Workspace renders the workspace part from the active items of one workspace.
-func Workspace(items []Item) (string, error) {
-	return part("workspace", workspaceLabel, 0, workspaceBudget, items)
+// Workspace renders the workspace part from the active items and skills of one workspace.
+func Workspace(items []Item, skills ...Skill) (string, error) {
+	return part("workspace", workspaceLabel, 0, workspaceBudget, items, skills)
 }
 
 // GlobalSize returns the size of a rendered global part as its budget counts it, with the
@@ -95,9 +113,9 @@ func LastSession(workspace, harness string, at time.Time, transcript string) str
 		", transcript " + transcript + "\n"
 }
 
-// part renders a label and the items in id order, so the same items give the same bytes.
-// extra is the size that counts against the budget beyond the part text.
-func part(name, label string, extra, limit int, items []Item) (string, error) {
+// part renders a label, the items in id order and the skills in name order, so the same items
+// give the same bytes. extra is the size that counts against the budget beyond the part text.
+func part(name, label string, extra, limit int, items []Item, skills []Skill) (string, error) {
 	items = slices.SortedFunc(slices.Values(items), func(a, b Item) int { return cmp.Compare(a.ID, b.ID) })
 	var b strings.Builder
 	b.WriteString(label)
@@ -106,10 +124,26 @@ func part(name, label string, extra, limit int, items []Item) (string, error) {
 			return "", err
 		}
 	}
+	writeSkills(&b, skills)
 	if size := extra + b.Len(); size > limit {
 		return "", &BudgetError{Part: name, Size: size, Limit: limit}
 	}
 	return b.String(), nil
+}
+
+// writeSkills writes the skill list, one line for each skill, or nothing when there is none.
+func writeSkills(b *strings.Builder, skills []Skill) {
+	if len(skills) == 0 {
+		return
+	}
+	b.WriteString(skillsLabel + skillsHint)
+	for _, sk := range slices.SortedFunc(slices.Values(skills), func(a, b Skill) int { return cmp.Compare(a.Name, b.Name) }) {
+		b.WriteString("- " + sk.Name + ": " + sk.Description + " File: " + sk.Path)
+		if sk.NotAvailable != "" {
+			b.WriteString(" (not available: " + sk.NotAvailable + ")")
+		}
+		b.WriteString("\n")
+	}
 }
 
 // writeItem writes one item: its id and first line, then up to two more lines, indented. The
