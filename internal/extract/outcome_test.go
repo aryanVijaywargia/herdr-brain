@@ -218,9 +218,21 @@ func TestComebackChangeRequest(t *testing.T) {
 	if f.cli.calls() != calls+1 || len(f.proposals()) != 1 {
 		t.Errorf("a second pass: %d calls, %d proposals, want %d and 1", f.cli.calls(), len(f.proposals()), calls+1)
 	}
+}
 
-	// AC: a change asked on the draft queues the same request again and gives one new draft of
-	// the changed draft.
+// AC: a change asked on the draft of an item revision queues the same request again and gives
+// one new draft of the changed draft.
+func TestComebackDraftChange(t *testing.T) {
+	f := newFixture(t)
+	item := f.revisedItem(2)
+	f.comebacks(item, 2, 2)
+	f.cli.reply = claimOf("use pnpm, never npm, for every install")
+	f.mustRun()
+	ps := f.proposals()
+	calls := f.cli.calls()
+	if len(ps) != 1 {
+		t.Fatalf("proposals = %+v, want the first draft", ps)
+	}
 	f.write(func(ctx context.Context, tx *sql.Tx) error {
 		_, err := store.AskItemChange(ctx, tx, ps[0].ID, "make it a skill", store.SurfaceCLI, f.now)
 		return err
@@ -228,10 +240,10 @@ func TestComebackChangeRequest(t *testing.T) {
 	f.cli.reply = claimOf("use pnpm as a skill")
 	f.mustRun()
 	f.mustRun()
-	if f.cli.calls() != calls+2 {
-		t.Fatalf("calls = %d, want %d", f.cli.calls(), calls+2)
+	if f.cli.calls() != calls+1 {
+		t.Fatalf("calls = %d, want %d", f.cli.calls(), calls+1)
 	}
-	prompt = f.cli.prompts[len(f.cli.prompts)-1]
+	prompt := f.cli.prompts[len(f.cli.prompts)-1]
 	for _, want := range []string{"make it a skill", ps[0].Text, pnpm} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("redraft prompt lacks %q:\n%s", want, prompt)
