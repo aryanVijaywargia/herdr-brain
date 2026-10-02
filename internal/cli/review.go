@@ -505,7 +505,7 @@ func (cl caller) approve(ctx context.Context, r review) error {
 				return err
 			}
 		}
-		return nil
+		return checkSkill(ctx, tx, next.ItemID)
 	})
 	if err != nil {
 		return err
@@ -559,6 +559,19 @@ func (cl caller) approved(r review, p store.Proposal, it store.Item, cur store.I
 		next.Scope, next.WorkspaceKey = store.ScopeWorkspace, &cl.key
 	}
 	return next, confirmed(r, p, next)
+}
+
+// checkSkill runs the store check of a skill item after its revision write, in the same
+// transaction (§8.2): a name that another active skill in the scope has refuses the write.
+func checkSkill(ctx context.Context, tx *sql.Tx, item int64) error {
+	err := store.CheckSkill(ctx, tx, item)
+	if errors.Is(err, store.ErrSkillName) {
+		return fmt.Errorf("%w: give this skill a new name (approve with --edit and a new name: line); nothing was written", err)
+	}
+	if err != nil {
+		return fmt.Errorf("%w; nothing was written", err)
+	}
+	return nil
 }
 
 // errConfirm: approve needs --confirm.
@@ -879,8 +892,10 @@ func (cl caller) restore(ctx context.Context, id int64) error {
 		next := nextRevision(cur, cl.Now())
 		next.State = store.StateActive
 		rev = it.CurrentRevision + 1
-		_, err = store.WriteRevision(ctx, tx, it.CurrentRevision, next)
-		return err
+		if _, err = store.WriteRevision(ctx, tx, it.CurrentRevision, next); err != nil {
+			return err
+		}
+		return checkSkill(ctx, tx, id)
 	})
 	if err != nil {
 		return err

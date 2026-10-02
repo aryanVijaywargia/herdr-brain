@@ -37,7 +37,10 @@ func Repair(ctx context.Context, e Env, args []string) (err error) {
 		if err != nil {
 			return err
 		}
-		return printConflicts(e.Stdout, cs, "deleted: %v\n", "the output is built again\n")
+		if err := printConflicts(e.Stdout, cs, "deleted: %v\n", "the output is built again\n"); err != nil {
+			return err
+		}
+		return printSkillFiles(e.Stdout, cs)
 	}
 	cs, err := output.RepairConflicts(ctx, c.Store, out, e.Now)
 	if err != nil {
@@ -61,4 +64,21 @@ func printConflicts(w io.Writer, cs []output.ConflictError, format, end string) 
 	}
 	_, err := fmt.Fprint(w, end)
 	return err
+}
+
+// printSkillFiles names each skill file of cs that you confirmed (§7.5 step 5). Repair wrote
+// it again when the brief still lists its revision; else cleanup removes it with its item.
+func printSkillFiles(w io.Writer, cs []output.ConflictError) error {
+	for _, c := range cs {
+		for _, f := range c.Files {
+			// A skill file has an absolute path; a file of a generation folder has a relative one.
+			if !filepath.IsAbs(f) {
+				continue
+			}
+			if _, err := fmt.Fprintf(w, "skill file %s: written again, or removed when the skill is no longer active\n", f); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
