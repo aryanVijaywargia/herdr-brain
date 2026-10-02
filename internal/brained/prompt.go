@@ -39,9 +39,15 @@ func panePrompt(harness string, lines []string) string {
 // filter (HookPrompt, panePrompt). The row holds the fingerprint of full and its text cut to
 // the excerpt limit. The caller runs it in the transaction that stored o (§6.7).
 func IndexPrompt(ctx context.Context, tx *sql.Tx, o store.Observation, full string) error {
-	if o.Sender != store.SenderUnconfirmed || o.BrainOrigin || o.Status == store.ObservationGap || o.Excerpt == "" {
+	if !isPrompt(o) {
 		return nil
 	}
 	text, _ := filter(full)
 	return store.IndexPrompt(ctx, tx, o.ID, fingerprint.Prompt(full), text)
+}
+
+// isPrompt reports whether stored observation o is a prompt: text of an unconfirmed sender that
+// Brain did not cause.
+func isPrompt(o store.Observation) bool {
+	return o.Sender == store.SenderUnconfirmed && !o.BrainOrigin && o.Status != store.ObservationGap && o.Excerpt != ""
 }

@@ -47,6 +47,8 @@ type Env struct {
 	Herdr func(t herdr.Target) (PaneHerdr, error)
 	// StatusHerdr returns the herdr calls of brain status in session t; tests replace it.
 	StatusHerdr func(t herdr.Target) (StatusHerdr, error)
+	// Config is the Brain config file (paths.ConfigFile).
+	Config string
 	// Data is the data home; Adapters are its files that the adapter states come from.
 	Data     string
 	Adapters harness.Files
@@ -63,6 +65,10 @@ func NewEnv(environ []string, stdout, stderr io.Writer) (Env, error) {
 		return Env{}, err
 	}
 	data, err := paths.DataHome()
+	if err != nil {
+		return Env{}, err
+	}
+	config, err := paths.ConfigFile()
 	if err != nil {
 		return Env{}, err
 	}
@@ -91,6 +97,7 @@ func NewEnv(environ []string, stdout, stderr io.Writer) (Env, error) {
 			}
 			return c, nil
 		},
+		Config:   config,
 		Data:     data,
 		Adapters: adapters,
 		Now:      time.Now,

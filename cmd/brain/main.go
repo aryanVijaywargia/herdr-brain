@@ -39,6 +39,7 @@ commands:
   uninstall [--apply] [--data]: list what uninstall removes; --apply removes it, --data the stores too
   hook      --profile <name> --event start|prompt|tool|stop: the agent hooks (start prints the brief or nothing)
   brained   the herdr listener of one herdr session (herdr starts it; D7)
+  suggest   the live suggestion of one prompt (the hook or brained starts it)
 `
 
 // commands are the store commands of internal/cli, by name.
@@ -55,6 +56,7 @@ var commands = map[string]func(context.Context, cli.Env, []string) error{
 	"doctor":    cli.Doctor,
 	"learn":     cli.Learn,
 	"extract":   cli.Extract,
+	"suggest":   cli.Suggest,
 }
 
 func main() {
@@ -78,7 +80,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "brain %s\n", version)
 	case "setup":
 		err = setup(context.Background(), osSetupDeps(os.Environ()), args[1:], in, stdout)
-	case "status", "doctor", "remember", "review", "pin", "undo", "forget", "repair", "pane", "uninstall", "learn", "extract":
+	case "status", "doctor", "remember", "review", "pin", "undo", "forget", "repair", "pane", "uninstall", "learn", "extract",
+		"suggest":
 		err = command(commands[args[0]], args[1:], in, stdout, stderr)
 	case "event":
 		err = event.Main(context.Background(), args[1:], os.Environ())

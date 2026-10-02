@@ -488,26 +488,34 @@ func ReviewPaneByID(ctx context.Context, tx *sql.Tx, id int64) (ReviewPane, erro
 // OpenReviewPanes reads the review panes of proposal proposalID that Brain opened, in any herdr
 // session, and has not marked closed, oldest first.
 func OpenReviewPanes(ctx context.Context, tx *sql.Tx, proposalID int64) ([]ReviewPane, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT id, herdr_session, session_identity, pane_id, beside_pane_id,
-		proposal_id, opened, closed FROM review_panes
-		WHERE proposal_id = ? AND closed IS NULL ORDER BY id`, proposalID)
+	ps, err := openReviewPanes(ctx, tx, `proposal_id = ?`, proposalID)
 	if err != nil {
 		return nil, fmt.Errorf("read review panes of proposal %d: %w", proposalID, err)
 	}
-	defer rows.Close() //nolint:errcheck // read-only: rows.Err reports the read errors
-	var ps []ReviewPane
-	for rows.Next() {
-		var p ReviewPane
-		if err := rows.Scan(&p.ID, &p.HerdrSession, &p.SessionIdentity, &p.PaneID, &p.BesidePaneID, &p.ProposalID,
-			timeDest{&p.Opened}, timeDest{&p.Closed}); err != nil {
-			return nil, fmt.Errorf("read review panes of proposal %d: %w", proposalID, err)
-		}
-		ps = append(ps, p)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read review panes of proposal %d: %w", proposalID, err)
+	return ps, nil
+}
+
+// ReviewPanesBeside reads the review panes that Brain opened beside pane paneID of herdr session
+// herdrSession and has not marked closed, oldest first: one agent has one review pane at a
+// time (§5.5).
+func ReviewPanesBeside(ctx context.Context, tx *sql.Tx, herdrSession, paneID string) ([]ReviewPane, error) {
+	ps, err := openReviewPanes(ctx, tx, `herdr_session = ? AND beside_pane_id = ?`, herdrSession, paneID)
+	if err != nil {
+		return nil, fmt.Errorf("read review panes beside pane %s: %w", paneID, err)
 	}
 	return ps, nil
+}
+
+// openReviewPanes reads the review panes that match where and are not marked closed, by id.
+func openReviewPanes(ctx context.Context, tx *sql.Tx, where string, args ...any) ([]ReviewPane, error) {
+	return query(ctx, tx, `SELECT id, herdr_session, session_identity, pane_id, beside_pane_id, proposal_id, opened, closed
+		FROM review_panes WHERE `+where+` AND closed IS NULL ORDER BY id`,
+		func(rows *sql.Rows) (ReviewPane, error) {
+			var p ReviewPane
+			err := rows.Scan(&p.ID, &p.HerdrSession, &p.SessionIdentity, &p.PaneID, &p.BesidePaneID, &p.ProposalID,
+				timeDest{&p.Opened}, timeDest{&p.Closed})
+			return p, err
+		}, args...)
 }
 
 // CloseReviewPane marks the review pane with id closed at now.

@@ -27,6 +27,7 @@ type fakeHerdr struct {
 	procs   map[string][]herdr.Process // by pane id; a missing pane is gone
 	asked   []string                   // the panes whose processes were read
 	closed  []string
+	notes   []string // the notifications, as "title: body"
 }
 
 func (h *fakeHerdr) OpenPluginPane(_ context.Context, s herdr.PluginPaneSpec) (herdr.PluginPane, error) {
@@ -46,6 +47,14 @@ func (h *fakeHerdr) PaneProcesses(_ context.Context, id string) ([]herdr.Process
 		return nil, fmt.Errorf("pane %s: %w", id, herdr.ErrPaneNotFound)
 	}
 	return ps, nil
+}
+
+func (h *fakeHerdr) ShowNotification(ctx context.Context, title, body string) error {
+	if _, ok := ctx.Deadline(); !ok {
+		return errors.New("context has no deadline") // as the herdr client
+	}
+	h.notes = append(h.notes, title+": "+body)
+	return nil
 }
 
 func (h *fakeHerdr) ClosePluginPane(_ context.Context, id string) error {

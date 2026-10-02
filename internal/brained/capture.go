@@ -47,16 +47,19 @@ const (
 // reads: it sends no keys and no scroll to any pane.
 type Capture struct {
 	sock    herdr.Socket
+	environ []string                                                      // the brained environment; a suggestion process gets it with the pane's herdr variables
+	start   func(ctx context.Context, environ []string, d Dispatch) error // starts a suggestion (Start)
 	now     func() time.Time
 	profile func(harness string) (*adapter.Profile, error)
 	panes   map[string]*capturePane
 	noise   map[string]*adapter.Profile // by harness; nil when the harness has no profile
 }
 
-// NewCapture returns a Capture that reads panes over sock.
-func NewCapture(sock herdr.Socket) *Capture {
-	return &Capture{sock: sock, now: time.Now, profile: adapter.Load, panes: map[string]*capturePane{},
-		noise: map[string]*adapter.Profile{}}
+// NewCapture returns a Capture that reads panes over sock. environ is the brained
+// environment.
+func NewCapture(sock herdr.Socket, environ []string) *Capture {
+	return &Capture{sock: sock, environ: environ, start: Start, now: time.Now, profile: adapter.Load,
+		panes: map[string]*capturePane{}, noise: map[string]*adapter.Profile{}}
 }
 
 // capturePane is what Capture keeps of one pane.
@@ -64,15 +67,16 @@ type capturePane struct {
 	agent     string // the harness
 	native    string // the agent session id from herdr; "" while it has none
 	key       store.SessionKey
-	session   int64    // the sessions row; 0 until it is stored
-	gen       int64    // the capture generation of the session, noted at the baseline
-	segment   int64    // the open segment; 0 when there is none
-	workspace string   // the herdr workspace id of the last read
-	base      Learning // the learning state of the last baseline
-	lines     []string // the last read, without noise and blank lines
-	back      []string // the read before lines
-	ok        bool     // lines is a usable base
-	open      *block   // the injected block that the last read ends in; nil when none
+	session   int64      // the sessions row; 0 until it is stored
+	gen       int64      // the capture generation of the session, noted at the baseline
+	segment   int64      // the open segment; 0 when there is none
+	workspace string     // the herdr workspace id of the last read
+	base      Learning   // the learning state of the last baseline
+	lines     []string   // the last read, without noise and blank lines
+	back      []string   // the read before lines
+	ok        bool       // lines is a usable base
+	open      *block     // the injected block that the last read ends in; nil when none
+	reserved  []Dispatch // the suggestions that the write of the current read reserved
 }
 
 // read is one checked pane read.
@@ -190,6 +194,7 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 	}
 	added, status := newPart(cp.lines, cp.back, r)
 	ps, open := parts(r, added, cp.open)
+	cp.reserved = nil
 	err = c.write(ctx, s, func(tx *sql.Tx, now time.Time, learning Learning) error {
 		if learning.On && cp.session != 0 {
 			// The read is no base of a new segment either when a forget ran since the baseline.
@@ -257,7 +262,20 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 		return err
 	}
 	cp.native, cp.lines, cp.back, cp.open = native, r.lines, cp.lines, open
-	return nil
+	return c.suggest(ctx, s, cp)
+}
+
+// suggest starts the suggestions that the last write of cp reserved, after its commit: the
+// fallback path of §5.5. Each process gets the herdr variables of the pane of s, so it
+// resolves the pane again (E2-S3).
+func (c *Capture) suggest(ctx context.Context, s Step, cp *capturePane) error {
+	var errs []error
+	for _, d := range cp.reserved {
+		d.Store = s.Gate.Binding.Store
+		errs = append(errs, c.start(ctx, paneEnv(c.environ, s.Gate.Binding, s.PaneID, cp.workspace), d))
+	}
+	cp.reserved = nil
+	return errors.Join(errs...)
 }
 
 // begin opens the session of cp, starts a new segment and records gap when it is not "".
@@ -298,7 +316,8 @@ func (c *Capture) begin(ctx context.Context, tx *sql.Tx, s Step, cp *capturePane
 // the caller writes only when the learning state is the one of its base. A known capture
 // identity is a retry or a duplicate: it adds nothing and moves no cursor. A gap has no text,
 // so it never counts. A hook record with the same text enriches the new observation (S35).
-// A prompt gets its prompt index row from full, its full text (E14-S1). A forget of the
+// A prompt gets its prompt index row from full, its full text (E14-S1), and a prompt that
+// matches a ready proposal reserves its suggestion in cp.reserved (E14-S3). A forget of the
 // session since the baseline fails the write with store.ErrForgotten.
 func record(ctx context.Context, tx *sql.Tx, cp *capturePane, o store.Observation, full string) error {
 	if err := store.CheckGeneration(ctx, tx, cp.session, cp.gen); err != nil {
@@ -317,6 +336,15 @@ func record(ctx context.Context, tx *sql.Tx, cp *capturePane, o store.Observatio
 	}
 	if err := Match(ctx, tx, cp.agent, cp.session, o); err != nil {
 		return err
+	}
+	// The reservation comes after Match: a hook record of the same prompt has reserved it then
+	// (S57).
+	d, err := Reserve(ctx, tx, o, full, o.At)
+	if err != nil {
+		return err
+	}
+	if d.Suggestion != 0 {
+		cp.reserved = append(cp.reserved, d)
 	}
 	return store.MoveCursor(ctx, tx, cp.session, o.Source, o.CaptureIdentity)
 }

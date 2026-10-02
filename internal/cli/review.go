@@ -480,6 +480,9 @@ func (cl caller) approve(ctx context.Context, r review) error {
 		if err := store.DecideProposal(ctx, tx, p.ID, store.ProposalApproved, cl.surface, cl.Now()); err != nil {
 			return err
 		}
+		if err := store.DecideSuggestions(ctx, tx, p.ID, store.SuggestionApproved); err != nil {
+			return err
+		}
 		if _, err = store.WriteRevision(ctx, tx, *p.BaseRevision, next); err != nil {
 			return err
 		}
@@ -580,17 +583,14 @@ func (cl caller) reject(ctx context.Context, id int64, reason string) error {
 			if err != nil {
 				return err
 			}
-			for _, other := range ids {
-				if other == id {
-					continue
-				}
-				if err := store.DecideProposal(ctx, tx, other, store.ProposalRejected, cl.surface, cl.Now()); err != nil {
-					return err
-				}
-				others = append(others, other)
+			others = slices.DeleteFunc(ids, func(other int64) bool { return other == id })
+		}
+		for _, p := range append([]int64{id}, others...) {
+			if err := cl.rejectOne(ctx, tx, p); err != nil {
+				return err
 			}
 		}
-		return store.DecideProposal(ctx, tx, id, store.ProposalRejected, cl.surface, cl.Now())
+		return nil
 	})
 	if err != nil {
 		return err
@@ -607,6 +607,14 @@ func (cl caller) reject(ctx context.Context, id int64, reason string) error {
 		}
 	}
 	return err
+}
+
+// rejectOne marks proposal id and its shown suggestions rejected in tx.
+func (cl caller) rejectOne(ctx context.Context, tx *sql.Tx, id int64) error {
+	if err := store.DecideProposal(ctx, tx, id, store.ProposalRejected, cl.surface, cl.Now()); err != nil {
+		return err
+	}
+	return store.DecideSuggestions(ctx, tx, id, store.SuggestionRejected)
 }
 
 // candidate reads the candidate of proposal p, when the caller sees it: nil for a proposal with
@@ -636,12 +644,22 @@ func scopeKey(scope store.Scope, key string) *string {
 }
 
 // later leaves the proposal pending: it only mutes it for this review (§7.4, §11 proposals).
+// The shown suggestion of the proposal in the calling pane, the review pane or its agent, gets
+// result later, which mutes the proposal for the rest of the capture session of that
+// suggestion (§5.5). It holds the suggestion lock, so a suggestion that opens now is either
+// registered before it or not shown yet.
 func (cl caller) later(ctx context.Context, id int64) error {
-	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
-		_, _, _, err := cl.pending(ctx, tx, id)
-		return err
-	})
+	unlock, err := lockSuggestions(cl.Binding.Store)
 	if err != nil {
+		return err
+	}
+	err = cl.Store.Write(ctx, func(tx *sql.Tx) error {
+		if _, _, _, err := cl.pending(ctx, tx, id); err != nil {
+			return err
+		}
+		return store.LaterSuggestions(ctx, tx, id, cl.Binding.Session, cl.PaneID)
+	})
+	if err := errors.Join(err, unlock()); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(cl.Stdout, "proposal %d stays in the queue (brain review)\n", id)
@@ -982,8 +1000,10 @@ func (cl caller) askChange(ctx context.Context, id int64, text string) error {
 		if c == nil {
 			return fmt.Errorf("proposal %d has no extractor evidence: approve it with --edit instead; nothing was written", id)
 		}
-		cr, err = store.AskChange(ctx, tx, id, *c, text, cl.surface, cl.Now())
-		return err
+		if cr, err = store.AskChange(ctx, tx, id, *c, text, cl.surface, cl.Now()); err != nil {
+			return err
+		}
+		return store.DecideSuggestions(ctx, tx, id, store.SuggestionChanged)
 	})
 	if err != nil {
 		return err

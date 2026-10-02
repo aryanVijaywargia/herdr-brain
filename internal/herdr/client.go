@@ -410,6 +410,25 @@ func (c *Client) ClosePluginPane(ctx context.Context, paneID string) error {
 	return nil
 }
 
+// ShowNotification shows a herdr notification with title and body, from `herdr notification
+// show`. It has no reply and no action (§4.2). herdr answers with shown false, and a reason,
+// when it does not show it, as when no client is attached (E14-S3 live test); that is no
+// error.
+func (c *Client) ShowNotification(ctx context.Context, title, body string) error {
+	var r struct {
+		Shown *bool `json:"shown"`
+	}
+	if err := c.result(ctx, "notification_show", &r, "notification", "show", title, "--body", body); err != nil {
+		return fmt.Errorf("herdr notification show: %w", err)
+	}
+	var ck check
+	req(&ck, r.Shown, "shown")
+	if ck.err != nil {
+		return fmt.Errorf("herdr notification show: %w", ck.err)
+	}
+	return nil
+}
+
 // Process is a foreground process of a pane.
 type Process struct {
 	Name string

@@ -35,7 +35,7 @@ func newCapture(t *testing.T, session, dir string) *capHarness {
 	t.Helper()
 	f := newFakeHerdr(t)
 	b := bindings.Binding{Session: session, Socket: f.path, Store: dir, Kind: bindings.KindMain, Created: time.Now()}
-	k := &capHarness{f: f, c: NewCapture(herdr.Socket{Path: f.path}), gate: NewGate(b),
+	k := &capHarness{f: f, c: NewCapture(herdr.Socket{Path: f.path}, nil), gate: NewGate(b),
 		clock: time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC)}
 	k.c.now = func() time.Time {
 		k.clock = k.clock.Add(time.Second)
