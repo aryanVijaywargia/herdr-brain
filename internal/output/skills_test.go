@@ -321,3 +321,39 @@ func TestSkillConfirmOldRevision(t *testing.T) {
 		t.Errorf("Conflicts() after Confirm = %v, want none", cs)
 	}
 }
+
+// AC E16-S6 (S72): a disputed skill and a disputed item stay delivered with the mark: the
+// skill keeps its entry in the skill list, its file and its manifest pair. A dispute writes no
+// revision, and the build that follows it marks them.
+func TestDisputedSkill(t *testing.T) {
+	s, out := newStore(t)
+	w := addSkill(t, s, "k1", skillText("deploy", "m2"))
+	fact := addItem(t, s, "k1", "use pnpm, see package.json")
+	mustBuild(t, s, out)
+	write(t, s, func(tx *sql.Tx) error {
+		for _, id := range []int64{w, fact} {
+			base := int64(1)
+			p := store.Proposal{ItemID: &id, BaseRevision: &base, Text: "t", Scope: store.ScopeWorkspace, Target: "k1",
+				Diff: "- package.json abc\n+ (deleted)", Dispute: []string{"package.json"}, Status: store.ProposalPending, Created: testNow}
+			if pid, err := store.Dispute(context.Background(), tx, p); err != nil || pid == 0 {
+				return errors.Join(err, errors.New("no dispute"))
+			}
+		}
+		return nil
+	})
+	gen := mustBuild(t, s, out)
+	b := mustRead(t, out, "k1")
+	wPath := skillPath(skillsDir(out), w, 1)
+	mark := " (disputed: package.json changed on " + testNow.UTC().Format("2006-01-02") + ")\n"
+	if !strings.Contains(b.Workspace, "- deploy: Do the deploy task. File: "+wPath+mark) ||
+		!strings.Contains(b.Workspace, "use pnpm, see package.json"+mark) {
+		t.Errorf("workspace part = %q, want the skill entry and the item, each with the mark", b.Workspace)
+	}
+	if want := []store.RevisionRef{{Item: fact, Revision: 1}, {Item: w, Revision: 1}}; !reflect.DeepEqual(b.Revisions, want) {
+		t.Errorf("revisions = %v, want %v", b.Revisions, want)
+	}
+	if m := mustManifest(t, out, gen); len(m.Skills) != 1 || m.Skills[0].Path != wPath {
+		t.Errorf("manifest skills = %+v, want the deploy file", m.Skills)
+	}
+	checkFile(t, wPath, skillText("deploy", "m2"))
+}
