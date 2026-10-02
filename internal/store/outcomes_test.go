@@ -8,18 +8,18 @@ import (
 )
 
 // observe opens the session with key k in pane paneID at at, with one observation at obsAt,
-// and returns the session id and the observation id.
-func observe(ctx context.Context, tx *sql.Tx, k SessionKey, paneID string, at, obsAt time.Time) (session, obs int64, err error) {
-	if session, err = OpenSession(ctx, tx, k, paneID, "", at); err != nil {
-		return 0, 0, err
+// and returns the observation id.
+func observe(ctx context.Context, tx *sql.Tx, k SessionKey, paneID string, at, obsAt time.Time) (int64, error) {
+	session, err := OpenSession(ctx, tx, k, paneID, "", at)
+	if err != nil {
+		return 0, err
 	}
 	seg, err := StartSegment(ctx, tx, session, paneID, "", "visible", at)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
-	obs, err = AddObservation(ctx, tx, Observation{CaptureIdentity: k.HerdrSession + "/" + k.ID, Source: SourceHerdr,
+	return AddObservation(ctx, tx, Observation{CaptureIdentity: k.HerdrSession + "/" + k.ID, Source: SourceHerdr,
 		SegmentID: seg, Event: "idle", Excerpt: "no, use pnpm", Status: ObservationComplete, Counts: true, At: obsAt})
-	return session, obs, err
 }
 
 // receipt is an emitted receipt of item 1 at revision in binding, pane and agent session at at.
@@ -40,7 +40,7 @@ func TestTiedReceiptBindings(t *testing.T) {
 	write(t, s, func(tx *sql.Tx) error {
 		ids := map[string]int64{}
 		for _, b := range []string{"default", "work"} {
-			_, obs, err := observe(ctx, tx, SessionKey{HerdrSession: b, Harness: "claude", Kind: KeyAgent, ID: "a"}, "w1:p1",
+			obs, err := observe(ctx, tx, SessionKey{HerdrSession: b, Harness: "claude", Kind: KeyAgent, ID: "a"}, "w1:p1",
 				testNow, testNow.Add(10*time.Minute))
 			if err != nil {
 				return err
@@ -88,13 +88,13 @@ func TestTiedReceiptCaptureRow(t *testing.T) {
 			s := openM1(t)
 			write(t, s, func(tx *sql.Tx) error {
 				old := SessionKey{HerdrSession: "default", Harness: "claude", Kind: KeyAgent, ID: "old"}
-				if _, _, err := observe(ctx, tx, old, "w1:p1", testNow.Add(-time.Hour), testNow.Add(-time.Hour)); err != nil {
+				if _, err := observe(ctx, tx, old, "w1:p1", testNow.Add(-time.Hour), testNow.Add(-time.Hour)); err != nil {
 					return err
 				}
 				if err := EndSession(ctx, tx, old, testNow.Add(-10*time.Second)); err != nil {
 					return err
 				}
-				_, obs, err := observe(ctx, tx, SessionKey{HerdrSession: "default", Harness: "claude", Kind: KeyCapture, ID: "cap-1"},
+				obs, err := observe(ctx, tx, SessionKey{HerdrSession: "default", Harness: "claude", Kind: KeyCapture, ID: "cap-1"},
 					"w1:p1", testNow, testNow.Add(10*time.Minute))
 				if err != nil {
 					return err
