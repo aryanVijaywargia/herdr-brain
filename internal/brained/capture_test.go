@@ -436,22 +436,23 @@ func TestCaptureScreenLost(t *testing.T) {
 	}
 }
 
-// S38: recorded reads of a pane that a herdr client resized (bug #199). A rewrap to a narrower
-// pane and back gives no observation, and a screen too small for the old text is a gap. A new
-// turn at the same width keeps only the new turn.
+// S38: recorded reads of a pane that a herdr client resized (bugs #199, #203). A rewrap to a
+// narrower pane and back gives no observation, and a screen too small for the old text is a
+// gap. A screen that grows again shows the old text with no count. A new turn after a resize
+// or at the same width keeps only the new turn.
 func TestCaptureS38Resize(t *testing.T) {
 	for _, tc := range []struct {
 		harness, prefix string
-		resize          []string // reads after the base: rewraps, then maybe a lost screen
+		resize          []string // reads after the base: rewraps, a lost screen, a screen that grows
 		gaps            []string
-		same, next      string // a read and the next read at the same width, with a new turn
+		turn            []string // reads before a read with a new turn, the last name
 		prompt, reply   string
 	}{
-		{harness: "claude", prefix: "claude-s38-resize-", resize: []string{"1-narrow", "2-wide", "3-small"},
-			gaps: []string{gapLost}, same: "1-narrow", next: "5-narrow-ready",
+		{harness: "claude", prefix: "claude-s38-resize-", resize: []string{"1-narrow", "2-wide", "3-small", "4-wide"},
+			gaps: []string{gapLost}, turn: []string{"0-base", "1-narrow", "5-narrow-ready"},
 			prompt: "❯ Reply with only the word ready.", reply: "⏺ ready"},
 		{harness: "codex", prefix: "codex-s38-", resize: []string{"1-narrow", "2-wide"},
-			same: "1-narrow", next: "3-narrow-ready",
+			turn:   []string{"0-base", "1-narrow", "2-wide", "3-narrow-ready"},
 			prompt: "› Reply with only the word ready.", reply: "• ready"},
 	} {
 		t.Run(tc.harness, func(t *testing.T) {
@@ -465,19 +466,36 @@ func TestCaptureS38Resize(t *testing.T) {
 			for range tc.resize {
 				k.must(t, Change, "w1:p1", "idle", GapNone)
 			}
-			if excerpts, gaps := k.rows(t).text(); len(excerpts) != 0 || !slices.Equal(gaps, tc.gaps) {
-				t.Errorf("after the resizes: excerpts %q, gaps %v, want no excerpt and the gaps %v", excerpts, gaps, tc.gaps)
+			r := k.rows(t)
+			if _, gaps := r.text(); !slices.Equal(gaps, tc.gaps) {
+				t.Errorf("after the resizes: gaps %v, want %v", gaps, tc.gaps)
+			}
+			for _, o := range r.obs {
+				if o.Counts {
+					t.Errorf("after the resizes: observation %q counts, want no count", o.Excerpt)
+				}
 			}
 
-			k = newCapture(t, "s1", t.TempDir())
-			k.pane("w1:p1", tc.harness, "")
-			k.reads(t, "w1:p1", tc.prefix+tc.same+".txt", tc.prefix+tc.next+".txt")
-			k.must(t, Baseline, "w1:p1", "", GapNone)
-			k.must(t, Change, "w1:p1", "idle", GapNone)
-			if excerpts, _ := k.rows(t).text(); !slices.Equal(excerpts, []string{tc.prompt + "\n" + tc.reply}) {
-				t.Errorf("new turn: excerpts = %q, want only the prompt and the reply", excerpts)
+			next := tc.turn[len(tc.turn)-1]
+			for _, from := range tc.turn[:len(tc.turn)-1] {
+				k := newCapture(t, "s1", t.TempDir())
+				k.pane("w1:p1", tc.harness, "")
+				k.reads(t, "w1:p1", tc.prefix+from+".txt", tc.prefix+next+".txt")
+				k.must(t, Baseline, "w1:p1", "", GapNone)
+				k.must(t, Change, "w1:p1", "idle", GapNone)
+				if excerpts, _ := k.rows(t).text(); !slices.Equal(excerpts, []string{tc.prompt + "\n" + tc.reply}) {
+					t.Errorf("%s, then %s: excerpts = %q, want only the prompt and the reply", from, next, excerpts)
+				}
 			}
 		})
+	}
+}
+
+// newPart keeps a new line that is only the start of an old line: it is no rewrap.
+func TestNewPartLineStart(t *testing.T) {
+	idx, _ := newPart([]string{"• Done.", "› x"}, nil, read{lines: []string{"• Done.", "› x", "• Done"}})
+	if !slices.Equal(idx, []int{2}) {
+		t.Errorf("newPart = %v, want [2]", idx)
 	}
 }
 

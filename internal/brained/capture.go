@@ -245,7 +245,11 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 				if err != nil {
 					return err
 				}
-				o.Counts = !seen
+				// A screen that grows after a resize shows the text of the last reads again,
+				// with other line breaks (S38).
+				shown := strings.Contains(squash(strings.Join(cp.back, "")+strings.Join(cp.lines, "")),
+					squash(strings.Join(p.lines, "")))
+				o.Counts = !seen && !shown
 			}
 			if err := record(ctx, tx, cp, o, panePrompt(cp.agent, p.lines)); err != nil {
 				return err
@@ -499,10 +503,9 @@ func (c *Capture) lines(harness, text string) []string {
 
 // newPart returns the indexes of the lines of r that the last read old does not hold, and the status of the
 // new part (§6.2 steps 4-5). A line diff keeps each new line, also one with the same text as
-// an old line (S40). A new block that is only old text with other line breaks is a resize or
-// a rewrap, so it is not new (S38) [NEW, design choice]. The part is complete when the read
-// starts inside the old text or holds the whole history; else text may be lost between the
-// reads, and it is partial.
+// an old line (S40). Old text with other line breaks is a resize or a rewrap, so it is not new
+// (S38) [NEW, design choice]. The part is complete when the read starts inside the old text or
+// holds the whole history; else text may be lost between the reads, and it is partial.
 //
 // A dialog at the bottom of a screen hides the top, and the text comes back when the dialog
 // closes. So when the last old line is gone, the lines above the first old line are not new
@@ -517,20 +520,25 @@ func newPart(old, back []string, r read) ([]int, store.ObservationStatus) {
 			matched[i] = true
 		}
 	}
-	oldText := squash(strings.Join(old, ""))
-	var added, block []int
-	// A rewrap splits lines anew, so a block with its text in the old read and a line that
-	// the old read does not hold is a rewrap. A block of old lines only is a repeat (S40).
-	flush := func() {
+	oldText := squashLines(old)
+	// A rewrap splits lines anew, so lines from the start of a block with old text up to the end
+	// of an old line, and with a line that old does not hold, are a rewrap: the rest of the block
+	// is new, as a new turn after a resize. A block of old lines only is a repeat (S40).
+	rewrap := func(b []int) bool {
 		var text strings.Builder
-		for _, i := range block {
-			text.WriteString(r.lines[i])
+		for _, i := range b {
+			text.WriteString(squash(r.lines[i]))
 		}
-		rewrap := strings.Contains(oldText, squash(text.String())) &&
-			slices.ContainsFunc(block, func(i int) bool { return !slices.Contains(old, r.lines[i]) })
-		if !rewrap {
-			added = append(added, block...)
+		return oldText.holdsToEnd(text.String()) &&
+			slices.ContainsFunc(b, func(i int) bool { return !slices.Contains(old, r.lines[i]) })
+	}
+	var added, block []int
+	flush := func() {
+		n := len(block)
+		for n > 0 && !rewrap(block[:n]) {
+			n--
 		}
+		added = append(added, block[n:]...)
 		block = nil
 	}
 	for i := range r.lines {
@@ -588,6 +596,39 @@ func squash(s string) string {
 		}
 		return r
 	}, s)
+}
+
+// squashed is the text of lines without white space, with the offsets where a line ends.
+type squashed struct {
+	text string
+	end  map[int]bool
+}
+
+func squashLines(lines []string) squashed {
+	var b strings.Builder
+	s := squashed{end: map[int]bool{}}
+	for _, l := range lines {
+		b.WriteString(squash(l))
+		s.end[b.Len()] = true
+	}
+	s.text = b.String()
+	return s
+}
+
+// holdsToEnd reports whether s holds text up to the end of a line, so a new line that is only
+// the start of an old line ("• Done" and "• Done.") is not old text.
+func (s squashed) holdsToEnd(text string) bool {
+	for off := 0; off < len(s.text); off++ {
+		i := strings.Index(s.text[off:], text)
+		if i < 0 {
+			return false
+		}
+		off += i
+		if s.end[off+len(text)] {
+			return true
+		}
+	}
+	return false
 }
 
 // identity is the capture identity of an observation: the binding, the segment and the read
