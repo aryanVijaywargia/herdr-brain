@@ -124,3 +124,37 @@ func TestProbeCheckKinds(t *testing.T) {
 		t.Errorf("oneOf() = %q, want %q", got, "claude, codex or fake")
 	}
 }
+
+// An exclusion hook probe gives `brain hook` start input of the shape of its profile, the fake
+// one too: input of another shape would set the adapter to retest, not test the exclusion.
+func TestFakeProfileHookInput(t *testing.T) {
+	e, fake := fakeEnv(t)
+	bin := t.TempDir()
+	write(t, filepath.Join(bin, "brain"), "#!/bin/sh\ncat > \"$HOME/hook-input-$3\"\n")
+	if err := os.Chmod(filepath.Join(bin, "brain"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("HOME", e.home)
+	c := Case{ID: "ex", Stage: "exclusion", Hook: "no-herdr-env",
+		Probes: []Probe{{Harness: "claude"}, {Harness: "codex"}, {Harness: "fake"}}}
+	if _, err := e.r.Run(context.Background(), []Case{c}); err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []string{"claude", "codex", "fake"} {
+		p := fake
+		if h != "fake" {
+			var err error
+			if p, err = adapter.Load(h); err != nil {
+				t.Fatal(err)
+			}
+		}
+		raw, err := os.ReadFile(filepath.Join(e.home, "hook-input-"+h))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if in, err := p.Parse(raw); err != nil || !strings.HasPrefix(in.SessionID, "brain-eval-") {
+			t.Errorf("%s: Parse(%s) = %+v, %v; want the probe's start input", h, raw, in, err)
+		}
+	}
+}

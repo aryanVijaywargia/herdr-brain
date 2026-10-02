@@ -73,13 +73,13 @@ type Profile struct {
 	// AdditionalContextLimit goes into the hook entry when set. Codex sends a longer
 	// additionalContext to a file and not to the model; 0 turns the limit off (E8 epic).
 	AdditionalContextLimit *int `toml:"additional_context_limit"`
-	// HookTrust names the trust step that the CLI needs before it runs a Brain hook entry:
+	// HookTrust [NEW] names the trust step that the CLI needs before it runs a Brain hook entry:
 	// "" for none, or TrustCodex. Setup shows its steps, and doctor checks it (E16-S10).
 	HookTrust string `toml:"hook_trust"`
-	// AltScreen says that the CLI draws in the alternate screen: the eval runner reads its
+	// AltScreen [NEW] says that the CLI draws in the alternate screen: the eval runner reads its
 	// visible screen after idle (E11-S1). An inline CLI keeps its scrollback.
 	AltScreen bool `toml:"alt_screen"`
-	// Eval holds the CLI arguments of a fresh CLI that the eval runner starts (E10-S3).
+	// Eval [NEW] holds the CLI arguments of a fresh CLI that the eval runner starts (E10-S3).
 	Eval struct {
 		// Args go to each fresh CLI. "{{dir}}" in an argument is the real path of the
 		// runner's scratch folder, as a quoted string.
@@ -305,6 +305,34 @@ func (p *Profile) Write(w io.Writer, brief string) error {
 		return fmt.Errorf("write hook output: %w", err)
 	}
 	return nil
+}
+
+// StartInput returns hook start input that Parse reads as sessionID and cwd: the two values at
+// the profile's JSON paths, and the value of its start condition. The eval runner calls
+// `brain hook` with it (§12.1 exclusion), so input of the profile's own shape does not set the
+// adapter to retest.
+func (p *Profile) StartInput(sessionID, cwd string) ([]byte, error) {
+	doc := map[string]any{}
+	put(doc, p.Input.SessionID, sessionID)
+	put(doc, p.Input.CWD, cwd)
+	if p.cond.path != "" {
+		put(doc, p.cond.path, p.cond.value)
+	}
+	return json.Marshal(doc)
+}
+
+// put sets the dotted JSON path in doc to v, and makes the nested objects on the way.
+func put(doc map[string]any, path string, v any) {
+	keys := strings.Split(path, ".")
+	for _, k := range keys[:len(keys)-1] {
+		next, ok := doc[k].(map[string]any)
+		if !ok {
+			next = map[string]any{}
+			doc[k] = next
+		}
+		doc = next
+	}
+	doc[keys[len(keys)-1]] = v
 }
 
 // text returns the non-empty string at path in doc, or an error that wraps ErrRetest.

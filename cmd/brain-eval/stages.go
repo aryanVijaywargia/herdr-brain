@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -96,9 +95,13 @@ func (r *Runner) hookProbe(ctx context.Context, h Herdr, shell herdr.Pane, dir s
 	if err != nil {
 		return Reply{}, err
 	}
-	// The same start input for both profiles: neither has a start condition. Input of an
-	// unknown shape would set the adapter to retest, so it must stay valid.
-	in, err := json.Marshal(map[string]string{"session_id": "brain-eval-" + marker, "cwd": dir, "hook_event_name": "SessionStart", "source": "startup"})
+	// Start input of the profile's own shape: input of an unknown shape would set the adapter
+	// to retest, so it must stay valid.
+	prof, err := adapter.LoadFS(r.Profiles, p.Harness)
+	if err != nil {
+		return Reply{}, err
+	}
+	in, err := prof.StartInput("brain-eval-"+marker, dir)
 	if err != nil {
 		return Reply{}, err
 	}

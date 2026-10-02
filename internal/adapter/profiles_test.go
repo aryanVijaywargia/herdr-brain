@@ -90,3 +90,36 @@ func TestLoadProfileListErrors(t *testing.T) {
 		})
 	}
 }
+
+// StartInput gives input of the profile's own shape that Parse reads back, with the start
+// condition met: the eval runner's exclusion hook probes use it (§12.1).
+func TestStartInput(t *testing.T) {
+	fake, err := LoadFS(fstest.MapFS{"fake.toml": {Data: readFile(t, "fake/fake.toml")}}, "fake")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range Kinds(nil) {
+		p, err := Load(k)
+		if err != nil {
+			t.Fatal(err)
+		}
+		testStartInput(t, p)
+	}
+	testStartInput(t, fake)
+	raw, err := fake.StartInput("s-1", "/w")
+	if err != nil || string(raw) != `{"session":{"id":"s-1"},"turn":{"index":0},"workspace":{"dir":"/w"}}` {
+		t.Errorf("fake StartInput() = %s, %v", raw, err)
+	}
+}
+
+func testStartInput(t *testing.T, p *Profile) {
+	t.Helper()
+	raw, err := p.StartInput("s-1", "/w")
+	if err != nil {
+		t.Fatalf("%s StartInput() = %v", p.Kind, err)
+	}
+	in, err := p.Parse(raw)
+	if err != nil || in.SessionID != "s-1" || in.CWD != "/w" {
+		t.Errorf("%s Parse(StartInput()) = %+v, %v; want s-1 and /w", p.Kind, in, err)
+	}
+}
