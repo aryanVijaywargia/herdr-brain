@@ -48,7 +48,7 @@ func newDoctorFixture(t *testing.T) *doctorFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, kind := range profiles {
+	for _, kind := range adapter.Kinds(nil) {
 		f.install(t, kind, bin)
 	}
 	f.trust(t, "")

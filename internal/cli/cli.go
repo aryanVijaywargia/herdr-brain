@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"path/filepath"
 	"time"
 
@@ -52,6 +53,8 @@ type Env struct {
 	// Data is the data home; Adapters are its files that the adapter states come from.
 	Data     string
 	Adapters harness.Files
+	// Profiles holds the harness profiles (adapter.LoadAll); nil is the embedded set.
+	Profiles fs.FS
 	Now      func() time.Time
 	Stdin    io.Reader // the answers to a question; nil answers "no"
 	Stdout   io.Writer

@@ -19,6 +19,14 @@ input.transcript_path = "transcript_path"
 input.prompt = "prompt"
 input.command = "tool_input.command"
 input.reply = "last_assistant_message"
+# Codex runs a new or changed hook entry only after you trust it (E8-S3): setup shows the
+# steps, and brain doctor checks the trust state.
+hook_trust = "codex"
+# Codex asks at start whether to trust a new folder, and the eval runner never answers that
+# dialog; so a fresh Codex gets the trust of the scratch folder on its command line only, never
+# in ~/.codex/config.toml. The key is a quoted TOML key, because Codex splits a dotted -c key at
+# each dot (E10-S3).
+eval.args = ['-c', 'projects={{{dir}}={trust_level="trusted"}}', '-c', 'check_for_update_on_startup=false']
 # The version of the M0 test (spike/m0/FINDINGS.md).
 tested_version = "0.154.0"
 # The hook entry sets additionalContextLimit 0, so Codex sends the whole brief inline, not a

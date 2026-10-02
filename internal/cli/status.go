@@ -28,9 +28,6 @@ import (
 
 const statusUsage = `usage: brain status`
 
-// profiles are the harnesses with a Brain profile, in the order that status shows them.
-var profiles = []string{"claude", "codex"}
-
 // retestDir is the folder of the retest markers in the data home, as in the hook (S14).
 const retestDir = "retest"
 
@@ -125,6 +122,7 @@ type statusCall struct {
 	caller
 	w *lineWriter
 	herdrState
+	kinds []string // the profile kinds, in the order that status shows them
 }
 
 func (s *statusCall) run(ctx context.Context) {
@@ -136,10 +134,13 @@ func (s *statusCall) run(ctx context.Context) {
 	} else {
 		s.w.printf("%s\n", m.Status(s.WorkspaceID))
 	}
-	ps, err := loadProfiles()
+	ps, err := adapter.LoadAll(s.Profiles)
 	if err != nil {
 		s.w.fail(err)
 		return
+	}
+	for _, p := range ps {
+		s.kinds = append(s.kinds, p.Kind)
 	}
 	s.clis(ctx, ps)
 	s.fail(s.Store.Write(ctx, func(tx *sql.Tx) error {
@@ -235,18 +236,6 @@ func (s *statusCall) herdr(ctx context.Context) {
 	}
 }
 
-func loadProfiles() ([]*adapter.Profile, error) {
-	ps := make([]*adapter.Profile, len(profiles))
-	for i, name := range profiles {
-		p, err := adapter.Load(name)
-		if err != nil {
-			return nil, err
-		}
-		ps[i] = p
-	}
-	return ps, nil
-}
-
 // fixedPanes gives harness.Check the one pane list of the call.
 type fixedPanes []herdr.Pane
 
@@ -282,7 +271,7 @@ func (s *statusCall) clis(ctx context.Context, ps []*adapter.Profile) {
 	}
 	others := map[string]int{}
 	for _, p := range s.panes {
-		if p.Agent != nil && !slices.Contains(profiles, *p.Agent) {
+		if p.Agent != nil && !slices.Contains(s.kinds, *p.Agent) {
 			others[*p.Agent]++
 		}
 	}
@@ -301,7 +290,7 @@ func (s *statusCall) delivery(ctx context.Context, tx *sql.Tx) error {
 	if s.panesErr != nil {
 		s.w.printf("  coverage unavailable: %v\n", s.panesErr)
 	} else {
-		for _, kind := range profiles {
+		for _, kind := range s.kinds {
 			if err := s.coverage(ctx, tx, kind); err != nil {
 				return err
 			}
@@ -309,7 +298,7 @@ func (s *statusCall) delivery(ctx context.Context, tx *sql.Tx) error {
 	}
 	s.w.printf("  sessions that ended before any Brain call are not measured in M1\n")
 	s.w.printf("\nwithheld history:\n")
-	for _, kind := range profiles {
+	for _, kind := range s.kinds {
 		cs, err := store.WithheldCounts(ctx, tx, s.Binding.Session, kind)
 		if err != nil {
 			return err
@@ -332,7 +321,7 @@ func (s *statusCall) delivery(ctx context.Context, tx *sql.Tx) error {
 // (§12 "Delivery gaps"), with the sessions observed and the capture gaps beside them.
 func (s *statusCall) observedDelivery(ctx context.Context, tx *sql.Tx) error {
 	s.w.printf("\ndelivery to observed sessions:\n")
-	for _, kind := range profiles {
+	for _, kind := range s.kinds {
 		d, err := store.DeliveryGaps(ctx, tx, s.Binding.Session, kind)
 		if err != nil {
 			return err

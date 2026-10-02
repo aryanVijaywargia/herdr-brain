@@ -38,11 +38,10 @@ const setupHerdrDeadline = 5 * time.Second
 // 5 s, as the store commands.
 const setupBusyTimeout = 5 * time.Second
 
-// harnesses are the CLIs that setup offers to hook, in order (M1 profiles, HLD §8.2).
-var harnesses = []string{"claude", "codex"}
-
-// codexTrust are the trust steps of spike/m0/FINDINGS.md "E8-S3: trust check".
-const codexTrust = `Codex runs a new hook only after you trust it:
+// codexTrust are the trust steps of spike/m0/FINDINGS.md "E8-S3: trust check", for a profile
+// with hook_trust "codex".
+const codexTrust = `trust the hook in Codex.
+Codex runs a new hook only after you trust it:
   1. Start codex in a terminal. Codex shows "Hooks need review" and "1 hook is new or changed."
   2. Choose "Review hooks". Find the SessionStart hook with the Brain command, from source ~/.codex/hooks.json.
   3. Press t to trust it. Press t on the event list to trust all hooks that need review.
@@ -84,6 +83,9 @@ type setupDeps struct {
 	// harness.Check.
 	lookPath func(file string) (string, error)
 	now      func() time.Time
+	// profiles holds the profiles of the CLIs that setup offers to hook (adapter.LoadAll); nil
+	// is the embedded set.
+	profiles fs.FS
 }
 
 func osSetupDeps(environ []string) setupDeps {
@@ -158,15 +160,15 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 	}
 
 	fmt.Fprintln(stdout, "\nStep 4: the Brain hook in each agent CLI.")
-	codex, err := hooks(ctx, d, bin, in, stdout)
+	trust, err := hooks(ctx, d, bin, in, stdout)
 	if err != nil {
 		return err
 	}
 	if err := chooseExtractor(ctx, d, storeDir, *again, in, stdout); err != nil {
 		return err
 	}
-	if codex {
-		fmt.Fprint(stdout, "\nStep 6: trust the hook in Codex.\n"+codexTrust)
+	if trust {
+		fmt.Fprint(stdout, "\nStep 6: "+codexTrust)
 	}
 	fmt.Fprint(stdout, "\n"+firstUse)
 	return nil
@@ -495,10 +497,10 @@ func rmdirs(made []string) error {
 	return errors.Join(errs...)
 }
 
-// hooks offers the Brain hook entry to each installed CLI (E8-S2). It shows the entry and the
-// uninstall steps before it asks. It reports whether the Codex entry is in place, so that
-// setup shows the trust steps.
-func hooks(ctx context.Context, d setupDeps, bin string, in *bufio.Reader, stdout io.Writer) (codex bool, err error) {
+// hooks offers the Brain hook entry to the CLI of each profile that is installed (E8-S2,
+// E16-S10). It shows the entry and the uninstall steps before it asks. It reports whether the
+// entry of a profile with hook_trust "codex" is in place, so that setup shows the trust steps.
+func hooks(ctx context.Context, d setupDeps, bin string, in *bufio.Reader, stdout io.Writer) (trust bool, err error) {
 	home, err := paths.Home()
 	if err != nil {
 		return false, err
@@ -508,14 +510,15 @@ func hooks(ctx context.Context, d setupDeps, bin string, in *bufio.Reader, stdou
 		return false, err
 	}
 	inst := &install.Installer{Home: home, Record: record, Binary: bin}
-	for _, kind := range harnesses {
+	ps, err := adapter.LoadAll(d.profiles)
+	if err != nil {
+		return false, err
+	}
+	for _, p := range ps {
+		kind := p.Kind
 		if _, err := d.lookPath(kind); err != nil {
 			fmt.Fprintf(stdout, "%s is not installed. Setup skips it.\n", kind)
 			continue
-		}
-		p, err := adapter.Load(kind)
-		if err != nil {
-			return false, err
 		}
 		e, st, err := inst.WouldInstall(p)
 		if err != nil {
@@ -536,12 +539,12 @@ func hooks(ctx context.Context, d setupDeps, bin string, in *bufio.Reader, stdou
 				continue
 			}
 		}
-		codex = codex || kind == "codex"
+		trust = trust || p.HookTrust == adapter.TrustCodex
 		if err := offerRecords(ctx, inst, p, in, stdout); err != nil {
 			return false, err
 		}
 	}
-	return codex, nil
+	return trust, nil
 }
 
 // offerRecords offers the hook record entries of p (E11-S5, §6.1) after its start entry is in
@@ -595,7 +598,7 @@ func offerRecords(ctx context.Context, inst *install.Installer, p *adapter.Profi
 		}
 	}
 	fmt.Fprintf(stdout, "Added the hook record entries for %s.\n", p.Kind)
-	if p.Kind == "codex" {
+	if p.HookTrust == adapter.TrustCodex {
 		fmt.Fprint(stdout, "Codex needs trust again for each new hook entry: type /hooks and press t on each.\n")
 	}
 	return nil

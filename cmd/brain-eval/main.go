@@ -21,16 +21,18 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-const usage = `usage: brain-eval --probes <file or folder> [--stage <stage>]... [--harness claude|codex]...
-       brain-eval [--step <shell command>]... [--probe claude|codex]... [--prompt <text>]
+const usage = `usage: brain-eval --probes <file or folder> [--stage <stage>]... [--harness <cli>]...
+       brain-eval [--step <shell command>]... [--probe <cli>]... [--prompt <text>]
 
 With --probes, runs each probe of the probe file, or of each *.toml file of the folder, and
-its control; --stage and --harness keep only the probes of those stages and CLIs. The stages
+its control; --stage and --harness keep only the probes of those stages and CLIs. A CLI is
+the kind of a Brain profile, for example claude or codex. The stages
 are delivery, exclusion, transfer, update, restraint, forget and usefulness. It writes the
 results to eval-results.json and a short report to eval-report.md in the test store folder. A
 run of the delivery stage writes the conformance record of each CLI to conformance.json in
@@ -123,9 +125,10 @@ func parse(args []string) ([]Case, error) {
 		return nil, nil
 	}
 	c := Case{ID: "adhoc", Setup: steps}
+	kinds := adapter.Kinds(nil)
 	for _, p := range probes {
-		if p != "claude" && p != "codex" {
-			return nil, fmt.Errorf("--probe %q: want claude or codex", p)
+		if !slices.Contains(kinds, p) {
+			return nil, fmt.Errorf("--probe %q: want %s", p, oneOf(kinds))
 		}
 		c.Probes = append(c.Probes, Probe{Harness: p, Prompt: *prompt})
 	}
@@ -139,9 +142,10 @@ func only(cases []Case, wantStages, wantHarnesses []string) ([]Case, error) {
 			return nil, fmt.Errorf("--stage %q: want one of %s", s, strings.Join(stages, ", "))
 		}
 	}
+	kinds := adapter.Kinds(nil)
 	for _, h := range wantHarnesses {
-		if !slices.Contains(harnesses, h) {
-			return nil, fmt.Errorf("--harness %q: want claude or codex", h)
+		if !slices.Contains(kinds, h) {
+			return nil, fmt.Errorf("--harness %q: want %s", h, oneOf(kinds))
 		}
 	}
 	var out []Case
@@ -192,8 +196,8 @@ func newRunner(environ []string, stdout io.Writer) (*Runner, error) {
 			}
 			return c, nil
 		},
-		// Codex gets the folder trust of the scratch folders on its command line; the runner
-		// makes them itself, only in /tmp (E10-S3).
+		// Codex gets the folder trust of the scratch folders on its command line (its profile's
+		// eval.args); the runner makes them itself, only in /tmp (E10-S3).
 		Scratch:  "/tmp",
 		Sessions: func(ctx context.Context) ([]herdr.Session, error) { return herdr.Sessions(ctx, environ) },
 		StartServer: func(ctx context.Context, name string) (Server, error) {

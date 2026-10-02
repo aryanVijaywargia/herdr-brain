@@ -35,10 +35,6 @@ const (
 	Skipped      Status = "skipped" // never a pass
 )
 
-// altScreen are the CLIs that draw in the alternate screen: the runner reads their visible
-// screen after idle (E11-S1). Codex draws inline.
-var altScreen = map[string]bool{"claude": true}
-
 // outDir is the out folder of a store, as the hook reads it (§7.5 step 3).
 const outDir = "out"
 

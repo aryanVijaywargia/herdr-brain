@@ -32,7 +32,7 @@ func TestStageProbes(t *testing.T) {
 			return !c.Control && match(c) && slices.ContainsFunc(c.Probes, func(p Probe) bool { return p.Harness == h })
 		})
 	}
-	for _, h := range harnesses {
+	for _, h := range adapter.Kinds(nil) {
 		for _, s := range stages {
 			if !has(func(c Case) bool { return c.Stage == s }, h) {
 				t.Errorf("stage %s has no %s probe", s, h)

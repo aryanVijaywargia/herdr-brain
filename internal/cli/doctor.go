@@ -24,9 +24,6 @@ import (
 
 const doctorUsage = `usage: brain doctor`
 
-// trustKind is the harness that runs a hook only after you trust it (M0 item 1, E8-S3).
-const trustKind = "codex"
-
 // noReceipt is the gap word of a live agent whose agent session has no receipt (brain status).
 const noReceipt = "unknown: no receipt for its agent session"
 
@@ -95,7 +92,7 @@ func (d *doctorCall) run(ctx context.Context) {
 	if err := d.extraction(ctx); err != nil {
 		d.fail("extraction: %v", err)
 	}
-	ps, err := loadProfiles()
+	ps, err := adapter.LoadAll(d.Profiles)
 	if err != nil {
 		d.fail("profiles: %v", err)
 		return
@@ -106,8 +103,8 @@ func (d *doctorCall) run(ctx context.Context) {
 	d.conflicts()
 }
 
-// hooks checks the hook entry, the retest state, the Codex trust and the receipts of each
-// profile.
+// hooks checks the hook entry, the retest state, the Codex trust (hook_trust "codex") and the
+// receipts of each profile.
 func (d *doctorCall) hooks(ctx context.Context, ps []*adapter.Profile) error {
 	inst, err := d.installer()
 	if err != nil {
@@ -141,12 +138,12 @@ func (d *doctorCall) hooks(ctx context.Context, ps []*adapter.Profile) error {
 			d.fail("%s %s: needs a retest: tested on %s, or the hook input changed its shape (S14); "+
 				"fix: run the conformance test in the brain repo: go run ./cmd/brain-eval --probes evals/probes --stage delivery --harness %s", p.Kind, version, p.TestedVersion, p.Kind)
 		}
-		if p.Kind == trustKind {
+		if p.HookTrust == adapter.TrustCodex {
 			if err := d.trust(inst.Record, p); err != nil {
 				return err
 			}
 		}
-		if err := d.receipts(ctx, p.Kind); err != nil {
+		if err := d.receipts(ctx, p); err != nil {
 			return err
 		}
 	}
@@ -292,24 +289,25 @@ func (d *doctorCall) trust(record string, p *adapter.Profile) error {
 	return nil
 }
 
-// receipts checks that each live agent of a configured kind has a receipt (§17 item 30). No
-// receipt means that the hook did not run or could not reach the herdr socket.
-func (d *doctorCall) receipts(ctx context.Context, kind string) error {
+// receipts checks that each live agent of the configured profile p has a receipt (§17 item
+// 30). No receipt means that the hook did not run or could not reach the herdr socket.
+func (d *doctorCall) receipts(ctx context.Context, p *adapter.Profile) error {
+	kind := p.Kind
 	if d.panesErr != nil {
 		return nil //nolint:nilerr // run reports the failed pane list as its own check
 	}
 	var missing []string
 	err := d.Store.Write(ctx, func(tx *sql.Tx) error {
-		for _, p := range d.panes {
-			if p.Agent == nil || *p.Agent != kind {
+		for _, pane := range d.panes {
+			if pane.Agent == nil || *pane.Agent != kind {
 				continue
 			}
-			g, err := gap(ctx, tx, d.Binding.Session, kind, p)
+			g, err := gap(ctx, tx, d.Binding.Session, kind, pane)
 			if err != nil {
 				return err
 			}
 			if g == noReceipt {
-				missing = append(missing, p.ID)
+				missing = append(missing, pane.ID)
 			}
 		}
 		return nil
@@ -320,7 +318,7 @@ func (d *doctorCall) receipts(ctx context.Context, kind string) error {
 	// The herdr pane list shows no prompt. Claude runs the hook at start, so no receipt is a
 	// failure. Codex runs it at the first prompt (M0 item 1), so no receipt is only a note:
 	// the trust check above already fails an untrusted Codex hook.
-	if kind == trustKind {
+	if p.HookTrust == adapter.TrustCodex {
 		d.w.printf("note: codex: %d live agent(s) with no Brain receipt (%s); Codex runs the hook at the first prompt. "+
 			"If an agent had a prompt, the hook is not trusted or not firing: trust it (/hooks in Codex); "+
 			"if it is trusted, the CLI sandbox may block the herdr socket\n", len(missing), strings.Join(missing, ", "))
