@@ -107,7 +107,7 @@ func skip(format string, args ...any) error {
 // its binding. Each failed check is errSkip:
 //   - live_suggestions is on in the config file;
 //   - the binding, the store and the workspace key are the ones of d;
-//   - herdr shows an agent in the pane, the one of the capture session of d, and the session
+//   - herdr shows the pane in its workspace, and an agent in it, the one of the capture session of d, and the session
 //     still holds the pane with the capture generation of d (a new agent, a move, a forget);
 //   - the row of d is still there, unshown and undecided, with the ids of d;
 //   - learning and extraction are on, the proposal is still pending in this scope (a reject, an
@@ -125,8 +125,11 @@ func (sg suggester) check(ctx context.Context, cl caller, d brained.Dispatch) (P
 	hctx, cancel := context.WithTimeout(ctx, herdrDeadline)
 	p, err := sg.Pane(hctx, target(c.Binding), c.PaneID)
 	cancel()
-	if err != nil {
+	switch {
+	case err != nil:
 		return nil, skip("pane %s: %v", c.PaneID, err)
+	case p.ID != c.PaneID || p.WorkspaceID != c.WorkspaceID:
+		return nil, skip("pane %s moved to %s in workspace %s", c.PaneID, p.ID, p.WorkspaceID)
 	}
 	var beside []store.ReviewPane
 	err = c.Store.Write(ctx, func(tx *sql.Tx) (err error) {
