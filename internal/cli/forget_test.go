@@ -484,7 +484,7 @@ func TestForgetSession(t *testing.T) {
 	if err := Forget(ctx, e, []string{"--session", "agent-1"}); err != nil {
 		t.Fatalf("forget --session = %v", err)
 	}
-	want := "session 1: claude in pane w14:p1, capture id cap-1, agent session \"agent-1\": 2 observations, 1 command records, 2 evidence links, 0 prompt index rows\n" +
+	want := "session 1: claude in pane w14:p1, capture id cap-1, agent session \"agent-1\": 2 observations, 1 command records, 2 evidence links, 0 prompt index rows, 0 outcomes\n" +
 		"candidate 1: workspace failure of claim " + claim + ", 4 occurrences in 2 sessions: its links to this evidence go, and it is counted again\n" +
 		"1 candidates use this evidence; no item uses capture evidence yet: nothing else to keep or forget\n" +
 		"forget session agent-1: done; its text is deleted, and new text is captured as usual\n"
@@ -586,7 +586,7 @@ func TestForgetSessionPromptIndex(t *testing.T) {
 	if err := Forget(ctx, e, []string{"--session", "cap-1"}); err != nil {
 		t.Fatalf("forget --session = %v", err)
 	}
-	for _, want := range []string{"1 prompt index rows\n", fmt.Sprintf("\nproposal %d used its prompts", proposal)} {
+	for _, want := range []string{"1 prompt index rows, 0 outcomes\n", fmt.Sprintf("\nproposal %d used its prompts", proposal)} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("forget --session printed\n%s\nwant %q", out.String(), want)
 		}

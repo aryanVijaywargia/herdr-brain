@@ -94,6 +94,20 @@ func AskChange(ctx context.Context, tx *sql.Tx, id int64, cand Candidate, text s
 	return ChangeRequestByID(ctx, tx, cr)
 }
 
+// QueueItemChange queues the change request of revision of item: two comebacks on that
+// revision (§5.4). The queue key is the item id and the revision, so a request is queued once,
+// and a retry adds nothing. Its scope is the scope of the item. The request holds no text.
+func QueueItemChange(ctx context.Context, tx *sql.Tx, item, revision int64, now time.Time) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO change_requests (source, source_id, revision, workspace_key, status,
+		model_calls, reason, created, at) SELECT ?, id, ?, COALESCE(workspace_key, ''), ?, 0, '', ?, ? FROM items WHERE id = ?
+		ON CONFLICT (source, source_id, revision) DO NOTHING`,
+		ChangeItem, revision, ChangeQueued, timeArg(now), timeArg(now), item)
+	if err != nil {
+		return fmt.Errorf("queue the change request of item %d revision %d: %w", item, revision, err)
+	}
+	return nil
+}
+
 // ChangeRequestByID returns change request id, or sql.ErrNoRows.
 func ChangeRequestByID(ctx context.Context, tx *sql.Tx, id int64) (ChangeRequest, error) {
 	return scanChange(tx.QueryRowContext(ctx, `SELECT `+changeColumns+` FROM change_requests WHERE id = ?`, id))
@@ -183,12 +197,14 @@ func CandidateExcerpts(ctx context.Context, tx *sql.Tx, id int64) ([]Excerpt, er
 		s.pane_id, COALESCE(l.workspace_key, ''), o.at FROM evidence_links l
 		JOIN observations o ON o.id = l.observation_id AND o.capture_identity = l.capture_identity
 		JOIN sessions s ON s.id = l.session_id WHERE l.candidate_id = ? ORDER BY o.at DESC, o.id DESC`,
-		func(rows *sql.Rows) (Excerpt, error) {
-			var e Excerpt
-			err := rows.Scan(&e.ObservationID, &e.CaptureIdentity, &e.Excerpt, &e.Sender, &e.SessionID, &e.HerdrSession,
-				&e.Harness, &e.PaneID, &e.WorkspaceKey, timeDest{&e.At})
-			return e, err
-		}, id)
+		scanExcerpt, id)
+}
+
+func scanExcerpt(rows *sql.Rows) (Excerpt, error) {
+	var e Excerpt
+	err := rows.Scan(&e.ObservationID, &e.CaptureIdentity, &e.Excerpt, &e.Sender, &e.SessionID, &e.HerdrSession,
+		&e.Harness, &e.PaneID, &e.WorkspaceKey, timeDest{&e.At})
+	return e, err
 }
 
 // ActiveClaimItems returns the ids of the active items of claim claimID in the scope with key

@@ -38,7 +38,7 @@ func Forget(ctx context.Context, e Env, args []string) error {
 // forgetSession runs `brain forget --session <id>` (§6.7, E11-S6). id is a capture session id
 // or an agent session id in the caller's herdr session. It lists the evidence of the session,
 // the candidates that use it and the proposals that used its prompts first (S68), then deletes
-// its observations, command records, prompt index rows and evidence links in one transaction that raises the capture generation, so a pane read or
+// its observations, command records, prompt index rows, outcomes and evidence links in one transaction that raises the capture generation, so a pane read or
 // hook record that collected the text before the forget stores nothing. The candidates are
 // counted again. New text after the forget is captured as usual.
 func forgetSession(ctx context.Context, e Env, args []string) (err error) {
@@ -89,9 +89,9 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 		if s.Key.Kind == store.KeyAgent {
 			agent = s.Key.ID
 		}
-		if _, err := fmt.Fprintf(w, "session %d: %s in pane %s, %s id %s, agent session %q: %d observations, %d command records, %d evidence links, %d prompt index rows\n",
+		if _, err := fmt.Fprintf(w, "session %d: %s in pane %s, %s id %s, agent session %q: %d observations, %d command records, %d evidence links, %d prompt index rows, %d outcomes\n",
 			s.ID, s.Key.Harness, s.PaneID, s.Key.Kind, s.Key.ID, agent, ev[i].Observations, ev[i].CommandRecords, ev[i].EvidenceLinks,
-			ev[i].Prompts); err != nil {
+			ev[i].Prompts, ev[i].Outcomes); err != nil {
 			return err
 		}
 	}

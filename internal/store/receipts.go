@@ -73,3 +73,61 @@ func LatestPaneReceipt(ctx context.Context, tx *sql.Tx, session, profile, paneID
 	d, err = DeliveryByID(ctx, tx, id)
 	return d, err == nil, err
 }
+
+// TiedReceipt reads the last receipt before observation obs that ties to its capture session,
+// of any result (§5.4), with the E11-S3 join: the binding and the harness first, then the
+// agent session id of the session. A session that herdr never gave an id ties by its stored
+// capture row: the receipts of its pane in its binding after the previous session of that pane,
+// whose agent session id no other session of the binding holds. ok is false when no receipt
+// ties, or when those pane receipts name more than one agent session: no single receipt ties.
+// A pane id never joins across bindings.
+func TiedReceipt(ctx context.Context, tx *sql.Tx, obs int64) (d Delivery, ok bool, err error) {
+	var s struct {
+		id                        int64
+		binding, harness, agent   string
+		pane, started, observedAt string
+	}
+	err = tx.QueryRowContext(ctx, `SELECT n.id, n.herdr_session, n.harness, COALESCE(n.agent_session_id, ''), n.pane_id,
+		n.started, o.at FROM observations o JOIN segments g ON g.id = o.segment_id JOIN sessions n ON n.id = g.session_id
+		WHERE o.id = ?`, obs).Scan(&s.id, &s.binding, &s.harness, &s.agent, &s.pane, &s.started, &s.observedAt)
+	if err != nil {
+		return Delivery{}, false, fmt.Errorf("read session of observation %d: %w", obs, err)
+	}
+	var rows *sql.Rows
+	if s.agent != "" {
+		rows, err = tx.QueryContext(ctx, `SELECT id, agent_session_id FROM deliveries
+			WHERE herdr_session = ? AND profile = ? AND agent_session_id = ? AND at <= ?
+			ORDER BY at DESC, id DESC LIMIT 1`, s.binding, s.harness, s.agent, s.observedAt)
+	} else {
+		rows, err = tx.QueryContext(ctx, `SELECT id, COALESCE(agent_session_id, '') FROM deliveries d
+			WHERE herdr_session = ?1 AND profile = ?2 AND pane_id = ?3 AND at <= ?4
+			AND at > COALESCE((SELECT max(COALESCE(p.ended, p.started)) FROM sessions p WHERE p.herdr_session = ?1
+				AND p.pane_id = ?3 AND p.id != ?5 AND p.started < ?6), '')
+			AND NOT EXISTS (SELECT 1 FROM sessions p WHERE p.herdr_session = ?1 AND p.id != ?5
+				AND p.agent_session_id = d.agent_session_id)
+			ORDER BY at DESC, id DESC`, s.binding, s.harness, s.pane, s.observedAt, s.id, s.started)
+	}
+	if err != nil {
+		return Delivery{}, false, fmt.Errorf("read receipts of observation %d: %w", obs, err)
+	}
+	defer rows.Close() //nolint:errcheck // read-only: rows.Err reports the read errors
+	var ids []int64
+	agents := map[string]bool{}
+	for rows.Next() {
+		var id int64
+		var agent string
+		if err := rows.Scan(&id, &agent); err != nil {
+			return Delivery{}, false, fmt.Errorf("read receipts of observation %d: %w", obs, err)
+		}
+		ids = append(ids, id)
+		agents[agent] = true
+	}
+	if err := rows.Err(); err != nil {
+		return Delivery{}, false, fmt.Errorf("read receipts of observation %d: %w", obs, err)
+	}
+	if len(ids) == 0 || len(agents) > 1 {
+		return Delivery{}, false, nil
+	}
+	d, err = DeliveryByID(ctx, tx, ids[0])
+	return d, err == nil, err
+}

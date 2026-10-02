@@ -198,17 +198,20 @@ type Evidence struct {
 	CommandRecords int
 	EvidenceLinks  int // links of its observations to candidates
 	Prompts        int // its prompt index rows
+	Outcomes       int // the outcomes of its observations (E15-S1)
 }
 
-// SessionEvidence counts the observations, the command records, the evidence links and the
-// prompt index rows of session sessionID.
+// SessionEvidence counts the observations, the command records, the evidence links, the
+// prompt index rows and the outcomes of session sessionID.
 func SessionEvidence(ctx context.Context, tx *sql.Tx, sessionID int64) (Evidence, error) {
 	var e Evidence
 	err := tx.QueryRowContext(ctx, `SELECT count(o.id), count(c.observation_id),
 		(SELECT count(*) FROM evidence_links WHERE session_id = ?1),
-		(SELECT count(*) FROM prompt_index WHERE session_id = ?1) FROM observations o
+		(SELECT count(*) FROM prompt_index WHERE session_id = ?1),
+		(SELECT count(*) FROM outcomes WHERE session_id = ?1) FROM observations o
 		JOIN segments s ON s.id = o.segment_id LEFT JOIN command_records c ON c.observation_id = o.id
-		WHERE s.session_id = ?1`, sessionID).Scan(&e.Observations, &e.CommandRecords, &e.EvidenceLinks, &e.Prompts)
+		WHERE s.session_id = ?1`, sessionID).Scan(&e.Observations, &e.CommandRecords, &e.EvidenceLinks, &e.Prompts,
+		&e.Outcomes)
 	if err != nil {
 		return Evidence{}, fmt.Errorf("count evidence of session %d: %w", sessionID, err)
 	}
@@ -216,7 +219,7 @@ func SessionEvidence(ctx context.Context, tx *sql.Tx, sessionID int64) (Evidence
 }
 
 // ForgetSession deletes the evidence of session sessionID: its evidence links, observations,
-// command records, prompt index rows, suggestions, cursors and extraction watermarks, and the change requests of the
+// command records, prompt index rows, suggestions, outcomes, cursors and extraction watermarks, and the change requests of the
 // proposals that used that evidence (§6.7). The candidates that used the links are counted again, with the default gates until a config sets them, and one with no
 // evidence left goes. It raises the capture generation, so a pane read or a hook record that noted the old value stores nothing, and it keeps the
 // capture identities of the deleted observations, so a replay stores nothing again. The
@@ -242,6 +245,8 @@ func ForgetSession(ctx context.Context, tx *sql.Tx, sessionID int64) error {
 		`DELETE FROM prompt_index WHERE observation_id IN (` + obs + `)`,
 		// A suggestion holds the prompt hash of the session (E14-S3).
 		`DELETE FROM suggestions WHERE session_id = ?1`,
+		// An outcome names an observation of the session (E15-S1).
+		`DELETE FROM outcomes WHERE session_id = ?1`,
 		`DELETE FROM observations WHERE id IN (` + obs + `)`,
 		`DELETE FROM cursors WHERE session_id = ?1`,
 		// The observation ids of the watermark are gone, and SQLite can give them again.
