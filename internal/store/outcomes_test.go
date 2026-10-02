@@ -67,7 +67,8 @@ func TestTiedReceiptBindings(t *testing.T) {
 
 // A session that herdr gave no agent session id ties by its capture row: the receipts of its
 // pane in its binding after the previous session of the pane, whose agent session id no other
-// session holds. Two agent session ids among them: no single receipt ties.
+// session holds. Two agent session ids among them, or no previous session of the pane: no
+// single receipt ties.
 func TestTiedReceiptCaptureRow(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range []struct {
@@ -83,12 +84,17 @@ func TestTiedReceiptCaptureRow(t *testing.T) {
 		{"before the previous session ended", []Delivery{receipt("default", "w1:p1", "x", 1, testNow.Add(-30*time.Second))}, 0},
 		{"another pane", []Delivery{receipt("default", "w1:p2", "x", 1, testNow.Add(time.Minute))}, 0},
 		{"another binding", []Delivery{receipt("work", "w1:p1", "x", 1, testNow.Add(time.Minute))}, 0},
+		{"no previous session", []Delivery{receipt("default", "w1:p1", "x", 1, testNow.Add(time.Minute))}, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := openM1(t)
 			write(t, s, func(tx *sql.Tx) error {
 				old := SessionKey{HerdrSession: "default", Harness: "claude", Kind: KeyAgent, ID: "old"}
-				if _, err := observe(ctx, tx, old, "w1:p1", testNow.Add(-time.Hour), testNow.Add(-time.Hour)); err != nil {
+				oldPane := "w1:p1"
+				if c.name == "no previous session" {
+					oldPane = "w1:p9"
+				}
+				if _, err := observe(ctx, tx, old, oldPane, testNow.Add(-time.Hour), testNow.Add(-time.Hour)); err != nil {
 					return err
 				}
 				if err := EndSession(ctx, tx, old, testNow.Add(-10*time.Second)); err != nil {

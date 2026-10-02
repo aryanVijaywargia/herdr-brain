@@ -79,7 +79,9 @@ func LatestPaneReceipt(ctx context.Context, tx *sql.Tx, session, profile, paneID
 // agent session id of the session. A session that herdr never gave an id ties by its stored
 // capture row: the receipts of its pane in its binding after the previous session of that pane,
 // whose agent session id no other session of the binding holds. ok is false when no receipt
-// ties, or when those pane receipts name more than one agent session: no single receipt ties.
+// ties, when those pane receipts name more than one agent session, or when no previous session
+// of the pane bounds them: an older receipt of the pane can be another agent's, so no single
+// receipt ties.
 // A pane id never joins across bindings.
 func TiedReceipt(ctx context.Context, tx *sql.Tx, obs int64) (d Delivery, ok bool, err error) {
 	var s struct {
@@ -101,8 +103,8 @@ func TiedReceipt(ctx context.Context, tx *sql.Tx, obs int64) (d Delivery, ok boo
 	} else {
 		rows, err = tx.QueryContext(ctx, `SELECT id, COALESCE(agent_session_id, '') FROM deliveries d
 			WHERE herdr_session = ?1 AND profile = ?2 AND pane_id = ?3 AND at <= ?4
-			AND at > COALESCE((SELECT max(COALESCE(p.ended, p.started)) FROM sessions p WHERE p.herdr_session = ?1
-				AND p.pane_id = ?3 AND p.id != ?5 AND p.started < ?6), '')
+			AND at > (SELECT max(COALESCE(p.ended, p.started)) FROM sessions p WHERE p.herdr_session = ?1
+				AND p.pane_id = ?3 AND p.id != ?5 AND p.started < ?6)
 			AND NOT EXISTS (SELECT 1 FROM sessions p WHERE p.herdr_session = ?1 AND p.id != ?5
 				AND p.agent_session_id = d.agent_session_id)
 			ORDER BY at DESC, id DESC`, s.binding, s.harness, s.pane, s.observedAt, s.id, s.started)

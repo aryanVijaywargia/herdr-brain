@@ -42,10 +42,10 @@ func AddOutcome(ctx context.Context, tx *sql.Tx, o Outcome) (bool, error) {
 	return n > 0, err
 }
 
-// ComebackSessions counts the sessions with a comeback on revision of item.
-func ComebackSessions(ctx context.Context, tx *sql.Tx, item, revision int64) (int, error) {
+// Comebacks counts the comebacks on revision of item: one for each observation.
+func Comebacks(ctx context.Context, tx *sql.Tx, item, revision int64) (int, error) {
 	var n int
-	err := tx.QueryRowContext(ctx, `SELECT count(DISTINCT session_id) FROM outcomes
+	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM outcomes
 		WHERE item_id = ? AND revision = ? AND kind = ?`, item, revision, OutcomeComeback).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count comebacks of item %d revision %d: %w", item, revision, err)

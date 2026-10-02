@@ -476,10 +476,8 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 		cand = id
 		accepted = append(accepted, r)
 	}
-	if kind == store.CandidateCorrection {
-		if err := p.outcomes(ctx, tx, j, claim, accepted, now); err != nil {
-			return err
-		}
+	if err := p.outcomes(ctx, tx, j, claim, corrections(kind, accepted), now); err != nil {
+		return err
 	}
 	if cand == 0 {
 		return nil
@@ -487,11 +485,20 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	return p.propose(ctx, tx, cand, c, now)
 }
 
-// outcomes records an outcome of each observation in refs, the new evidence that Attach
-// accepted for correction claim, for each active item of the claim in the scope of batch j, after the evidence (§5.4, §7.3
+// corrections returns the new corrections of refs, the evidence that Attach accepted for a
+// candidate of kind: all of refs for a correction candidate, else the refs of a correction
+// signal. An item of a procedure claim can come back as a correction too.
+func corrections(kind store.CandidateKind, refs []ref) []ref {
+	if kind == store.CandidateCorrection {
+		return refs
+	}
+	return slices.DeleteFunc(slices.Clone(refs), func(r ref) bool { return r.kind != signal.Correction })
+}
+
+// outcomes records an outcome of each new correction in refs of claim, for each active item of the claim in the scope of batch j, after the evidence (§5.4, §7.3
 // order for a known claim). An active item of the claim that an unconfirmed same_as link of
-// claim names gets an uncertain outcome instead of a comeback. A second session with a comeback
-// on one revision queues the change request of that revision.
+// claim names gets an uncertain outcome instead of a comeback. A second comeback on one
+// revision queues the change request of that revision.
 func (p Pass) outcomes(ctx context.Context, tx *sql.Tx, j job, claim string, refs []ref, now time.Time) error {
 	key := j.batch.WorkspaceKey
 	items, err := store.ActiveClaimItems(ctx, tx, claim, key)
@@ -545,7 +552,7 @@ func (p Pass) outcome(ctx context.Context, tx *sql.Tx, j job, item int64, r ref,
 	if err != nil || !added || kind != store.OutcomeComeback {
 		return err
 	}
-	n, err := store.ComebackSessions(ctx, tx, item, rev)
+	n, err := store.Comebacks(ctx, tx, item, rev)
 	if err != nil || n < 2 {
 		return err
 	}

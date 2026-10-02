@@ -254,3 +254,46 @@ func TestForgetOutcomes(t *testing.T) {
 		t.Errorf("after the item forget: outcomes = %v, want none", got)
 	}
 }
+
+// Two comebacks on one revision in one session give the change request too; a retry of the
+// committed batch adds no outcome.
+func TestComebacksInOneSession(t *testing.T) {
+	f := newFixture(t)
+	item := f.revisedItem(2)
+	f.deliver(receiptOf("default", "a", store.ResultEmitted, t0.Add(-time.Minute), store.RevisionRef{Item: item, Revision: 2}))
+	f.session("a", true, line{"ws-A", pnpm, t0}, line{"ws-A", "no, I said pnpm, not npm", t0.Add(time.Minute)})
+	f.mustRun()
+	if got, want := f.outcomes(), []string{"comeback 2", "comeback 2"}; !slices.Equal(got, want) {
+		t.Fatalf("outcomes = %v, want %v", got, want)
+	}
+	if n := f.count(`SELECT COUNT(*) FROM change_requests WHERE source = 'item' AND revision = 2`); n != 1 {
+		t.Errorf("item requests = %d, want 1", n)
+	}
+	b := f.batches()[0]
+	c := Claim{Kind: "correction", Situation: "installing packages", Rule: "use pnpm", Scope: store.ScopeWorkspace,
+		Refs: []ref{{id: "e1", obs: b.LastObservation, identity: b.LastCapture}}}
+	if err := f.pass().commit(context.Background(), job{batch: b}, b.ID, []Claim{c}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(f.outcomes()); n != 2 {
+		t.Errorf("after the retry: outcomes = %d, want 2", n)
+	}
+}
+
+// An active item whose candidate is a procedure comes back as a correction too.
+func TestComebackOfProcedureItem(t *testing.T) {
+	f := newFixture(t)
+	item := f.revisedItem(1)
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO candidates (claim_id, scope, workspace_key, kind, harnesses, count,
+			sessions, priority, first_seen, last_seen, status) SELECT claim_id, 'workspace', 'ws-A', 'procedure', '[]', 0, 0, 0,
+			created, created, 'proposed' FROM items WHERE id = ?`, item)
+		return err
+	})
+	f.deliver(receiptOf("default", "a", store.ResultEmitted, t0.Add(-time.Minute), store.RevisionRef{Item: item, Revision: 1}))
+	f.session("a", true, line{"ws-A", pnpm, t0})
+	f.mustRun()
+	if got, want := f.outcomes(), []string{"comeback 1"}; !slices.Equal(got, want) {
+		t.Errorf("outcomes = %v, want %v", got, want)
+	}
+}
