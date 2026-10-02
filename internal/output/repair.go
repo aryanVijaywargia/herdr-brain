@@ -108,6 +108,9 @@ func Confirm(ctx context.Context, s *store.Store, out string, now func() time.Ti
 	for _, c := range cs {
 		b.replace = append(b.replace, c.Generation)
 	}
+	if err := restoreSkills(ctx, s, out, cur, cs); err != nil {
+		return nil, err
+	}
 	// The pointer leaves the hand-edited generation before its folder goes, so it never names
 	// a folder that is not there (§7.5 step 9).
 	if slices.Contains(b.replace, cur) {
@@ -129,6 +132,51 @@ func Confirm(ctx context.Context, s *store.Store, out string, now func() time.Ti
 		}
 	}
 	return cs, b.repair(ctx, s)
+}
+
+// restoreSkills writes each skill file of the current generation cur that you confirmed in
+// cs again, from the text of its revision in the store (§7.5 step 5). A running session may
+// still read an older revision, so this covers every listed revision, not only the newest.
+// A revision whose stored text no longer has the listed hash (forget erased it) is not
+// written: its item is no active skill, so cleanup removes the file.
+func restoreSkills(ctx context.Context, s *store.Store, out string, cur int64, cs []ConflictError) error {
+	if !slices.ContainsFunc(cs, func(c ConflictError) bool { return c.Generation == cur }) {
+		return nil
+	}
+	m, _, err := readManifest(filepath.Join(out, folder(cur)))
+	if errors.Is(err, ErrInconsistent) {
+		// A damaged manifest lists no file that Brain can trust; the rebuild writes the files
+		// of the new generation.
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	changed, err := changedSkills(out, m)
+	if err != nil {
+		return err
+	}
+	for _, f := range m.Skills {
+		path := skillPath(skillsDir(out), f.Item, f.Revision)
+		if !slices.Contains(changed, path) {
+			continue
+		}
+		var r store.ItemRevision
+		err := s.Write(ctx, func(tx *sql.Tx) (err error) {
+			r, err = store.ItemRevisionByKey(ctx, tx, f.Item, f.Revision)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		if hash([]byte(r.Text)) != f.SHA256 {
+			continue
+		}
+		if err := writeAtomic(path, r.Text, writeFile); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // sleep is time.Sleep; a test replaces it.
@@ -258,27 +306,27 @@ func cleanSkills(ctx context.Context, s *store.Store, out string, cur int64, lef
 	for _, f := range m.Skills {
 		keep[f.Item] = true
 	}
-	var active []store.ItemRevision
-	err = s.Write(ctx, func(tx *sql.Tx) (err error) {
-		active, err = store.ActiveSkills(ctx, tx)
-		return err
-	})
-	if err != nil {
-		return err
-	}
-	for _, r := range active {
-		keep[r.ItemID] = true
-	}
-	for _, e := range entries {
-		id, err := strconv.ParseInt(e.Name(), 10, 64)
-		if err != nil || keep[id] {
-			continue
-		}
-		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+	// The deletes run inside the store write, so no restore or undo can make one of these
+	// skills active between the check and the delete.
+	return s.Write(ctx, func(tx *sql.Tx) error {
+		active, err := store.ActiveSkills(ctx, tx)
+		if err != nil {
 			return err
 		}
-	}
-	return nil
+		for _, r := range active {
+			keep[r.ItemID] = true
+		}
+		for _, e := range entries {
+			id, err := strconv.ParseInt(e.Name(), 10, 64)
+			if err != nil || keep[id] {
+				continue
+			}
+			if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // switchedAt returns the time of the last pointer switch, to generation cur: its outputs row

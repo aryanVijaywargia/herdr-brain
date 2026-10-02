@@ -287,3 +287,20 @@ func TestSkillReceiptNamesRevision(t *testing.T) {
 		t.Errorf("second receipt pairs = %v, want item %d revision 3", second.ItemRevisions, id)
 	}
 }
+
+// Review fix: undo of a retirement checks the skill name too (§8.2). Retire skill A, approve
+// skill B with the same name, then undo A's retirement: undo refuses and writes nothing.
+func TestUndoSkillNameClash(t *testing.T) {
+	f := newFixture(t)
+	a := f.approvedSkill(t, skillText("deploy", "one"))
+	f.changeSkill(t, a, "--retire")
+	f.approvedSkill(t, skillText("deploy", "two"))
+	newest := f.rows(t).newest
+	if _, err := f.undo(t, fmt.Sprint(a)); !errors.Is(err, store.ErrSkillName) {
+		t.Fatalf("Undo(retired A) = %v, want ErrSkillName", err)
+	}
+	r := f.rows(t)
+	if it, _ := r.item(t, a); it.State != store.StateRetired || r.newest != newest {
+		t.Errorf("after the refused undo: item %s, newest generation %d, want retired and %d", it.State, r.newest, newest)
+	}
+}

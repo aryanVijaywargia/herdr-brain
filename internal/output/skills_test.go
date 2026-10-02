@@ -279,3 +279,45 @@ func TestSkillConflictKeepsFiles(t *testing.T) {
 		t.Error("skill files after Confirm and cleanup are still there, want them gone")
 	}
 }
+
+// Review fix: a hand edit of a listed skill file after the first source check of a build
+// stays, as a conflict; the build does not write over it (S11).
+func TestSkillEditDuringBuild(t *testing.T) {
+	s, out := newStore(t)
+	id := addSkill(t, s, "k1", skillText("deploy", "r1"))
+	gen := mustBuild(t, s, out)
+	path := skillPath(skillsDir(out), id, 1)
+	addItem(t, s, "k1", "use pnpm")
+	b := builder{out: out, now: at(testNow), writeFile: writeFile, afterRender: func() {
+		if err := os.WriteFile(path, []byte("mine"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}}
+	_, err := b.build(context.Background(), s, nil)
+	wantConflict(t, err, gen, path)
+	checkFile(t, path, "mine")
+	checkPointer(t, out, gen)
+}
+
+// Review fix: Confirm writes a confirmed older revision again, not only the newest one, so a
+// session that got revision 1 reads the approved text.
+func TestSkillConfirmOldRevision(t *testing.T) {
+	s, out := newStore(t)
+	id := addSkill(t, s, "k1", skillText("deploy", "r1"))
+	mustBuild(t, s, out)
+	r1 := skillPath(skillsDir(out), id, 1)
+	if err := os.WriteFile(r1, []byte("mine"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustRevise(t, s, id, 1, skillText("deploy", "r2"))
+	if _, err := Build(context.Background(), s, out, nil, at(testNow)); err == nil {
+		t.Fatal("Build() = nil, want the conflict on revision 1")
+	}
+	fakeSleep(t, func() {})
+	mustConfirm(t, s, out, testNow)
+	checkFile(t, r1, skillText("deploy", "r1"))
+	checkFile(t, skillPath(skillsDir(out), id, 2), skillText("deploy", "r2"))
+	if cs := mustConflicts(t, out); len(cs) != 0 {
+		t.Errorf("Conflicts() after Confirm = %v, want none", cs)
+	}
+}

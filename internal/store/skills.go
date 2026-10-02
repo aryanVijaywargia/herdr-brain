@@ -113,9 +113,9 @@ func ActiveSkills(ctx context.Context, tx *sql.Tx) ([]ItemRevision, error) {
 
 // CheckSkill checks the current revision of item, when it is an active skill: its text must
 // be a skill text, and no other active skill in the same scope (one workspace key, or global)
-// may have its name (§8.2). Approval, promotion (E16-S8) and link (E16-S9) call it after their
-// revision write, in the same transaction, so the check sees the state that the transaction
-// commits. A clash wraps ErrSkillName. Any other item passes.
+// may have its name (§8.2). WriteRevision calls it after each revision write, in the same
+// transaction, so approval, restore, undo, promotion (E16-S8) and link (E16-S9) all check the
+// state that the transaction commits. A clash wraps ErrSkillName. Any other item passes.
 func CheckSkill(ctx context.Context, tx *sql.Tx, item int64) error {
 	it, err := ItemByID(ctx, tx, item)
 	if err != nil {

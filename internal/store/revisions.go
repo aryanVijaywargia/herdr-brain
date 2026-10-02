@@ -14,8 +14,10 @@ var ErrConflict = errors.New("revision conflict")
 // WriteRevision makes r the next revision of item r.ItemID, when the item's current revision
 // is still expected (§7.5 steps 1-2). It sets r.Revision to expected+1, copies the fields that
 // items also holds from r, and records a new output generation, which it returns. A stale
-// expected revision returns ErrConflict before it writes anything. Run it inside Store.Write,
-// so all of it is one transaction.
+// expected revision returns ErrConflict before it writes anything. An active skill whose text
+// does not parse, or whose name another active skill of its scope has, returns an error
+// (CheckSkill; ErrSkillName for the name). Run it inside Store.Write, so all of it is one
+// transaction and an error writes nothing.
 func WriteRevision(ctx context.Context, tx *sql.Tx, expected int64, r ItemRevision) (int64, error) {
 	r.Revision = expected + 1
 	// The WHERE clause is the revision check, so the check and the write cannot come apart.
@@ -32,7 +34,13 @@ func WriteRevision(ctx context.Context, tx *sql.Tx, expected int64, r ItemRevisi
 	if n == 0 {
 		return 0, fmt.Errorf("item %d at revision %d: %w", r.ItemID, expected, ErrConflict)
 	}
-	return commitRevision(ctx, tx, r)
+	gen, err := commitRevision(ctx, tx, r)
+	if err != nil {
+		return 0, err
+	}
+	// Every path that makes a skill active writes a revision here (approve, restore, undo, and
+	// later promotion and link), so the name check runs in the same transaction (§8.2).
+	return gen, CheckSkill(ctx, tx, r.ItemID)
 }
 
 // CreateItem adds it with r as its first revision, and records a new output generation. The

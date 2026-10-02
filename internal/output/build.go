@@ -81,7 +81,8 @@ func (b builder) buildLocked(ctx context.Context, s *store.Store, proposalID *in
 	}
 	// The first check of the current generation (§7.5 step 5): a hand edit stops the build
 	// before it writes anything. publish checks again just before the switch.
-	if _, err := b.source(cur); err != nil {
+	src, err := b.source(cur)
+	if err != nil {
 		return 0, err
 	}
 	gen, parts, skills, err := render(ctx, s, skillsDir(b.out))
@@ -93,7 +94,7 @@ func (b builder) buildLocked(ctx context.Context, s *store.Store, proposalID *in
 	var g generation
 	if gen != cur {
 		b.afterRender()
-		if g, err = b.publishFolder(gen, parts, skills, b.now()); err != nil {
+		if g, err = b.publishFolder(gen, parts, skills, src.manifest, b.now()); err != nil {
 			return 0, err
 		}
 	}
@@ -170,12 +171,18 @@ func current(out string) (int64, error) {
 // into out/staging-<gen>/, checks them against the manifest, and renames the folder to
 // out/gen-<gen>/ (§7.5 step 3). It returns the generation as read back. A build that stops
 // before the rename leaves only the staging folder, which the next build of gen replaces
-// (S65), and skill files that no generation lists yet, which the next build uses.
-func (b builder) publishFolder(gen int64, parts []part, skills []skillFile, now time.Time) (generation, error) {
+// (S65), and skill files that no generation lists yet, which the next build uses. src is the
+// manifest of the source generation, the current one: a skill file that it lists is never
+// written over (§7.5 step 5).
+func (b builder) publishFolder(gen int64, parts []part, skills []skillFile, src Manifest, now time.Time) (generation, error) {
 	m := Manifest{Generation: gen, BuiltAt: now.UTC(), Files: make(map[string]File, len(parts)),
 		Skills: make([]SkillFile, 0, len(skills))}
+	listed := make(map[string]bool, len(src.Skills))
+	for _, f := range src.Skills {
+		listed[f.Path] = true
+	}
 	for _, f := range skills {
-		if err := b.writeSkill(f); err != nil {
+		if err := b.writeSkill(f, listed[f.path], src.Generation); err != nil {
 			return generation{}, err
 		}
 		m.Skills = append(m.Skills, SkillFile{Path: f.path, SHA256: hash([]byte(f.text)), RevisionRef: f.ref})
@@ -216,24 +223,32 @@ func (b builder) publishFolder(gen int64, parts []part, skills []skillFile, now 
 
 // writeSkill makes the file of skill revision f hold its text. A file that matches is used as
 // it is. A file that is missing, or that does not match, is written with a temp file and a
-// rename: no generation that the source check passed lists it, so it is not your edit
-// (§7.5 step 5).
-func (b builder) writeSkill(f skillFile) error {
+// rename (§7.5 step 3). When the current generation cur lists the file (listed), a mismatch
+// is your edit since the source check: it stays, as a conflict (§7.5 step 5, S11).
+func (b builder) writeSkill(f skillFile, listed bool, cur int64) error {
 	data, err := os.ReadFile(f.path)
 	switch {
 	case err == nil && string(data) == f.text:
 		return nil
 	case err != nil && !errors.Is(err, fs.ErrNotExist):
 		return err
+	case listed:
+		return &ConflictError{Generation: cur, Files: []string{f.path}}
 	}
-	if err := os.MkdirAll(filepath.Dir(f.path), 0o700); err != nil {
+	return writeAtomic(f.path, f.text, b.writeFile)
+}
+
+// writeAtomic writes text to path with a temp file and a rename, so a reader sees the whole
+// file or none. write writes the temp file.
+func writeAtomic(path, text string, write func(path string, data []byte) error) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp := f.path + ".tmp"
-	if err := b.writeFile(tmp, []byte(f.text)); err != nil {
+	tmp := path + ".tmp"
+	if err := write(tmp, []byte(text)); err != nil {
 		return err
 	}
-	return os.Rename(tmp, f.path)
+	return os.Rename(tmp, path)
 }
 
 func writeFile(path string, data []byte) error {
