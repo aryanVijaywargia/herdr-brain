@@ -218,6 +218,34 @@ func TestComebackChangeRequest(t *testing.T) {
 	if f.cli.calls() != calls+1 || len(f.proposals()) != 1 {
 		t.Errorf("a second pass: %d calls, %d proposals, want %d and 1", f.cli.calls(), len(f.proposals()), calls+1)
 	}
+
+	// AC: a change asked on the draft queues the same request again and gives one new draft of
+	// the changed draft.
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		_, err := store.AskItemChange(ctx, tx, ps[0].ID, "make it a skill", store.SurfaceCLI, f.now)
+		return err
+	})
+	f.cli.reply = claimOf("use pnpm as a skill")
+	f.mustRun()
+	f.mustRun()
+	if f.cli.calls() != calls+2 {
+		t.Fatalf("calls = %d, want %d", f.cli.calls(), calls+2)
+	}
+	prompt = f.cli.prompts[len(f.cli.prompts)-1]
+	for _, want := range []string{"make it a skill", ps[0].Text, pnpm} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("redraft prompt lacks %q:\n%s", want, prompt)
+		}
+	}
+	ps = f.proposals()
+	if len(ps) != 2 || ps[0].Status != store.ProposalChanged || ps[1].Status != store.ProposalPending ||
+		*ps[1].BaseRevision != 2 || !strings.Contains(ps[1].Text, "as a skill") {
+		t.Fatalf("proposals = %+v, want the changed draft and one new pending draft", ps)
+	}
+	if n := f.count(`SELECT COUNT(*) FROM change_requests WHERE status = 'committed' AND new_proposal_id = ` + fmt.Sprint(ps[1].ID)); n != 1 ||
+		f.count(`SELECT COUNT(*) FROM change_requests`) != 1 {
+		t.Errorf("the one request does not hold the new draft")
+	}
 }
 
 // AC: one comeback on revision 1 and one on revision 2 give no change request.

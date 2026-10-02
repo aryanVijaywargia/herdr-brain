@@ -129,7 +129,8 @@ const comebackRequest = "This lesson came back in two sessions that got it. Prop
 
 // itemJob returns the job of change request r of an item revision: two comebacks on that
 // revision (§5.4). Its base is that revision, and its input is the text of the revision and the
-// allowed comeback excerpts. It returns why r is no longer current instead, or "": the item
+// allowed comeback excerpts. A request that you queued again on its draft (store.AskItemChange)
+// redrafts that draft with your text. It returns why r is no longer current instead, or "": the item
 // moved to another revision or is no longer active, or its claim is rejected or forgotten in its
 // scope. Its candidate stands for the scope of the item; the item needs none.
 func (p Pass) itemJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) (job, string, error) {
@@ -161,6 +162,15 @@ func (p Pass) itemJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) (j
 	}
 	text := comebackRequest
 	pr := store.Proposal{ItemID: &it.ID, Text: cur.Text, Scope: it.Scope, Target: tg, ChangeRequest: &text}
+	if r.NewProposalID != nil {
+		// You asked for a change of the last draft (§7.4): redraft it with your text.
+		if pr, err = store.ProposalByID(ctx, tx, *r.NewProposalID); err != nil {
+			return job{}, "", err
+		}
+		if pr.Status != store.ProposalChanged || pr.ChangeRequest == nil {
+			return job{}, "the request is no longer current", nil
+		}
+	}
 	return p.changeOf(ctx, tx, change{req: r, proposal: pr, cand: cand, item: cur}, es, "no comeback evidence is left")
 }
 
