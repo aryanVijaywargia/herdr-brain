@@ -879,23 +879,24 @@ const timingTarget = 100 * time.Millisecond
 // [NEW]
 const timingRounds = 2
 
-// roundTimes is the result of one TestTiming round: the p99 of the hook runs, and the stall of
-// the probes between them, their p99 minus their p50.
-type roundTimes struct{ p99, stall time.Duration }
+// roundTimes is the result of one TestTiming round: the p50 and p99 of the hook runs, and the
+// stall of the probes between them, their p99 minus their p50.
+type roundTimes struct{ p50, p99, stall time.Duration }
 
 // underTarget times up to timingRounds rounds and stops at the first round with its p99 under
 // timingTarget. round times round n. underTarget returns the times of the last round, whether
 // that round met the target, and, when no round met it, whether the machine was busy in every
-// round: the p99 missed the target by less than the stall, the extra time that the machine
-// alone took for the outside work of a run in the tail. A round that missed by more than its
-// stall shows a slow hook.
+// round: the p50 met the target, and the p99 missed it by less than the stall, the extra time
+// that the machine alone took for the outside work of a run in the tail. A busy machine moves
+// only the tail; a hook that is slow in most runs moves the p50 too. A round with its p50 at
+// the target, or a p99 that missed by more than its stall, shows a slow hook.
 func underTarget(round func(n int) roundTimes) (last roundTimes, met, busy bool) {
 	busy = true
 	for n := 1; n <= timingRounds; n++ {
 		if last = round(n); last.p99 < timingTarget {
 			return last, true, false
 		}
-		if last.p99-last.stall >= timingTarget {
+		if last.p50 >= timingTarget || last.p99-last.stall >= timingTarget {
 			busy = false
 		}
 	}
@@ -903,11 +904,14 @@ func underTarget(round func(n int) roundTimes) (last roundTimes, met, busy bool)
 }
 
 // TestUnderTarget: one noisy round does not fail the timing check, a machine that is busy in
-// every round skips it, and a slow hook in a round with a quiet machine fails it.
+// every round skips it, and a slow hook fails it, also on a busy machine. The times are made
+// up near those of bug #200. [NEW]
 func TestUnderTarget(t *testing.T) {
-	quiet, stalled := 2*time.Millisecond, 150*time.Millisecond
-	fast, noisy, slow := roundTimes{6 * time.Millisecond, quiet}, roundTimes{190 * time.Millisecond, stalled},
-		roundTimes{113 * time.Millisecond, quiet}
+	ms := time.Millisecond
+	quiet, stalled := 2*ms, 150*ms
+	fast, noisy, slow := roundTimes{6 * ms, 6 * ms, quiet}, roundTimes{6 * ms, 190 * ms, stalled},
+		roundTimes{110 * ms, 113 * ms, quiet}
+	slowNoisy := roundTimes{110 * ms, 190 * ms, stalled}
 	for _, tc := range []struct {
 		name      string
 		rounds    []roundTimes
@@ -919,7 +923,8 @@ func TestUnderTarget(t *testing.T) {
 		{"busy in every round", []roundTimes{noisy, noisy}, 2, false, true},
 		{"slow in every round", []roundTimes{slow, slow}, 2, false, false},
 		{"slow in one quiet round", []roundTimes{noisy, slow}, 2, false, false},
-		{"at the target", []roundTimes{{timingTarget, 0}, {timingTarget, 0}}, 2, false, false},
+		{"slow on a busy machine", []roundTimes{slowNoisy, slowNoisy}, 2, false, false},
+		{"at the target", []roundTimes{{6 * ms, timingTarget, 0}, {6 * ms, timingTarget, 0}}, 2, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			n := 0
@@ -938,6 +943,7 @@ func TestUnderTarget(t *testing.T) {
 // probe times the outside work of one hook run without the hook: one start of the fake herdr
 // at bin, as the lookup does, and one page write and fsync in dir, as the store checkpoint at
 // close does. A busy machine or disk makes both slow; the hook code does not change them.
+// The write is one page of 4096 bytes. [NEW]
 func probe(t *testing.T, bin, dir string) time.Duration {
 	t.Helper()
 	start := time.Now()
@@ -960,7 +966,8 @@ func probe(t *testing.T, bin, dir string) time.Duration {
 // process, the workspace map, the manifest check, the print and the receipt (store open and
 // insert). It logs p50 and p99 of each round; run it with -v to see them. It checks the p99
 // against the target and fails when every round misses it, unless the machine was busy in
-// every round (bug #200): then it skips, as a busy machine cannot show the hook time. After
+// every round (bug #200): then it skips, as a busy machine cannot show the hook time. A hook
+// that is slow in most runs fails also on a busy machine. After
 // each run it times a probe, so the round log shows how busy the machine was.
 // TestProcessTiming adds the process start and exit.
 func TestTiming(t *testing.T) {
@@ -999,7 +1006,7 @@ func TestTiming(t *testing.T) {
 		t.Logf("round %d: in-process hook, %d runs (%d emitted, %d capped), %s/%s: p50 %v, p99 %v, max %v; "+
 			"probe p50 %v, p99 %v, max %v", n, timingRuns, emitted, capped, runtime.GOOS, runtime.GOARCH,
 			rank(times, 50), rank(times, 99), times[len(times)-1], rank(probes, 50), rank(probes, 99), probes[len(probes)-1])
-		return roundTimes{rank(times, 99), rank(probes, 99) - rank(probes, 50)}
+		return roundTimes{rank(times, 50), rank(times, 99), rank(probes, 99) - rank(probes, 50)}
 	}
 	// One slow run on a busy machine is noise; the target is for the p99. A busy shared runner
 	// can also give one noisy round, so the test fails only when every round misses.
