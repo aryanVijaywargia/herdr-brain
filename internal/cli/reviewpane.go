@@ -21,6 +21,7 @@ type PaneHerdr interface {
 	OpenPluginPane(ctx context.Context, s herdr.PluginPaneSpec) (herdr.PluginPane, error)
 	PaneProcesses(ctx context.Context, id string) ([]herdr.Process, error)
 	ClosePluginPane(ctx context.Context, id string) error
+	ShowNotification(ctx context.Context, title, body string) error
 }
 
 const (
@@ -142,41 +143,53 @@ func (cl caller) closeReviewPane(ctx context.Context, bs []bindings.Binding, p s
 	if p.HerdrSession == cl.Binding.Session && p.PaneID == cl.PaneID && cl.surface == store.SurfacePane {
 		return true, nil // the calling review pane exits by itself
 	}
+	h, live, err := cl.reviewPaneLive(ctx, bs, p)
+	if err != nil || !live {
+		return err == nil, err
+	}
+	hctx, cancel := context.WithTimeout(ctx, herdrDeadline)
+	defer cancel()
+	if err := h.ClosePluginPane(hctx, p.PaneID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// reviewPaneLive reports whether the pane of row p is still Brain's review pane: its binding is
+// in bs, its workspace keeps its continuity identity, and herdr shows that it still runs the
+// review pane of its proposal (§11 review_panes, S82). live is false when the row is invalid
+// or the pane is gone. h is the herdr of the pane's binding when live is true.
+func (cl caller) reviewPaneLive(ctx context.Context, bs []bindings.Binding, p store.ReviewPane) (h PaneHerdr, live bool, err error) {
 	i := slices.IndexFunc(bs, func(b bindings.Binding) bool {
 		return b.Session == p.HerdrSession && b.Store == cl.Binding.Store
 	})
 	if i < 0 {
-		return true, nil // the binding is gone
+		return nil, false, nil // the binding is gone
 	}
 	ws, _, _ := strings.Cut(p.PaneID, ":")
 	identity, err := continuity(workspace.For(bs[i]), ws)
 	switch {
 	case errors.Is(err, errNoContinuity):
-		return true, nil
+		return nil, false, nil
 	case err != nil:
-		return false, err
+		return nil, false, err
 	case !samePtr(p.SessionIdentity, identity):
-		return true, nil // continuity lost: the pane id may name another pane now
+		return nil, false, nil // continuity lost: the pane id may name another pane now
 	}
-	h, err := cl.Herdr(target(bs[i]))
-	if err != nil {
-		return false, err
+	if h, err = cl.Herdr(target(bs[i])); err != nil {
+		return nil, false, err
 	}
 	hctx, cancel := context.WithTimeout(ctx, herdrDeadline)
 	defer cancel()
 	ps, err := h.PaneProcesses(hctx, p.PaneID)
 	switch {
 	case errors.Is(err, herdr.ErrPaneNotFound):
-		return true, nil
+		return nil, false, nil
 	case err != nil:
-		return false, err
-	case !runsReview(ps, p.ProposalID):
-		return true, nil // the pane id names another pane now
+		return nil, false, err
 	}
-	if err := h.ClosePluginPane(hctx, p.PaneID); err != nil {
-		return false, err
-	}
-	return true, nil
+	// Another process means that the pane id names another pane now.
+	return h, runsReview(ps, p.ProposalID), nil
 }
 
 // runsReview reports whether herdr shows the review pane of proposal id among ps: the

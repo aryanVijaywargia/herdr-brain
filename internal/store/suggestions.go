@@ -161,3 +161,27 @@ func DecideSuggestions(ctx context.Context, tx *sql.Tx, proposal int64, result S
 	}
 	return nil
 }
+
+// SessionByID reads the capture session with id. It returns sql.ErrNoRows when there is none.
+func SessionByID(ctx context.Context, tx *sql.Tx, id int64) (Session, error) {
+	ss, err := sessions(ctx, tx, `WHERE id = ?1`, id)
+	switch {
+	case err != nil:
+		return Session{}, err
+	case len(ss) == 0:
+		return Session{}, fmt.Errorf("read session %d: %w", id, sql.ErrNoRows)
+	}
+	return ss[0], nil
+}
+
+// SessionInPane reports whether capture session session has an open segment in pane paneID:
+// the pane still holds the session (§6.2).
+func SessionInPane(ctx context.Context, tx *sql.Tx, session int64, paneID string) (bool, error) {
+	var in bool
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM segments
+		WHERE session_id = ? AND pane_id = ? AND ended IS NULL)`, session, paneID).Scan(&in)
+	if err != nil {
+		return false, fmt.Errorf("read segments of session %d: %w", session, err)
+	}
+	return in, nil
+}

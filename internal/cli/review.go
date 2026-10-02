@@ -480,6 +480,9 @@ func (cl caller) approve(ctx context.Context, r review) error {
 		if err := store.DecideProposal(ctx, tx, p.ID, store.ProposalApproved, cl.surface, cl.Now()); err != nil {
 			return err
 		}
+		if err := store.DecideSuggestions(ctx, tx, p.ID, store.SuggestionApproved); err != nil {
+			return err
+		}
 		if _, err = store.WriteRevision(ctx, tx, *p.BaseRevision, next); err != nil {
 			return err
 		}
@@ -587,10 +590,16 @@ func (cl caller) reject(ctx context.Context, id int64, reason string) error {
 				if err := store.DecideProposal(ctx, tx, other, store.ProposalRejected, cl.surface, cl.Now()); err != nil {
 					return err
 				}
+				if err := store.DecideSuggestions(ctx, tx, other, store.SuggestionRejected); err != nil {
+					return err
+				}
 				others = append(others, other)
 			}
 		}
-		return store.DecideProposal(ctx, tx, id, store.ProposalRejected, cl.surface, cl.Now())
+		if err := store.DecideProposal(ctx, tx, id, store.ProposalRejected, cl.surface, cl.Now()); err != nil {
+			return err
+		}
+		return store.DecideSuggestions(ctx, tx, id, store.SuggestionRejected)
 	})
 	if err != nil {
 		return err
@@ -636,10 +645,14 @@ func scopeKey(scope store.Scope, key string) *string {
 }
 
 // later leaves the proposal pending: it only mutes it for this review (§7.4, §11 proposals).
+// A shown suggestion of the proposal gets result later, which mutes the proposal for the rest
+// of the capture session of that suggestion (§5.5).
 func (cl caller) later(ctx context.Context, id int64) error {
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
-		_, _, _, err := cl.pending(ctx, tx, id)
-		return err
+		if _, _, _, err := cl.pending(ctx, tx, id); err != nil {
+			return err
+		}
+		return store.DecideSuggestions(ctx, tx, id, store.SuggestionLater)
 	})
 	if err != nil {
 		return err
@@ -982,8 +995,10 @@ func (cl caller) askChange(ctx context.Context, id int64, text string) error {
 		if c == nil {
 			return fmt.Errorf("proposal %d has no extractor evidence: approve it with --edit instead; nothing was written", id)
 		}
-		cr, err = store.AskChange(ctx, tx, id, *c, text, cl.surface, cl.Now())
-		return err
+		if cr, err = store.AskChange(ctx, tx, id, *c, text, cl.surface, cl.Now()); err != nil {
+			return err
+		}
+		return store.DecideSuggestions(ctx, tx, id, store.SuggestionChanged)
 	})
 	if err != nil {
 		return err
