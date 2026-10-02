@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -27,6 +28,9 @@ const (
 	manifestName  = "manifest.json"
 	globalName    = "global.md"
 	workspaceDir  = "workspaces"
+	// skillsName is the skills folder beside the out folder: <store>/skills (§8.2).
+	skillsName    = "skills"
+	skillFileName = "SKILL.md"
 )
 
 // ErrInconsistent means that a file of a generation is missing or does not match the hash in
@@ -39,6 +43,17 @@ type Manifest struct {
 	Generation int64           `json:"generation"`
 	BuiltAt    time.Time       `json:"built_at"`
 	Files      map[string]File `json:"files"`
+	// Skills lists each skill file that the parts name (§7.5 step 3). A generation built
+	// before E16-S3 has none.
+	Skills []SkillFile `json:"skills"`
+}
+
+// SkillFile is one skill file that a generation names: its exact path, its hash and its
+// (item id, revision) pair. [NEW] the field form.
+type SkillFile struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	store.RevisionRef
 }
 
 // File is one file of a generation: its hash and the item revisions that its text holds. The
@@ -114,6 +129,37 @@ func workspaceName(key string) string {
 	return workspaceDir + "/" + key + ".md"
 }
 
+// skillsDir is the skills folder of the store whose out folder is out.
+func skillsDir(out string) string {
+	return filepath.Join(filepath.Dir(out), skillsName)
+}
+
+// skillPath is the file of revision rev of skill item in the skills folder dir:
+// <dir>/<item id>/r<revision>/SKILL.md (§8.2).
+func skillPath(dir string, item, rev int64) string {
+	return filepath.Join(dir, strconv.FormatInt(item, 10), "r"+strconv.FormatInt(rev, 10), skillFileName)
+}
+
+// changedSkills returns the skill files that m lists and that are missing or no longer match
+// their hash, in list order: each is a conflict (§7.5 step 5, S11). A listed path that is not
+// the path of its pair counts too: the manifest is damaged.
+func changedSkills(out string, m Manifest) ([]string, error) {
+	var changed []string
+	for _, f := range m.Skills {
+		path := skillPath(skillsDir(out), f.Item, f.Revision)
+		b, err := os.ReadFile(path)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+		case err != nil:
+			return nil, err
+		case f.Path == path && hash(b) == f.SHA256:
+			continue
+		}
+		changed = append(changed, path)
+	}
+	return changed, nil
+}
+
 // readPointer returns the generation that out/current names.
 func readPointer(out string) (int64, error) {
 	b, err := os.ReadFile(filepath.Join(out, pointerName))
@@ -154,6 +200,11 @@ func checkManifest(m Manifest) error {
 	}
 	if _, ok := m.Files[globalName]; !ok {
 		return fmt.Errorf("no %s", globalName)
+	}
+	for _, f := range m.Skills {
+		if _, err := hex.DecodeString(f.SHA256); err != nil || len(f.SHA256) != 2*sha256.Size {
+			return fmt.Errorf("%s: bad sha256", f.Path)
+		}
 	}
 	for name, f := range m.Files {
 		if _, err := hex.DecodeString(f.SHA256); err != nil || len(f.SHA256) != 2*sha256.Size {

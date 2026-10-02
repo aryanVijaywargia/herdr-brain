@@ -497,18 +497,18 @@ func (cl caller) approve(ctx context.Context, r review) error {
 		if err := store.DecideSuggestions(ctx, tx, p.ID, store.SuggestionApproved); err != nil {
 			return err
 		}
-		if _, err = store.WriteRevision(ctx, tx, *p.BaseRevision, next); err != nil {
-			return err
-		}
+		// The replaced items retire first, so a skill that replaces one with its name passes
+		// the name check of its own write (§8.2).
 		for _, rt := range retired {
 			if _, err := store.WriteRevision(ctx, tx, rt.Revision-1, rt); err != nil {
 				return err
 			}
 		}
-		return nil
+		_, err = store.WriteRevision(ctx, tx, *p.BaseRevision, next)
+		return err
 	})
 	if err != nil {
-		return err
+		return skillError(err)
 	}
 	_, err = fmt.Fprintf(cl.Stdout, "proposal %d approved: item %d is %s at revision %d (%s)\n",
 		r.id, next.ItemID, next.State, next.Revision, cl.target(next.Scope))
@@ -559,6 +559,15 @@ func (cl caller) approved(r review, p store.Proposal, it store.Item, cur store.I
 		next.Scope, next.WorkspaceKey = store.ScopeWorkspace, &cl.key
 	}
 	return next, confirmed(r, p, next)
+}
+
+// skillError asks for a new name when the store refused a write because another active skill
+// in the scope has the name (§8.2). The transaction wrote nothing.
+func skillError(err error) error {
+	if errors.Is(err, store.ErrSkillName) {
+		return fmt.Errorf("%w: give this skill a new name (approve with --edit and a new name: line); nothing was written", err)
+	}
+	return err
 }
 
 // errConfirm: approve needs --confirm.
@@ -883,7 +892,7 @@ func (cl caller) restore(ctx context.Context, id int64) error {
 		return err
 	})
 	if err != nil {
-		return err
+		return skillError(err)
 	}
 	_, err = fmt.Fprintf(cl.Stdout, "item %d restored at revision %d\n", id, rev)
 	return errors.Join(err, cl.deliver(ctx, nil))

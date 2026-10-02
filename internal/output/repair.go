@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -107,6 +108,9 @@ func Confirm(ctx context.Context, s *store.Store, out string, now func() time.Ti
 	for _, c := range cs {
 		b.replace = append(b.replace, c.Generation)
 	}
+	if err := restoreSkills(ctx, s, out, cur, cs); err != nil {
+		return nil, err
+	}
 	// The pointer leaves the hand-edited generation before its folder goes, so it never names
 	// a folder that is not there (§7.5 step 9).
 	if slices.Contains(b.replace, cur) {
@@ -128,6 +132,51 @@ func Confirm(ctx context.Context, s *store.Store, out string, now func() time.Ti
 		}
 	}
 	return cs, b.repair(ctx, s)
+}
+
+// restoreSkills writes each skill file of the current generation cur that you confirmed in
+// cs again, from the text of its revision in the store (§7.5 step 5). A running session may
+// still read an older revision, so this covers every listed revision, not only the newest.
+// A revision whose stored text no longer has the listed hash (forget erased it) is not
+// written: its item is no active skill, so cleanup removes the file.
+func restoreSkills(ctx context.Context, s *store.Store, out string, cur int64, cs []ConflictError) error {
+	if !slices.ContainsFunc(cs, func(c ConflictError) bool { return c.Generation == cur }) {
+		return nil
+	}
+	m, _, err := readManifest(filepath.Join(out, folder(cur)))
+	if errors.Is(err, ErrInconsistent) {
+		// A damaged manifest lists no file that Brain can trust; the rebuild writes the files
+		// of the new generation.
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	changed, err := changedSkills(out, m)
+	if err != nil {
+		return err
+	}
+	for _, f := range m.Skills {
+		path := skillPath(skillsDir(out), f.Item, f.Revision)
+		if !slices.Contains(changed, path) {
+			continue
+		}
+		var r store.ItemRevision
+		err := s.Write(ctx, func(tx *sql.Tx) (err error) {
+			r, err = store.ItemRevisionByKey(ctx, tx, f.Item, f.Revision)
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		if hash([]byte(r.Text)) != f.SHA256 {
+			continue
+		}
+		if err := writeAtomic(path, r.Text, writeFile); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // sleep is time.Sleep; a test replaces it.
@@ -219,9 +268,65 @@ func cleanup(ctx context.Context, s *store.Store, out string, now func() time.Ti
 			return err
 		}
 	}
+	if err := cleanSkills(ctx, s, out, cur, left, now); err != nil {
+		return err
+	}
 	// A deleted generation holds no forgotten text any more, so the hook stops withholding for
 	// it (§6.7).
 	return s.Write(ctx, func(tx *sql.Tx) error { return store.ClearForgotten(ctx, tx, kept) })
+}
+
+// cleanSkills deletes the skill files of each item that is not an active skill, when the
+// current generation cur lists none of them and the pointer switched to cur more than hookCap
+// ago, the time left (§7.5 step 8). All revision files of an active skill stay, so a running
+// session can still read the path in its brief (§5.5). A folder name that is no item id
+// stays. The caller holds the lock, so no build writes a skill file now.
+func cleanSkills(ctx context.Context, s *store.Store, out string, cur int64, left time.Time, now func() time.Time) error {
+	if cur == 0 || left.IsZero() || now().Sub(left) <= hookCap {
+		return nil
+	}
+	dir := skillsDir(out)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	m, _, err := readManifest(filepath.Join(out, folder(cur)))
+	if errors.Is(err, ErrInconsistent) {
+		// With a damaged current manifest, Brain cannot see which files it lists: all stay
+		// until you resolve the conflict.
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	keep := make(map[int64]bool)
+	for _, f := range m.Skills {
+		keep[f.Item] = true
+	}
+	// The deletes run inside the store write, so no restore or undo can make one of these
+	// skills active between the check and the delete.
+	return s.Write(ctx, func(tx *sql.Tx) error {
+		active, err := store.ActiveSkills(ctx, tx)
+		if err != nil {
+			return err
+		}
+		for _, r := range active {
+			keep[r.ItemID] = true
+		}
+		for _, e := range entries {
+			id, err := strconv.ParseInt(e.Name(), 10, 64)
+			if err != nil || keep[id] {
+				continue
+			}
+			if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // switchedAt returns the time of the last pointer switch, to generation cur: its outputs row
@@ -243,16 +348,25 @@ func switchedAt(ctx context.Context, s *store.Store, cur int64) (time.Time, erro
 }
 
 // Conflicts returns the open output conflicts in out, in generation order: each generation
-// folder whose files no longer match its manifest (S66). Brain keeps these folders until you
+// folder whose files no longer match its manifest (S66), and the current generation when a
+// skill file that it lists no longer matches (S11). Brain keeps these folders until you
 // resolve the conflict. brain status and brain doctor show them.
 func Conflicts(out string) ([]ConflictError, error) {
 	gens, _, err := folders(out)
 	if err != nil {
 		return nil, err
 	}
+	cur, err := current(out)
+	if err != nil {
+		return nil, err
+	}
 	var cs []ConflictError
 	for _, gen := range gens {
-		_, err := checkGeneration(out, gen)
+		check := checkGeneration
+		if gen == cur {
+			check = checkCurrent
+		}
+		_, err := check(out, gen)
 		var ce *ConflictError
 		if errors.As(err, &ce) {
 			cs = append(cs, *ce)
@@ -266,14 +380,27 @@ func Conflicts(out string) ([]ConflictError, error) {
 }
 
 // Holds reports whether any folder in out may still hold the text of item, at any revision
-// (§6.7). The forget flow reports "done" only when it is false. A generation counts by the
-// (item id, revision) pairs in its manifest, never by a text search. A staging folder, a
+// (§6.7), or a skill file of item is still there. The forget flow reports "done" only when it
+// is false. A generation counts by the (item id, revision) pairs in its manifest, never by a text search. A staging folder, a
 // generation with a missing or invalid manifest, or a file that the manifest does not name may
 // hold anything, so it counts too, until cleanup removes it. A kept conflict folder counts
 // too: a file that fails its hash may hold any text, whatever its manifest names.
 func Holds(out string, item int64) (bool, error) {
 	gens, staging, err := holding(out, item)
-	return staging || len(gens) > 0, err
+	if err != nil || staging || len(gens) > 0 {
+		return staging || len(gens) > 0, err
+	}
+	return skillFiles(out, item)
+}
+
+// skillFiles reports whether a skill file of item, of any revision, is still on disk (§7.5
+// step 8): forget of a skill stays pending until every revision file is gone.
+func skillFiles(out string, item int64) (bool, error) {
+	_, err := os.Stat(filepath.Join(skillsDir(out), strconv.FormatInt(item, 10)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // holding returns the generations in out that may hold the text of item, as Holds counts
