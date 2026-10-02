@@ -47,8 +47,9 @@ const (
 // reads: it sends no keys and no scroll to any pane.
 type Capture struct {
 	sock    herdr.Socket
-	environ []string                                                      // the brained environment; a suggestion process gets it with the pane's herdr variables
-	start   func(ctx context.Context, environ []string, d Dispatch) error // starts a suggestion (Start)
+	environ []string                                                                  // the brained environment; a suggestion process gets it with the pane's herdr variables
+	start   func(ctx context.Context, environ []string, d Dispatch) error             // starts a suggestion (Start)
+	stale   func(ctx context.Context, g Gate, key string, now func() time.Time) error // the stale check of a workspace (Stale)
 	now     func() time.Time
 	profile func(harness string) (*adapter.Profile, error)
 	panes   map[string]*capturePane
@@ -58,7 +59,7 @@ type Capture struct {
 // NewCapture returns a Capture that reads panes over sock. environ is the brained
 // environment.
 func NewCapture(sock herdr.Socket, environ []string) *Capture {
-	return &Capture{sock: sock, environ: environ, start: Start, now: time.Now, profile: adapter.Load,
+	return &Capture{sock: sock, environ: environ, start: Start, stale: Stale, now: time.Now, profile: adapter.Load,
 		panes: map[string]*capturePane{}, noise: map[string]*adapter.Profile{}}
 }
 
@@ -400,9 +401,11 @@ func (c *Capture) lose(ctx context.Context, s Step, cp *capturePane, err error) 
 }
 
 // end ends the session of the pane and drops its last read. An end writes no text, so it
-// needs no learning check.
+// needs no learning check. After a session ends, the stale check reads the anchors of the
+// items of its workspace (§9.1).
 func (c *Capture) end(ctx context.Context, s Step, cp *capturePane) error {
-	if cp != nil && cp.session != 0 && !c.held(cp.key, s.PaneID) {
+	ended := cp != nil && cp.session != 0 && !c.held(cp.key, s.PaneID)
+	if ended {
 		err := c.write(ctx, s, func(tx *sql.Tx, now time.Time, _ Learning) error {
 			return store.EndSession(ctx, tx, cp.key, now)
 		})
@@ -411,6 +414,16 @@ func (c *Capture) end(ctx context.Context, s Step, cp *capturePane) error {
 		}
 	}
 	delete(c.panes, s.PaneID)
+	if !ended {
+		return nil
+	}
+	key, err := s.Gate.workspaceKey(cp.workspace)
+	if err != nil || key == "" {
+		return err
+	}
+	if err := c.stale(ctx, s.Gate, key, c.now); err != nil {
+		return fmt.Errorf("stale check of workspace %s: %w", key, err)
+	}
 	return nil
 }
 
