@@ -269,7 +269,7 @@ $S/h session stop brain-e2s6; $S/h session delete brain-e2s6
 
 ### D9. M2 exit record
 
-**Status:** the exit stays open, for two reasons. (1) S38 is BLOCKED: its resize and rewrap parts have no test (note 1). (2) The cross-harness case is a check that a person runs, and it is not run yet, so the sentence "One inferred correction helps a later task in another harness" has no passing record. All other listed scenarios and the reject test pass as Go tests (2026-10-02, branch of #80).
+**Status:** the exit stays open, for one reason. The cross-harness case is a check that a person runs, and it is not run yet, so the sentence "One inferred correction helps a later task in another harness" has no passing record. All listed scenarios and the reject test pass as Go tests (2026-10-02, branch of #80; S38 with the resize reads of #199 and the fix of #203, note 1).
 
 **Scenarios** (HLD §14). Each test names its scenario id in its name or its comment. The tests use temp stores, the fake herdr and the fake extractor: no live herdr, no CLI and no model call.
 
@@ -282,7 +282,7 @@ $S/h session stop brain-e2s6; $S/h session delete brain-e2s6
 | S35 | One occurrence with both references | `internal/brained` `TestCaptureS35` | PASS |
 | S36 | Read dropped, or a new segment in the new workspace | `internal/brained` `TestCaptureS36`, `TestCaptureMovedEnd` | PASS |
 | S37 | No owner mark and no permission item | `internal/brained` `TestCaptureS37`; `internal/signal` `TestAssistantQuote` | PASS |
-| S38 | No extra count; lost text is a gap | `internal/brained` `TestCaptureS38`, `TestCaptureScreenLost` (repaint, scroll-away, alternate-screen loss) | BLOCKED (note 1) |
+| S38 | No extra count; lost text is a gap | `internal/brained` `TestCaptureS38`, `TestCaptureScreenLost` (repaint, scroll-away, alternate-screen loss), `TestCaptureS38Resize` (recorded resize and rewrap reads, Claude and Codex; note 1), `TestNewPartRewrap` | PASS |
 | S39 | Reconcile live state and record a gap | `internal/brained` `TestBehind` | PASS |
 | S40 | Two occurrences | `internal/brained` `TestCaptureS40` | PASS |
 | S41 | Sender stays unconfirmed | `internal/brained` `TestCaptureS41` | PASS |
@@ -297,7 +297,7 @@ $S/h session stop brain-e2s6; $S/h session delete brain-e2s6
 | S75 | Model-call counter of the workspace stays 0 | `internal/extract` `TestExtractionOffWorkspace` | PASS |
 
 Notes:
-1. S38 BLOCKED: a headless herdr does not resize the pane terminal, so no recorded read has a resize or a rewrap. The made resize screen of E11-S3 is on the revisit list (#151). Repaint, scroll-away and alternate-screen loss have passing tests. To close S38: record a read of a resized pane (Claude and Codex) and add a test that it gives no extra count. This keeps the exit open.
+1. S38 resize and rewrap (#199, #203, 2026-10-02): a headless herdr does not resize the pane terminal, so the reads come from a herdr client in a pseudo-terminal that a script resizes (`spike/m0/s38rec/`, notes in `internal/brained/testdata/README.md`). Claude draws its screen again at the new width; Codex clears its history and draws it again. `TestCaptureS38Resize` checks with these reads: a rewrap to a narrower pane and back gives no observation; a screen too small for the old text gives one `screen lost` gap; a screen that grows again shows the old text with no count; a new turn after a resize keeps only the new prompt and reply. The first reads gave two extra counts (#203): the rewrapped old turn and the new turn in one block of new lines, and the old text of a screen that grows. The fix in `newPart` treats the text of the replaced old lines at the start of such a block as a rewrap; a block after the last old line stays new (S40). A partial read does not count text that the last two different screens show. Repaint, scroll-away and alternate-screen loss keep their tests.
 2. New test for the issue: `internal/cli` `TestSuggestRejectNoNag`. You reject a live suggestion. The same prompt again in the same session and in a new session reserves no suggestion, so no notification and no pane. The fake extractor then gives the same claim for the repeats: the evidence attaches, and no new proposal comes for the claim in the workspace. PASS. A check without the reject fails the test.
 
 **§13 M2 exit sentences**
@@ -308,7 +308,7 @@ Notes:
 | A repeated prompt shows a ready proposal beside the agent, and you decide without leaving the session | S55 (`TestSuggestShows`); the pane keys approve, reject, later and change (`internal/cli` `TestPaneKeys`); each decision gives the suggestion its result (`TestSuggestResults`) | PASS |
 | A wrong proposal can be rejected with no repeated nagging | E12-S3 `internal/store` `TestRejectionNewEvidence`, `internal/cli` `TestReviewRejectClaim`; the new `TestSuggestRejectNoNag` | PASS |
 | Close prompt matches turn on only after the labeled prompt set passes | S71 (`TestPromptSet`) | PASS |
-| S31-S42, S55-S57, S68-S71 and S75 pass | The scenario table above | OPEN: S38 BLOCKED, all others PASS |
+| S31-S42, S55-S57, S68-S71 and S75 pass | The scenario table above | PASS |
 
 **Cross-harness case: checklist for a person** (HLD §13, §8.3 test bindings, §12.1 control; as E10-S5). A person runs it, not the eval runner and not an agent. It uses official, unmodified `claude` and `codex` binaries. It never touches the main herdr session or the main store.
 

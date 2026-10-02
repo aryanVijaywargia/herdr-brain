@@ -69,10 +69,43 @@ Claude, `visible` (40 rows):
 - `claude-visible-empty.txt` (S38): made for the test, not recorded. It is an empty screen,
   as after an alternate screen closes.
 
-No resize read is recorded. A headless herdr (no client) does not resize the pane terminal:
-after `herdr pane split w1:p1 --direction right --ratio 0.6` and `herdr pane resize --pane
-w1:p1 --direction left --amount 0.2`, the layout gave 48 columns, but the reads kept 119
-columns.
+A headless herdr (no client) does not resize the pane terminal: after `herdr pane split w1:p1
+--direction right --ratio 0.6` and `herdr pane resize --pane w1:p1 --direction left --amount
+0.2`, the layout gave 48 columns, but the reads kept 119 columns. The resize reads below come
+from a herdr client.
+
+## Resize reads (bug #199)
+
+- Date: 2026-10-02. herdr 0.9.1, Claude Code 2.1.287 (`claude-haiku-4-5-20251001`), codex-cli
+  0.154.0 (gpt-6-astra high).
+- A test herdr session `brain-rec-199`, stopped and deleted after the recording. The herdr
+  client of the session ran in a pseudo-terminal of `spike/m0/s38rec/client.py`, with the
+  clean environment above. The script sets the terminal size with `TIOCSWINSZ`, and the client
+  resizes the panes of the focused workspace. Each read was one socket call of
+  `spike/m0/s38rec/read.py`, as `herdr.Socket.Read` makes it. The rows and columns below are
+  the size of the client terminal; the pane is 26 columns narrower (the sidebar).
+- Claude in pane `w2:p1`, cwd `/private/tmp/e11s1/agent` (trusted in E11-S3), read `visible`
+  (40 rows). Prompt: "Skip any progress report. Write one plain paragraph of about 120 words
+  about rivers, and nothing else.". No hook approval came up.
+- Codex in pane `w3:p1`, cwd `/private/tmp/s38rec/codex` (a git repo with `notes.txt`), with
+  the folder trust on the command line, as above. At "Hooks need review" the answer was 3.
+  Read `recent_unwrapped`, 120 lines. Prompt: "Do not run any command. Write one plain
+  paragraph of about 120 words about rivers, and nothing else.". Codex gave the status
+  `idle` at the end of each turn here, not `done`.
+- Private data is replaced: the user name is `user` and the host name is `host`, in the shell
+  line of `codex-s38-0-base.txt`.
+
+Files, all at idle:
+
+- `claude-s38-resize-*.txt`: `0-base` (41x160), `1-narrow` (41x100: Claude draws the screen
+  again, and the prompt and the answer wrap anew), `2-wide` (41x160, byte for byte the same as
+  `0-base`), `3-small` (16x80: only the end of the answer fits, and the top of the screen is
+  lost), `4-wide` (41x160 again, the same as `0-base`), `5-narrow-ready` (41x100, then the
+  prompt "Reply with only the word ready.").
+- `codex-s38-*.txt`: `0-base` (41x160), `1-narrow` (41x100), `2-wide` (41x160),
+  `3-narrow-ready` (41x100, then the prompt "Reply with only the word ready."). Codex clears
+  the screen and the history at a resize and draws its whole history again at the new width.
+  The shell line above Codex is lost after the first resize.
 
 ## Noise profiles
 

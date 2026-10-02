@@ -1,0 +1,26 @@
+host:codex user$ codex -c 'projects={"/private/tmp/s38rec/codex"={trust_level="trusted"}}' -c check_for_update_on_startup=false -a on-request -c approvals_reviewer='"user"'
+
+╭────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.154.0)                     │
+│                                                │
+│ model:     gpt-6-astra high   /model to change │
+│ directory: /private/tmp/s38rec/codex           │
+╰────────────────────────────────────────────────╯
+
+  Tip: Maximize usage with GPT-6.1 Sol. Try it on complex work for near-Astra performance at a lower cost.
+
+
+› Do not run any command. Write one plain paragraph of about 120 words about rivers, and nothing else.
+
+
+• Rivers begin in modest places: a spring beneath a hillside, melting snow among rocks, or rain gathering in a shallow fold of land.
+  As they travel, they carry soil, nourish forests, and create shelter for fish, birds, and countless smaller creatures. People
+  settle beside them for water, food, transport, and the comfort of a familiar current. A river can seem permanent, yet its shape
+  changes with every flood and season, wearing away one bank while building another. Some rivers rush through narrow valleys; others
+  wander slowly across broad plains. Following one downstream reveals how closely places are connected, and how something released
+  into the water far upstream can eventually reach a distant farm, town, wetland, or stretch of open sea.
+
+
+› Ask Codex to do anything
+
+  master · gpt-6-astra high · Context 2% used · 258K window · Ask for approval

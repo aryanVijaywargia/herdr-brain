@@ -404,7 +404,7 @@ func TestCaptureEndRetry(t *testing.T) {
 }
 
 // S38: a repaint gives no observation. A screen that scrolled the old text away is partial.
-// A headless herdr does not resize the pane terminal, so no resize read is recorded.
+// TestCaptureS38Resize has the recorded resize reads.
 func TestCaptureS38(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
 	k.pane("w1:p1", "claude", "")
@@ -433,6 +433,85 @@ func TestCaptureScreenLost(t *testing.T) {
 	k.must(t, Change, "w1:p1", "idle", GapNone)
 	if excerpts, gaps := k.rows(t).text(); len(excerpts) != 0 || !slices.Equal(gaps, []string{gapLost}) {
 		t.Errorf("excerpts %q, gaps %v, want only a %q gap", excerpts, gaps, gapLost)
+	}
+}
+
+// S38: recorded reads of a pane that a herdr client resized (bugs #199, #203). A rewrap to a
+// narrower pane and back gives no observation, and a screen too small for the old text is a
+// gap. A screen that grows again shows the old text with no count. A new turn after a resize
+// or at the same width keeps only the new turn.
+func TestCaptureS38Resize(t *testing.T) {
+	for _, tc := range []struct {
+		harness, prefix string
+		resize          []string // reads after the base: rewraps, a lost screen, a screen that grows
+		gaps            []string
+		turn            []string // reads before a read with a new turn, the last name
+		prompt, reply   string
+	}{
+		// The second small read is a read of the same screen: the screen that grows is still
+		// the screen before the small one.
+		{harness: "claude", prefix: "claude-s38-resize-", resize: []string{"1-narrow", "2-wide", "3-small", "3-small", "4-wide"},
+			gaps: []string{gapLost}, turn: []string{"0-base", "1-narrow", "5-narrow-ready"},
+			prompt: "❯ Reply with only the word ready.", reply: "⏺ ready"},
+		{harness: "codex", prefix: "codex-s38-", resize: []string{"1-narrow", "2-wide"},
+			turn:   []string{"0-base", "1-narrow", "2-wide", "3-narrow-ready"},
+			prompt: "› Reply with only the word ready.", reply: "• ready"},
+	} {
+		t.Run(tc.harness, func(t *testing.T) {
+			k := newCapture(t, "s1", t.TempDir())
+			k.pane("w1:p1", tc.harness, "")
+			k.reads(t, "w1:p1", tc.prefix+"0-base.txt")
+			for _, f := range tc.resize {
+				k.reads(t, "w1:p1", tc.prefix+f+".txt")
+			}
+			k.must(t, Baseline, "w1:p1", "", GapNone)
+			for range tc.resize {
+				k.must(t, Change, "w1:p1", "idle", GapNone)
+			}
+			r := k.rows(t)
+			if _, gaps := r.text(); !slices.Equal(gaps, tc.gaps) {
+				t.Errorf("after the resizes: gaps %v, want %v", gaps, tc.gaps)
+			}
+			for _, o := range r.obs {
+				if o.Counts {
+					t.Errorf("after the resizes: observation %q counts, want no count", o.Excerpt)
+				}
+			}
+
+			next := tc.turn[len(tc.turn)-1]
+			for _, from := range tc.turn[:len(tc.turn)-1] {
+				k := newCapture(t, "s1", t.TempDir())
+				k.pane("w1:p1", tc.harness, "")
+				k.reads(t, "w1:p1", tc.prefix+from+".txt", tc.prefix+next+".txt")
+				k.must(t, Baseline, "w1:p1", "", GapNone)
+				k.must(t, Change, "w1:p1", "idle", GapNone)
+				if excerpts, _ := k.rows(t).text(); !slices.Equal(excerpts, []string{tc.prompt + "\n" + tc.reply}) {
+					t.Errorf("%s, then %s: excerpts = %q, want only the prompt and the reply", from, next, excerpts)
+				}
+			}
+		})
+	}
+}
+
+// newPart keeps new lines that only look like a rewrap: a line that is only the start of an
+// old line, and a new turn after the last old line that repeats a rewrapped old prompt (S40).
+func TestNewPartRewrap(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		old, read []string
+		want      []int
+	}{
+		{"line start", []string{"• Done.", "› x"}, []string{"• Done.", "› x", "• Done"}, []int{2}},
+		{"codex repeat", []string{"› alpha beta", "• r1"},
+			[]string{"› alpha", "  beta", "• r1", "› alpha", "  beta", "• r2"}, []int{3, 4, 5}},
+		{"claude repeat", []string{"❯ alpha beta", "⏺ r1"},
+			[]string{"❯ alpha", "  beta", "⏺ r1", "❯ alpha", "  beta", "⏺ r2"}, []int{3, 4, 5}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if idx, _ := newPart(tc.old, nil, read{lines: tc.read}); !slices.Equal(idx, tc.want) {
+				t.Errorf("newPart = %v, want %v", idx, tc.want)
+			}
+		})
 	}
 }
 
