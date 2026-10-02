@@ -448,7 +448,9 @@ func TestCaptureS38Resize(t *testing.T) {
 		turn            []string // reads before a read with a new turn, the last name
 		prompt, reply   string
 	}{
-		{harness: "claude", prefix: "claude-s38-resize-", resize: []string{"1-narrow", "2-wide", "3-small", "4-wide"},
+		// The second small read is a read of the same screen: the screen that grows is still
+		// the screen before the small one.
+		{harness: "claude", prefix: "claude-s38-resize-", resize: []string{"1-narrow", "2-wide", "3-small", "3-small", "4-wide"},
 			gaps: []string{gapLost}, turn: []string{"0-base", "1-narrow", "5-narrow-ready"},
 			prompt: "❯ Reply with only the word ready.", reply: "⏺ ready"},
 		{harness: "codex", prefix: "codex-s38-", resize: []string{"1-narrow", "2-wide"},
@@ -491,11 +493,25 @@ func TestCaptureS38Resize(t *testing.T) {
 	}
 }
 
-// newPart keeps a new line that is only the start of an old line: it is no rewrap.
-func TestNewPartLineStart(t *testing.T) {
-	idx, _ := newPart([]string{"• Done.", "› x"}, nil, read{lines: []string{"• Done.", "› x", "• Done"}})
-	if !slices.Equal(idx, []int{2}) {
-		t.Errorf("newPart = %v, want [2]", idx)
+// newPart keeps new lines that only look like a rewrap: a line that is only the start of an
+// old line, and a new turn after the last old line that repeats a rewrapped old prompt (S40).
+func TestNewPartRewrap(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		old, read []string
+		want      []int
+	}{
+		{"line start", []string{"• Done.", "› x"}, []string{"• Done.", "› x", "• Done"}, []int{2}},
+		{"codex repeat", []string{"› alpha beta", "• r1"},
+			[]string{"› alpha", "  beta", "• r1", "› alpha", "  beta", "• r2"}, []int{3, 4, 5}},
+		{"claude repeat", []string{"❯ alpha beta", "⏺ r1"},
+			[]string{"❯ alpha", "  beta", "⏺ r1", "❯ alpha", "  beta", "⏺ r2"}, []int{3, 4, 5}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if idx, _ := newPart(tc.old, nil, read{lines: tc.read}); !slices.Equal(idx, tc.want) {
+				t.Errorf("newPart = %v, want %v", idx, tc.want)
+			}
+		})
 	}
 }
 
