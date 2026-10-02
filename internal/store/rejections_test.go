@@ -173,7 +173,7 @@ func TestEraseItemRejectionReason(t *testing.T) {
 	e.reject(t, c, "pnpm breaks the lockfile")
 	write(t, e.Store, func(tx *sql.Tx) error {
 		item, err := InsertItem(ctx, tx, Item{ClaimID: claim, CurrentRevision: 1, Kind: KindFact, Scope: ScopeGlobal,
-			State: StateDraft, Anchors: []string{}, Created: testNow})
+			State: StateDraft, Created: testNow})
 		if err != nil {
 			return err
 		}

@@ -18,6 +18,7 @@ func ItemTextFields() []Field {
 		{"proposals", "diff"},
 		{"proposals", "expected_benefit"},
 		{"proposals", "change_request"},
+		{"proposals", "dispute"}, // The anchor paths of a dispute (§9.1).
 		{"applied_edits", "content_before"},
 		{"applied_edits", "content_after"},
 		// The claim key text (§7.2): forget removes it from the claim of the item, and the

@@ -30,7 +30,8 @@ func CurrentGeneration(ctx context.Context, tx *sql.Tx) (int64, error) {
 	return g, nil
 }
 
-// ActiveRevisions reads the current revision of each active item, in item id order. An
+// ActiveRevisions reads the current revision of each delivered item, in item id order: the
+// active items and the disputed ones, which stay delivered until you decide (§9.1). An
 // exception link counts only while it names the current revision of an active global item:
 // a new revision of that item sends the link back to review (§7.4), so ActiveRevisions drops
 // it, and the precedence line applies again (StaleExceptions lists it).
@@ -80,7 +81,7 @@ func staleLinks(rs []ItemRevision) []int {
 func activeRevisions(ctx context.Context, tx *sql.Tx) ([]ItemRevision, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT `+revisionColumns+` FROM item_revisions r
 		JOIN items i ON r.item_id = i.id AND r.revision = i.current_revision
-		WHERE i.state = ? ORDER BY i.id`, StateActive)
+		WHERE i.state IN (?, ?) ORDER BY i.id`, StateActive, StateDisputed)
 	if err != nil {
 		return nil, fmt.Errorf("read active items: %w", err)
 	}

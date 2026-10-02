@@ -48,6 +48,7 @@ const promptRowsOfItem = `EXISTS (SELECT 1 FROM json_each(proposal_ids) j JOIN p
 // "". A nullable field gets NULL, and a list field an empty list.
 var blanks = map[Field]string{
 	{"items", "anchors"}:                `'[]'`,
+	{"proposals", "dispute"}:            `'[]'`,
 	{"proposals", "change_request"}:     `NULL`,
 	{"applied_edits", "content_before"}: `NULL`,
 	{"applied_edits", "content_after"}:  `NULL`,
