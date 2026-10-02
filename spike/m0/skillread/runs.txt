@@ -457,3 +457,20 @@ SessionStart None None null
 2020-01-01T00:00:00 /private/tmp/e16s1/store/skills/41/r1/SKILL.md
 2026-10-03T01:21:58 /private/tmp/e16s1/store/skills/42/r1/SKILL.md
 2020-01-01T00:00:00 /private/tmp/e16s1/store/skills/43/r1/SKILL.md
+
+== Claude launch evidence (added after the review; copied from the tester's tool output during the run)
+-- C1 SessionStart hook input (the first line of claude-hooks.jsonl in C1; the logs of C2-C5 kept only the event name):
+{"session_id":"fcbf3e4e-8197-4c39-8b49-3ae1b493675c","transcript_path":"~/.claude/projects/-private-tmp-e16s1-claude/fcbf3e4e-8197-4c39-8b49-3ae1b493675c.jsonl","cwd":"/private/tmp/e16s1/claude","hook_event_name":"SessionStart","source":"startup","model":"claude-sonnet-5-5[1m]"}
+-- herdr pane read of w1:p1 just before C5 (the shell lines between the Claude runs). Each case started a new
+-- claude process from the shell with herdr agent start (no --resume, no --continue). Each run printed its own
+-- session id at exit, so C1-C4 were 4 different sessions:
+claude --resume fcbf3e4e-8197-4c39-8b49-3ae1b493675c
+<host>:claude <user>$ claude --settings /private/tmp/e16s1/hooks/claude-settings.json
+claude --resume ec2680cb-c9b5-4d50-af2c-0bb53c7884c1
+<host>:claude <user>$ claude --settings /private/tmp/e16s1/hooks/claude-settings.json
+claude --resume 9571ad7f-d514-46c2-8a9f-964459550bd3
+<host>:claude <user>$ claude --settings /private/tmp/e16s1/hooks/claude-settings.json --permission-mode default
+claude --resume 343e6f5b-d8d4-4798-b130-3b0226c78c6b
+<host>:claude <user>$ claude --setting-sources '""' --settings /private/tmp/e16s1/hooks/claude-settings.json --permission-mode default
+Error processing --setting-sources: Invalid setting source: "". Valid options are: user, project, local
+-- (the first line of the read is the exit line of C1; the shell line of the C1 start was above the read.)
