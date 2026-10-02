@@ -78,18 +78,25 @@ func (f *fixture) hookStore() *store.Store {
 
 // AC S42: many workspaces with signals. The queue takes one batch of each workspace in turn,
 // the call cap bounds each day, and the key that waited longest goes first the next day. The
-// call runs outside any transaction, so a hook write with the hook's lock wait goes through.
+// call runs outside any transaction, so a hook write with the hook's lock wait goes through,
+// inside the hook cap (S42).
 func TestQueueFairAndBounded(t *testing.T) {
 	f := newFixture(t)
 	keys := f.manyWorkspaces()
 	hook := f.hookStore()
 	f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {
 		f.now = f.now.Add(time.Minute)
+		start := time.Now()
 		if err := hook.Write(ctx, func(tx *sql.Tx) error {
 			_, err := tx.ExecContext(ctx, `UPDATE extractor_settings SET changed = changed`)
 			return err
 		}); err != nil {
 			t.Errorf("a write during the call: %v", err)
+		}
+		// The hook's receipt write stays inside the hook cap of 300 ms (§8.3, hook.hookCap)
+		// while the queue runs (S42).
+		if d := time.Since(start); d > 300*time.Millisecond {
+			t.Errorf("a hook write during the call took %v, want at most the hook cap 300ms", d)
 		}
 		return noClaims(ctx, prompt)
 	}

@@ -264,3 +264,92 @@ $S/h session stop brain-e2s6; $S/h session delete brain-e2s6
 - E11-S1 showed that a herdr read longer than the screen scrolls the Claude pane through mouse-scroll input at idle. This breaks the "never scrolls" rule.
 - While Claude is `working` or `blocked`, herdr can read only the screen (`agent_not_idle` above it). At idle, a longer read often returned only the screen with exit 0. So the longer read gives little extra text that Brain can trust.
 - Raw log: `spike/m0/data/e11s1-capture.txt`.
+
+## E15-S3: M2 exit run (#80)
+
+### D9. M2 exit record
+
+**Status:** the exit stays open, for two reasons. (1) S38 is BLOCKED: its resize and rewrap parts have no test (note 1). (2) The cross-harness case is a check that a person runs, and it is not run yet, so the sentence "One inferred correction helps a later task in another harness" has no passing record. All other listed scenarios and the reject test pass as Go tests (2026-10-02, branch of #80).
+
+**Scenarios** (HLD §14). Each test names its scenario id in its name or its comment. The tests use temp stores, the fake herdr and the fake extractor: no live herdr, no CLI and no model call.
+
+| # | Expected (§14, short) | Tests | Result |
+|---|---|---|---|
+| S31 | Fragments kept; no invented user turns | `internal/brained` `TestCaptureS31` (codex, claude) | PASS |
+| S32 | Partial baseline and a gap; no invented start message | `internal/brained` `TestCaptureS32` (new), `TestStartReconcile`, `TestCaptureNativeIDLater` | PASS |
+| S33 | A gap; no text goes to a new pane | `internal/brained` `TestCaptureS33` | PASS |
+| S34 | One occurrence | `internal/brained` `TestCaptureS34`, `TestCaptureReplay`; `internal/store` `TestAddObservationOnce` | PASS |
+| S35 | One occurrence with both references | `internal/brained` `TestCaptureS35` | PASS |
+| S36 | Read dropped, or a new segment in the new workspace | `internal/brained` `TestCaptureS36`, `TestCaptureMovedEnd` | PASS |
+| S37 | No owner mark and no permission item | `internal/brained` `TestCaptureS37`; `internal/signal` `TestAssistantQuote` | PASS |
+| S38 | No extra count; lost text is a gap | `internal/brained` `TestCaptureS38`, `TestCaptureScreenLost` (repaint, scroll-away, alternate-screen loss) | BLOCKED (note 1) |
+| S39 | Reconcile live state and record a gap | `internal/brained` `TestBehind` | PASS |
+| S40 | Two occurrences | `internal/brained` `TestCaptureS40` | PASS |
+| S41 | Sender stays unconfirmed | `internal/brained` `TestCaptureS41` | PASS |
+| S42 | Queue fair and bounded; hook delivery fast | `internal/extract` `TestQueueFairAndBounded` (fair turns, the daily call cap, and each hook write during an extractor call stays inside the hook cap of 300 ms); `internal/hook` `TestTiming` (the whole hook run) | PASS |
+| S55 | Notification and no-focus pane; no model call; the agent keeps working | `internal/cli` `TestSuggestShows`; `internal/brained` `TestCaptureSuggestion` | PASS |
+| S56 | Request stored; new draft later; proposal not published | `internal/cli` `TestReviewChange`, `TestPaneChange`; `internal/extract` `TestChangeRequestDraft` | PASS |
+| S57 | One occurrence with both references; one suggestion | `internal/brained` `TestSuggestionOnce`, `TestSuggestionConcurrent`; `internal/store` `TestReserveSuggestionOneOccurrence` | PASS |
+| S68 | Prompt text and hash rows gone; proposals listed first | `internal/cli` `TestForgetSessionPromptIndex` | PASS |
+| S69 | Retry counts once; nothing twice; forget discards the batch | `internal/extract` `TestCrashAfterResultBeforeCommit` (new: a valid result, then the commit transaction aborts at its last write; everything rolls back, and the retry counts once), `TestCrashBeforeCommit` (a crash during the call), `TestCrashAfterCommit`, `TestForgetDuringExtraction` | PASS |
+| S70 | Empty moves the watermark; invalid keeps it, status shows it | `internal/extract` `TestEmptyAndInvalidResults`; `internal/cli` `TestStatusFailedBatch` | PASS |
+| S71 | Each labeled prompt gives its result; 0 model calls | `internal/store` `TestPromptSet` (`evals/prompts.toml`) | PASS |
+| S75 | Model-call counter of the workspace stays 0 | `internal/extract` `TestExtractionOffWorkspace` | PASS |
+
+Notes:
+1. S38 BLOCKED: a headless herdr does not resize the pane terminal, so no recorded read has a resize or a rewrap. The made resize screen of E11-S3 is on the revisit list (#151). Repaint, scroll-away and alternate-screen loss have passing tests. To close S38: record a read of a resized pane (Claude and Codex) and add a test that it gives no extra count. This keeps the exit open.
+2. New test for the issue: `internal/cli` `TestSuggestRejectNoNag`. You reject a live suggestion. The same prompt again in the same session and in a new session reserves no suggestion, so no notification and no pane. The fake extractor then gives the same claim for the repeats: the evidence attaches, and no new proposal comes for the claim in the workspace. PASS. A check without the reject fails the test.
+
+**§13 M2 exit sentences**
+
+| Sentence | Proof | Result |
+|---|---|---|
+| One inferred correction helps a later task in another harness | The cross-harness record below | NOT RUN YET (exit open) |
+| A repeated prompt shows a ready proposal beside the agent, and you decide without leaving the session | S55 (`TestSuggestShows`); the pane keys approve, reject, later and change (`internal/cli` `TestPaneKeys`); each decision gives the suggestion its result (`TestSuggestResults`) | PASS |
+| A wrong proposal can be rejected with no repeated nagging | E12-S3 `internal/store` `TestRejectionNewEvidence`, `internal/cli` `TestReviewRejectClaim`; the new `TestSuggestRejectNoNag` | PASS |
+| Close prompt matches turn on only after the labeled prompt set passes | S71 (`TestPromptSet`) | PASS |
+| S31-S42, S55-S57, S68-S71 and S75 pass | The scenario table above | OPEN: S38 BLOCKED, all others PASS |
+
+**Cross-harness case: checklist for a person** (HLD §13, §8.3 test bindings, §12.1 control; as E10-S5). A person runs it, not the eval runner and not an agent. It uses official, unmodified `claude` and `codex` binaries. It never touches the main herdr session or the main store.
+
+Preparation:
+1. Pick a fresh opaque marker that no session has seen, for example `vorn-5821`. Below, `<marker>` is that marker.
+2. Make a new run folder that did not exist before, so the test store is empty and the control gets an empty brief (§12.1). Use the date in its name, for example `~/brain-m2-20261005`. Below, `<run>` is that folder. Never reuse the store of an earlier run:
+   `test ! -e <run> && mkdir -p <run>/store <run>/work && git -C <run>/work init`
+3. Start the separate test herdr session: `herdr --session brain-m2`. Every step below runs in a pane of this session.
+4. Open a workspace in `brain-m2` with root `<run>/work`, and a shell pane in it. Run every `brain` command below in this shell pane.
+5. Bind the session to the test store and choose the extractor CLI (claude or codex; write down which):
+   `brain setup --session brain-m2 --test <run>/store --extractor`
+6. A test binding starts with learning off (§12.1). Extraction is on by default; turn it on anyway, so the run does not depend on the default:
+   `brain learn on` and `brain extract on`
+7. Run `brain status` until it shows the workspace as mapped. A workspace that no `brain` call mapped gives its capture no workspace key, and the extractor cannot use that evidence. Write down the workspace id.
+8. Check: `brain status` and `brain doctor` name the `brain-m2` test binding, learning on, extraction on, the chosen extractor CLI, and the Claude and Codex profile states (write them down).
+
+Steps (example order: correction in Claude, later task in Codex; the other order is also valid):
+1. **Correction.** In the workspace, start `claude`. Ask: "Create a release note file for version 1.2 with one line." When the agent picks a file name, correct it: "No. Release note files here are always named RELNOTES-<marker>.md. Rename it." Let it finish. Exit Claude, so the pane ends the session.
+2. **Draft.** Wait until the extractor drafts the proposal. brained runs a pass about once a minute. A session that does not end waits 10 minutes of quiet. In a shell pane, `brain status` shows the backlog. Then run `brain review`. If the proposal is below the gate, run `brain review --all`. Write down the proposal id. Do not approve yet.
+3. **Control.** Before the approve, start a fresh `codex` session in the same workspace, after a reset of the scratch folder (`git -C <run>/work clean -fdx`). Ask the same task: "Create a release note file for version 1.2 with one line." Write down the file name. Exit Codex.
+4. **Approve.** `brain review <proposal id> --approve`. Write down the item id that it prints.
+5. **Later task.** Reset the scratch folder again. Start a fresh `codex` session in the same workspace. Ask the same task. Write down the file name. Exit Codex.
+6. **Receipts and item revision.** In the shell pane (read-only, test store only). The receipt list shows every receipt of the run, so the control and the later session each have their own row:
+   - `sqlite3 -readonly <run>/store/brain.db "SELECT id, profile, pane_id, agent_session_id, workspace_key, result, withheld_reason, brief_hash, output_generation, cli_version, item_revisions, at FROM deliveries ORDER BY id;"`
+   - `sqlite3 -readonly <run>/store/brain.db "SELECT i.id, i.current_revision, i.state, r.revision, r.text FROM items i JOIN item_revisions r ON r.item_id = i.id ORDER BY i.id, r.revision;"`
+   - `brain status` (delivery gaps per profile, and the M2 rows).
+
+Pass rule:
+- The control (step 3) does not use the rule: the file is not `RELNOTES-<marker>.md`, and its receipt holds no revision of the item.
+- The later task (step 5) uses the rule: the file is `RELNOTES-<marker>.md`.
+- The receipt of the later Codex session is `emitted`, and its `item_revisions` holds `{"item": <item id>, "revision": <n>}`, where `<n>` is the current revision of the item from step 4.
+- Anything else is a FAIL, with the reason written here. A skipped or blocked run is not a pass.
+
+After the run: copy the query output and the replies into the result below. Then close the `brain-m2` session (`herdr session stop brain-m2`, never the main server). Keep `<run>` until the result is written.
+
+Result (fill in): **not run yet.**
+- Run: date, `<run>` folder, herdr version, store binding (`brain-m2` → `<run>/store`), extractor CLI, marker, Claude and Codex versions and profile states.
+- Correction: the Claude session id, the proposal id, and whether it needed `brain review --all`.
+- Control: the Codex reply text and file name; its receipt row (id, result, brief hash, output generation, item revisions); run status (delivered, not delivered, reply incomplete or skipped, §12.1).
+- Approve: the item id and its current revision.
+- Later task: the Codex reply text and file name; its receipt row (id, result, brief hash, output generation, item revisions); run status.
+- Verdict: PASS or FAIL, with the reason.
+
+**Review prompt** (§13 "stop or rethink", a note, not a gate): "Comebacks do not fall in the examples, or suggestions feel like noise." Look at it with the M2 rows of `brain status` (comebacks per revision, live suggestion counts) after some weeks of real use. Brain makes no automatic decision from it.

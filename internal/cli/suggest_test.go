@@ -4,16 +4,21 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/brained"
+	"github.com/aryanVijaywargia/herdr-brain/internal/extract"
 	"github.com/aryanVijaywargia/herdr-brain/internal/fingerprint"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
@@ -52,7 +57,8 @@ func newSuggestFixture(t *testing.T) *suggestFixture {
 		if err != nil {
 			return err
 		}
-		claim, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: "make", Rule: suggestPrompt}, testNow)
+		// The key in the normal form of the extractor, so a claim of the prompt is this claim.
+		claim, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: "make", Rule: strings.ToLower(suggestPrompt)}, testNow)
 		if err != nil {
 			return err
 		}
@@ -408,4 +414,117 @@ func TestLiveSuggestions(t *testing.T) {
 	if got, err := liveSuggestions(filepath.Join(dir, "none.toml")); !got || err != nil {
 		t.Errorf("missing file: liveSuggestions = %v, %v, want true, nil", got, err)
 	}
+}
+
+// promptRef is an evidence ref in the extractor prompt.
+var promptRef = regexp.MustCompile(`\[(e\d+)\]`)
+
+// claimCLI is the fake extractor CLI: no model call. Each call answers with one workspace
+// claim of the suggestion's prompt, with every ref of the prompt as its evidence.
+type claimCLI struct{ calls int }
+
+func (c *claimCLI) Run(_ context.Context, cmd extract.Command) ([]byte, error) {
+	c.calls++
+	refs := []string{}
+	for _, m := range promptRef.FindAllStringSubmatch(cmd.Argv[len(cmd.Argv)-1], -1) {
+		refs = append(refs, m[1])
+	}
+	return json.Marshal(map[string]any{"is_error": false, "structured_output": map[string]any{"claims": []any{
+		map[string]any{"kind": "correction", "situation": "make", "rule": suggestPrompt, "scope_guess": "workspace",
+			"evidence_refs": refs, "same_as": nil, "conflicts_with": nil, "touches_permission": false,
+			"expected_benefit": "no typed command"}}}})
+}
+
+// repeat stores the prompt again in the open segment of pane w14:p1 and returns its dispatch,
+// as the hook and capture reserve it (brained.Reserve). A zero dispatch starts nothing.
+func (f *suggestFixture) repeat(t *testing.T) brained.Dispatch {
+	t.Helper()
+	var d brained.Dispatch
+	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
+		id, err := f.prompt(ctx, tx)
+		if err != nil {
+			return err
+		}
+		d, err = brained.Reserve(ctx, tx, store.Observation{ID: id, Source: store.SourceHook, Event: "prompt",
+			Excerpt: suggestPrompt, Status: store.ObservationComplete, Sender: store.SenderUnconfirmed, Counts: true,
+			At: testNow}, suggestPrompt, testNow)
+		return err
+	})
+	return d
+}
+
+// AC (E15-S3, §5.5 "a reject is final in its scope"): you reject a live suggestion. The same
+// prompt again in the same session and in a new session reserves nothing, so no notification
+// and no pane. The extractor sees the repeats and gives the same claim: its evidence attaches,
+// and no new proposal of the claim comes in the workspace.
+func TestSuggestRejectNoNag(t *testing.T) {
+	f := newSuggestFixture(t)
+	f.setClaude(t)
+	f.suggest(t, f.reserve(t), nil)
+	if len(f.herdr.notes) != 1 || len(f.herdr.opened) != 1 {
+		t.Fatalf("notifications %q, opened %+v, want the one suggestion", f.herdr.notes, f.herdr.opened)
+	}
+	f.review(t, fmt.Sprint(f.proposal), "--reject")
+
+	if d := f.repeat(t); d != (brained.Dispatch{}) {
+		t.Errorf("same session: dispatch %+v, want none", d)
+	}
+	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
+		old := store.SessionKey{HerdrSession: "default", Harness: "claude", Kind: store.KeyCapture, ID: "cap-1"}
+		if err := store.EndSession(ctx, tx, old, testNow); err != nil {
+			return err
+		}
+		key := store.SessionKey{HerdrSession: "default", Harness: "claude", Kind: store.KeyCapture, ID: "cap-2"}
+		id, err := store.OpenSession(ctx, tx, key, "w14:p1", "ws_a14", testNow)
+		if err != nil {
+			return err
+		}
+		_, err = store.StartSegment(ctx, tx, id, "w14:p1", "ws_a14", "visible", testNow)
+		return err
+	})
+	for range 2 {
+		if d := f.repeat(t); d != (brained.Dispatch{}) {
+			t.Errorf("new session: dispatch %+v, want none", d)
+		}
+	}
+	if len(f.herdr.notes) != 1 || len(f.herdr.opened) != 1 {
+		t.Errorf("notifications %q, opened %+v, want only the first suggestion", f.herdr.notes, f.herdr.opened)
+	}
+	if ss := f.suggestions(t); len(ss) != 1 || ss[0].Result != store.SuggestionRejected {
+		t.Errorf("suggestions = %+v, want the rejected one only", ss)
+	}
+
+	s := openStore(t, f.store)
+	cli := &claimCLI{}
+	p := extract.Pass{Store: s, Runner: cli, HerdrSession: "default", DefaultOn: true,
+		Now: func() time.Time { return testNow.Add(2 * time.Hour) }}
+	err := p.Run(context.Background())
+	closeStore(t, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cli.calls == 0 {
+		t.Fatal("the extractor got no batch of the repeats")
+	}
+	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
+		var claim string
+		if err := tx.QueryRowContext(ctx, `SELECT claim_id FROM items WHERE id = ?`, f.item).Scan(&claim); err != nil {
+			return err
+		}
+		c, err := store.CandidateOf(ctx, tx, claim, "ws_a14")
+		if err != nil {
+			return err
+		}
+		if c.Count < 2 {
+			t.Errorf("candidate %+v, want the repeats attached", c)
+		}
+		var n int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM proposals WHERE id != ?`, f.proposal).Scan(&n); err != nil {
+			return err
+		}
+		if n != 0 {
+			t.Errorf("%d new proposals, want none for the rejected claim", n)
+		}
+		return nil
+	})
 }

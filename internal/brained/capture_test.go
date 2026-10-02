@@ -263,6 +263,33 @@ func testS31(t *testing.T, tc s31) {
 	}
 }
 
+// S32: an agent already works when brained attaches. The baseline at start stores no text of
+// the screen, only the start gap, so the prompt of the running task is not invented as a
+// start message. The next read keeps only its new part.
+func TestCaptureS32(t *testing.T) {
+	k := newCapture(t, "s1", t.TempDir())
+	k.pane("w1:p1", "codex", codexRun2)
+	k.reads(t, "w1:p1", "codex-s31-1-working.txt", "codex-s31-2-blocked.txt")
+	k.must(t, Baseline, "w1:p1", "", GapStart)
+	if excerpts, gaps := k.rows(t).text(); len(excerpts) != 0 || !slices.Equal(gaps, []string{string(GapStart)}) {
+		t.Fatalf("after the baseline: excerpts %q, gaps %v, want only the start gap", excerpts, gaps)
+	}
+	k.must(t, Change, "w1:p1", "blocked", GapNone)
+	excerpts, gaps := k.rows(t).text()
+	if !slices.Equal(gaps, []string{string(GapStart)}) {
+		t.Errorf("gaps = %v, want only the start gap", gaps)
+	}
+	all := strings.Join(excerpts, "\n")
+	for _, old := range []string{"› Run touch made.txt", "› Delete blob.bin"} {
+		if strings.Contains(all, old) {
+			t.Errorf("excerpts hold %q of the screen before the attach: an invented start message", old)
+		}
+	}
+	if !strings.Contains(all, "Would you like to run") {
+		t.Errorf("excerpts = %q, want the new part of the blocked read", excerpts)
+	}
+}
+
 // S33: the pane exits before the read returns. The read is dropped with a gap, and a new
 // agent in a pane with the same id gets none of its text.
 func TestCaptureS33(t *testing.T) {
