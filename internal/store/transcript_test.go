@@ -8,8 +8,9 @@ import (
 	"time"
 )
 
-// AC E15-S4: the last session of a workspace is its newest receipt with a transcript path and
-// another agent session id, of any harness and any result; a receipt of another workspace or
+// AC E15-S4, E15-S5: the last session of a workspace is its newest receipt with a transcript
+// path and another agent session id, of any harness and any result except "withheld:
+// identity"; a receipt of another workspace or
 // with no path never counts. brain forget --session clears the paths of one agent session.
 func TestLastSession(t *testing.T) {
 	_, s := newTestStore(t)
@@ -22,11 +23,17 @@ func TestLastSession(t *testing.T) {
 			WithheldReason: str("inconsistent"), TranscriptPath: str("/t/b")},
 		{Profile: "claude", AgentSessionID: str("a"), WorkspaceKey: str("ka"), Result: ResultEmitted, TranscriptPath: str("/t/a2")},
 		{Profile: "claude", AgentSessionID: str("c"), WorkspaceKey: str("ka"), Result: ResultEmitted},
+		{Profile: "claude", AgentSessionID: str("f"), WorkspaceKey: str("ka"), Result: ResultWithheld,
+			WithheldReason: str("identity"), TranscriptPath: str("/t/f")},
+		{Profile: "claude", AgentSessionID: str("g"), WorkspaceKey: str("kc"), Result: ResultWithheld,
+			WithheldReason: str("forget pending"), TranscriptPath: str("/t/g")},
+		{Profile: "claude", AgentSessionID: str("h"), WorkspaceKey: str("kc"), Result: ResultWithheld,
+			WithheldReason: str("identity"), TranscriptPath: str("/t/h")},
 		{Profile: "claude", AgentSessionID: str("d"), WorkspaceKey: str("kb"), Result: ResultEmitted, TranscriptPath: str("/t/d")},
 		{Profile: "claude", AgentSessionID: str("e"), Result: ResultUnmapped, TranscriptPath: str("/t/e")},
 	}
 	err := s.Write(ctx, func(tx *sql.Tx) error {
-		for _, k := range []string{"ka", "kb"} {
+		for _, k := range []string{"ka", "kb", "kc"} {
 			if err := InsertWorkspace(ctx, tx, Workspace{Key: k, HerdrSession: "default", HerdrWorkspaceID: "w-" + k,
 				Label: k, Status: WorkspaceLive, LastSeen: at}); err != nil {
 				return err
@@ -47,12 +54,15 @@ func TestLastSession(t *testing.T) {
 		name, key, agent string
 		want             string // the transcript path; "" for none
 	}{
-		// The newer receipts of kb and of an unmapped pane never show in ka (S48).
+		// The newer receipts of kb, kc and of an unmapped pane never show in ka (S48). A
+		// "withheld: identity" receipt never counts (E15-S5).
 		{"newest other session of the workspace", "ka", "x", "/t/a2"},
-		{"a resumed session skips its own receipts", "ka", "a", "/t/b"},
+		{"a resumed session skips its own receipts; withheld: inconsistent counts", "ka", "a", "/t/b"},
 		{"any harness and result", "ka", "c", "/t/a2"},
+		{"withheld: forget pending counts", "kc", "x", "/t/g"},
+		{"the only other receipt is withheld: identity", "kc", "g", ""},
 		{"the only receipt is of the same session", "kb", "d", ""},
-		{"a workspace with no receipt", "kc", "x", ""},
+		{"a workspace with no receipt", "kd", "x", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := s.Write(ctx, func(tx *sql.Tx) error {
@@ -83,7 +93,8 @@ func TestLastSession(t *testing.T) {
 		var plan strings.Builder
 		rows, err := tx.QueryContext(ctx, `EXPLAIN QUERY PLAN SELECT id, profile, at, transcript_path FROM deliveries
 			WHERE workspace_key = ? AND transcript_path IS NOT NULL AND agent_session_id IS NOT ?
-			ORDER BY id DESC LIMIT 1`, "ka", "x")
+			AND NOT (result = ? AND withheld_reason IS 'identity')
+			ORDER BY id DESC LIMIT 1`, "ka", "x", ResultWithheld)
 		if err != nil {
 			return err
 		}

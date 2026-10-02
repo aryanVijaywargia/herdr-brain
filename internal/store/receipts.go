@@ -135,14 +135,17 @@ func TiedReceipt(ctx context.Context, tx *sql.Tx, obs int64) (d Delivery, ok boo
 }
 
 // LastSession reads the newest receipt of workspace key that has a transcript path and
-// another agent session id than agentSession, of any harness and any result (E15-S4, §8.3).
-// It reads the id, the profile, the time and the transcript path of the receipt only. ok is
+// another agent session id than agentSession, of any harness and any result except "withheld:
+// identity" (E15-S4, E15-S5, §8.3): that receipt keeps the key of a workspace that Brain does
+// not trust to belong to its project folder any more (§11), so its transcript can be about
+// another project. IS keeps the receipts with a NULL reason, such as emitted ones. It reads the id, the profile, the time and the transcript path of the receipt only. ok is
 // false when there is none. A workspace key names one workspace of one store, so a receipt of
 // another workspace never matches (S48). The partial index deliveries_transcript serves it.
 func LastSession(ctx context.Context, tx *sql.Tx, key, agentSession string) (d Delivery, ok bool, err error) {
 	err = tx.QueryRowContext(ctx, `SELECT id, profile, at, transcript_path FROM deliveries
 		WHERE workspace_key = ? AND transcript_path IS NOT NULL AND agent_session_id IS NOT ?
-		ORDER BY id DESC LIMIT 1`, key, agentSession).Scan(&d.ID, &d.Profile, timeDest{&d.At}, &d.TranscriptPath)
+		AND NOT (result = ? AND withheld_reason IS 'identity')
+		ORDER BY id DESC LIMIT 1`, key, agentSession, ResultWithheld).Scan(&d.ID, &d.Profile, timeDest{&d.At}, &d.TranscriptPath)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Delivery{}, false, nil
 	}
