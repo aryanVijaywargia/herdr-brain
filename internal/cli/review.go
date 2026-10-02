@@ -583,23 +583,14 @@ func (cl caller) reject(ctx context.Context, id int64, reason string) error {
 			if err != nil {
 				return err
 			}
-			for _, other := range ids {
-				if other == id {
-					continue
-				}
-				if err := store.DecideProposal(ctx, tx, other, store.ProposalRejected, cl.surface, cl.Now()); err != nil {
-					return err
-				}
-				if err := store.DecideSuggestions(ctx, tx, other, store.SuggestionRejected); err != nil {
-					return err
-				}
-				others = append(others, other)
+			others = slices.DeleteFunc(ids, func(other int64) bool { return other == id })
+		}
+		for _, p := range append([]int64{id}, others...) {
+			if err := cl.rejectOne(ctx, tx, p); err != nil {
+				return err
 			}
 		}
-		if err := store.DecideProposal(ctx, tx, id, store.ProposalRejected, cl.surface, cl.Now()); err != nil {
-			return err
-		}
-		return store.DecideSuggestions(ctx, tx, id, store.SuggestionRejected)
+		return nil
 	})
 	if err != nil {
 		return err
@@ -616,6 +607,14 @@ func (cl caller) reject(ctx context.Context, id int64, reason string) error {
 		}
 	}
 	return err
+}
+
+// rejectOne marks proposal id and its shown suggestions rejected in tx.
+func (cl caller) rejectOne(ctx context.Context, tx *sql.Tx, id int64) error {
+	if err := store.DecideProposal(ctx, tx, id, store.ProposalRejected, cl.surface, cl.Now()); err != nil {
+		return err
+	}
+	return store.DecideSuggestions(ctx, tx, id, store.SuggestionRejected)
 }
 
 // candidate reads the candidate of proposal p, when the caller sees it: nil for a proposal with

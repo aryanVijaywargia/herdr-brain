@@ -177,6 +177,12 @@ func (sg suggester) checkStore(ctx context.Context, tx *sql.Tx, cl caller, d bra
 	if !in || !sameAgent(se, p) {
 		return skip("pane %s holds another agent or agent session now", cl.PaneID)
 	}
+	return checkProposal(ctx, tx, cl, d)
+}
+
+// checkProposal checks in tx that learning and extraction are on for the pane of cl, and that
+// the proposal of d is still pending in its scope and not muted in the session of d.
+func checkProposal(ctx context.Context, tx *sql.Tx, cl caller, d brained.Dispatch) error {
 	learning, err := brained.NewGate(cl.Binding).Learning(ctx, tx, cl.PaneID, cl.WorkspaceID)
 	if err != nil {
 		return err
