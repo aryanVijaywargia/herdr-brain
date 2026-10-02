@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
+	"github.com/aryanVijaywargia/herdr-brain/internal/brained"
 	"github.com/aryanVijaywargia/herdr-brain/internal/brief"
 	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
@@ -83,7 +84,7 @@ func Main(args, environ []string, stdin io.Reader, stdout io.Writer) error {
 		return err
 	}
 	h := Hook{Profile: p, Event: event, Environ: environ, Bindings: file, Retest: filepath.Join(data, retestDir),
-		Pane: resolver.HerdrPane(environ), Start: start, Now: time.Now}
+		Pane: resolver.HerdrPane(environ), Dispatch: brained.Start, Start: start, Now: time.Now}
 	return h.Run(context.Background(), stdin, stdout)
 }
 
@@ -105,6 +106,8 @@ type Hook struct {
 	Bindings string // the bindings file
 	Retest   string // the folder of the retest markers (harness.MarkRetest)
 	Pane     resolver.PaneFunc
+	// Dispatch starts the detached process of a suggestion that a prompt record reserved (E14-S3).
+	Dispatch func(ctx context.Context, environ []string, d brained.Dispatch) error
 	Start    time.Time // the hook start; the lookup deadline counts from it
 	Now      func() time.Time
 

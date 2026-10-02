@@ -168,3 +168,15 @@ func TestPluginDirs(t *testing.T) {
 		t.Errorf("state = %q, want %q", state, want)
 	}
 }
+
+func TestConfigFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got, err := ConfigFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".config", "herdr", "plugins", "config", "brain", "config.toml"); got != want {
+		t.Errorf("ConfigFile() = %q, want %q", got, want)
+	}
+}

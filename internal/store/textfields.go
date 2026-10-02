@@ -175,5 +175,14 @@ func noItemTextFields() []Field {
 		{"prompt_index", "workspace_key"},
 		{"prompt_index", "proposal_ids"},
 		{"prompt_index", "at"},
+		// A suggestion holds ids only; forget deletes it with the prompt index rows (E14-S3).
+		{"suggestions", "herdr_session"},
+		{"suggestions", "workspace_key"},
+		{"suggestions", "agent_pane_id"},
+		{"suggestions", "review_pane_id"},
+		{"suggestions", "prompt_hash"},
+		{"suggestions", "reserved"},
+		{"suggestions", "shown_at"},
+		{"suggestions", "result"},
 	}
 }

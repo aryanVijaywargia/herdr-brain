@@ -61,9 +61,22 @@ func (h Hook) record(ctx context.Context, stdin io.Reader) (err error) {
 	if err != nil || session == 0 {
 		return err
 	}
-	err = rs.s.Write(ctx, func(tx *sql.Tx) error {
-		return h.write(ctx, tx, r, in, session, gen, h.Now().UTC())
+	var d brained.Dispatch
+	err = rs.s.Write(ctx, func(tx *sql.Tx) (err error) {
+		d, err = h.write(ctx, tx, r, in, session, gen, h.Now().UTC())
+		return err
 	})
+	if err != nil || d.Suggestion == 0 {
+		return ignoreForgotten(err)
+	}
+	// A prompt that matches a ready proposal: a detached process shows the suggestion, and
+	// the hook does not wait for it (§5.5). It inherits the pane's environment.
+	d.Store = r.Binding.Store
+	return h.Dispatch(ctx, h.Environ, d)
+}
+
+// ignoreForgotten returns err, or nil when a forget of the session made the record stale.
+func ignoreForgotten(err error) error {
 	if errors.Is(err, store.ErrForgotten) {
 		return nil
 	}
@@ -107,19 +120,20 @@ func (h Hook) note(ctx context.Context) (r *resolver.Resolved, rs records, sessi
 }
 
 // write stores the hook record in in tx, after the learning check of the pane, in session
-// noted with capture generation gen.
-func (h Hook) write(ctx context.Context, tx *sql.Tx, r *resolver.Resolved, in adapter.Record, noted, gen int64, now time.Time) error {
+// noted with capture generation gen. It returns the suggestion that a prompt reserved, if any.
+func (h Hook) write(ctx context.Context, tx *sql.Tx, r *resolver.Resolved, in adapter.Record, noted, gen int64, now time.Time) (brained.Dispatch, error) {
 	learning, err := brained.NewGate(r.Binding).Learning(ctx, tx, r.PaneID, r.WorkspaceID)
 	if err != nil || !learning.On {
-		return err
+		return brained.Dispatch{}, err
 	}
 	kind := h.Profile.Kind
 	session, segment, err := store.HookSegment(ctx, tx, r.Binding.Session, kind, r.PaneID, in.SessionID)
 	if err != nil || segment == 0 || session != noted {
-		return err // another agent session, or another session holds the pane now: the note does not cover it
+		// Another agent session, or another session holds the pane now: the note does not cover it.
+		return brained.Dispatch{}, err
 	}
 	if err := store.CheckGeneration(ctx, tx, session, gen); err != nil {
-		return err
+		return brained.Dispatch{}, err
 	}
 	o := store.Observation{
 		// A hook has no event id: the identity is the binding, the segment and the time (§6.4).
@@ -141,22 +155,28 @@ func (h Hook) write(ctx context.Context, tx *sql.Tx, r *resolver.Resolved, in ad
 		prompt = brained.HookPrompt(kind, in.Text)
 	}
 	if o.ID, err = store.AddObservation(ctx, tx, o); err != nil || o.ID == 0 {
-		return err
+		return brained.Dispatch{}, err
 	}
 	// The prompt index row joins the transaction of its observation (E14-S1).
 	if err := brained.IndexPrompt(ctx, tx, o, prompt); err != nil {
-		return err
+		return brained.Dispatch{}, err
 	}
 	if h.Event == adapter.EventTool {
 		cmd.ObservationID = o.ID
 		if err := store.AddCommandRecord(ctx, tx, cmd); err != nil {
-			return err
+			return brained.Dispatch{}, err
 		}
 	}
 	if err := brained.Match(ctx, tx, kind, session, o); err != nil {
-		return err
+		return brained.Dispatch{}, err
 	}
-	return store.MoveCursor(ctx, tx, session, o.Source, o.CaptureIdentity)
+	// The match is a local store read, inside the hook cap (§8.3). After Match, so a pane read
+	// of the same prompt that reserved its suggestion first blocks this one (S57).
+	d, err := brained.Reserve(ctx, tx, o, prompt, now)
+	if err != nil {
+		return brained.Dispatch{}, err
+	}
+	return d, store.MoveCursor(ctx, tx, session, o.Source, o.CaptureIdentity)
 }
 
 // command is the command record of tool input in (§6.7). A command in which the secret filter

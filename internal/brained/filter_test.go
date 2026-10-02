@@ -26,7 +26,7 @@ func (k *capHarness) raw(texts ...string) {
 // last reads in memory are gone.
 func (k *capHarness) restart() {
 	now := k.c.now
-	k.c = NewCapture(herdr.Socket{Path: k.f.path})
+	k.c = NewCapture(herdr.Socket{Path: k.f.path}, nil)
 	k.c.now = now
 }
 
@@ -332,7 +332,7 @@ func TestShippedNoise(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := NewCapture(herdr.Socket{})
+	c := NewCapture(herdr.Socket{}, nil)
 	done, rule := regexp.MustCompile(`^✻ \S+ for \d+s · done `), regexp.MustCompile(`^─+$`)
 	seen := map[string]int{}
 	for _, f := range files {

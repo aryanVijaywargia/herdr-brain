@@ -98,6 +98,16 @@ func PluginDirs() (config, state string, err error) {
 		filepath.Join(home, ".local", "state", "herdr", "plugins", "brain"), nil
 }
 
+// ConfigFile returns ~/.config/herdr/plugins/config/brain/config.toml, the Brain config file
+// in the plugin config folder. It holds the live_suggestions switch (§5.5). [NEW] name.
+func ConfigFile() (string, error) {
+	config, _, err := PluginDirs()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(config, "config.toml"), nil
+}
+
 // BinaryPath returns the absolute path of the running brain binary with all symlinks resolved.
 // A hook entry gets this path, so it names the managed checkout (<plugin_root>/bin/brain)
 // and not the ~/.local/bin/brain link.

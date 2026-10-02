@@ -216,7 +216,7 @@ func SessionEvidence(ctx context.Context, tx *sql.Tx, sessionID int64) (Evidence
 }
 
 // ForgetSession deletes the evidence of session sessionID: its evidence links, observations,
-// command records, prompt index rows, cursors and extraction watermarks, and the change requests of the
+// command records, prompt index rows, suggestions, cursors and extraction watermarks, and the change requests of the
 // proposals that used that evidence (§6.7). The candidates that used the links are counted again, with the default gates until a config sets them, and one with no
 // evidence left goes. It raises the capture generation, so a pane read or a hook record that noted the old value stores nothing, and it keeps the
 // capture identities of the deleted observations, so a replay stores nothing again. The
@@ -240,6 +240,8 @@ func ForgetSession(ctx context.Context, tx *sql.Tx, sessionID int64) error {
 			WHERE id IN (` + obs + `) ON CONFLICT DO NOTHING`,
 		`DELETE FROM command_records WHERE observation_id IN (` + obs + `)`,
 		`DELETE FROM prompt_index WHERE observation_id IN (` + obs + `)`,
+		// A suggestion holds the prompt hash of the session (E14-S3).
+		`DELETE FROM suggestions WHERE session_id = ?1`,
 		`DELETE FROM observations WHERE id IN (` + obs + `)`,
 		`DELETE FROM cursors WHERE session_id = ?1`,
 		// The observation ids of the watermark are gone, and SQLite can give them again.

@@ -72,7 +72,7 @@ func Main(ctx context.Context, environ []string, log io.Writer) error {
 	defer t.Stop()
 	d := &daemon{
 		env: e, sock: herdr.Socket{Path: e.socket}, bindingsFile: bf,
-		handler: NewCapture(herdr.Socket{Path: e.socket}), log: log, tick: t.C,
+		handler: NewCapture(herdr.Socket{Path: e.socket}, environ), log: log, tick: t.C,
 		tries: connectTries, pause: connectPause, queue: queueSize, extract: extractPass,
 	}
 	return d.run(ctx)
