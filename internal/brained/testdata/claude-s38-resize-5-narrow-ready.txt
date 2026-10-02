@@ -1,0 +1,40 @@
+
+ ▐▛███▛█   Claude Code v2.1.287
+▝▜██████▀  Haiku 4.5 · API Usage Billing
+ ▝▝   ▝▝   /private/tmp/e11s1/agent
+
+⚠ 1 MCP server needs authentication · run /mcp
+
+❯ Skip any progress report. Write one plain paragraph of about 120 words
+  about rivers, and nothing else.
+
+⏺ Rivers are large streams of fresh water. They flow from high places to
+  low places. Water runs downhill under gravity. Rivers begin at springs
+  or mountain peaks. Rain and melted snow feed rivers. The water flows
+  down valleys and creates channels. Rivers carry soil and rocks. This
+  material moves to lower ground. Rivers meet oceans or lakes at their
+  ends. Some rivers split into deltas. Deltas have many small branches.
+  Humans use rivers for water, food, and power. We build dams to stop
+  water flow. These dams make lakes and generate electricity. Boats travel
+  on some rivers for trade. Rivers shape the land over long time periods.
+  Erosion from flowing water cuts deep valleys. Rivers support many
+  plants and animals. Fish live in rivers and lay eggs there. Wetlands
+  near rivers hold water and protect soil.
+
+✻ Cogitated for 5s · done 4:23 PM
+
+❯ Reply with only the word ready.
+
+⏺ ready
+
+✻ Brewed for 1s · done 4:24 PM
+
+
+
+
+
+──────────────────────────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────────────────────────
+  Haiku 4.5 | ctx:26%/200k
+  ⏸ manual mode on · ← 1 agent

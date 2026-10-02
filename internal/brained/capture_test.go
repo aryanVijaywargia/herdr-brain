@@ -404,7 +404,7 @@ func TestCaptureEndRetry(t *testing.T) {
 }
 
 // S38: a repaint gives no observation. A screen that scrolled the old text away is partial.
-// A headless herdr does not resize the pane terminal, so no resize read is recorded.
+// TestCaptureS38Resize has the recorded resize reads.
 func TestCaptureS38(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
 	k.pane("w1:p1", "claude", "")
@@ -433,6 +433,51 @@ func TestCaptureScreenLost(t *testing.T) {
 	k.must(t, Change, "w1:p1", "idle", GapNone)
 	if excerpts, gaps := k.rows(t).text(); len(excerpts) != 0 || !slices.Equal(gaps, []string{gapLost}) {
 		t.Errorf("excerpts %q, gaps %v, want only a %q gap", excerpts, gaps, gapLost)
+	}
+}
+
+// S38: recorded reads of a pane that a herdr client resized (bug #199). A rewrap to a narrower
+// pane and back gives no observation, and a screen too small for the old text is a gap. A new
+// turn at the same width keeps only the new turn.
+func TestCaptureS38Resize(t *testing.T) {
+	for _, tc := range []struct {
+		harness, prefix string
+		resize          []string // reads after the base: rewraps, then maybe a lost screen
+		gaps            []string
+		same, next      string // a read and the next read at the same width, with a new turn
+		prompt, reply   string
+	}{
+		{harness: "claude", prefix: "claude-s38-resize-", resize: []string{"1-narrow", "2-wide", "3-small"},
+			gaps: []string{gapLost}, same: "1-narrow", next: "5-narrow-ready",
+			prompt: "❯ Reply with only the word ready.", reply: "⏺ ready"},
+		{harness: "codex", prefix: "codex-s38-", resize: []string{"1-narrow", "2-wide"},
+			same: "1-narrow", next: "3-narrow-ready",
+			prompt: "› Reply with only the word ready.", reply: "• ready"},
+	} {
+		t.Run(tc.harness, func(t *testing.T) {
+			k := newCapture(t, "s1", t.TempDir())
+			k.pane("w1:p1", tc.harness, "")
+			k.reads(t, "w1:p1", tc.prefix+"0-base.txt")
+			for _, f := range tc.resize {
+				k.reads(t, "w1:p1", tc.prefix+f+".txt")
+			}
+			k.must(t, Baseline, "w1:p1", "", GapNone)
+			for range tc.resize {
+				k.must(t, Change, "w1:p1", "idle", GapNone)
+			}
+			if excerpts, gaps := k.rows(t).text(); len(excerpts) != 0 || !slices.Equal(gaps, tc.gaps) {
+				t.Errorf("after the resizes: excerpts %q, gaps %v, want no excerpt and the gaps %v", excerpts, gaps, tc.gaps)
+			}
+
+			k = newCapture(t, "s1", t.TempDir())
+			k.pane("w1:p1", tc.harness, "")
+			k.reads(t, "w1:p1", tc.prefix+tc.same+".txt", tc.prefix+tc.next+".txt")
+			k.must(t, Baseline, "w1:p1", "", GapNone)
+			k.must(t, Change, "w1:p1", "idle", GapNone)
+			if excerpts, _ := k.rows(t).text(); !slices.Equal(excerpts, []string{tc.prompt + "\n" + tc.reply}) {
+				t.Errorf("new turn: excerpts = %q, want only the prompt and the reply", excerpts)
+			}
+		})
 	}
 }
 
