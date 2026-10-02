@@ -37,6 +37,11 @@ type Case struct {
 	Hook           string   // an exclusion case: the hook mode of hookModes; "" for a CLI probe
 	FullBrief      bool     // a delivery case whose brief must be full size, with {{marker}} in its middle
 	Forgotten      []string // a forget case: the answers that the store must not hold after the setup
+	// Skills are the fixture skills of a skill choice case: the runner seeds them all, and
+	// each gets a result. SkillFor is the skill whose example the prompt is; "" for a
+	// negative prompt.
+	Skills   []FixtureSkill
+	SkillFor string
 }
 
 // Probe is one prompt to a fresh official CLI.
@@ -103,6 +108,9 @@ func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]s
 		return Outcome{}, err
 	}
 	marker := markers["marker"]
+	if err := r.seedSkills(ctx, b, c, markers); err != nil {
+		return Outcome{}, err
+	}
 	dir, err := r.scratch(ctx)
 	if err != nil {
 		return Outcome{}, err
@@ -208,10 +216,13 @@ func workspaceLabel(c Case) string {
 	return caseLabel + c.ID
 }
 
-// newMarkers returns a fresh marker for {{marker}} and for each other marker placeholder of
-// c (§12.1 "fresh opaque markers").
+// newMarkers returns a fresh marker for {{marker}}, for each other marker placeholder of c and
+// for each fixture skill of c (§12.1 "fresh opaque markers").
 func newMarkers(c Case) (map[string]string, error) {
 	names := []string{"marker"}
+	for _, sk := range c.Skills {
+		names = append(names, skillMarker(sk.Name))
+	}
 	texts := slices.Concat(c.Setup, c.Check.Expect, c.Check.Stale, c.Forgotten)
 	for _, p := range c.Probes {
 		texts = append(texts, p.Prompt)

@@ -150,9 +150,10 @@ func deliveryStatus(d store.Delivery, ok bool, want string) (Status, string) {
 	return Delivered, ""
 }
 
-// results makes the result of each probe of cases, in order. outs holds the outcomes of the
-// cases that ran, in the same order, the last one maybe partial; a probe that did not run is
-// skipped. clis holds the CLI version and the profile hash of each harness.
+// results makes the result of each probe of cases, in order; a skill choice probe gets one for
+// each fixture skill. outs holds the outcomes of the cases that ran, in the same order, the
+// last one maybe partial; a probe that did not run is skipped. clis holds the CLI version and
+// the profile hash of each harness.
 func results(cases []Case, outs []Outcome, clis map[string]probeCLI) []store.EvalResult {
 	var rs []store.EvalResult
 	for i, c := range cases {
@@ -161,11 +162,18 @@ func results(cases []Case, outs []Outcome, clis map[string]probeCLI) []store.Eva
 			o = outs[i]
 		}
 		for j, p := range c.Probes {
-			if j >= len(o.Replies) {
-				rs = append(rs, base(c, p.Harness, o, Reply{Status: Skipped, Why: "the probe did not run"}, clis))
+			rep := Reply{Harness: p.Harness, Status: Skipped, Why: "the probe did not run"}
+			if j < len(o.Replies) {
+				rep = o.Replies[j]
+			}
+			switch {
+			case c.Stage == skillStage:
+				rs = append(rs, skillResults(c, o, rep, clis)...)
+				continue
+			case j >= len(o.Replies):
+				rs = append(rs, base(c, p.Harness, o, rep, clis))
 				continue
 			}
-			rep := o.Replies[j]
 			res := base(c, rep.Harness, o, rep, clis)
 			lb, rule := labelReply(c, o.Markers, rep)
 			// A pass of a full-brief case whose brief is not full size, or of a forget case
@@ -244,7 +252,8 @@ func labelReply(c Case, markers map[string]string, rep Reply) (Label, string) {
 // flagControlPass flags each meaning result whose control passed with the same CLI (§12.1): a
 // fact that the CLI finds without Brain does not show that Brain delivered it. The result
 // stays. A restraint case must pass in its control, so it gets no flag; when its labeled
-// control does not pass, the result says so.
+// control does not pass, the result says so. A skill choice result gets no flag: its control
+// has its own verdict.
 func flagControlPass(rs []store.EvalResult) {
 	ctl := map[[2]string]string{}
 	for _, r := range rs {
@@ -255,7 +264,7 @@ func flagControlPass(rs []store.EvalResult) {
 	for i, r := range rs {
 		lb := ctl[[2]string{r.Case, r.Harness}]
 		switch {
-		case r.Control:
+		case r.Control || r.Stage == skillStage:
 		case r.Stage != "restraint":
 			rs[i].ControlPass = lb == string(Pass)
 		case lb != "" && lb != string(Pass):

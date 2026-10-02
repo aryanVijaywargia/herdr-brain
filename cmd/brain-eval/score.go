@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
@@ -24,7 +26,8 @@ const (
 // verdicts returns the verdict of each result of rs, in order: "" for a control and for an
 // ad-hoc case. A result with no label did not get its brief, so it fails. A restraint case
 // must pass in its control too: it fails when its control does not pass, also when its control
-// was skipped, and it is unsure while its control is UNSURE (§12.1).
+// was skipped, and it is unsure while its control is UNSURE (§12.1). A skill choice control
+// gets its own verdict: no marker may appear in it (§12.1).
 func verdicts(rs []store.EvalResult) []string {
 	ctl := map[[2]string]string{}
 	for _, r := range rs {
@@ -35,7 +38,7 @@ func verdicts(rs []store.EvalResult) []string {
 	out := make([]string, len(rs))
 	for i, r := range rs {
 		switch {
-		case r.Control || r.Stage == "":
+		case r.Stage == "" || r.Control && r.Stage != skillStage:
 		case r.Status == string(Skipped):
 			out[i] = verdictSkipped
 		case r.Stage == "usefulness":
@@ -112,6 +115,13 @@ func writeReport(storeDir string, cases []Case, rs []store.EvalResult, w io.Writ
 	section("Usefulness records", verdictRecord, func(r store.EvalResult) string {
 		return fmt.Sprintf("%s; reply %q", r.Why, clip(r.Reply))
 	})
+	skills := skillVerdicts(rs, vs)
+	if len(skills) > 0 {
+		b.WriteString("\n## Skill choice\n\nPass rule: every result of the stage passes, its controls too; resolve each UNSURE first.\n\n")
+	}
+	for _, h := range slices.Sorted(maps.Keys(skills)) {
+		fmt.Fprintf(&b, "- %s: %s\n", h, skills[h])
+	}
 	path := paths.EvalReport(storeDir)
 	f, err := os.CreateTemp(filepath.Dir(path), "eval-report.*.tmp")
 	if err != nil {
@@ -130,7 +140,11 @@ func writeReport(storeDir string, cases []Case, rs []store.EvalResult, w io.Writ
 		_ = os.Remove(f.Name())
 		return err
 	}
-	fmt.Fprintf(w, "%s\nreport: %s\n", score(vs), path)
+	fmt.Fprintf(w, "%s\n", score(vs))
+	for _, h := range slices.Sorted(maps.Keys(skills)) {
+		fmt.Fprintf(w, "skill choice %s: %s\n", h, skills[h])
+	}
+	fmt.Fprintf(w, "report: %s\n", path)
 	return nil
 }
 
