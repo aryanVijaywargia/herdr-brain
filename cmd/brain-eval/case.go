@@ -88,9 +88,9 @@ const brainProcess = "brain"
 var errExitUnconfirmed = errors.New("could not confirm the exit of the last case's processes; no reset")
 
 // runCase runs one case in a fresh state: it checks that nothing else writes to the test
-// store, resets the store, makes a fresh scratch git folder and markers, runs the setup steps
-// in a shell pane and each probe in a fresh CLI pane. A probe of a harness in skip is skipped
-// with the reason. At the end it closes the panes that it opened and waits until their
+// store, resets the store, makes fresh markers, seeds the fixture skills of a skill choice
+// case, makes a fresh scratch git folder, runs the setup steps in a shell pane and each probe
+// in a fresh CLI pane. A probe of a harness in skip is skipped with the reason. At the end it closes the panes that it opened and waits until their
 // processes exit.
 func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]string) (o Outcome, err error) {
 	b, err := r.testBinding() // the binding can change between cases
@@ -100,17 +100,11 @@ func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]s
 	if err := r.guard(ctx, h); err != nil {
 		return Outcome{}, err
 	}
-	if err := reset(b.Store); err != nil {
-		return Outcome{}, fmt.Errorf("reset test store: %w", err)
-	}
-	markers, err := newMarkers(c)
+	markers, err := r.fresh(ctx, b, c)
 	if err != nil {
 		return Outcome{}, err
 	}
 	marker := markers["marker"]
-	if err := r.seedSkills(ctx, b, c, markers); err != nil {
-		return Outcome{}, err
-	}
 	dir, err := r.scratch(ctx)
 	if err != nil {
 		return Outcome{}, err
@@ -151,6 +145,19 @@ func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]s
 		o.Replies = append(o.Replies, rep)
 	}
 	return o, nil
+}
+
+// fresh resets the test store of b, and returns fresh markers for case c, with its fixture
+// skills seeded in the store.
+func (r *Runner) fresh(ctx context.Context, b bindings.Binding, c Case) (map[string]string, error) {
+	if err := reset(b.Store); err != nil {
+		return nil, fmt.Errorf("reset test store: %w", err)
+	}
+	markers, err := newMarkers(c)
+	if err != nil {
+		return nil, err
+	}
+	return markers, r.seedSkills(ctx, b, c, markers)
 }
 
 // checkOutput returns the hash of the brief that the setup built for workspace wsID. It checks

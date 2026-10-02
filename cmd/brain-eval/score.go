@@ -3,10 +3,8 @@ package main
 import (
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
@@ -79,8 +77,8 @@ func score(vs []string) string {
 
 // writeReport writes the short report of a run to the test store folder and prints its score
 // to w: the score, one line for each probe, the UNSURE results that you resolve at the
-// milestone exit, and the usefulness records (§12.1, E10-S3). A run of ad-hoc cases only has
-// no report.
+// milestone exit, the usefulness records (§12.1, E10-S3), and the skill choice verdict of each
+// CLI (E16-S5). A run of ad-hoc cases only has no report.
 func writeReport(storeDir string, cases []Case, rs []store.EvalResult, w io.Writer) error {
 	if !hasStage(cases) {
 		return nil
@@ -115,13 +113,8 @@ func writeReport(storeDir string, cases []Case, rs []store.EvalResult, w io.Writ
 	section("Usefulness records", verdictRecord, func(r store.EvalResult) string {
 		return fmt.Sprintf("%s; reply %q", r.Why, clip(r.Reply))
 	})
-	skills := skillVerdicts(rs, vs)
-	if len(skills) > 0 {
-		b.WriteString("\n## Skill choice\n\nPass rule: every result of the stage passes, its controls too; resolve each UNSURE first.\n\n")
-	}
-	for _, h := range slices.Sorted(maps.Keys(skills)) {
-		fmt.Fprintf(&b, "- %s: %s\n", h, skills[h])
-	}
+	skills, lines := skillReport(rs, vs)
+	b.WriteString(skills)
 	path := paths.EvalReport(storeDir)
 	f, err := os.CreateTemp(filepath.Dir(path), "eval-report.*.tmp")
 	if err != nil {
@@ -140,11 +133,7 @@ func writeReport(storeDir string, cases []Case, rs []store.EvalResult, w io.Writ
 		_ = os.Remove(f.Name())
 		return err
 	}
-	fmt.Fprintf(w, "%s\n", score(vs))
-	for _, h := range slices.Sorted(maps.Keys(skills)) {
-		fmt.Fprintf(w, "skill choice %s: %s\n", h, skills[h])
-	}
-	fmt.Fprintf(w, "report: %s\n", path)
+	fmt.Fprintf(w, "%s\n%sreport: %s\n", score(vs), lines, path)
 	return nil
 }
 

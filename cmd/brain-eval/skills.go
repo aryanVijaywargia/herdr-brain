@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
@@ -140,4 +142,20 @@ func skillVerdicts(rs []store.EvalResult, vs []string) map[string]string {
 		}
 	}
 	return out
+}
+
+// skillReport returns the skill choice section of the report, and its lines for the run's
+// output: the stage verdict of each CLI. Both are "" when the run has no skill choice result.
+func skillReport(rs []store.EvalResult, vs []string) (section, lines string) {
+	skills := skillVerdicts(rs, vs)
+	if len(skills) == 0 {
+		return "", ""
+	}
+	var b, l strings.Builder
+	b.WriteString("\n## Skill choice\n\nPass rule: every result of the stage passes, its controls too; resolve each UNSURE first.\n\n")
+	for _, h := range slices.Sorted(maps.Keys(skills)) {
+		fmt.Fprintf(&b, "- %s: %s\n", h, skills[h])
+		fmt.Fprintf(&l, "skill choice %s: %s\n", h, skills[h])
+	}
+	return b.String(), l.String()
 }
