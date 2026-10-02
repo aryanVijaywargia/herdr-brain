@@ -341,7 +341,7 @@ func (s *statusCall) observedDelivery(ctx context.Context, tx *sql.Tx) error {
 			s.w.printf("  %s: no session observed\n", kind)
 			continue
 		}
-		s.w.printf("  %s: sessions observed %d, capture gaps %d; no receipt %d, withheld %d, no agent session id %d;"+
+		s.w.printf("  %s: sessions observed %d, capture gaps %d; no receipt %d, withheld %d, no agent session id and no tied receipt %d;"+
 			" outcomes: delivery gap %d, delivery unknown %d\n", kind, d.Sessions, d.Gaps, d.NoReceipt, d.Withheld, d.NoID,
 			d.Gap, d.Unknown)
 	}

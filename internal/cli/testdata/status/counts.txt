@@ -13,18 +13,18 @@ delivery to live agents:
   sessions that ended before any Brain call are not measured in M1
 
 withheld history:
-  claude: 1 (not a member 1)
+  claude: 2 (not a member 1, pane not live 1)
   codex: none
 
 delivery to observed sessions:
-  claude: sessions observed 3, capture gaps 1; no receipt 1, withheld 1, no agent session id 1; outcomes: delivery gap 1, delivery unknown 1
-  codex: sessions observed 1, capture gaps 0; no receipt 0, withheld 0, no agent session id 0; outcomes: delivery gap 0, delivery unknown 0
+  claude: sessions observed 4, capture gaps 1; no receipt 1, withheld 2, no agent session id and no tied receipt 1; outcomes: delivery gap 1, delivery unknown 1
+  codex: sessions observed 1, capture gaps 0; no receipt 0, withheld 0, no agent session id and no tied receipt 0; outcomes: delivery gap 0, delivery unknown 0
 
 review queue: 1 pending, the oldest 3h old
 extraction: on; off for workspace ws_a15; capture and rules keep running
   extractor: claude, its default model
   last 24h: 0 of 10 extractor calls, 0 of 5 new proposals
-  waiting in workspace ws_a14: 3 batches, the oldest 7d old; the next pass takes them
+  waiting in workspace ws_a14: 4 batches, the oldest 7d old; the next pass takes them
   waiting in workspace ws_a15: 1 batches, the oldest 14d old; extraction is off
   failed batches: none
 
@@ -37,7 +37,7 @@ forget pending: none
 learning: on; off for workspace ws_a15
 
 measurement (raw counts, no score; a week starts on Monday 00:00 UTC):
-  week of 2026-09-28: sessions observed 2, capture gaps 0
+  week of 2026-09-28: sessions observed 3, capture gaps 0
     correction candidates 1
     proposals made 5; decided 4: approved 1, edited 1, rejected 1, changed 1; median review 315s of 2 timed
     live suggestions shown 2: approved 1, rejected 0, changed 0, later 1
@@ -50,7 +50,7 @@ measurement (raw counts, no score; a week starts on Monday 00:00 UTC):
     proposals made 0; decided 0: approved 0, edited 0, rejected 0, changed 0; no timed review
     live suggestions shown 0: approved 0, rejected 0, changed 0, later 0
   week of 2026-09-07: sessions observed 0, capture gaps 0; nothing counted
-  all weeks: sessions observed 4, capture gaps 1
+  all weeks: sessions observed 5, capture gaps 1
     comebacks:
       item 2 revision 1: 4 (observations 5, 4, 3, …)
     uncertain matches:

@@ -241,7 +241,8 @@ func RevisionOutcomes(ctx context.Context, tx *sql.Tx) ([]OutcomeCount, error) {
 // "Delivery gaps"). Each count is a count of sessions.
 type DeliveryGap struct {
 	Coverage
-	// NoID: herdr gave no agent session id, so no receipt joins by id.
+	// NoID: herdr gave no agent session id, and no single receipt ties by the capture row of
+	// the session (TiedReceipt).
 	NoID int
 	// NoReceipt: no receipt of the agent session id. Withheld: its newest receipt is withheld.
 	NoReceipt, Withheld int
@@ -263,15 +264,38 @@ func DeliveryGaps(ctx context.Context, tx *sql.Tx, session, profile string) (Del
 		SELECT (SELECT count(*) FROM observed),
 			(SELECT count(*) FROM observations o JOIN segments g ON g.id = o.segment_id
 				WHERE g.session_id IN (SELECT id FROM observed) AND o.status = ?3),
-			(SELECT count(*) FROM newest WHERE agent_session_id IS NULL),
 			(SELECT count(*) FROM newest WHERE agent_session_id IS NOT NULL AND result IS NULL),
 			(SELECT count(*) FROM newest WHERE result = ?4),
 			(SELECT count(DISTINCT session_id) FROM outcomes WHERE kind = ?5 AND session_id IN (SELECT id FROM observed)),
 			(SELECT count(DISTINCT session_id) FROM outcomes WHERE kind = ?6 AND session_id IN (SELECT id FROM observed))`,
 		session, profile, ObservationGap, ResultWithheld, OutcomeGap, OutcomeUnknown).Scan(
-		&d.Sessions, &d.Gaps, &d.NoID, &d.NoReceipt, &d.Withheld, &d.Gap, &d.Unknown)
+		&d.Sessions, &d.Gaps, &d.NoReceipt, &d.Withheld, &d.Gap, &d.Unknown)
 	if err != nil {
 		return DeliveryGap{}, fmt.Errorf("count delivery gaps of %s: %w", profile, err)
+	}
+	var last []int64
+	err = eachRow(ctx, tx, `SELECT max(o.id) FROM sessions s JOIN segments g ON g.session_id = s.id
+		JOIN observations o ON o.segment_id = g.id
+		WHERE s.herdr_session = ? AND s.harness = ? AND s.agent_session_id IS NULL GROUP BY s.id`,
+		func(rows *sql.Rows) error {
+			var obs int64
+			err := rows.Scan(&obs)
+			last = append(last, obs)
+			return err
+		}, session, profile)
+	if err != nil {
+		return DeliveryGap{}, fmt.Errorf("count delivery gaps of %s: %w", profile, err)
+	}
+	for _, obs := range last {
+		r, ok, err := TiedReceipt(ctx, tx, obs)
+		switch {
+		case err != nil:
+			return DeliveryGap{}, err
+		case !ok:
+			d.NoID++
+		case r.Result == ResultWithheld:
+			d.Withheld++
+		}
 	}
 	return d, nil
 }

@@ -493,6 +493,23 @@ func TestStatusCounts(t *testing.T) {
 			return err
 		}
 		uncertain, unknown := obs[0], obs[1]
+		// c2 (this week): no agent session id, but its pane receipt ties after the previous session
+		// of the pane (TiedReceipt), and it is withheld.
+		prev := claude(store.KeyAgent, "p0")
+		if _, err := store.OpenSession(ctx, tx, prev, "w14:p4", "ws_a14", testNow.Add(-2*time.Hour)); err != nil {
+			return err
+		}
+		if err := store.EndSession(ctx, tx, prev, testNow.Add(-90*time.Minute)); err != nil {
+			return err
+		}
+		if _, _, err := capture(ctx, tx, claude(store.KeyCapture, "c2"), "w14:p4", "ws_a14", testNow, ok); err != nil {
+			return err
+		}
+		if _, err := store.InsertDelivery(ctx, tx, store.Delivery{Profile: "claude", HerdrSession: ptr("default"),
+			PaneID: "w14:p4", AgentSessionID: ptr("z9"), Result: store.ResultWithheld, WithheldReason: ptr("pane not live"),
+			At: testNow.Add(-time.Hour)}); err != nil {
+			return err
+		}
 		// x1 (two weeks ago): a codex session with an emitted receipt.
 		codex := store.SessionKey{HerdrSession: "default", Harness: "codex", Kind: store.KeyAgent, ID: "x1"}
 		if _, _, err := capture(ctx, tx, codex, "w15:p1", "ws_a15", testNow.AddDate(0, 0, -14), ok); err != nil {
