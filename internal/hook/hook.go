@@ -174,7 +174,8 @@ func (h Hook) run(ctx context.Context, stdin io.Reader, stdout io.Writer) (err e
 		if err != nil {
 			return nil, err
 		}
-		return &receipts{s: s, profile: h.Profile.Kind, agentSession: in.SessionID, now: h.Now}, nil
+		return &receipts{s: s, profile: h.Profile.Kind, agentSession: in.SessionID, transcript: in.TranscriptPath,
+			now: h.Now}, nil
 	}
 	// The resolver checks the earlier records of the pane and records this agent session; the
 	// receipt of this run holds the record (§8.3 limit).
@@ -246,9 +247,14 @@ func (h Hook) deliver(ctx context.Context, rc *receipts, r *resolver.Resolved, s
 		if err != nil {
 			return err
 		}
+		ws, err := h.lastSession(ctx, tx, key, rc.agentSession, b.Workspace)
+		if err != nil {
+			return err
+		}
 		// The brief is made from the same bytes that passed the manifest check (S65). The
 		// receipt names the (item, revision) pairs of that manifest, not the store rows now.
-		text := brief.Text(b.Global, b.Workspace)
+		// The brief hash covers the last session line too.
+		text := brief.Text(b.Global, ws)
 		if err := h.Profile.Write(stdout, text); err != nil {
 			return err
 		}
@@ -257,6 +263,20 @@ func (h Hook) deliver(ctx context.Context, rc *receipts, r *resolver.Resolved, s
 		d.BriefHash, d.OutputGeneration, d.ItemRevisions = &briefHash, &b.Generation, b.Revisions
 		return rc.insert(ctx, tx, d)
 	})
+}
+
+// lastSession adds the line of the last session of workspace key before agent session
+// agentSession to the workspace part (E15-S4). key "" is an unmapped or withheld workspace: it
+// gets no workspace part, so no line (S48). The time is in the zone of the hook clock.
+func (h Hook) lastSession(ctx context.Context, tx *sql.Tx, key, agentSession, workspace string) (string, error) {
+	if key == "" {
+		return workspace, nil
+	}
+	last, ok, err := store.LastSession(ctx, tx, key, agentSession)
+	if err != nil || !ok {
+		return workspace, err
+	}
+	return brief.LastSession(workspace, last.Profile, last.At.In(h.Now().Location()), *last.TranscriptPath), nil
 }
 
 func withheld(d store.Delivery, reason string) store.Delivery {
@@ -280,6 +300,7 @@ type receipts struct {
 	s            *store.Store
 	profile      string
 	agentSession string
+	transcript   string // the transcript path of the hook input; "" for none
 	now          func() time.Time
 	// recorded: the resolver recorded the agent session, so the receipt of this run holds the
 	// (pane, agent session id) record, with its check still pending.
@@ -332,6 +353,9 @@ func (rc *receipts) insert(ctx context.Context, tx *sql.Tx, d store.Delivery) er
 		}
 	}
 	d.Profile, d.AgentSessionID, d.At = rc.profile, &rc.agentSession, rc.now()
+	if rc.transcript != "" {
+		d.TranscriptPath = &rc.transcript
+	}
 	if rc.recorded {
 		pending := string(resolver.AgentPending)
 		d.AgentCheck = &pending

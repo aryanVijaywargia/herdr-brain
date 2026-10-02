@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files in testdata")
@@ -177,5 +178,26 @@ func TestSizes(t *testing.T) {
 	}
 	if size, limit := WorkspaceSize(w); size != workspaceBudget || limit != workspaceBudget {
 		t.Errorf("WorkspaceSize(full) = %d, %d, want %d, %d", size, limit, workspaceBudget, workspaceBudget)
+	}
+}
+
+// AC E15-S4: the last session line goes at the end of the workspace part, in the zone of the
+// time; a workspace part that the generation does not hold yet gets its label first.
+func TestLastSession(t *testing.T) {
+	at := time.Date(2026, 10, 2, 14, 5, 59, 0, time.FixedZone("IST", 5*3600+1800))
+	line := "Last session in this workspace: claude, 2026-10-02 14:05, transcript /t/s.jsonl\n"
+	part, err := Workspace([]Item{{ID: 4, Text: "use make"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, workspace, want string }{
+		{"workspace part", part, part + line},
+		{"no workspace part", "", workspaceLabel + line},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := LastSession(tc.workspace, "claude", at, "/t/s.jsonl"); got != tc.want {
+				t.Errorf("LastSession(%q) = %q, want %q", tc.workspace, got, tc.want)
+			}
+		})
 	}
 }

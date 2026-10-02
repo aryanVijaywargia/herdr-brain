@@ -40,11 +40,14 @@ func readFile(t *testing.T, name string) []byte {
 func TestGolden(t *testing.T) {
 	brief := string(readFile(t, "brief.txt"))
 	tests := []struct {
-		harness   string
-		sessionID string
+		harness    string
+		sessionID  string
+		transcript string
 	}{
-		{"claude", "6a345ec1-3050-4e61-b736-d0e9d2edab82"},
-		{"codex", "01a0e36c-7b20-7172-b5f9-59a6946c8aba"},
+		{"claude", "6a345ec1-3050-4e61-b736-d0e9d2edab82",
+			"/Users/aryanvijaywargia/.claude/projects/-Users-aryanvijaywargia-Projects-herdr-projects/6a345ec1-3050-4e61-b736-d0e9d2edab82.jsonl"},
+		{"codex", "01a0e36c-7b20-7172-b5f9-59a6946c8aba",
+			"/Users/aryanvijaywargia/.codex/sessions/2026/09/27/rollout-2026-09-27T20-42-12-01a0e36c-7b20-7172-b5f9-59a6946c8aba.jsonl"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.harness, func(t *testing.T) {
@@ -57,7 +60,7 @@ func TestGolden(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Parse() = %v", err)
 			}
-			want := Input{SessionID: tt.sessionID, CWD: "/Users/aryanvijaywargia/Projects/herdr-projects"}
+			want := Input{SessionID: tt.sessionID, CWD: "/Users/aryanvijaywargia/Projects/herdr-projects", TranscriptPath: tt.transcript}
 			if in != want {
 				t.Errorf("Parse() = %+v, want %+v", in, want)
 			}
@@ -69,6 +72,32 @@ func TestGolden(t *testing.T) {
 				t.Errorf("output =\n%s\nwant\n%s", got, golden)
 			}
 		})
+	}
+}
+
+// AC E15-S4: a start input with no transcript path, or with null, an empty or a non-string
+// path, still parses, with no path. Codex sends string|null (spike/m0/data/e11s1-codex-hooks.txt).
+func TestTranscriptPath(t *testing.T) {
+	for _, harness := range []string{"claude", "codex"} {
+		p, err := Load(harness)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, tc := range []struct{ name, field, want string }{
+			{"path", `,"transcript_path":"/t/s.jsonl"`, "/t/s.jsonl"},
+			{"none", "", ""},
+			{"null", `,"transcript_path":null`, ""},
+			{"empty", `,"transcript_path":""`, ""},
+			{"number", `,"transcript_path":7`, ""},
+		} {
+			t.Run(harness+"/"+tc.name, func(t *testing.T) {
+				raw := `{"session_id":"s","cwd":"/w"` + tc.field + `}`
+				in, err := p.Parse([]byte(raw))
+				if err != nil || in.TranscriptPath != tc.want {
+					t.Errorf("Parse(%s) = %+v, %v, want transcript path %q", raw, in, err, tc.want)
+				}
+			})
+		}
 	}
 }
 

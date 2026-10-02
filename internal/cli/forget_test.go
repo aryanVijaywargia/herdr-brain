@@ -458,6 +458,12 @@ func TestForgetSession(t *testing.T) {
 					}
 				}
 			}
+			// A start receipt of the agent session in each herdr session (E15-S4).
+			if _, err := store.InsertDelivery(ctx, tx, store.Delivery{Profile: "claude", HerdrSession: &herdrSession,
+				PaneID: "w14:p1", AgentSessionID: ptr("agent-1"), Result: store.ResultUnmapped, At: testNow,
+				TranscriptPath: ptr("/t/" + herdrSession + ".jsonl")}); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -485,6 +491,7 @@ func TestForgetSession(t *testing.T) {
 		t.Fatalf("forget --session = %v", err)
 	}
 	want := "session 1: claude in pane w14:p1, capture id cap-1, agent session \"agent-1\": 2 observations, 1 command records, 2 evidence links, 0 prompt index rows, 0 outcomes\n" +
+		"agent session \"agent-1\": 1 receipts with a transcript path: the paths are cleared, the receipts stay\n" +
 		"candidate 1: workspace failure of claim " + claim + ", 4 occurrences in 2 sessions: its links to this evidence go, and it is counted again\n" +
 		"1 candidates use this evidence; no item uses capture evidence yet: nothing else to keep or forget\n" +
 		"forget session agent-1: done; its text is deleted, and new text is captured as usual\n"
@@ -520,6 +527,26 @@ func TestForgetSession(t *testing.T) {
 	if got := f.scan(t, liveText); len(got) == 0 {
 		t.Error("the forget of a session removed an item")
 	}
+	// AC E15-S4: the forget clears the transcript path of the session's receipt and keeps the
+	// receipt; the other herdr session keeps its path.
+	s = openStore(t, f.store)
+	defer closeStore(t, s)
+	write(t, s, func(tx *sql.Tx) error {
+		for id, want := range map[int64]string{1: "", 2: "/t/other.jsonl"} {
+			d, err := store.DeliveryByID(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			got := ""
+			if d.TranscriptPath != nil {
+				got = *d.TranscriptPath
+			}
+			if got != want {
+				t.Errorf("after the forget receipt %d has transcript path %q, want %q", id, got, want)
+			}
+		}
+		return nil
+	})
 }
 
 // AC S68 (index part): brain forget --session lists the proposals that used the prompt index
@@ -610,6 +637,43 @@ func TestForgetSessionPromptIndex(t *testing.T) {
 		}
 		return err
 	})
+}
+
+// AC E15-S4: brain forget --session clears the transcript path of an agent session that has a
+// start receipt and no capture session, and the last session lookup of the next start finds
+// nothing. An id with neither is still an error.
+func TestForgetSessionReceiptOnly(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	s := openStore(t, f.store)
+	write(t, s, func(tx *sql.Tx) error {
+		_, err := store.InsertDelivery(ctx, tx, store.Delivery{Profile: "claude", HerdrSession: ptr("default"), PaneID: "w14:p1",
+			AgentSessionID: ptr("agent-1"), WorkspaceKey: ptr("ws_a14"), Result: store.ResultEmitted, At: testNow,
+			TranscriptPath: ptr("/t/agent-1.jsonl")})
+		return err
+	})
+	closeStore(t, s)
+	var out bytes.Buffer
+	e := f.env(f.sock, "w14:p1", "w14", &bytes.Buffer{})
+	e.Stdout = &out
+	if err := Forget(ctx, e, []string{"--session", "agent-1"}); err != nil {
+		t.Fatalf("forget --session = %v", err)
+	}
+	if want := "agent session \"agent-1\": 1 receipts with a transcript path: the paths are cleared, the receipts stay\n"; !strings.HasPrefix(out.String(), want) {
+		t.Errorf("forget --session printed\n%s\nwant it to start with\n%s", out.String(), want)
+	}
+	s = openStore(t, f.store)
+	write(t, s, func(tx *sql.Tx) error {
+		d, ok, err := store.LastSession(ctx, tx, "ws_a14", "agent-2")
+		if ok {
+			t.Errorf("after the forget the next start shows %s", *d.TranscriptPath)
+		}
+		return err
+	})
+	closeStore(t, s)
+	if err := Forget(ctx, e, []string{"--session", "agent-1"}); err == nil {
+		t.Error("a second forget of a session with no capture session and no path = nil, want an error")
+	}
 }
 
 // sessionLinks is the number of evidence links of capture session id.

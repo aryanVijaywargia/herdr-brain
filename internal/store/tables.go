@@ -384,16 +384,20 @@ type Delivery struct {
 	// AgentCheck is the deferred session-id check (§8.3 limit): "pending", "unknown", "match"
 	// or "not this pane's agent". nil when the receipt holds no (pane, agent session id) record.
 	AgentCheck *string
+	// TranscriptPath is the transcript_path of the start hook input (E15-S4). nil when the input
+	// had none, or after brain forget --session. Brain never reads the file.
+	TranscriptPath *string
 }
 
 // InsertDelivery adds d and returns its new id. d.ID is ignored.
 func InsertDelivery(ctx context.Context, tx *sql.Tx, d Delivery) (int64, error) {
 	return insertRow(ctx, tx, "delivery", `INSERT INTO deliveries
 		(profile, herdr_session, pane_id, agent_session_id, workspace_key, brief_hash, output_generation,
-		item_revisions, cli_version, result, withheld_reason, at, agent_check)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		item_revisions, cli_version, result, withheld_reason, at, agent_check, transcript_path)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		d.Profile, d.HerdrSession, d.PaneID, d.AgentSessionID, d.WorkspaceKey, d.BriefHash, d.OutputGeneration,
-		jsonList[RevisionRef](d.ItemRevisions), d.CLIVersion, d.Result, d.WithheldReason, timeArg(d.At), d.AgentCheck)
+		jsonList[RevisionRef](d.ItemRevisions), d.CLIVersion, d.Result, d.WithheldReason, timeArg(d.At), d.AgentCheck,
+		d.TranscriptPath)
 }
 
 // DeliveryByID reads the delivery with id. It returns sql.ErrNoRows when there is none.
@@ -401,11 +405,11 @@ func DeliveryByID(ctx context.Context, tx *sql.Tx, id int64) (Delivery, error) {
 	var d Delivery
 	err := tx.QueryRowContext(ctx, `SELECT id, profile, herdr_session, pane_id, agent_session_id,
 		workspace_key, brief_hash, output_generation, item_revisions, cli_version, result,
-		withheld_reason, at, agent_check
+		withheld_reason, at, agent_check, transcript_path
 		FROM deliveries WHERE id = ?`, id).Scan(
 		&d.ID, &d.Profile, &d.HerdrSession, &d.PaneID, &d.AgentSessionID, &d.WorkspaceKey, &d.BriefHash,
 		&d.OutputGeneration, listDest[RevisionRef]{&d.ItemRevisions}, &d.CLIVersion, &d.Result,
-		&d.WithheldReason, timeDest{&d.At}, &d.AgentCheck)
+		&d.WithheldReason, timeDest{&d.At}, &d.AgentCheck, &d.TranscriptPath)
 	if err != nil {
 		return Delivery{}, fmt.Errorf("read delivery %d: %w", id, err)
 	}

@@ -39,8 +39,11 @@ func Forget(ctx context.Context, e Env, args []string) error {
 // or an agent session id in the caller's herdr session. It lists the evidence of the session,
 // the candidates that use it and the proposals that used its prompts first (S68), then deletes
 // its observations, command records, prompt index rows, outcomes and evidence links in one transaction that raises the capture generation, so a pane read or
-// hook record that collected the text before the forget stores nothing. The candidates are
-// counted again. New text after the forget is captured as usual.
+// hook record that collected the text before the forget stores nothing. The same transaction
+// clears the transcript paths of the receipts of id and of the agent sessions of those capture
+// sessions (E15-S4): a start receipt needs no capture session, so an id with receipts only is
+// forgotten too. The candidates are counted again. New text after the forget is captured as
+// usual.
 func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 	fs := flag.NewFlagSet("forget", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -58,6 +61,8 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 	defer func() { err = errors.Join(err, c.Close()) }()
 	var ss []store.Session
 	var ev []store.Evidence
+	var agents []string
+	var paths []int
 	var cs []store.Candidate
 	var ps []int64
 	err = c.Store.Write(ctx, func(tx *sql.Tx) (err error) {
@@ -70,6 +75,10 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 				return err
 			}
 		}
+		agents = agentIDs(*id, ss)
+		if paths, err = transcriptPaths(ctx, tx, c.Binding.Session, agents); err != nil {
+			return err
+		}
 		if cs, err = newCandidates(ctx, tx, ss, nil); err != nil {
 			return err
 		}
@@ -79,21 +88,20 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	if len(ss) == 0 {
+	if len(ss) == 0 && slices.Max(paths) == 0 {
 		return fmt.Errorf("no capture session %q in herdr session %s", *id, c.Binding.Session)
 	}
 	// The list comes first, before anything is deleted (§6.7).
 	w := e.Stdout
 	for i, s := range ss {
-		agent := s.AgentSessionID
-		if s.Key.Kind == store.KeyAgent {
-			agent = s.Key.ID
-		}
 		if _, err := fmt.Fprintf(w, "session %d: %s in pane %s, %s id %s, agent session %q: %d observations, %d command records, %d evidence links, %d prompt index rows, %d outcomes\n",
-			s.ID, s.Key.Harness, s.PaneID, s.Key.Kind, s.Key.ID, agent, ev[i].Observations, ev[i].CommandRecords, ev[i].EvidenceLinks,
+			s.ID, s.Key.Harness, s.PaneID, s.Key.Kind, s.Key.ID, agentOf(s), ev[i].Observations, ev[i].CommandRecords, ev[i].EvidenceLinks,
 			ev[i].Prompts, ev[i].Outcomes); err != nil {
 			return err
 		}
+	}
+	if err := listTranscripts(w, agents, paths); err != nil {
+		return err
 	}
 	if err := listCandidates(w, cs); err != nil {
 		return err
@@ -128,6 +136,11 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 				return err
 			}
 		}
+		for _, a := range agents {
+			if err := store.ClearTranscriptPaths(ctx, tx, c.Binding.Session, a); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -135,6 +148,55 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 	}
 	_, err = fmt.Fprintf(w, "forget session %s: done; its text is deleted, and new text is captured as usual\n", *id)
 	return err
+}
+
+// transcriptPaths counts the receipts with a transcript path of each of agents in the store
+// binding of herdr session session.
+func transcriptPaths(ctx context.Context, tx *sql.Tx, session string, agents []string) ([]int, error) {
+	paths := make([]int, len(agents))
+	for i, a := range agents {
+		n, err := store.TranscriptPaths(ctx, tx, session, a)
+		if err != nil {
+			return nil, err
+		}
+		paths[i] = n
+	}
+	return paths, nil
+}
+
+// listTranscripts prints the agent sessions whose receipts hold transcript paths that the
+// forget clears (E15-S4); paths[i] is the count of agents[i].
+func listTranscripts(w io.Writer, agents []string, paths []int) error {
+	for i, a := range agents {
+		if paths[i] == 0 {
+			continue
+		}
+		if _, err := fmt.Fprintf(w, "agent session %q: %d receipts with a transcript path: the paths are cleared, the receipts stay\n",
+			a, paths[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// agentIDs returns id and the agent session ids of capture sessions ss, each once: the ids
+// that receipts name. A capture session that herdr gave no agent session id adds none.
+func agentIDs(id string, ss []store.Session) []string {
+	ids := []string{id}
+	for _, s := range ss {
+		if a := agentOf(s); a != "" && !slices.Contains(ids, a) {
+			ids = append(ids, a)
+		}
+	}
+	return ids
+}
+
+// agentOf returns the agent session id of capture session s, or "" when herdr gave none.
+func agentOf(s store.Session) string {
+	if s.Key.Kind == store.KeyAgent {
+		return s.Key.ID
+	}
+	return s.AgentSessionID
 }
 
 // listCandidates prints the candidates that use the evidence of a session to forget.
