@@ -220,6 +220,49 @@ func TestCrashBeforeCommit(t *testing.T) {
 	}
 }
 
+// A crash after the extractor returns a valid result and before the commit: a test trigger
+// aborts the watermark write, the last write of the commit transaction. The evidence links,
+// the candidate and the proposal of that transaction roll back with it, and the batch stays
+// active. The retry calls again, and its evidence and proposal count once (S69).
+func TestCrashAfterResultBeforeCommit(t *testing.T) {
+	f := newFixture(t)
+	sid, obs := f.session("z", true, line{"ws-A", pnpm, t0}, line{"ws-A", pnpm, t0.Add(time.Minute)})
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `CREATE TRIGGER crash BEFORE INSERT ON extraction_watermarks
+			BEGIN SELECT RAISE(ABORT, 'crash before the commit'); END`)
+		return err
+	})
+	if err := f.run(); err == nil || !strings.Contains(err.Error(), "crash before the commit") {
+		t.Fatalf("Run = %v, want the crash", err)
+	}
+	if bs := f.batches(); len(bs) != 1 || bs[0].Status != store.BatchActive || f.watermark(sid, "ws-A") != 0 {
+		t.Fatalf("after the crash: batches %+v, want one active batch and no watermark", bs)
+	}
+	for _, table := range []string{"evidence_links", "candidates", "proposals"} {
+		if n := f.count(`SELECT COUNT(*) FROM ` + table); n != 0 {
+			t.Errorf("after the crash: %d rows in %s, want 0", n, table)
+		}
+	}
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `DROP TRIGGER crash`)
+		return err
+	})
+	f.mustRun()
+	bs := f.batches()
+	if len(bs) != 1 || bs[0].Status != store.BatchCommitted || bs[0].ModelCalls != 2 || f.cli.calls() != 2 {
+		t.Fatalf("after the retry: batches %+v, calls %d, want one committed batch with 2 model calls", bs, f.cli.calls())
+	}
+	if n := f.count(`SELECT COUNT(*) FROM evidence_links`); n != 2 {
+		t.Errorf("evidence links = %d, want 2: each observation once", n)
+	}
+	if n := f.count(`SELECT COUNT(*) FROM proposals`); n != 1 {
+		t.Errorf("proposals = %d, want 1", n)
+	}
+	if wm := f.watermark(sid, "ws-A"); wm != obs[1] {
+		t.Errorf("watermark = %d, want %d", wm, obs[1])
+	}
+}
+
 // A crash after the commit: the commit again and a pass again add nothing (S69).
 func TestCrashAfterCommit(t *testing.T) {
 	f := newFixture(t)
