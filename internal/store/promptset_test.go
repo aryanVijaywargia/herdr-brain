@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/BurntSushi/toml"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/fingerprint"
 )
@@ -176,33 +177,24 @@ func TestPromptSetCoverage(t *testing.T) {
 }
 
 // AC (S71): each prompt of the set gives its labeled result through MatchPrompt, the exact
-// match path of the hook and brained, and through MatchPromptClose, with 0 model calls. AC:
-// close match is off by default, so MatchPromptClose gives no match for each near repeat.
+// match path of the hook and brained, with 0 model calls. AC: close match is off, so each
+// near repeat gives no match.
 func TestPromptSet(t *testing.T) {
 	set := loadPromptSet(t)
 	l := newLabeledStore(t, set)
 	ctx := context.Background()
 	write(t, l.Store, func(tx *sql.Tx) error {
-		for _, c := range set.Prompt {
-			exact, err := MatchPrompt(ctx, tx, fingerprint.Prompt(c.Text), c.workspace())
+		for _, c := range append(slices.Clone(set.Prompt), set.Near...) {
+			got, err := MatchPrompt(ctx, tx, fingerprint.Prompt(c.Text), c.workspace())
 			if err != nil {
 				return err
 			}
-			got, err := MatchPromptClose(ctx, tx, c.Text, c.workspace())
-			if err != nil {
-				return err
+			want := l.want(t, c.Label)
+			if c.Kind == "" { // a near repeat
+				want = nil
 			}
-			if want := l.want(t, c.Label); !slices.Equal(exact, want) || !slices.Equal(got, want) {
-				t.Errorf("%s %q in %q = %v exact, %v close, want %q %v", c.Kind, c.Text, c.workspace(), exact, got, c.Label, want)
-			}
-		}
-		for _, c := range set.Near {
-			got, err := MatchPromptClose(ctx, tx, c.Text, c.workspace())
-			if err != nil {
-				return err
-			}
-			if !CloseMatch && got != nil {
-				t.Errorf("near %q in %q = %v, want no match: close match is off", c.Text, c.workspace(), got)
+			if !slices.Equal(got, want) {
+				t.Errorf("%s %q in %q = %v, want %v", c.Kind, c.Text, c.workspace(), got, want)
 			}
 		}
 		var calls int
@@ -216,22 +208,44 @@ func TestPromptSet(t *testing.T) {
 	})
 }
 
-// closeRule is a close-match rule that Brain tried (E14-S2) [NEW]: no source gives one. match
-// is its close match at threshold, after no exact match.
+// closeRule is a close-match rule that Brain tried (E14-S2) [NEW]: no source gives one. score
+// is the similarity of two prompts, from 0 to 1.
 type closeRule struct {
 	name  string
-	match func(ctx context.Context, tx *sql.Tx, text, ws string, threshold float64) ([]int64, error)
+	score func(a, b string) float64
 }
 
-// closeRules are the rules that Brain tried. The first is the rule of MatchPromptClose.
+// closeRules are the rules that Brain tried.
 var closeRules = []closeRule{
-	{"character trigram Dice", matchClose},
-	{"word Jaccard", matchWords},
+	{"character trigram Dice", trigramDice},
+	{"word Jaccard", wordJaccard},
 }
 
-// matchWords is the close match of the word Jaccard score: the words of fold, with the
-// punctuation at their ends cut.
-func matchWords(ctx context.Context, tx *sql.Tx, text, ws string, threshold float64) ([]int64, error) {
+// fold is s in NFKC and in lower case, with its white space cut to one space between words.
+func fold(s string) string {
+	return strings.Join(strings.Fields(strings.ToLower(norm.NFKC.String(s))), " ")
+}
+
+// trigramDice is the Dice score of the sets of runs of three characters [NEW] of a and b,
+// after fold. A text of fewer than three characters is its own run.
+func trigramDice(a, b string) float64 {
+	trigrams := func(s string) map[string]bool {
+		r := []rune(fold(s))
+		set := map[string]bool{}
+		for i := 0; i+3 <= len(r); i++ {
+			set[string(r[i:i+3])] = true
+		}
+		if len(r) < 3 {
+			set[string(r)] = true
+		}
+		return set
+	}
+	return similarity(trigrams(a), trigrams(b), true)
+}
+
+// wordJaccard is the Jaccard score of the words of a and b after fold, with the punctuation
+// at their ends cut.
+func wordJaccard(a, b string) float64 {
 	words := func(s string) map[string]bool {
 		set := map[string]bool{}
 		for _, w := range strings.Fields(fold(s)) {
@@ -241,21 +255,33 @@ func matchWords(ctx context.Context, tx *sql.Tx, text, ws string, threshold floa
 		}
 		return set
 	}
-	entries, err := PromptEntries(ctx, tx)
-	if err != nil {
-		return nil, err
+	return similarity(words(a), words(b), false)
+}
+
+// similarity is the Dice score of sets a and b, or their Jaccard score when dice is false.
+func similarity(a, b map[string]bool, dice bool) float64 {
+	n := 0
+	for k := range a {
+		if b[k] {
+			n++
+		}
 	}
-	wa := words(text)
+	if dice {
+		return 2 * float64(n) / float64(len(a)+len(b))
+	}
+	if u := len(a) + len(b) - n; u > 0 {
+		return float64(n) / float64(u)
+	}
+	return 1
+}
+
+// closeMatch is the close match of rule r at threshold after no exact match: the proposals of
+// the index rows whose text scores at least threshold against text, with the scope check of
+// MatchPrompt.
+func closeMatch(ctx context.Context, tx *sql.Tx, entries []PromptEntry, r closeRule, threshold float64, text, ws string) ([]int64, error) {
 	var ids []int64
 	for _, e := range entries {
-		wb, n := words(e.Text), 0
-		for w := range wa {
-			if wb[w] {
-				n++
-			}
-		}
-		u := len(wa) + len(wb) - n
-		if len(e.ProposalIDs) == 0 || u == 0 || float64(n)/float64(u) < threshold {
+		if len(e.ProposalIDs) == 0 || r.score(text, e.Text) < threshold {
 			continue
 		}
 		got, err := MatchPrompt(ctx, tx, e.Hash, ws)
@@ -268,46 +294,33 @@ func matchWords(ctx context.Context, tx *sql.Tx, text, ws string, threshold floa
 	return slices.Compact(ids), nil
 }
 
-// passes says whether rule r at threshold passes part of set [NEW]: every [[prompt]] case
-// of the part gives its label, no near repeat gives a wrong proposal, and at least one near
-// repeat gives its label, or the rule adds nothing to exact match.
+// passes says whether rule r at threshold passes part of set: every case of the part, a
+// [[prompt]] or a near repeat, gives its label (§12.1).
 func (l *labeledStore) passes(t *testing.T, set promptSet, part string, r closeRule, threshold float64) bool {
 	t.Helper()
 	ctx := context.Background()
-	ok, gained := true, false
+	ok := true
 	write(t, l.Store, func(tx *sql.Tx) error {
-		match := func(c setCase) ([]int64, error) {
-			ids, err := MatchPrompt(ctx, tx, fingerprint.Prompt(c.Text), c.workspace())
-			if err != nil || ids != nil {
-				return ids, err
-			}
-			return r.match(ctx, tx, c.Text, c.workspace(), threshold)
+		entries, err := PromptEntries(ctx, tx)
+		if err != nil {
+			return err
 		}
-		for _, c := range set.Prompt {
+		for _, c := range append(slices.Clone(set.Prompt), set.Near...) {
 			if c.Part != part {
 				continue
 			}
-			got, err := match(c)
+			got, err := MatchPrompt(ctx, tx, fingerprint.Prompt(c.Text), c.workspace())
+			if err == nil && got == nil {
+				got, err = closeMatch(ctx, tx, entries, r, threshold, c.Text, c.workspace())
+			}
 			if err != nil {
 				return err
 			}
 			ok = ok && slices.Equal(got, l.want(t, c.Label))
 		}
-		for _, c := range set.Near {
-			if c.Part != part {
-				continue
-			}
-			got, err := match(c)
-			if err != nil {
-				return err
-			}
-			right := slices.Equal(got, l.want(t, c.Label))
-			gained = gained || right
-			ok = ok && (right || got == nil)
-		}
 		return nil
 	})
-	return ok && gained
+	return ok
 }
 
 // tune returns the lowest threshold of 0.50, 0.51 … 1.00 at which rule r passes the tune
@@ -322,51 +335,25 @@ func (l *labeledStore) tune(t *testing.T, set promptSet, r closeRule) (float64, 
 	return 0, false
 }
 
-// AC: the close-match threshold comes from the tune part and is checked on the held-out part
-// (§12.1). closeThreshold is the threshold of the trigram rule from the tune part. The test
-// fails when CloseMatch is on while that rule fails the held-out part. The other rules are a
-// record of what Brain tried.
+// AC: a close-match threshold comes from the tune part, the lowest that passes it, and is
+// checked on the held-out part (§12.1). Close match may turn on only with a rule that passes
+// both. No rule that Brain tried passes: a threshold that keeps negation and other arguments
+// out also misses near repeats. So Brain has no close matcher and no switch, and MatchPrompt
+// stays exact. A rule that passes fails this test: build its matcher then, behind a store
+// switch that is off by default.
 func TestCloseMatchHeldOut(t *testing.T) {
 	set := loadPromptSet(t)
 	l := newLabeledStore(t, set)
-	for i, r := range closeRules {
+	for _, r := range closeRules {
 		threshold, ok := l.tune(t, set, r)
-		heldOut := ok && l.passes(t, set, partHeldOut, r, threshold)
-		t.Logf("%s: tune part passes at %.2f: %v, held-out part passes: %v", r.name, threshold, ok, heldOut)
-		if i > 0 {
+		if !ok {
+			t.Logf("%s: no threshold passes the tune part", r.name)
 			continue
 		}
-		if ok && threshold != closeThreshold {
-			t.Errorf("closeThreshold = %.2f, want %.2f from the tune part", closeThreshold, threshold)
+		if l.passes(t, set, partHeldOut, r, threshold) {
+			t.Errorf("%s at %.2f passes the held-out part: build its close matcher behind an off switch", r.name, threshold)
+			continue
 		}
-		if CloseMatch && !heldOut {
-			t.Errorf("CloseMatch is on while %s fails the held-out part", r.name)
-		}
+		t.Logf("%s: %.2f from the tune part fails the held-out part", r.name, threshold)
 	}
-}
-
-// A near repeat that the trigram rule finds at closeThreshold keeps the scope check: a
-// workspace proposal stays out of another workspace.
-func TestMatchCloseScope(t *testing.T) {
-	l := newLabeledStore(t, loadPromptSet(t))
-	ctx := context.Background()
-	write(t, l.Store, func(tx *sql.Tx) error {
-		for _, tc := range []struct {
-			ws   string
-			want []int64
-		}{{"ws-A", []int64{l.ids["pnpm"], l.ids["make-test"]}}, {"ws-B", []int64{l.ids["pnpm"]}}} {
-			var got []int64
-			for _, text := range []string{"use pnpm, not npm, when you install packages.", "run make test and fix the failures."} {
-				ids, err := matchClose(ctx, tx, text, tc.ws, closeThreshold)
-				if err != nil {
-					return err
-				}
-				got = append(got, ids...)
-			}
-			if !slices.Equal(got, tc.want) {
-				t.Errorf("matchClose in %q = %v, want %v", tc.ws, got, tc.want)
-			}
-		}
-		return nil
-	})
 }
