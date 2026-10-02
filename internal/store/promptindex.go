@@ -88,8 +88,8 @@ func MatchPromptClose(ctx context.Context, tx *sql.Tx, text, workspaceKey string
 }
 
 // matchClose returns the ids of the ready proposals of the index rows whose text has a
-// trigram Dice score of at least min against text, with the scope check of MatchPrompt, by id.
-func matchClose(ctx context.Context, tx *sql.Tx, text, workspaceKey string, min float64) ([]int64, error) {
+// trigram Dice score of at least threshold against text, with the scope check of MatchPrompt, by id.
+func matchClose(ctx context.Context, tx *sql.Tx, text, workspaceKey string, threshold float64) ([]int64, error) {
 	type row struct{ hash, text string }
 	rows, err := query(ctx, tx, `SELECT hash, text FROM prompt_index WHERE proposal_ids != '[]'`,
 		func(rows *sql.Rows) (row, error) {
@@ -102,7 +102,7 @@ func matchClose(ctx context.Context, tx *sql.Tx, text, workspaceKey string, min 
 	}
 	var ids []int64
 	for _, r := range rows {
-		if trigramDice(text, r.text) < min {
+		if trigramDice(text, r.text) < threshold {
 			continue
 		}
 		got, err := MatchPrompt(ctx, tx, r.hash, workspaceKey)

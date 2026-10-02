@@ -217,10 +217,10 @@ func TestPromptSet(t *testing.T) {
 }
 
 // closeRule is a close-match rule that Brain tried (E14-S2) [NEW]: no source gives one. match
-// is its close match at threshold min, after no exact match.
+// is its close match at threshold, after no exact match.
 type closeRule struct {
 	name  string
-	match func(ctx context.Context, tx *sql.Tx, text, ws string, min float64) ([]int64, error)
+	match func(ctx context.Context, tx *sql.Tx, text, ws string, threshold float64) ([]int64, error)
 }
 
 // closeRules are the rules that Brain tried. The first is the rule of MatchPromptClose.
@@ -231,7 +231,7 @@ var closeRules = []closeRule{
 
 // matchWords is the close match of the word Jaccard score: the words of fold, with the
 // punctuation at their ends cut.
-func matchWords(ctx context.Context, tx *sql.Tx, text, ws string, min float64) ([]int64, error) {
+func matchWords(ctx context.Context, tx *sql.Tx, text, ws string, threshold float64) ([]int64, error) {
 	words := func(s string) map[string]bool {
 		set := map[string]bool{}
 		for _, w := range strings.Fields(fold(s)) {
@@ -255,7 +255,7 @@ func matchWords(ctx context.Context, tx *sql.Tx, text, ws string, min float64) (
 			}
 		}
 		u := len(wa) + len(wb) - n
-		if len(e.ProposalIDs) == 0 || u == 0 || float64(n)/float64(u) < min {
+		if len(e.ProposalIDs) == 0 || u == 0 || float64(n)/float64(u) < threshold {
 			continue
 		}
 		got, err := MatchPrompt(ctx, tx, e.Hash, ws)
@@ -268,10 +268,10 @@ func matchWords(ctx context.Context, tx *sql.Tx, text, ws string, min float64) (
 	return slices.Compact(ids), nil
 }
 
-// passes says whether rule r at threshold min passes part of set [NEW]: every [[prompt]] case
+// passes says whether rule r at threshold passes part of set [NEW]: every [[prompt]] case
 // of the part gives its label, no near repeat gives a wrong proposal, and at least one near
 // repeat gives its label, or the rule adds nothing to exact match.
-func (l *labeledStore) passes(t *testing.T, set promptSet, part string, r closeRule, min float64) bool {
+func (l *labeledStore) passes(t *testing.T, set promptSet, part string, r closeRule, threshold float64) bool {
 	t.Helper()
 	ctx := context.Background()
 	ok, gained := true, false
@@ -281,7 +281,7 @@ func (l *labeledStore) passes(t *testing.T, set promptSet, part string, r closeR
 			if err != nil || ids != nil {
 				return ids, err
 			}
-			return r.match(ctx, tx, c.Text, c.workspace(), min)
+			return r.match(ctx, tx, c.Text, c.workspace(), threshold)
 		}
 		for _, c := range set.Prompt {
 			if c.Part != part {
@@ -315,8 +315,8 @@ func (l *labeledStore) passes(t *testing.T, set promptSet, part string, r closeR
 func (l *labeledStore) tune(t *testing.T, set promptSet, r closeRule) (float64, bool) {
 	t.Helper()
 	for i := 50; i <= 100; i++ {
-		if min := float64(i) / 100; l.passes(t, set, partTune, r, min) {
-			return min, true
+		if threshold := float64(i) / 100; l.passes(t, set, partTune, r, threshold) {
+			return threshold, true
 		}
 	}
 	return 0, false
@@ -330,14 +330,14 @@ func TestCloseMatchHeldOut(t *testing.T) {
 	set := loadPromptSet(t)
 	l := newLabeledStore(t, set)
 	for i, r := range closeRules {
-		min, ok := l.tune(t, set, r)
-		heldOut := ok && l.passes(t, set, partHeldOut, r, min)
-		t.Logf("%s: tune part passes at %.2f: %v, held-out part passes: %v", r.name, min, ok, heldOut)
+		threshold, ok := l.tune(t, set, r)
+		heldOut := ok && l.passes(t, set, partHeldOut, r, threshold)
+		t.Logf("%s: tune part passes at %.2f: %v, held-out part passes: %v", r.name, threshold, ok, heldOut)
 		if i > 0 {
 			continue
 		}
-		if ok && min != closeThreshold {
-			t.Errorf("closeThreshold = %.2f, want %.2f from the tune part", closeThreshold, min)
+		if ok && threshold != closeThreshold {
+			t.Errorf("closeThreshold = %.2f, want %.2f from the tune part", closeThreshold, threshold)
 		}
 		if CloseMatch && !heldOut {
 			t.Errorf("CloseMatch is on while %s fails the held-out part", r.name)
