@@ -16,6 +16,10 @@ withheld history:
   claude: none
   codex: none
 
+delivery to observed sessions:
+  claude: no session observed
+  codex: no session observed
+
 review queue: empty
 extraction: no extractor CLI is chosen, so Brain makes no extractor call; run brain setup
   last 24h: 0 of 10 extractor calls, 0 of 5 new proposals
@@ -29,6 +33,15 @@ output conflicts: none
 forget pending: none
 
 learning: on
+
+measurement (raw counts, no score; a week starts on Monday 00:00 UTC):
+  week of 2026-09-28: sessions observed 0, capture gaps 0; nothing counted
+  week of 2026-09-21: sessions observed 0, capture gaps 0; nothing counted
+  week of 2026-09-14: sessions observed 0, capture gaps 0; nothing counted
+  week of 2026-09-07: sessions observed 0, capture gaps 0; nothing counted
+  all weeks: sessions observed 0, capture gaps 0
+    comebacks: none
+    uncertain matches: none
 
 relink: old workspaces with the same root: 1
   ws_a14 (w14 shop): same root as ws_a15 (w15 blog)
