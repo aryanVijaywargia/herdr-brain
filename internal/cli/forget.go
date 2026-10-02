@@ -76,11 +76,8 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 			}
 		}
 		agents = agentIDs(*id, ss)
-		paths = make([]int, len(agents))
-		for i, a := range agents {
-			if paths[i], err = store.TranscriptPaths(ctx, tx, c.Binding.Session, a); err != nil {
-				return err
-			}
+		if paths, err = transcriptPaths(ctx, tx, c.Binding.Session, agents); err != nil {
+			return err
 		}
 		if cs, err = newCandidates(ctx, tx, ss, nil); err != nil {
 			return err
@@ -103,14 +100,8 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 			return err
 		}
 	}
-	for i, a := range agents {
-		if paths[i] == 0 {
-			continue
-		}
-		if _, err := fmt.Fprintf(w, "agent session %q: %d receipts with a transcript path: the paths are cleared, the receipts stay\n",
-			a, paths[i]); err != nil {
-			return err
-		}
+	if err := listTranscripts(w, agents, paths); err != nil {
+		return err
 	}
 	if err := listCandidates(w, cs); err != nil {
 		return err
@@ -157,6 +148,35 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 	}
 	_, err = fmt.Fprintf(w, "forget session %s: done; its text is deleted, and new text is captured as usual\n", *id)
 	return err
+}
+
+// transcriptPaths counts the receipts with a transcript path of each of agents in the store
+// binding of herdr session session.
+func transcriptPaths(ctx context.Context, tx *sql.Tx, session string, agents []string) ([]int, error) {
+	paths := make([]int, len(agents))
+	for i, a := range agents {
+		n, err := store.TranscriptPaths(ctx, tx, session, a)
+		if err != nil {
+			return nil, err
+		}
+		paths[i] = n
+	}
+	return paths, nil
+}
+
+// listTranscripts prints the agent sessions whose receipts hold transcript paths that the
+// forget clears (E15-S4); paths[i] is the count of agents[i].
+func listTranscripts(w io.Writer, agents []string, paths []int) error {
+	for i, a := range agents {
+		if paths[i] == 0 {
+			continue
+		}
+		if _, err := fmt.Fprintf(w, "agent session %q: %d receipts with a transcript path: the paths are cleared, the receipts stay\n",
+			a, paths[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // agentIDs returns id and the agent session ids of capture sessions ss, each once: the ids
