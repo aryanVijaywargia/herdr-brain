@@ -427,3 +427,174 @@ func TestStatusFailedBatch(t *testing.T) {
 		t.Errorf("brain status:\n%s\nwant it to hold:\n%s", out, want)
 	}
 }
+
+// capture opens the session with key k in pane paneID of workspace key ws at at, and adds an
+// observation of each status in sts, one minute apart. It returns the session and observation ids.
+func capture(ctx context.Context, tx *sql.Tx, k store.SessionKey, paneID, ws string, at time.Time,
+	sts ...store.ObservationStatus) (session int64, obs []int64, err error) {
+	session, err = store.OpenSession(ctx, tx, k, paneID, ws, at)
+	if err != nil {
+		return 0, nil, err
+	}
+	seg, err := store.StartSegment(ctx, tx, session, paneID, ws, "recent_unwrapped", at)
+	if err != nil {
+		return 0, nil, err
+	}
+	for i, st := range sts {
+		o := at.Add(time.Duration(i) * time.Minute)
+		id, err := store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: fmt.Sprintf("%s/%d", k.ID, i),
+			Source: store.SourceHerdr, SegmentID: seg, Event: "idle", Excerpt: "no, use pnpm", Status: st,
+			Sender: store.SenderUnconfirmed, Counts: st != store.ObservationGap, At: o})
+		if err != nil {
+			return 0, nil, err
+		}
+		obs = append(obs, id)
+	}
+	return session, obs, nil
+}
+
+// AC E15-S2: the M2 counts of §12 from a fixture store, with the sessions observed and the
+// capture gaps beside each count: comebacks by item revision with example observations and the
+// uncertain matches apart, correction candidates, proposals and their review, live suggestions,
+// the delivery gaps of observed sessions by adapter, and a backlog that waits for extraction.
+// The capture off and extraction off switches stay on their own lines (E13-S4).
+func TestStatusCounts(t *testing.T) {
+	f := newStatusFixture(t)
+	f.signalSession(t, "ws_a14", "a1") // claude, week of 2026-09-28: no receipt, waits for extraction
+	f.setCLI(t, store.ExtractorClaude)
+	approved, edited, rejected, changed := f.remember(t, "use pnpm"), f.remember(t, "run make lint"),
+		f.remember(t, "use tabs"), f.remember(t, "keep a changelog")
+	later := f.remember(t, "squash merge")
+	f.mustReview(t, fmt.Sprint(approved), "--approve")
+	f.mustReview(t, fmt.Sprint(edited), "--approve", "--edit", "run make lint before a push")
+	f.mustReview(t, fmt.Sprint(rejected), "--reject")
+	item := *f.rows(t).proposal(t, approved).ItemID
+	lastWeek := testNow.AddDate(0, 0, -7)
+	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
+		claude := func(kind store.KeyKind, id string) store.SessionKey {
+			return store.SessionKey{HerdrSession: "default", Harness: "claude", Kind: kind, ID: id}
+		}
+		// a2 (last week): a withheld receipt, four comebacks on revision 1, a delivery gap outcome
+		// and a capture gap.
+		ok := store.ObservationComplete
+		a2, comebacks, err := capture(ctx, tx, claude(store.KeyAgent, "a2"), "w14:p2", "ws_a14", lastWeek,
+			ok, ok, ok, ok, ok, store.ObservationGap)
+		if err != nil {
+			return err
+		}
+		withheld := store.Delivery{Profile: "claude", HerdrSession: ptr("default"), PaneID: "w14:p2",
+			AgentSessionID: ptr("a2"), Result: store.ResultWithheld, WithheldReason: ptr("not a member"), At: lastWeek}
+		if _, err := store.InsertDelivery(ctx, tx, withheld); err != nil {
+			return err
+		}
+		// c1 (this week): herdr gave no agent session id; an uncertain match and an unknown delivery.
+		c1, obs, err := capture(ctx, tx, claude(store.KeyCapture, "c1"), "w14:p3", "ws_a14", testNow.Add(time.Hour), ok, ok)
+		if err != nil {
+			return err
+		}
+		uncertain, unknown := obs[0], obs[1]
+		// x1 (two weeks ago): a codex session with an emitted receipt.
+		codex := store.SessionKey{HerdrSession: "default", Harness: "codex", Kind: store.KeyAgent, ID: "x1"}
+		if _, _, err := capture(ctx, tx, codex, "w15:p1", "ws_a15", testNow.AddDate(0, 0, -14), ok); err != nil {
+			return err
+		}
+		if _, err := store.InsertDelivery(ctx, tx, store.Delivery{Profile: "codex", HerdrSession: ptr("default"),
+			PaneID: "w15:p1", AgentSessionID: ptr("x1"), Result: store.ResultEmitted, At: testNow.AddDate(0, 0, -14)}); err != nil {
+			return err
+		}
+		outcomes := []store.Outcome{{ItemID: item, SessionID: c1, Kind: store.OutcomeUncertain, Revision: 1, ObservationID: uncertain},
+			{ItemID: item, SessionID: c1, Kind: store.OutcomeUnknown, ObservationID: unknown}}
+		for _, obs := range comebacks[:4] {
+			outcomes = append(outcomes, store.Outcome{ItemID: item, Revision: 1, SessionID: a2, Kind: store.OutcomeComeback,
+				ObservationID: obs})
+		}
+		outcomes = append(outcomes, store.Outcome{ItemID: item, Revision: 1, SessionID: a2, Kind: store.OutcomeGap,
+			ObservationID: comebacks[4]})
+		for _, o := range outcomes {
+			o.At = testNow
+			if _, err := store.AddOutcome(ctx, tx, o); err != nil {
+				return err
+			}
+		}
+		// One correction candidate with evidence in both weeks, one with evidence last week only.
+		supports := func(store.CandidateKind, store.Sender) bool { return true }
+		for i, obs := range []int64{comebacks[0], uncertain, comebacks[1]} {
+			claim, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: "install", Rule: fmt.Sprint("rule ", i/2)}, testNow)
+			if err != nil {
+				return err
+			}
+			c := store.Candidate{ClaimID: claim, Scope: store.ScopeWorkspace, WorkspaceKey: "ws_a14", Kind: store.CandidateCorrection}
+			if _, err := store.Attach(ctx, tx, c, obs, store.DefaultGates(), supports); err != nil {
+				return err
+			}
+		}
+		// The approved proposal came from a suggestion shown 10 minutes before testNow; the later
+		// one is still pending. The rejected one has a stored review time.
+		for i, s := range []struct {
+			proposal int64
+			result   store.SuggestionResult
+		}{{approved, store.SuggestionApproved}, {later, store.SuggestionLater}} {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO suggestions (observation_id, proposal_id, session_id, generation,
+				herdr_session, agent_pane_id, review_pane_id, prompt_hash, reserved, shown_at, result)
+				VALUES (?, ?, ?, 0, 'default', 'w14:p3', 'w14:p9', 'h', ?, ?, ?)`, []int64{uncertain, unknown}[i], s.proposal,
+				c1, testNow.Add(-10*time.Minute).Format(storeTime), testNow.Add(-10*time.Minute).Format(storeTime),
+				s.result); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE proposals SET review_seconds = 30 WHERE id = ?`, rejected); err != nil {
+			return err
+		}
+		// A change request needs an extractor draft; the fixture sets its result directly.
+		_, err = tx.ExecContext(ctx, `UPDATE proposals SET status = ?, decided = ? WHERE id = ?`, store.ProposalChanged,
+			testNow.Add(time.Hour).Format(storeTime), changed)
+		return err
+	})
+	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
+		if err := store.SetExtraction(ctx, tx, "ws_a15", false, testNow); err != nil {
+			return err
+		}
+		return store.SetLearning(ctx, tx, store.LearningSetting{Scope: store.LearningWorkspace, Target: "ws_a15", On: false,
+			Changed: testNow})
+	})
+	out := f.mustStatus(t)
+	f.golden(t, "counts", out)
+	for _, text := range []string{"use pnpm", "no, use pnpm", "make lint", "install"} {
+		if strings.Contains(out, text) {
+			t.Errorf("status shows text %q:\n%s", text, out)
+		}
+	}
+}
+
+// storeTime is the time layout of the store columns.
+const storeTime = "2006-01-02T15:04:05.000Z07:00"
+
+// [NEW] a week starts on Monday 00:00 UTC: a Sunday night and a Monday midnight are in two weeks.
+func TestWeekStarts(t *testing.T) {
+	monday := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		now  time.Time
+		want time.Time
+	}{
+		{monday, monday},
+		{monday.Add(-time.Nanosecond), monday.AddDate(0, 0, -7)},
+		{monday.AddDate(0, 0, 6).Add(23 * time.Hour), monday},
+		{time.Date(2026, 9, 28, 1, 0, 0, 0, time.FixedZone("UTC+2", 2*3600)), monday.AddDate(0, 0, -7)},
+	} {
+		got := weekStarts(c.now, 2)
+		if !got[0].Equal(c.want) || !got[1].Equal(c.want.AddDate(0, 0, -7)) {
+			t.Errorf("weekStarts(%v) = %v, want %v and the week before", c.now, got, c.want)
+		}
+	}
+}
+
+func TestMedian(t *testing.T) {
+	for _, c := range []struct {
+		xs   []int64
+		want int64
+	}{{[]int64{7}, 7}, {[]int64{1, 2, 9}, 2}, {[]int64{30, 600}, 315}, {[]int64{1, 2}, 1}} {
+		if got := median(c.xs); got != c.want {
+			t.Errorf("median(%v) = %d, want %d", c.xs, got, c.want)
+		}
+	}
+}

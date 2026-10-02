@@ -162,7 +162,7 @@ func (s *statusCall) run(ctx context.Context) {
 			return err
 		}
 		s.w.printf("\n%s\n", line)
-		return nil
+		return s.measurement(ctx, tx)
 	}))
 	s.relinks()
 	s.w.printf("\n%s\n", evalLine(s.Bindings, s.Now()))
@@ -324,6 +324,26 @@ func (s *statusCall) delivery(ctx context.Context, tx *sql.Tx) error {
 			parts[i] = fmt.Sprintf("%s %d", cmp.Or(c.Reason, "no reason"), c.Count)
 		}
 		s.w.printf("  %s: %d (%s)\n", kind, total, strings.Join(parts, ", "))
+	}
+	return s.observedDelivery(ctx, tx)
+}
+
+// observedDelivery prints the delivery gaps of each profile in the sessions that capture saw
+// (§12 "Delivery gaps"), with the sessions observed and the capture gaps beside them.
+func (s *statusCall) observedDelivery(ctx context.Context, tx *sql.Tx) error {
+	s.w.printf("\ndelivery to observed sessions:\n")
+	for _, kind := range profiles {
+		d, err := store.DeliveryGaps(ctx, tx, s.Binding.Session, kind)
+		if err != nil {
+			return err
+		}
+		if d.Sessions == 0 {
+			s.w.printf("  %s: no session observed\n", kind)
+			continue
+		}
+		s.w.printf("  %s: sessions observed %d, capture gaps %d; no receipt %d, withheld %d, no agent session id %d;"+
+			" outcomes: delivery gap %d, delivery unknown %d\n", kind, d.Sessions, d.Gaps, d.NoReceipt, d.Withheld, d.NoID,
+			d.Gap, d.Unknown)
 	}
 	return nil
 }
@@ -487,6 +507,124 @@ func (s *statusCall) extractor(ctx context.Context, tx *sql.Tx) error {
 		s.w.printf("  extractor: %s, %s\n", x.CLI, cmp.Or(x.Model, "its default model"))
 	}
 	return nil
+}
+
+// measurementWeeks is the count of weeks that brain status shows, the current one first. [NEW]
+const measurementWeeks = 4
+
+// maxExamples is the count of example observations for each item revision. [NEW]
+const maxExamples = 3
+
+// measurement prints the M2 counts (§12): raw counts with no score (R6). Each line of counts
+// sits under the sessions observed and the capture gaps of its span. Brain shows no week
+// percentage and no target. The backlog, the switches, the delivery gaps and the block sizes
+// are on their own lines above.
+func (s *statusCall) measurement(ctx context.Context, tx *sql.Tx) error {
+	ws, err := store.Weeks(ctx, tx, weekStarts(s.Now(), measurementWeeks))
+	if err != nil {
+		return err
+	}
+	s.w.printf("\nmeasurement (raw counts, no score; a week starts on Monday 00:00 UTC):\n")
+	for _, w := range ws {
+		s.week(w)
+	}
+	c, err := store.Observed(ctx, tx)
+	if err != nil {
+		return err
+	}
+	cs, err := store.RevisionOutcomes(ctx, tx)
+	if err != nil {
+		return err
+	}
+	s.w.printf("  all weeks: sessions observed %d, capture gaps %d\n", c.Sessions, c.Gaps)
+	for _, kind := range []store.OutcomeKind{store.OutcomeComeback, store.OutcomeUncertain} {
+		var lines []string
+		for _, o := range cs {
+			if o.Kind == kind {
+				lines = append(lines, fmt.Sprintf("item %d revision %d: %d (%s)", o.ItemID, o.Revision,
+					len(o.Observations), examples(o.Observations)))
+			}
+		}
+		word := "comebacks"
+		if kind == store.OutcomeUncertain {
+			word = "uncertain matches"
+		}
+		if len(lines) == 0 {
+			s.w.printf("    %s: none\n", word)
+			continue
+		}
+		s.w.printf("    %s:\n", word)
+		for _, l := range lines {
+			s.w.printf("      %s\n", l)
+		}
+	}
+	return nil
+}
+
+// week prints the counts of one week: the repeats, the review effort and results, and the
+// live suggestions. A week with no count at all is one line.
+func (s *statusCall) week(w store.Week) {
+	decided := 0
+	for _, n := range w.Decided {
+		decided += n
+	}
+	head := fmt.Sprintf("  week of %s: sessions observed %d, capture gaps %d", w.Start.Format(time.DateOnly), w.Sessions, w.Gaps)
+	if w.Sessions+w.Gaps+w.Corrections+w.Proposals+decided+w.Shown == 0 {
+		s.w.printf("%s; nothing counted\n", head)
+		return
+	}
+	s.w.printf("%s\n", head)
+	s.w.printf("    correction candidates %d\n", w.Corrections)
+	effort := "no timed review"
+	if n := len(w.ReviewSeconds); n > 0 {
+		effort = fmt.Sprintf("median review %ds of %d timed", median(w.ReviewSeconds), n)
+	}
+	s.w.printf("    proposals made %d; decided %d: approved %d, edited %d, rejected %d, changed %d; %s\n", w.Proposals,
+		decided, w.Decided[store.ReviewApproved], w.Decided[store.ReviewEdited], w.Decided[store.ReviewRejected],
+		w.Decided[store.ReviewChanged], effort)
+	s.w.printf("    live suggestions shown %d: approved %d, rejected %d, changed %d, later %d\n", w.Shown,
+		w.Suggested[store.SuggestionApproved], w.Suggested[store.SuggestionRejected],
+		w.Suggested[store.SuggestionChanged], w.Suggested[store.SuggestionLater])
+}
+
+// weekStarts returns the starts of the n weeks up to now, the newest first: Monday 00:00 UTC.
+// [NEW] the week boundary.
+func weekStarts(now time.Time, n int) []time.Time {
+	now = now.UTC()
+	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	monday := day.AddDate(0, 0, -(int(day.Weekday())+6)%7)
+	starts := make([]time.Time, n)
+	for i := range n {
+		starts[i] = monday.AddDate(0, 0, -7*i)
+	}
+	return starts
+}
+
+// median is the median of the sorted xs: the mean of the two middle values for an even count,
+// rounded down.
+func median(xs []int64) int64 {
+	m := len(xs) / 2
+	if len(xs)%2 == 1 {
+		return xs[m]
+	}
+	return (xs[m-1] + xs[m]) / 2
+}
+
+// examples lists the first maxExamples observation ids, the links to the examples.
+func examples(ids []int64) string {
+	parts := make([]string, 0, maxExamples)
+	for _, id := range ids[:min(len(ids), maxExamples)] {
+		parts = append(parts, fmt.Sprint(id))
+	}
+	word := "observations "
+	if len(ids) == 1 {
+		word = "observation "
+	}
+	more := ""
+	if len(ids) > maxExamples {
+		more = ", …"
+	}
+	return word + strings.Join(parts, ", ") + more
 }
 
 // age is a short age. [NEW] the units and their limits.
