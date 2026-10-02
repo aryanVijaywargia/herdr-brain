@@ -405,6 +405,21 @@ func TestClosePluginPane(t *testing.T) {
 	}
 }
 
+// E14-S3: the notification of a suggestion. herdr answers shown false with no client attached.
+func TestShowNotification(t *testing.T) {
+	shown := fixture(t, "notification-show.json")
+	c, dir := fakeClient(t, map[string]reply{"notification show Brain has 1 suggestion --body proposal 3": {Stdout: shown}})
+	if err := c.ShowNotification(deadline(t), "Brain has 1 suggestion", "proposal 3"); err != nil {
+		t.Errorf("ShowNotification() = %v, want nil", err)
+	}
+	want := call{Args: []string{"notification", "show", "Brain has 1 suggestion", "--body", "proposal 3"}, Session: testSession, Socket: testSocket}
+	if cs := calls(t, dir); len(cs) != 1 || !reflect.DeepEqual(cs[0], want) {
+		t.Errorf("herdr calls = %+v, want [%+v]", cs, want)
+	}
+	c, _ = fakeClient(t, map[string]reply{"notification show t --body b": {Stdout: `{"result":{"type":"notification_show"}}`}})
+	wantShape(t, c.ShowNotification(deadline(t), "t", "b"), "shown")
+}
+
 // TestTarget shows that the client's target wins over inherited HERDR_SESSION and
 // HERDR_SOCKET_PATH of another session: the child gets no --session flag and both variables
 // set to the one target, so they never disagree. TestLiveTarget shows herdr's own order.

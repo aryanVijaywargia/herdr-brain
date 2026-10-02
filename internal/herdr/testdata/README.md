@@ -40,3 +40,8 @@ with a scratch HOME), for the eval runner (E10-S1):
   the foreground
 - `pane-closed.json`: `herdr pane close w1:p2`
 - `error-agent-not-found.json`: stderr of `herdr agent read w1:p1` on a shell pane (exit 1)
+
+Recorded on 2026-10-02 from a headless scratch server (`herdr --session brain-e14s3-test
+server` with a scratch HOME, no client attached) (E14-S3):
+
+- `notification-show.json`: `herdr notification show "Brain has 1 suggestion" --body "proposal 3"`
