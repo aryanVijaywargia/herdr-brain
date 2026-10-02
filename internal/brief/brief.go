@@ -45,6 +45,25 @@ type Item struct {
 	ExceptionTo int64
 	// ConflictsWith are the items that this item has an unresolved conflict with (§7.4).
 	ConflictsWith []int64
+	// Dispute marks an item whose anchor changed, until you decide (§9.1).
+	Dispute Dispute
+}
+
+// Dispute is the mark of a disputed item or skill (§9.1, G7): the paths of the anchors that
+// changed, moved or were deleted, and the time of the check that found them. A Dispute with no
+// anchors is no mark.
+type Dispute struct {
+	Anchors []string
+	At      time.Time
+}
+
+// mark is the text of d: " (disputed: <anchor> changed on <date>)", with the date in UTC.
+// [NEW] several anchors are joined with ", ".
+func (d Dispute) mark() string {
+	if len(d.Anchors) == 0 {
+		return ""
+	}
+	return " (disputed: " + strings.Join(d.Anchors, ", ") + " changed on " + d.At.UTC().Format("2006-01-02") + ")"
 }
 
 // Skill is one active skill as the brief lists it (§8.2): its name, its one-line description,
@@ -56,6 +75,8 @@ type Skill struct {
 	Path        string
 	// NotAvailable comes from the reviewed text, for example "gh in codex".
 	NotAvailable string
+	// Dispute marks a skill whose anchor changed, until you decide (§9.1).
+	Dispute Dispute
 }
 
 // The skill list at the end of a part. [NEW] the heading, the instruction line and the entry
@@ -142,12 +163,12 @@ func writeSkills(b *strings.Builder, skills []Skill) {
 		if sk.NotAvailable != "" {
 			b.WriteString(" (not available: " + sk.NotAvailable + ")")
 		}
-		b.WriteString("\n")
+		b.WriteString(sk.Dispute.mark() + "\n")
 	}
 }
 
 // writeItem writes one item: its id and first line, then up to two more lines, indented. The
-// exception and conflict marks go at the end of the last line.
+// exception, conflict and dispute marks go at the end of the last line.
 func writeItem(b *strings.Builder, it Item) error {
 	lines := strings.Split(strings.TrimRight(it.Text, "\n"), "\n")
 	if len(lines) > maxItemLines {
@@ -161,6 +182,6 @@ func writeItem(b *strings.Builder, it Item) error {
 	for _, id := range slices.Sorted(slices.Values(it.ConflictsWith)) {
 		fmt.Fprintf(b, " (conflicts with %d; ask the user)", id)
 	}
-	b.WriteString("\n")
+	b.WriteString(it.Dispute.mark() + "\n")
 	return nil
 }

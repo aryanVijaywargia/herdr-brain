@@ -77,6 +77,20 @@ func TestGolden(t *testing.T) {
 			workspaceSkills: []Skill{{Name: "deploy", Description: "Deploy the site.", Path: "/s/skills/7/r1/SKILL.md"}},
 		},
 		{
+			// AC E16-S6 (S72): a disputed item and a disputed skill stay in the brief, with the mark.
+			name:   "disputed",
+			global: []Item{npm},
+			workspace: []Item{
+				{ID: 15, Text: "Run the tests with make test."},
+				{ID: 16, Text: "The config loader is in internal/config/load.go.",
+					Dispute: Dispute{Anchors: []string{"internal/config/load.go"}, At: time.Date(2026, 10, 3, 23, 30, 0, 0, time.FixedZone("x", -3600))}},
+				{ID: 17, Text: "Docs: docs/a.md and docs/b.md.", ConflictsWith: []int64{3},
+					Dispute: Dispute{Anchors: []string{"docs/a.md", "docs/b.md"}, At: time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)}},
+			},
+			workspaceSkills: []Skill{{Name: "deploy", Description: "Deploy with scripts/deploy.sh.", Path: "/s/skills/7/r1/SKILL.md",
+				Dispute: Dispute{Anchors: []string{"scripts/deploy.sh"}, At: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}}},
+		},
+		{
 			name:      "over-budget",
 			global:    []Item{{ID: 1, Text: strings.Repeat("g", globalBudget)}},
 			workspace: []Item{{ID: 2, Text: strings.Repeat("w", workspaceBudget)}},
@@ -191,6 +205,19 @@ func TestSkillBudget(t *testing.T) {
 	var be *BudgetError
 	if _, err := Workspace(items, sk); !errors.As(err, &be) {
 		t.Errorf("Workspace(one byte over with skill) error = %v, want *BudgetError", err)
+	}
+}
+
+// TestDisputeBudget checks that the dispute mark counts in the budget of its part (§9.1).
+func TestDisputeBudget(t *testing.T) {
+	items := fill(t, len(workspaceLabel), workspaceBudget)
+	if _, err := Workspace(items); err != nil {
+		t.Fatalf("Workspace(full) error = %v, want nil", err)
+	}
+	items[0].Dispute = Dispute{Anchors: []string{"a.go"}, At: time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)}
+	var be *BudgetError
+	if _, err := Workspace(items); !errors.As(err, &be) || be.Size != workspaceBudget+len(" (disputed: a.go changed on 2026-10-03)") {
+		t.Errorf("Workspace(full with a mark) error = %v, want *BudgetError with the mark in its size", err)
 	}
 }
 
