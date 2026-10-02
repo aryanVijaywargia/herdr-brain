@@ -133,3 +133,46 @@ func TiedReceipt(ctx context.Context, tx *sql.Tx, obs int64) (d Delivery, ok boo
 	d, err = DeliveryByID(ctx, tx, ids[0])
 	return d, err == nil, err
 }
+
+// LastSession reads the newest receipt of workspace key that has a transcript path and
+// another agent session id than agentSession, of any harness and any result (E15-S4, §8.3).
+// It reads the id, the profile, the time and the transcript path of the receipt only. ok is
+// false when there is none. A workspace key names one workspace of one store, so a receipt of
+// another workspace never matches (S48). The partial index deliveries_transcript serves it.
+func LastSession(ctx context.Context, tx *sql.Tx, key, agentSession string) (d Delivery, ok bool, err error) {
+	err = tx.QueryRowContext(ctx, `SELECT id, profile, at, transcript_path FROM deliveries
+		WHERE workspace_key = ? AND transcript_path IS NOT NULL AND agent_session_id IS NOT ?
+		ORDER BY id DESC LIMIT 1`, key, agentSession).Scan(&d.ID, &d.Profile, timeDest{&d.At}, &d.TranscriptPath)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Delivery{}, false, nil
+	}
+	if err != nil {
+		return Delivery{}, false, fmt.Errorf("read last session of workspace %s: %w", key, err)
+	}
+	return d, true, nil
+}
+
+// TranscriptPaths counts the receipts of agent session agentSession of harness profile in the
+// store binding of herdr session session that hold a transcript path (E15-S4).
+func TranscriptPaths(ctx context.Context, tx *sql.Tx, session, profile, agentSession string) (int, error) {
+	var n int
+	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM deliveries `+transcriptRows, session, profile, agentSession).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count transcript paths of agent session %s: %w", agentSession, err)
+	}
+	return n, nil
+}
+
+// ClearTranscriptPaths sets the transcript path of the receipts that TranscriptPaths counts to
+// NULL: brain forget --session (E15-S4, §6.7). The receipts stay.
+func ClearTranscriptPaths(ctx context.Context, tx *sql.Tx, session, profile, agentSession string) error {
+	_, err := tx.ExecContext(ctx, `UPDATE deliveries SET transcript_path = NULL `+transcriptRows, session, profile, agentSession)
+	if err != nil {
+		return fmt.Errorf("clear transcript paths of agent session %s: %w", agentSession, err)
+	}
+	return nil
+}
+
+// transcriptRows is the WHERE clause of the receipts with a transcript path of one agent
+// session: binding, profile and agent session id, in that order.
+const transcriptRows = `WHERE herdr_session = ? AND profile = ? AND agent_session_id = ? AND transcript_path IS NOT NULL`
