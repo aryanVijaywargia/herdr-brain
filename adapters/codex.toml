@@ -11,6 +11,9 @@ start_condition = ""
 output_form = "hookSpecificOutput.additionalContext"
 input.session_id = "session_id"
 input.cwd = "cwd"
+# The start input names the CLI's transcript file; Brain stores the path in the receipt and
+# never reads the file (E15-S4, spike/m0/data/e11s1-codex-hooks.txt).
+input.transcript_path = "transcript_path"
 # The hook record paths, from the Codex source: the shell command and the turn cwd, with no
 # exit status; the Stop reply can be null.
 input.prompt = "prompt"

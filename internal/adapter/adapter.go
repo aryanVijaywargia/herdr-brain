@@ -52,6 +52,9 @@ type Profile struct {
 	Input          struct {
 		SessionID string `toml:"session_id"`
 		CWD       string `toml:"cwd"`
+		// TranscriptPath is the path of the CLI's transcript file in the start input (E15-S4).
+		// It is optional: Brain only stores and prints the path, and never reads the file.
+		TranscriptPath string `toml:"transcript_path"`
 		// The paths of the hook records (E11-S5).
 		Prompt  string `toml:"prompt"`  // the prompt text
 		Command string `toml:"command"` // the shell command of the tool
@@ -89,8 +92,9 @@ type condition struct {
 
 // Input is what the base adapter reads from one hook input.
 type Input struct {
-	SessionID string
-	CWD       string
+	SessionID      string
+	CWD            string
+	TranscriptPath string // "" when the input has none
 }
 
 // Load returns the embedded profile of a harness, for example "claude".
@@ -188,8 +192,8 @@ func (p *Profile) Noise(line string) bool {
 	return false
 }
 
-// Parse reads the agent session id and the cwd from raw hook input by the profile's JSON
-// paths. It returns an error that wraps ErrRetest when the input is not a JSON object, a path
+// Parse reads the agent session id, the cwd and the transcript path from raw hook input by the
+// profile's JSON paths. It returns an error that wraps ErrRetest when the input is not a JSON object, a path
 // has no non-empty string, or the start condition's path is missing. It returns ErrNotStart
 // when the input does not meet the start condition. On any error the hook prints nothing.
 func (p *Profile) Parse(raw []byte) (Input, error) {
@@ -214,7 +218,12 @@ func (p *Profile) Parse(raw []byte) (Input, error) {
 	if err != nil {
 		return Input{}, err
 	}
-	return Input{SessionID: sessionID, CWD: cwd}, nil
+	in := Input{SessionID: sessionID, CWD: cwd}
+	// A start with no transcript path still delivers; its receipt holds no path (E15-S4).
+	if v, ok := lookup(doc, p.Input.TranscriptPath); ok {
+		in.TranscriptPath, _ = v.(string) // a value that is not a string, such as null, is no path
+	}
+	return in, nil
 }
 
 // Write writes brief to w in the profile's output form.
