@@ -54,7 +54,7 @@ func (sg suggester) run(ctx context.Context, d brained.Dispatch) (err error) {
 	// The checks run before the notification, and again before the open: either can wait.
 	h, err := sg.check(ctx, cl, d)
 	if err == nil {
-		err = h.ShowNotification(ctx, notificationTitle, fmt.Sprintf("proposal %d opens beside pane %s", d.Proposal, c.PaneID))
+		err = sg.notify(ctx, h, d, c.PaneID)
 	}
 	if err == nil {
 		_, err = sg.check(ctx, cl, d)
@@ -69,6 +69,13 @@ func (sg suggester) run(ctx context.Context, d brained.Dispatch) (err error) {
 	return c.Store.Write(ctx, func(tx *sql.Tx) error {
 		return store.ShowSuggestion(ctx, tx, d.Suggestion, pane, sg.Now())
 	})
+}
+
+// notify shows the herdr notification of suggestion d beside pane paneID. It names ids only.
+func (sg suggester) notify(ctx context.Context, h PaneHerdr, d brained.Dispatch, paneID string) error {
+	ctx, cancel := context.WithTimeout(ctx, herdrDeadline)
+	defer cancel()
+	return h.ShowNotification(ctx, notificationTitle, fmt.Sprintf("proposal %d opens beside pane %s", d.Proposal, paneID))
 }
 
 // expire marks suggestion d expired after err, when its row is still the one of d: a skip is

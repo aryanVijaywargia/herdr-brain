@@ -49,7 +49,10 @@ func (h *fakeHerdr) PaneProcesses(_ context.Context, id string) ([]herdr.Process
 	return ps, nil
 }
 
-func (h *fakeHerdr) ShowNotification(_ context.Context, title, body string) error {
+func (h *fakeHerdr) ShowNotification(ctx context.Context, title, body string) error {
+	if _, ok := ctx.Deadline(); !ok {
+		return errors.New("context has no deadline") // as the herdr client
+	}
 	h.notes = append(h.notes, title+": "+body)
 	return nil
 }
