@@ -458,6 +458,12 @@ func TestForgetSession(t *testing.T) {
 					}
 				}
 			}
+			// A start receipt of the agent session in each herdr session (E15-S4).
+			if _, err := store.InsertDelivery(ctx, tx, store.Delivery{Profile: "claude", HerdrSession: &herdrSession,
+				PaneID: "w14:p1", AgentSessionID: ptr("agent-1"), Result: store.ResultUnmapped, At: testNow,
+				TranscriptPath: ptr("/t/" + herdrSession + ".jsonl")}); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -484,7 +490,7 @@ func TestForgetSession(t *testing.T) {
 	if err := Forget(ctx, e, []string{"--session", "agent-1"}); err != nil {
 		t.Fatalf("forget --session = %v", err)
 	}
-	want := "session 1: claude in pane w14:p1, capture id cap-1, agent session \"agent-1\": 2 observations, 1 command records, 2 evidence links, 0 prompt index rows, 0 outcomes\n" +
+	want := "session 1: claude in pane w14:p1, capture id cap-1, agent session \"agent-1\": 2 observations, 1 command records, 2 evidence links, 0 prompt index rows, 0 outcomes, 1 transcript paths\n" +
 		"candidate 1: workspace failure of claim " + claim + ", 4 occurrences in 2 sessions: its links to this evidence go, and it is counted again\n" +
 		"1 candidates use this evidence; no item uses capture evidence yet: nothing else to keep or forget\n" +
 		"forget session agent-1: done; its text is deleted, and new text is captured as usual\n"
@@ -520,6 +526,26 @@ func TestForgetSession(t *testing.T) {
 	if got := f.scan(t, liveText); len(got) == 0 {
 		t.Error("the forget of a session removed an item")
 	}
+	// AC E15-S4: the forget clears the transcript path of the session's receipt and keeps the
+	// receipt; the other herdr session keeps its path.
+	s = openStore(t, f.store)
+	defer closeStore(t, s)
+	write(t, s, func(tx *sql.Tx) error {
+		for id, want := range map[int64]string{1: "", 2: "/t/other.jsonl"} {
+			d, err := store.DeliveryByID(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			got := ""
+			if d.TranscriptPath != nil {
+				got = *d.TranscriptPath
+			}
+			if got != want {
+				t.Errorf("after the forget receipt %d has transcript path %q, want %q", id, got, want)
+			}
+		}
+		return nil
+	})
 }
 
 // AC S68 (index part): brain forget --session lists the proposals that used the prompt index
@@ -586,7 +612,7 @@ func TestForgetSessionPromptIndex(t *testing.T) {
 	if err := Forget(ctx, e, []string{"--session", "cap-1"}); err != nil {
 		t.Fatalf("forget --session = %v", err)
 	}
-	for _, want := range []string{"1 prompt index rows, 0 outcomes\n", fmt.Sprintf("\nproposal %d used its prompts", proposal)} {
+	for _, want := range []string{"1 prompt index rows, 0 outcomes, 0 transcript paths\n", fmt.Sprintf("\nproposal %d used its prompts", proposal)} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("forget --session printed\n%s\nwant %q", out.String(), want)
 		}

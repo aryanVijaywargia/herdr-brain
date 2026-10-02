@@ -151,7 +151,7 @@ func TestNoLastSessionLine(t *testing.T) {
 			t.Helper()
 			start(t, f, claude(t), environ(f.mainSock, "", "w14:p1", "w14"), startInput("claude-1", ""))
 		}}, env: paneA14},
-		// brain forget --session clears the path (internal/cli TestForgetSessionTranscript).
+		// brain forget --session clears the path (internal/cli TestForgetSession).
 		{name: "forgotten session", prep: []func(*testing.T, *fixture){claudeA14, func(t *testing.T, f *fixture) {
 			t.Helper()
 			s := openStore(t, f.mainStore)
