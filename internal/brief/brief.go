@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // The frame of every brief (§8.1). The marker text is a Brain choice [NEW] (§8.1).
@@ -80,6 +81,18 @@ func WorkspaceSize(workspace string) (size, limit int) { return len(workspace), 
 // Text puts the frame around the two parts and returns the whole brief.
 func Text(global, workspace string) string {
 	return beginMarker + "\n" + precedence + "\n" + global + workspace + endMarker
+}
+
+// LastSession adds the line that names the last session of the workspace at the end of the
+// workspace part (E15-S4, §8.1). The hook adds it at print time, so it is in no built part and
+// in no manifest. A workspace part that the generation does not hold yet gets its label first.
+// The time is in the zone of at, to the minute. [NEW] the line form.
+func LastSession(workspace, harness string, at time.Time, transcript string) string {
+	if workspace == "" {
+		workspace = workspaceLabel
+	}
+	return workspace + "Last session in this workspace: " + harness + ", " + at.Format("2006-01-02 15:04") +
+		", transcript " + transcript + "\n"
 }
 
 // part renders a label and the items in id order, so the same items give the same bytes.
