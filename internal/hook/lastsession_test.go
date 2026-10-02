@@ -204,3 +204,51 @@ func TestNoTranscriptPath(t *testing.T) {
 		t.Errorf("receipts = %v, want a NULL transcript path, then /t/claude-2.jsonl", ds)
 	}
 }
+
+// AC E15-S5: a start that gives "withheld: identity" never counts as the last session. Start A
+// in w16 is withheld; after w16's root moves back into its project folder, start B prints the
+// workspace part with no line for A, or with the line of an earlier emitted start.
+func TestLastSessionSkipsIdentity(t *testing.T) {
+	pane := func(f *fixture) []string { return environ(f.mainSock, "", "w16:p1", "w16") }
+	// root writes the saved root of w16 into the session file of the main socket.
+	root := func(t *testing.T, f *fixture, dir string) {
+		t.Helper()
+		writeJSON(t, filepath.Join(filepath.Dir(f.mainSock), "session.json"), sessionFile(map[string]string{
+			"w14": canonical(t, filepath.Join(f.dir, "proj", "sub")), "w15": canonical(t, filepath.Join(f.dir, "proj")),
+			"w16": canonical(t, filepath.Join(f.dir, dir))}))
+	}
+	for _, tt := range []struct {
+		name    string
+		earlier bool   // an emitted start in w16 comes before A
+		want    string // the line; "" for none
+	}{
+		{name: "no earlier session"},
+		{name: "an earlier emitted session", earlier: true, want: lastLine("/t/claude-0.jsonl")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			if tt.earlier {
+				root(t, f, "proj")
+				start(t, f, claude(t), pane(f), startInput("claude-0", "/t/claude-0.jsonl"))
+				root(t, f, "other")
+			}
+			start(t, f, claude(t), pane(f), startInput("claude-1", "/t/claude-1.jsonl"))
+			ds := deliveries(t, f.mainStore)
+			if a := ds[len(ds)-1]; a.Result != store.ResultWithheld || a.WithheldReason == nil || *a.WithheldReason != reasonIdentity ||
+				a.TranscriptPath == nil || *a.TranscriptPath != "/t/claude-1.jsonl" {
+				t.Fatalf("receipt of A = %s, want withheld: identity with path /t/claude-1.jsonl", show(a))
+			}
+			root(t, f, "proj")
+			got := start(t, f, codex(t), pane(f), startInput("codex-1", "/t/codex-1.jsonl"))
+			if !strings.Contains(got, "## This workspace") {
+				t.Fatalf("brief of B =\n%s\nwant the workspace part printed", got)
+			}
+			if tt.want == "" && strings.Contains(got, "Last session") {
+				t.Errorf("brief of B =\n%s\nwant no last session line", got)
+			}
+			if tt.want != "" && !strings.HasSuffix(got, tt.want+"<!-- brain:end -->") {
+				t.Errorf("brief of B =\n%s\nwant it to end with\n%s", got, tt.want)
+			}
+		})
+	}
+}
