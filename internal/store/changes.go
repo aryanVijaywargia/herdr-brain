@@ -75,21 +75,76 @@ const openChanges = `('queued', 'active', 'failed', 'invalid')`
 // the proposal to changed, so it is not published, and queues the request (S56). The queue
 // key is the proposal id and its base revision. The caller filters text for secrets.
 func AskChange(ctx context.Context, tx *sql.Tx, id int64, cand Candidate, text string, surface Surface, now time.Time) (ChangeRequest, error) {
-	res, err := tx.ExecContext(ctx, `UPDATE proposals SET status = ?, change_request = ?, surface = ?, decided = ?
-		WHERE id = ? AND status = ? AND base_revision IS NOT NULL`,
-		ProposalChanged, text, surface, timeArg(now), id, ProposalPending)
-	if err != nil {
-		return ChangeRequest{}, fmt.Errorf("ask a change of proposal %d: %w", id, err)
-	}
-	if n, err := res.RowsAffected(); err != nil || n == 0 {
-		return ChangeRequest{}, errors.Join(err, fmt.Errorf("proposal %d is not pending: %w", id, sql.ErrNoRows))
+	if err := markChanged(ctx, tx, id, text, surface, now); err != nil {
+		return ChangeRequest{}, err
 	}
 	var cr int64
-	err = tx.QueryRowContext(ctx, `INSERT INTO change_requests (source, source_id, revision, workspace_key, status,
+	err := tx.QueryRowContext(ctx, `INSERT INTO change_requests (source, source_id, revision, workspace_key, status,
 		model_calls, reason, created, at) SELECT ?, id, base_revision, ?, ?, 0, '', ?, ? FROM proposals WHERE id = ?
 		RETURNING id`, ChangeProposal, cand.WorkspaceKey, ChangeQueued, timeArg(now), timeArg(now), id).Scan(&cr)
 	if err != nil {
 		return ChangeRequest{}, fmt.Errorf("queue the change request of proposal %d: %w", id, err)
+	}
+	return ChangeRequestByID(ctx, tx, cr)
+}
+
+// QueueItemChange queues the change request of revision of item: two comebacks on that
+// revision (§5.4). The queue key is the item id and the revision, so a request is queued once,
+// and a retry adds nothing. Its scope is the scope of the item. The request holds no text.
+func QueueItemChange(ctx context.Context, tx *sql.Tx, item, revision int64, now time.Time) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO change_requests (source, source_id, revision, workspace_key, status,
+		model_calls, reason, created, at) SELECT ?, id, ?, COALESCE(workspace_key, ''), ?, 0, '', ?, ? FROM items WHERE id = ?
+		ON CONFLICT (source, source_id, revision) DO NOTHING`,
+		ChangeItem, revision, ChangeQueued, timeArg(now), timeArg(now), item)
+	if err != nil {
+		return fmt.Errorf("queue the change request of item %d revision %d: %w", item, revision, err)
+	}
+	return nil
+}
+
+// markChanged records your change request text on pending proposal id and sets it to
+// changed, so it is not published.
+func markChanged(ctx context.Context, tx *sql.Tx, id int64, text string, surface Surface, now time.Time) error {
+	res, err := tx.ExecContext(ctx, `UPDATE proposals SET status = ?, change_request = ?, surface = ?, decided = ?
+		WHERE id = ? AND status = ? AND base_revision IS NOT NULL`,
+		ProposalChanged, text, surface, timeArg(now), id, ProposalPending)
+	if err != nil {
+		return fmt.Errorf("ask a change of proposal %d: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return errors.Join(err, fmt.Errorf("proposal %d is not pending: %w", id, sql.ErrNoRows))
+	}
+	return nil
+}
+
+// ItemChangeOf returns the change request of an item revision whose draft is proposal id
+// (E15-S1). ok is false when the proposal is no such draft.
+func ItemChangeOf(ctx context.Context, tx *sql.Tx, id int64) (c ChangeRequest, ok bool, err error) {
+	c, err = scanChange(tx.QueryRowContext(ctx, `SELECT `+changeColumns+` FROM change_requests
+		WHERE source = ? AND new_proposal_id = ?`, ChangeItem, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return ChangeRequest{}, false, nil
+	}
+	if err != nil {
+		return ChangeRequest{}, false, fmt.Errorf("read the item change request of proposal %d: %w", id, err)
+	}
+	return c, true, nil
+}
+
+// AskItemChange records your change request text on pending proposal id, the draft of the
+// change request of an item revision, and queues that request again on its key (item id,
+// revision): its next draft redrafts proposal id with your text. The request keeps the
+// proposal as its new_proposal_id until that draft. The caller filters text for secrets.
+func AskItemChange(ctx context.Context, tx *sql.Tx, id int64, text string, surface Surface, now time.Time) (ChangeRequest, error) {
+	if err := markChanged(ctx, tx, id, text, surface, now); err != nil {
+		return ChangeRequest{}, err
+	}
+	var cr int64
+	err := tx.QueryRowContext(ctx, `UPDATE change_requests SET status = ?, reason = '', at = ?
+		WHERE source = ? AND new_proposal_id = ? AND status = ? RETURNING id`,
+		ChangeQueued, timeArg(now), ChangeItem, id, ChangeCommitted).Scan(&cr)
+	if err != nil {
+		return ChangeRequest{}, fmt.Errorf("queue the item change request of proposal %d: %w", id, err)
 	}
 	return ChangeRequestByID(ctx, tx, cr)
 }
@@ -183,12 +238,14 @@ func CandidateExcerpts(ctx context.Context, tx *sql.Tx, id int64) ([]Excerpt, er
 		s.pane_id, COALESCE(l.workspace_key, ''), o.at FROM evidence_links l
 		JOIN observations o ON o.id = l.observation_id AND o.capture_identity = l.capture_identity
 		JOIN sessions s ON s.id = l.session_id WHERE l.candidate_id = ? ORDER BY o.at DESC, o.id DESC`,
-		func(rows *sql.Rows) (Excerpt, error) {
-			var e Excerpt
-			err := rows.Scan(&e.ObservationID, &e.CaptureIdentity, &e.Excerpt, &e.Sender, &e.SessionID, &e.HerdrSession,
-				&e.Harness, &e.PaneID, &e.WorkspaceKey, timeDest{&e.At})
-			return e, err
-		}, id)
+		scanExcerpt, id)
+}
+
+func scanExcerpt(rows *sql.Rows) (Excerpt, error) {
+	var e Excerpt
+	err := rows.Scan(&e.ObservationID, &e.CaptureIdentity, &e.Excerpt, &e.Sender, &e.SessionID, &e.HerdrSession,
+		&e.Harness, &e.PaneID, &e.WorkspaceKey, timeDest{&e.At})
+	return e, err
 }
 
 // ActiveClaimItems returns the ids of the active items of claim claimID in the scope with key

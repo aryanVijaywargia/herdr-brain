@@ -184,5 +184,8 @@ func noItemTextFields() []Field {
 		{"suggestions", "reserved"},
 		{"suggestions", "shown_at"},
 		{"suggestions", "result"},
+		// An outcome holds ids only (E15-S1, §11).
+		{"outcomes", "kind"},
+		{"outcomes", "at"},
 	}
 }

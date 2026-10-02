@@ -463,6 +463,7 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 		return err
 	}
 	var cand int64
+	var accepted []ref
 	for _, r := range c.Refs {
 		id, err := store.Attach(ctx, tx, store.Candidate{ClaimID: claim, Scope: c.Scope, WorkspaceKey: key, Kind: kind},
 			r.obs, p.gates(), signal.Supports)
@@ -473,11 +474,107 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 			return err
 		}
 		cand = id
+		accepted = append(accepted, r)
+	}
+	if err := p.outcomes(ctx, tx, j, claim, corrections(kind, accepted), now); err != nil {
+		return err
 	}
 	if cand == 0 {
 		return nil
 	}
 	return p.propose(ctx, tx, cand, c, now)
+}
+
+// corrections returns the new corrections of refs, the evidence that Attach accepted for a
+// candidate of kind: all of refs for a correction candidate, else the refs of a correction
+// signal. An item of a procedure claim can come back as a correction too.
+func corrections(kind store.CandidateKind, refs []ref) []ref {
+	if kind == store.CandidateCorrection {
+		return refs
+	}
+	return slices.DeleteFunc(slices.Clone(refs), func(r ref) bool { return r.kind != signal.Correction })
+}
+
+// outcomes records an outcome of each new correction in refs of claim, for each active item of the claim in the scope of batch j, after the evidence (§5.4, §7.3
+// order for a known claim). An active item of the claim that an unconfirmed same_as link of
+// claim names gets an uncertain outcome instead of a comeback. A second comeback on one
+// revision queues the change request of that revision.
+func (p Pass) outcomes(ctx context.Context, tx *sql.Tx, j job, claim string, refs []ref, now time.Time) error {
+	key := j.batch.WorkspaceKey
+	items, err := store.ActiveClaimItems(ctx, tx, claim, key)
+	if err != nil {
+		return err
+	}
+	cl, err := store.ClaimByID(ctx, tx, claim)
+	if err != nil {
+		return err
+	}
+	var guessed []int64
+	if cl.SameAs != "" && cl.SameAsStatus == store.SameAsProposed {
+		if guessed, err = store.ActiveClaimItems(ctx, tx, cl.SameAs, key); err != nil {
+			return err
+		}
+	}
+	for _, r := range refs {
+		d, ok, err := store.TiedReceipt(ctx, tx, r.obs)
+		if err != nil {
+			return err
+		}
+		for _, it := range items {
+			if err := p.outcome(ctx, tx, j, it, r, d, ok, false, now); err != nil {
+				return err
+			}
+		}
+		for _, it := range guessed {
+			if slices.Contains(items, it) {
+				continue
+			}
+			if err := p.outcome(ctx, tx, j, it, r, d, ok, true, now); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// outcome records the outcome of correction r for item from receipt d (ok is false for no
+// tied receipt): uncertain replaces a comeback when the match is a guess.
+func (p Pass) outcome(ctx context.Context, tx *sql.Tx, j job, item int64, r ref, d store.Delivery, ok, guess bool, now time.Time) error {
+	kind, rev, write := outcomeOf(d, ok, item)
+	if !write {
+		return nil
+	}
+	if kind == store.OutcomeComeback && guess {
+		kind = store.OutcomeUncertain
+	}
+	added, err := store.AddOutcome(ctx, tx, store.Outcome{ItemID: item, Revision: rev, SessionID: j.session.ID, Kind: kind,
+		ObservationID: r.obs, At: now})
+	if err != nil || !added || kind != store.OutcomeComeback {
+		return err
+	}
+	n, err := store.Comebacks(ctx, tx, item, rev)
+	if err != nil || n < 2 {
+		return err
+	}
+	return store.QueueItemChange(ctx, tx, item, rev, now)
+}
+
+// outcomeOf is the outcome for item of a session whose last receipt before the observation is
+// d (§5.4): ok is false when no single receipt ties to the session. It returns the revision that
+// d names, and false when the session got no revision of the item: no outcome.
+func outcomeOf(d store.Delivery, ok bool, item int64) (store.OutcomeKind, int64, bool) {
+	switch {
+	case !ok:
+		return store.OutcomeUnknown, 0, true
+	case d.Result == store.ResultWithheld:
+		return store.OutcomeGap, 0, true
+	}
+	for _, r := range d.ItemRevisions {
+		if r.Item == item {
+			return store.OutcomeComeback, r.Revision, true
+		}
+	}
+	return "", 0, false
 }
 
 // candidateKind is the candidate kind of claim c: the kind of the first signal of its evidence

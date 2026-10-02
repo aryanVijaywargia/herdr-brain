@@ -83,7 +83,8 @@ func rowsOf(f Field) string {
 // EraseItem removes the text of item and of its derivatives from every field in
 // ItemTextFields, and supersedes its pending proposals, so no blank proposal waits in the
 // queue (§6.7). The rows and their ids stay, except the prompt index rows and the suggestions
-// of its proposals: they go with their hashes, so no prompt matches the item again. It raises the capture
+// of its proposals: they go with their hashes, so no prompt matches the item again. Its
+// outcomes go too. It raises the capture
 // generation of the sessions of those rows, so a pane read or a hook record of the same session
 // that collected its text before the forget stores nothing, as after brain forget --session.
 // now is the decision time of those proposals.
@@ -94,6 +95,8 @@ func EraseItem(ctx context.Context, tx *sql.Tx, item int64, now time.Time) error
 		`DELETE FROM prompt_index WHERE ` + promptRowsOfItem,
 		// A suggestion of a proposal of the item holds a prompt hash (E14-S3).
 		`DELETE FROM suggestions WHERE proposal_id IN (SELECT id FROM proposals WHERE item_id = ?1)`,
+		// The outcomes of the item hold ids only, but they name the item (E15-S1).
+		`DELETE FROM outcomes WHERE item_id = ?1`,
 	} {
 		if _, err := tx.ExecContext(ctx, q, item); err != nil {
 			return fmt.Errorf("forget prompt index rows of item %d: %w", item, err)

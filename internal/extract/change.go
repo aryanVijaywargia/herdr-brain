@@ -33,7 +33,6 @@ type change struct {
 // request waits while extraction or learning is off for its scope, and for retryAfter after a
 // failed or invalid call. A request of another herdr session's workspace waits for that pass;
 // a global one goes to any pass. A request that is no longer current is discarded here.
-// E15-S1 adds the requests of an item revision.
 func (p Pass) requests(ctx context.Context, tx *sql.Tx) ([]job, error) {
 	rs, err := store.OpenChangeRequests(ctx, tx)
 	if err != nil {
@@ -41,8 +40,7 @@ func (p Pass) requests(ctx context.Context, tx *sql.Tx) ([]job, error) {
 	}
 	var jobs []job
 	for _, r := range rs {
-		if r.Source != store.ChangeProposal ||
-			(r.Status == store.ChangeFailed || r.Status == store.ChangeInvalid) && p.Now().Sub(r.At) < retryAfter ||
+		if (r.Status == store.ChangeFailed || r.Status == store.ChangeInvalid) && p.Now().Sub(r.At) < retryAfter ||
 			r.Status == store.ChangeActive && p.Now().Sub(r.At) < changeStale {
 			continue
 		}
@@ -80,8 +78,12 @@ func (p Pass) requests(ctx context.Context, tx *sql.Tx) ([]job, error) {
 // allowed evidence of that proposal, with the known claims and the brief items of its scope.
 // It returns why r is no longer current instead, or "": the proposal is not changed or has no
 // request text (a forget removed it), the item moved to another revision or retired, the
-// candidate is gone, or the claim is rejected or forgotten in its scope.
+// candidate is gone, or the claim is rejected or forgotten in its scope. A request of an item
+// revision goes to itemJob.
 func (p Pass) changeJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) (job, string, error) {
+	if r.Source == store.ChangeItem {
+		return p.itemJob(ctx, tx, r)
+	}
 	pr, err := store.ProposalByID(ctx, tx, r.SourceID)
 	if err != nil {
 		return job{}, "", err
@@ -113,30 +115,86 @@ func (p Pass) changeJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) 
 	if ts, err := store.TombstonesByClaim(ctx, tx, cand.ClaimID); err != nil || len(ts) > 0 {
 		return job{}, "the claim is forgotten", err
 	}
-	refs, off, err := p.allowedEvidence(ctx, tx, cand)
+	es, err := store.CandidateExcerpts(ctx, tx, cand.ID)
+	if err != nil {
+		return job{}, "", err
+	}
+	return p.changeOf(ctx, tx, change{req: r, proposal: pr, cand: cand, item: cur}, es, "no evidence of the proposal is left")
+}
+
+// comebackRequest is the request text of a change request of an item revision [NEW]: Brain
+// asks, as you do in review (§5.4).
+const comebackRequest = "This lesson came back in two sessions that got it. Propose a better wording, or a stronger " +
+	"place, for example a skill instead of a fact. Keep its meaning."
+
+// itemJob returns the job of change request r of an item revision: two comebacks on that
+// revision (§5.4). Its base is that revision, and its input is the text of the revision and the
+// allowed comeback excerpts. A request that you queued again on its draft (store.AskItemChange)
+// redrafts that draft with your text. It returns why r is no longer current instead, or "": the item
+// moved to another revision or is no longer active, or its claim is rejected or forgotten in its
+// scope. Its candidate stands for the scope of the item; the item needs none.
+func (p Pass) itemJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) (job, string, error) {
+	it, err := store.ItemByID(ctx, tx, r.SourceID)
+	if err != nil {
+		return job{}, "", err
+	}
+	if it.CurrentRevision != r.Revision || it.State != store.StateActive {
+		return job{}, "the item changed after the request", nil
+	}
+	cur, err := store.ItemRevisionByKey(ctx, tx, it.ID, it.CurrentRevision)
+	if err != nil {
+		return job{}, "", err
+	}
+	cand := store.Candidate{ClaimID: it.ClaimID, Scope: it.Scope, WorkspaceKey: r.WorkspaceKey, Kind: store.CandidateCorrection}
+	if held, err := store.Rejected(ctx, tx, cand.ClaimID, cand.WorkspaceKey); err != nil || held {
+		return job{}, "the claim is rejected", err
+	}
+	if ts, err := store.TombstonesByClaim(ctx, tx, cand.ClaimID); err != nil || len(ts) > 0 {
+		return job{}, "the claim is forgotten", err
+	}
+	tg, err := target(ctx, tx, cand)
+	if err != nil {
+		return job{}, "", err
+	}
+	es, err := store.ComebackExcerpts(ctx, tx, it.ID, r.Revision)
+	if err != nil {
+		return job{}, "", err
+	}
+	text := comebackRequest
+	pr := store.Proposal{ItemID: &it.ID, Text: cur.Text, Scope: it.Scope, Target: tg, ChangeRequest: &text}
+	if r.NewProposalID != nil {
+		// You asked for a change of the last draft (§7.4): redraft it with your text.
+		if pr, err = store.ProposalByID(ctx, tx, *r.NewProposalID); err != nil {
+			return job{}, "", err
+		}
+		if pr.Status != store.ProposalChanged || pr.ChangeRequest == nil {
+			return job{}, "the request is no longer current", nil
+		}
+	}
+	return p.changeOf(ctx, tx, change{req: r, proposal: pr, cand: cand, item: cur}, es, "no comeback evidence is left")
+}
+
+// changeOf returns the job of change ch with the allowed evidence of es, or none when nothing
+// of es is left.
+func (p Pass) changeOf(ctx context.Context, tx *sql.Tx, ch change, es []store.Excerpt, none string) (job, string, error) {
+	refs, off, err := p.allowedEvidence(ctx, tx, ch.cand, es)
 	if err != nil {
 		return job{}, "", err
 	}
 	if len(refs) == 0 && !off {
-		return job{}, "no evidence of the proposal is left", nil
+		return job{}, none, nil
 	}
-	j := job{batch: store.Batch{WorkspaceKey: cand.WorkspaceKey}, refs: refs,
-		change: &change{req: r, proposal: pr, cand: cand, item: cur}}
-	j, err = scope(ctx, tx, j)
+	j, err := scope(ctx, tx, job{batch: store.Batch{WorkspaceKey: ch.cand.WorkspaceKey}, refs: refs, change: &ch})
 	return j, "", err
 }
 
-// allowedEvidence returns the evidence of candidate cand that a change request may send, as
+// allowedEvidence returns the evidence es of candidate cand that a change request may send, as
 // refs in the scope of cand: the observations that are still in the store, that no tombstone
 // names, whose pane and workspace have learning on (§6.7 exclusion), and whose workspace has
 // extraction on (§7.3): the evidence of a global candidate comes from workspaces. The newest
 // come first until the input cap, then they go in id order. off reports evidence that a
 // learning or extraction switch holds back: the request waits for it, as a batch does.
-func (p Pass) allowedEvidence(ctx context.Context, tx *sql.Tx, cand store.Candidate) (refs []ref, off bool, err error) {
-	es, err := store.CandidateExcerpts(ctx, tx, cand.ID)
-	if err != nil {
-		return nil, false, err
-	}
+func (p Pass) allowedEvidence(ctx context.Context, tx *sql.Tx, cand store.Candidate, es []store.Excerpt) (refs []ref, off bool, err error) {
 	size := 0
 	for _, e := range es {
 		stopped, err := store.Tombstoned(ctx, tx, e.CaptureIdentity)
@@ -313,7 +371,8 @@ func (p Pass) commitChange(ctx context.Context, j job, claims []Claim, callErr e
 
 // redraft stores claim c, the new draft of change request job j, as a new pending proposal of
 // the same candidate, item and base revision. [NEW] it keeps the scope and the target of the
-// original proposal: you change them in review. The item does not change.
+// original proposal: you change them in review. The item does not change. The draft of an
+// item revision has no candidate: it is a proposal of the item, as an edit in review is.
 func (p Pass) redraft(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Time) (int64, error) {
 	ch := j.change
 	c.Situation, c.Rule, c.ExpectedBenefit = Redact(c.Situation), Redact(c.Rule), Redact(c.ExpectedBenefit)
@@ -327,8 +386,12 @@ func (p Pass) redraft(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.
 		return 0, err
 	}
 	base := ch.req.Revision
-	return store.ProposeCandidate(ctx, tx, ch.cand.ID, store.Proposal{ItemID: &ch.item.ItemID, BaseRevision: &base,
+	pr := store.Proposal{ItemID: &ch.item.ItemID, BaseRevision: &base,
 		Text: text, Scope: ch.proposal.Scope, Target: ch.proposal.Target, Diff: diff, ExpectedBenefit: c.ExpectedBenefit,
 		PermissionWarning: c.TouchesPermission, ConflictsWith: conflicts,
-		Status: store.ProposalPending, Created: now})
+		Status: store.ProposalPending, Created: now}
+	if ch.req.Source == store.ChangeItem {
+		return store.InsertProposal(ctx, tx, pr)
+	}
+	return store.ProposeCandidate(ctx, tx, ch.cand.ID, pr)
 }

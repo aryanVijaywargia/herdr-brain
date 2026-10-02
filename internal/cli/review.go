@@ -325,6 +325,7 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	var it store.Item
 	var cur store.ItemRevision
 	var excerpts, conflicts []string
+	var changeable bool
 	// The review pane shows a pending proposal only: it closes on one that another surface
 	// decided (E5-S1).
 	read := cl.proposal
@@ -335,7 +336,7 @@ func (cl caller) show(ctx context.Context, id int64) error {
 		if p, it, cur, err = read(ctx, tx, id); err != nil {
 			return err
 		}
-		if excerpts, err = cl.excerpts(ctx, tx, p); err != nil {
+		if excerpts, changeable, err = cl.excerpts(ctx, tx, p); err != nil {
 			return err
 		}
 		conflicts, err = cl.conflicts(ctx, tx, p)
@@ -377,17 +378,17 @@ func (cl caller) show(ctx context.Context, id int64) error {
 		b.WriteString("warning:  this may change a permission, an allow rule or a safety rule; approve needs --confirm\n")
 	}
 	if p.Status == store.ProposalPending && cl.surface != store.SurfacePane {
-		actions(&b, p, len(conflicts) > 0)
+		actions(&b, p, changeable, len(conflicts) > 0)
 	}
 	_, err = io.WriteString(cl.Stdout, b.String())
 	return err
 }
 
-// actions writes the action lines of pending proposal p to b: the change request for an
-// extractor proposal, and the conflict choices when p has an open conflict.
-func actions(b *strings.Builder, p store.Proposal, conflict bool) {
+// actions writes the action lines of pending proposal p to b: the change request for a
+// proposal with evidence (changeable), and the conflict choices when p has an open conflict.
+func actions(b *strings.Builder, p store.Proposal, changeable, conflict bool) {
 	fmt.Fprintf(b, "actions:  brain review %d --approve [--edit \"<text>\"] [--scope global|workspace] [--pin] | --reject | --later", p.ID)
-	if p.CandidateID != nil {
+	if changeable {
 		b.WriteString(` | --change "<text>"`)
 	}
 	b.WriteString("\n")
@@ -396,18 +397,14 @@ func actions(b *strings.Builder, p store.Proposal, conflict bool) {
 	}
 }
 
-// excerpts are the lines of up to excerptsShown source excerpts of p, the newest first: the
-// evidence of its candidate that is still in the store, in a scope that the caller sees
-// [NEW], through the secret filter.
-func (cl caller) excerpts(ctx context.Context, tx *sql.Tx, p store.Proposal) ([]string, error) {
-	if p.CandidateID == nil {
-		return nil, nil
-	}
-	es, err := store.CandidateExcerpts(ctx, tx, *p.CandidateID)
+// excerpts are the lines of up to excerptsShown source excerpts of p, the newest first, in a
+// scope that the caller sees [NEW], through the secret filter. changeable reports whether p has
+// evidence, so it takes a change request.
+func (cl caller) excerpts(ctx context.Context, tx *sql.Tx, p store.Proposal) (lines []string, changeable bool, err error) {
+	es, changeable, err := evidence(ctx, tx, p)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	var lines []string
 	for _, e := range es {
 		if len(lines) == excerptsShown {
 			break
@@ -418,7 +415,24 @@ func (cl caller) excerpts(ctx context.Context, tx *sql.Tx, p store.Proposal) ([]
 		lines = append(lines, fmt.Sprintf("%s, session %d (%s), workspace %s, %s: %s", e.Sender, e.SessionID, e.Harness,
 			cl.label, e.At.Format("2006-01-02 15:04"), extract.Redact(oneLine(e.Excerpt))))
 	}
-	return lines, nil
+	return lines, changeable, nil
+}
+
+// evidence returns the evidence observations of p that are still in the store, the newest
+// first: the evidence of its candidate, or the comebacks of the item revision whose draft p is
+// (E15-S1). The draft of an item revision has no candidate, so a reject of it rejects no claim.
+// ok is false when p has no such evidence: a draft of your own.
+func evidence(ctx context.Context, tx *sql.Tx, p store.Proposal) (es []store.Excerpt, ok bool, err error) {
+	if p.CandidateID != nil {
+		es, err = store.CandidateExcerpts(ctx, tx, *p.CandidateID)
+		return es, err == nil, err
+	}
+	r, ok, err := store.ItemChangeOf(ctx, tx, p.ID)
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	es, err = store.ComebackExcerpts(ctx, tx, r.SourceID, r.Revision)
+	return es, err == nil, err
 }
 
 // conflicts are the lines of the active items that p conflicts with, when the caller sees
@@ -986,6 +1000,8 @@ func itemList(ids []int64) string {
 // proposal becomes changed and is not published, and the extractor drafts a new proposal in
 // the background. runReview filtered the text for secrets. [NEW] only an extractor proposal,
 // one with a candidate, takes a change request: its draft needs the evidence of the candidate.
+// The draft of an item revision takes one too: its request of that revision is queued again
+// (E15-S1).
 func (cl caller) askChange(ctx context.Context, id int64, text string) error {
 	var cr store.ChangeRequest
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
@@ -997,10 +1013,21 @@ func (cl caller) askChange(ctx context.Context, id int64, text string) error {
 		if err != nil {
 			return err
 		}
-		if c == nil {
+		item := false
+		if c == nil && p.CandidateID == nil {
+			if _, item, err = store.ItemChangeOf(ctx, tx, id); err != nil {
+				return err
+			}
+		}
+		switch {
+		case c != nil:
+			cr, err = store.AskChange(ctx, tx, id, *c, text, cl.surface, cl.Now())
+		case item:
+			cr, err = store.AskItemChange(ctx, tx, id, text, cl.surface, cl.Now())
+		default:
 			return fmt.Errorf("proposal %d has no extractor evidence: approve it with --edit instead; nothing was written", id)
 		}
-		if cr, err = store.AskChange(ctx, tx, id, *c, text, cl.surface, cl.Now()); err != nil {
+		if err != nil {
 			return err
 		}
 		return store.DecideSuggestions(ctx, tx, id, store.SuggestionChanged)
