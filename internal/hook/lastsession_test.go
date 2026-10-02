@@ -165,7 +165,7 @@ func TestNoLastSessionLine(t *testing.T) {
 				t.Helper()
 				start(t, f, claude(t), environ(f.workSock, "work", "w14:p1", "w14"), startInput("claude-1", "/t/claude-1.jsonl"))
 			}},
-			env: func(f *fixture) []string { return environ(f.workSock, "work", "w14:p1", "w14") },
+			env:  func(f *fixture) []string { return environ(f.workSock, "work", "w14:p1", "w14") },
 			want: "## This workspace\n" + lastLine("/t/claude-1.jsonl")},
 	}
 	for _, tt := range tests {
