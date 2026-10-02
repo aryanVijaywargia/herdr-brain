@@ -360,13 +360,6 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	if text == "" {
 		text = "(none: this proposal retires the item)"
 	}
-	source := fmt.Sprintf("%s, sender unconfirmed", cur.Origin)
-	switch {
-	case len(p.Dispute) > 0:
-		source = fmt.Sprintf("the anchor check of item %d: %s changed", it.ID, strings.Join(p.Dispute, ", "))
-	case it.State != store.StateDraft:
-		source = fmt.Sprintf("a change to %s item %d, asked in review", it.State, it.ID)
-	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "proposal %d (%s)\ntext:     %s\n", p.ID, p.Status, text)
 	if it.ClaimID != "" {
@@ -384,7 +377,7 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	if len(excerpts) > 0 {
 		fmt.Fprintf(&b, "excerpts:\n  %s\n", strings.Join(excerpts, "\n  "))
 	}
-	fmt.Fprintf(&b, "source:   %s, %s\n", source, p.Created.Format("2006-01-02 15:04"))
+	fmt.Fprintf(&b, "source:   %s, %s\n", source(p, it, cur), p.Created.Format("2006-01-02 15:04"))
 	if p.ChangeRequest != nil {
 		fmt.Fprintf(&b, "change:   %s\n", oneLine(*p.ChangeRequest))
 	}
@@ -396,6 +389,17 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	}
 	_, err = io.WriteString(cl.Stdout, b.String())
 	return err
+}
+
+// source says where proposal p of item it, at revision cur, comes from.
+func source(p store.Proposal, it store.Item, cur store.ItemRevision) string {
+	switch {
+	case len(p.Dispute) > 0:
+		return fmt.Sprintf("the anchor check of item %d: %s changed", it.ID, strings.Join(p.Dispute, ", "))
+	case it.State != store.StateDraft:
+		return fmt.Sprintf("a change to %s item %d, asked in review", it.State, it.ID)
+	}
+	return fmt.Sprintf("%s, sender unconfirmed", cur.Origin)
 }
 
 // actions writes the action lines of pending proposal p to b: the change request for a
