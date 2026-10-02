@@ -84,7 +84,7 @@ func (b builder) buildLocked(ctx context.Context, s *store.Store, proposalID *in
 	if _, err := b.source(cur); err != nil {
 		return 0, err
 	}
-	gen, parts, err := render(ctx, s)
+	gen, parts, skills, err := render(ctx, s, skillsDir(b.out))
 	if err != nil || gen == 0 {
 		return 0, err
 	}
@@ -93,7 +93,7 @@ func (b builder) buildLocked(ctx context.Context, s *store.Store, proposalID *in
 	var g generation
 	if gen != cur {
 		b.afterRender()
-		if g, err = b.publishFolder(gen, parts, b.now()); err != nil {
+		if g, err = b.publishFolder(gen, parts, skills, b.now()); err != nil {
 			return 0, err
 		}
 	}
@@ -166,11 +166,20 @@ func current(out string) (int64, error) {
 	return gen, err
 }
 
-// publishFolder writes the parts and the manifest of gen into out/staging-<gen>/, checks them
-// against the manifest, and renames the folder to out/gen-<gen>/. It returns the generation as
-// read back. A build that stops before the rename leaves only the staging folder, which the
-// next build of gen replaces (S65).
-func (b builder) publishFolder(gen int64, parts []part, now time.Time) (generation, error) {
+// publishFolder writes the skill files of gen first, then the parts and the manifest of gen
+// into out/staging-<gen>/, checks them against the manifest, and renames the folder to
+// out/gen-<gen>/ (§7.5 step 3). It returns the generation as read back. A build that stops
+// before the rename leaves only the staging folder, which the next build of gen replaces
+// (S65), and skill files that no generation lists yet, which the next build uses.
+func (b builder) publishFolder(gen int64, parts []part, skills []skillFile, now time.Time) (generation, error) {
+	m := Manifest{Generation: gen, BuiltAt: now.UTC(), Files: make(map[string]File, len(parts)),
+		Skills: make([]SkillFile, 0, len(skills))}
+	for _, f := range skills {
+		if err := b.writeSkill(f); err != nil {
+			return generation{}, err
+		}
+		m.Skills = append(m.Skills, SkillFile{Path: f.path, SHA256: hash([]byte(f.text)), RevisionRef: f.ref})
+	}
 	// [NEW] the staging folder form (issue #30).
 	staging := filepath.Join(b.out, stagingPrefix+strconv.FormatInt(gen, 10))
 	if err := os.RemoveAll(staging); err != nil {
@@ -179,7 +188,6 @@ func (b builder) publishFolder(gen int64, parts []part, now time.Time) (generati
 	if err := os.MkdirAll(filepath.Join(staging, workspaceDir), 0o700); err != nil {
 		return generation{}, err
 	}
-	m := Manifest{Generation: gen, BuiltAt: now.UTC(), Files: make(map[string]File, len(parts))}
 	for _, p := range parts {
 		if err := b.writeFile(filepath.Join(staging, filepath.FromSlash(p.name)), []byte(p.text)); err != nil {
 			return generation{}, err
@@ -204,6 +212,28 @@ func (b builder) publishFolder(gen int64, parts []part, now time.Time) (generati
 		return generation{}, err
 	}
 	return g, os.Rename(staging, dir)
+}
+
+// writeSkill makes the file of skill revision f hold its text. A file that matches is used as
+// it is. A file that is missing, or that does not match, is written with a temp file and a
+// rename: no generation that the source check passed lists it, so it is not your edit
+// (§7.5 step 5).
+func (b builder) writeSkill(f skillFile) error {
+	data, err := os.ReadFile(f.path)
+	switch {
+	case err == nil && string(data) == f.text:
+		return nil
+	case err != nil && !errors.Is(err, fs.ErrNotExist):
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(f.path), 0o700); err != nil {
+		return err
+	}
+	tmp := f.path + ".tmp"
+	if err := b.writeFile(tmp, []byte(f.text)); err != nil {
+		return err
+	}
+	return os.Rename(tmp, f.path)
 }
 
 func writeFile(path string, data []byte) error {
@@ -265,13 +295,32 @@ func readGeneration(dir string) (generation, error) {
 	return g, nil
 }
 
-// readSource reads generation cur and checks its files against its manifest. It returns a zero
+// readSource reads generation cur and checks its files against its manifest: the generation
+// folder and the skill files that the manifest lists (§7.5 step 5). It returns a zero
 // generation for cur 0, before the first build.
 func readSource(out string, cur int64) (generation, error) {
 	if cur == 0 {
 		return generation{}, nil
 	}
-	return checkGeneration(out, cur)
+	return checkCurrent(out, cur)
+}
+
+// checkCurrent checks generation gen as checkGeneration does, and also the skill files that
+// its manifest lists. Only the current generation counts its skill files: an older generation
+// that lists an edited file is no conflict (§7.5 step 5).
+func checkCurrent(out string, gen int64) (generation, error) {
+	g, err := checkGeneration(out, gen)
+	if err != nil {
+		return generation{}, err
+	}
+	changed, err := changedSkills(out, g.manifest)
+	if err != nil {
+		return generation{}, err
+	}
+	if len(changed) > 0 {
+		return generation{}, &ConflictError{Generation: gen, Files: changed}
+	}
+	return g, nil
 }
 
 // source reads generation gen, the source of a build, as readSource does. A generation that
