@@ -102,23 +102,36 @@ func cliVersion(ctx context.Context, environ []string, harness string) (string, 
 // versionWord is a version word of `<cli> --version`, as in internal/harness.
 var versionWord = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
-// versions reads the CLI version of each harness of cases that the run does not skip. A CLI
-// whose version the runner cannot read keeps an empty version, with the version of its
-// receipt, if any, as the fallback.
-func (r *Runner) versions(ctx context.Context, cases []Case, skip map[string]string) map[string]string {
-	vs := map[string]string{}
+// probeCLI is what the results of a run record of the CLI of one harness.
+type probeCLI struct {
+	Version       string // "" when the runner did not read it
+	ProfileSHA256 string // the hash of the harness profile
+}
+
+// clis reads the profile of each harness of cases, and the CLI version of each that the run
+// does not skip. A CLI whose version the runner cannot read keeps an empty version, with the
+// version of its receipt, if any, as the fallback.
+func (r *Runner) clis(ctx context.Context, cases []Case, skip map[string]string) (map[string]probeCLI, error) {
+	cs := map[string]probeCLI{}
 	for _, c := range cases {
 		for _, p := range c.Probes {
-			if _, ok := vs[p.Harness]; ok || skip[p.Harness] != "" {
+			if _, ok := cs[p.Harness]; ok {
 				continue
 			}
-			v, _ := call(ctx, r.Timeouts.Call, func(ctx context.Context) (string, error) {
-				return r.Version(ctx, p.Harness)
-			})
-			vs[p.Harness] = v
+			prof, err := adapter.LoadFS(r.Profiles, p.Harness)
+			if err != nil {
+				return nil, err
+			}
+			cli := probeCLI{ProfileSHA256: prof.SHA256}
+			if skip[p.Harness] == "" {
+				cli.Version, _ = call(ctx, r.Timeouts.Call, func(ctx context.Context) (string, error) {
+					return r.Version(ctx, p.Harness)
+				})
+			}
+			cs[p.Harness] = cli
 		}
 	}
-	return vs
+	return cs, nil
 }
 
 // deliveryStatus is delivered when the store has an emitted receipt of the pane with the
@@ -139,8 +152,8 @@ func deliveryStatus(d store.Delivery, ok bool, want string) (Status, string) {
 
 // results makes the result of each probe of cases, in order. outs holds the outcomes of the
 // cases that ran, in the same order, the last one maybe partial; a probe that did not run is
-// skipped. versions holds the CLI version of each harness.
-func results(cases []Case, outs []Outcome, versions map[string]string) []store.EvalResult {
+// skipped. clis holds the CLI version and the profile hash of each harness.
+func results(cases []Case, outs []Outcome, clis map[string]probeCLI) []store.EvalResult {
 	var rs []store.EvalResult
 	for i, c := range cases {
 		var o Outcome
@@ -149,11 +162,11 @@ func results(cases []Case, outs []Outcome, versions map[string]string) []store.E
 		}
 		for j, p := range c.Probes {
 			if j >= len(o.Replies) {
-				rs = append(rs, base(c, p.Harness, o, Reply{Status: Skipped, Why: "the probe did not run"}, versions))
+				rs = append(rs, base(c, p.Harness, o, Reply{Status: Skipped, Why: "the probe did not run"}, clis))
 				continue
 			}
 			rep := o.Replies[j]
-			res := base(c, rep.Harness, o, rep, versions)
+			res := base(c, rep.Harness, o, rep, clis)
 			lb, rule := labelReply(c, o.Markers, rep)
 			// A pass of a full-brief case whose brief is not full size, or of a forget case
 			// whose store still holds the forgotten text, does not show what the stage tests.
@@ -176,14 +189,14 @@ func results(cases []Case, outs []Outcome, versions map[string]string) []store.E
 }
 
 // base fills the fields of one result that do not depend on the label.
-func base(c Case, harness string, o Outcome, rep Reply, versions map[string]string) store.EvalResult {
+func base(c Case, harness string, o Outcome, rep Reply, clis map[string]probeCLI) store.EvalResult {
 	res := store.EvalResult{
 		Case: c.ID, Stage: c.Stage, Source: c.Source, Control: c.Control, Harness: harness,
 		Status: string(rep.Status), Why: rep.Why, Reply: rep.Text, Markers: o.Markers,
-		ExpectRevision: c.ExpectRevision, Session: o.Session, Store: o.Store, CLIVersion: versions[harness],
+		ExpectRevision: c.ExpectRevision, Session: o.Session, Store: o.Store, CLIVersion: clis[harness].Version,
 	}
-	if p, err := adapter.Load(harness); err == nil {
-		res.Profile, res.ProfileSHA256 = harness, p.SHA256
+	if cli, ok := clis[harness]; ok {
+		res.Profile, res.ProfileSHA256 = harness, cli.ProfileSHA256
 	}
 	if d := rep.Receipt; d != nil {
 		if res.CLIVersion == "" {

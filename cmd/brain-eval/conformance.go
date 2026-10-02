@@ -29,7 +29,7 @@ func runID(t time.Time) string { return t.UTC().Format("20060102T150405.000Z") }
 // startConformance writes a pending record for each harness whose delivery stage the run
 // asks (§8.5 conformance test), before any case runs, and returns those records. A harness
 // that the run skips, or whose delivery stage it does not run, keeps its record.
-func (r *Runner) startConformance(cases []Case, skip map[string]string, versions map[string]string, started time.Time) ([]harness.Result, error) {
+func (r *Runner) startConformance(cases []Case, skip map[string]string, clis map[string]probeCLI, started time.Time) ([]harness.Result, error) {
 	var hs []string
 	for _, c := range cases {
 		if c.Stage != "delivery" || c.Control {
@@ -50,11 +50,7 @@ func (r *Runner) startConformance(cases []Case, skip map[string]string, versions
 	}
 	var out []harness.Result
 	for _, h := range hs {
-		p, err := adapter.LoadFS(r.Profiles, h)
-		if err != nil {
-			return nil, err
-		}
-		res := harness.Result{Harness: h, CLIVersion: versions[h], ProfileSHA256: p.SHA256,
+		res := harness.Result{Harness: h, CLIVersion: clis[h].Version, ProfileSHA256: clis[h].ProfileSHA256,
 			EntrySHA256: rec.Entries[h].SHA256, RunID: runID(started), Result: resultPending, At: started}
 		if err := harness.WriteConformance(r.Conformance, res); err != nil {
 			return nil, err

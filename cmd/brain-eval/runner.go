@@ -125,14 +125,17 @@ func (r *Runner) Run(ctx context.Context, cases []Case) (out []Outcome, err erro
 		err = errors.Join(err, stop(cctx))
 	}()
 	started := r.Now()
-	versions := r.versions(ctx, cases, skip)
-	pending, err := r.startConformance(cases, skip, versions, started)
+	clis, err := r.clis(ctx, cases, skip)
+	if err != nil {
+		return nil, err
+	}
+	pending, err := r.startConformance(cases, skip, clis, started)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
 		finished := r.Now()
-		rs := results(cases, out, versions)
+		rs := results(cases, out, clis)
 		failed := err != nil
 		err = errors.Join(err, writeResults(b.Store, started, finished, rs), writeReport(b.Store, cases, rs, r.Stdout))
 		// An interrupted run leaves its pending records. A run that stopped at a failed case
