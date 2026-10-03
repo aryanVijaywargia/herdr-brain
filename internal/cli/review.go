@@ -312,6 +312,12 @@ func summary(p store.Proposal, it store.Item) string {
 	if p.Text == "" {
 		return fmt.Sprintf("retire item %d", it.ID)
 	}
+	if sk, err := store.ParseSkill(p.Text); err == nil && it.Kind == store.KindSkill {
+		if patch(p, it) {
+			return fmt.Sprintf("patch of skill %s (item %d)", sk.Name, it.ID)
+		}
+		return fmt.Sprintf("skill %s: %s", sk.Name, oneLine(sk.Description))
+	}
 	return oneLine(p.Text)
 }
 
@@ -356,12 +362,12 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	text := p.Text
-	if text == "" {
-		text = "(none: this proposal retires the item)"
-	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "proposal %d (%s)\ntext:     %s\n", p.ID, p.Status, text)
+	fmt.Fprintf(&b, "proposal %d (%s)\n", p.ID, p.Status)
+	if it.Kind == store.KindSkill {
+		b.WriteString(skillLine)
+	}
+	b.WriteString(proposalText(p, it))
 	if it.ClaimID != "" {
 		fmt.Fprintf(&b, "claim:    %s\n", it.ClaimID)
 	}
@@ -392,6 +398,31 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	}
 	_, err = io.WriteString(cl.Stdout, b.String())
 	return err
+}
+
+// skillLine is the line of a skill proposal in show. The review pane finds a skill by it: its
+// one-line edit cannot hold a skill file.
+const skillLine = "kind:     skill\n"
+
+// proposalText is the text line of p in show. A skill draft shows the whole file (S8). A
+// skill patch shows no text: its diff holds the changed lines, and approve writes the whole
+// new file (§9.2).
+func proposalText(p store.Proposal, it store.Item) string {
+	switch {
+	case p.Text == "":
+		return "text:     (none: this proposal retires the item)\n"
+	case patch(p, it):
+		return "text:     (a skill patch: the diff shows the changed lines)\n"
+	case it.Kind == store.KindSkill:
+		return "text:\n  " + strings.ReplaceAll(strings.TrimSuffix(p.Text, "\n"), "\n", "\n  ") + "\n"
+	}
+	return fmt.Sprintf("text:     %s\n", p.Text)
+}
+
+// patch reports whether p is a patch of an active or disputed skill it: a change with a new
+// text. A dispute is not a patch: it keeps the text, and its diff is the anchor diff.
+func patch(p store.Proposal, it store.Item) bool {
+	return it.Kind == store.KindSkill && it.State != store.StateDraft && p.Text != "" && len(p.Dispute) == 0
 }
 
 // source says where proposal p of item it, at revision cur, comes from.
@@ -959,7 +990,15 @@ func (cl caller) proposeChange(ctx context.Context, r review) error {
 		// [NEW] a proposal with no text retires its item; its diff removes the text.
 		p := store.Proposal{ItemID: &it.ID, BaseRevision: &base, Scope: cur.Scope, Target: cl.target(cur.Scope),
 			Diff: "- " + cur.Text, Status: store.ProposalPending, Created: cl.Now()}
-		if r.edit != nil {
+		switch {
+		case r.edit != nil && it.Kind == store.KindSkill:
+			// A skill patch: its diff holds only the changed lines (§9.2). Approve writes the
+			// whole text, so a text that is not a skill would only wait in the queue.
+			if _, err := store.ParseSkill(*r.edit); err != nil {
+				return fmt.Errorf("item %d is a skill: %w; nothing was written", it.ID, err)
+			}
+			p.Text, p.Diff = *r.edit, store.SkillDiff(cur.Text, *r.edit)
+		case r.edit != nil:
 			p.Text, p.Diff = *r.edit, p.Diff+"\n+ "+*r.edit
 		}
 		// The diff holds the old text too: a retire or an edit that removes a safety rule

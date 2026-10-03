@@ -99,6 +99,7 @@ type reviewPane struct {
 	conflict string
 	msg      string // the result of the last key
 	dispute  bool   // the proposal is a dispute (§9.1): the pane offers keep, edit and retire
+	skill    bool   // the proposal is a skill: its file does not fit the one-line edit
 }
 
 // run shows the proposal and reads keys until a decision, q or the end of input. It reads
@@ -110,7 +111,7 @@ func (p *reviewPane) run(ctx context.Context) error {
 		if err != nil {
 			return p.close(ctx, err)
 		}
-		p.view, p.dispute = view, strings.Contains(view, "\n"+disputeLine)
+		p.view, p.dispute, p.skill = view, strings.Contains(view, "\n"+disputeLine), strings.Contains(view, "\n"+skillLine)
 		p.draw("")
 		k, _, err := p.keys.ReadRune()
 		if errors.Is(err, io.EOF) {
@@ -227,8 +228,13 @@ func (p *reviewPane) approve(ctx context.Context, edit *string) (done bool, err 
 	return p.decide(ctx, append(args, "--confirm")...)
 }
 
-// edit reads a new text in the pane and approves the proposal with it. Esc goes back.
+// edit reads a new text in the pane and approves the proposal with it. Esc goes back. A skill
+// file has many lines, so the pane sends you to brain review for it [NEW].
 func (p *reviewPane) edit(ctx context.Context) (bool, error) {
+	if p.skill {
+		p.msg = fmt.Sprintf("a skill file has many lines: edit it with brain review %d --approve --edit \"<text>\"", p.id)
+		return false, nil
+	}
 	s, ok, err := p.line("new text (Enter approves, Esc goes back): ", "the edit is empty")
 	if !ok {
 		return false, err
