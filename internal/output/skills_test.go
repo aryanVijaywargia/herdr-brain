@@ -100,7 +100,7 @@ func TestSkillList(t *testing.T) {
 	}
 
 	m := mustManifest(t, out, gen)
-	want := []SkillFile{
+	want := []RevisionFile{
 		{Path: gPath, SHA256: hash([]byte(skillText("release-notes", "m1"))), RevisionRef: store.RevisionRef{Item: g, Revision: 1}},
 		{Path: wPath, SHA256: hash([]byte(skillText("deploy", "m2"))), RevisionRef: store.RevisionRef{Item: w, Revision: 1}},
 	}

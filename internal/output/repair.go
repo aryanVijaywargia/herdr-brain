@@ -108,7 +108,7 @@ func Confirm(ctx context.Context, s *store.Store, out string, now func() time.Ti
 	for _, c := range cs {
 		b.replace = append(b.replace, c.Generation)
 	}
-	if err := restoreSkills(ctx, s, out, cur, cs); err != nil {
+	if err := restoreFiles(ctx, s, out, cur, cs); err != nil {
 		return nil, err
 	}
 	// The pointer leaves the hand-edited generation before its folder goes, so it never names
@@ -134,12 +134,12 @@ func Confirm(ctx context.Context, s *store.Store, out string, now func() time.Ti
 	return cs, b.repair(ctx, s)
 }
 
-// restoreSkills writes each skill file of the current generation cur that you confirmed in
-// cs again, from the text of its revision in the store (§7.5 step 5). A running session may
-// still read an older revision, so this covers every listed revision, not only the newest.
-// A revision whose stored text no longer has the listed hash (forget erased it) is not
-// written: its item is no active skill, so cleanup removes the file.
-func restoreSkills(ctx context.Context, s *store.Store, out string, cur int64, cs []ConflictError) error {
+// restoreFiles writes each skill and tool file of the current generation cur that you
+// confirmed in cs again, from the text of its revision in the store (§7.5 step 5). A running
+// session may still read an older revision, so this covers every listed revision, not only the
+// newest. A revision whose stored text no longer has the listed hash (forget erased it) is not
+// written: its item is no active skill or tool, so cleanup removes the file.
+func restoreFiles(ctx context.Context, s *store.Store, out string, cur int64, cs []ConflictError) error {
 	if !slices.ContainsFunc(cs, func(c ConflictError) bool { return c.Generation == cur }) {
 		return nil
 	}
@@ -152,28 +152,32 @@ func restoreSkills(ctx context.Context, s *store.Store, out string, cur int64, c
 	if err != nil {
 		return err
 	}
-	changed, err := changedSkills(out, m)
+	changed, err := changedFiles(out, m)
 	if err != nil {
 		return err
 	}
-	for _, f := range m.Skills {
-		path := skillPath(skillsDir(out), f.Item, f.Revision)
-		if !slices.Contains(changed, path) {
-			continue
-		}
-		var r store.ItemRevision
-		err := s.Write(ctx, func(tx *sql.Tx) (err error) {
-			r, err = store.ItemRevisionByKey(ctx, tx, f.Item, f.Revision)
-			return err
-		})
-		if err != nil {
-			return err
-		}
-		if hash([]byte(r.Text)) != f.SHA256 {
-			continue
-		}
-		if err := writeAtomic(path, r.Text, writeFile); err != nil {
-			return err
+	for _, k := range fileKinds {
+		for _, f := range k.listed(m) {
+			name := filepath.Base(f.Path)
+			path := k.path(out, f.Item, f.Revision, name)
+			if !slices.Contains(changed, path) {
+				continue
+			}
+			var r store.ItemRevision
+			err := s.Write(ctx, func(tx *sql.Tx) (err error) {
+				r, err = store.ItemRevisionByKey(ctx, tx, f.Item, f.Revision)
+				return err
+			})
+			if err != nil {
+				return err
+			}
+			text, ok := k.files(r.Text)[name]
+			if !ok || hash([]byte(text)) != f.SHA256 {
+				continue
+			}
+			if err := writeAtomic(path, text, writeFile); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -268,7 +272,7 @@ func cleanup(ctx context.Context, s *store.Store, out string, now func() time.Ti
 			return err
 		}
 	}
-	if err := cleanSkills(ctx, s, out, cur, left, now); err != nil {
+	if err := cleanFiles(ctx, s, out, cur, left, now); err != nil {
 		return err
 	}
 	// A deleted generation holds no forgotten text any more, so the hook stops withholding for
@@ -276,22 +280,14 @@ func cleanup(ctx context.Context, s *store.Store, out string, now func() time.Ti
 	return s.Write(ctx, func(tx *sql.Tx) error { return store.ClearForgotten(ctx, tx, kept) })
 }
 
-// cleanSkills deletes the skill files of each item that is not an active skill, when the
-// current generation cur lists none of them and the pointer switched to cur more than hookCap
-// ago, the time left (§7.5 step 8). All revision files of an active skill stay, so a running
-// session can still read the path in its brief (§5.5). A folder name that is no item id
-// stays. The caller holds the lock, so no build writes a skill file now.
-func cleanSkills(ctx context.Context, s *store.Store, out string, cur int64, left time.Time, now func() time.Time) error {
+// cleanFiles deletes the skill and tool files of each item that is not an active skill or
+// tool, when the current generation cur lists none of them and the pointer switched to cur
+// more than hookCap ago, the time left (§7.5 step 8). All revision files of an active skill or
+// tool stay, so a running session can still read the path in its brief (§5.5). A folder name
+// that is no item id stays. The caller holds the lock, so no build writes such a file now.
+func cleanFiles(ctx context.Context, s *store.Store, out string, cur int64, left time.Time, now func() time.Time) error {
 	if cur == 0 || left.IsZero() || now().Sub(left) <= hookCap {
 		return nil
-	}
-	dir := skillsDir(out)
-	entries, err := os.ReadDir(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
 	}
 	m, _, err := readManifest(filepath.Join(out, folder(cur)))
 	if errors.Is(err, ErrInconsistent) {
@@ -302,14 +298,33 @@ func cleanSkills(ctx context.Context, s *store.Store, out string, cur int64, lef
 	if err != nil {
 		return err
 	}
+	for _, k := range fileKinds {
+		if err := cleanKind(ctx, s, out, m, k); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// cleanKind deletes the folder of each item in the folder of k that the manifest m does not
+// list and that is no active item of k.
+func cleanKind(ctx context.Context, s *store.Store, out string, m Manifest, k fileKind) error {
+	dir := k.dir(out)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
 	keep := make(map[int64]bool)
-	for _, f := range m.Skills {
+	for _, f := range k.listed(m) {
 		keep[f.Item] = true
 	}
 	// The deletes run inside the store write, so no restore or undo can make one of these
-	// skills active between the check and the delete.
+	// items active between the check and the delete.
 	return s.Write(ctx, func(tx *sql.Tx) error {
-		active, err := store.ActiveSkills(ctx, tx)
+		active, err := k.active(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -380,7 +395,7 @@ func Conflicts(out string) ([]ConflictError, error) {
 }
 
 // Holds reports whether any folder in out may still hold the text of item, at any revision
-// (§6.7), or a skill file of item is still there. The forget flow reports "done" only when it
+// (§6.7), or a skill or tool file of item is still there. The forget flow reports "done" only when it
 // is false. A generation counts by the (item id, revision) pairs in its manifest, never by a text search. A staging folder, a
 // generation with a missing or invalid manifest, or a file that the manifest does not name may
 // hold anything, so it counts too, until cleanup removes it. A kept conflict folder counts
@@ -390,17 +405,20 @@ func Holds(out string, item int64) (bool, error) {
 	if err != nil || staging || len(gens) > 0 {
 		return staging || len(gens) > 0, err
 	}
-	return skillFiles(out, item)
+	return revisionFiles(out, item)
 }
 
-// skillFiles reports whether a skill file of item, of any revision, is still on disk (§7.5
-// step 8): forget of a skill stays pending until every revision file is gone.
-func skillFiles(out string, item int64) (bool, error) {
-	_, err := os.Stat(filepath.Join(skillsDir(out), strconv.FormatInt(item, 10)))
-	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
+// revisionFiles reports whether a skill or tool file of item, of any revision, is still on disk
+// (§7.5 step 8): forget of a skill or tool stays pending until every revision file is gone.
+func revisionFiles(out string, item int64) (bool, error) {
+	for _, k := range fileKinds {
+		_, err := os.Stat(filepath.Join(k.dir(out), strconv.FormatInt(item, 10)))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		return err == nil, err
 	}
-	return err == nil, err
+	return false, nil
 }
 
 // holding returns the generations in out that may hold the text of item, as Holds counts

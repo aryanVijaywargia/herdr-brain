@@ -4,18 +4,25 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/brief"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
 )
 
-// skillFile is the file of one skill revision (§8.2): its absolute path, its text and its
-// (item id, revision) pair.
-type skillFile struct {
+// revFile is one file of a skill or tool revision (§8.2, §10.1): its absolute path, its text
+// and its (item id, revision) pair.
+type revFile struct {
 	path string
 	text string
 	ref  store.RevisionRef
+}
+
+// files are the revision files that one generation lists.
+type files struct {
+	skills, tools []revFile
 }
 
 // part is one file of a generation: its manifest name, its text and the item revisions in it.
@@ -26,12 +33,12 @@ type part struct {
 }
 
 // state is what one store read gives the renderer: the newest generation, the active item
-// revisions, the active skills, the dispute marks and the workspace keys.
+// revisions, the active skills and tools, the dispute marks and the workspace keys.
 type state struct {
-	gen          int64
-	revs, skills []store.ItemRevision
-	keys         []string
-	m            marks
+	gen                 int64
+	revs, skills, tools []store.ItemRevision
+	keys                []string
+	m                   marks
 }
 
 // read reads the state that render renders, in tx.
@@ -43,6 +50,9 @@ func read(ctx context.Context, tx *sql.Tx) (st state, err error) {
 		return state{}, err
 	}
 	if st.skills, err = store.ActiveSkills(ctx, tx); err != nil {
+		return state{}, err
+	}
+	if st.tools, err = store.ActiveTools(ctx, tx); err != nil {
 		return state{}, err
 	}
 	if st.m.disputes, err = store.Disputes(ctx, tx); err != nil {
@@ -59,21 +69,36 @@ func read(ctx context.Context, tx *sql.Tx) (st state, err error) {
 // renders the parts of that generation: the global part and one part for each workspace. So
 // the text and the revisions in the manifest come from the same read. Each active skill goes
 // into the skill list of its scope part, with the path of its revision file in the skills
-// folder dir, and into files (§8.2). gen is 0 when no commit recorded a generation yet.
-func render(ctx context.Context, s *store.Store, dir string) (gen int64, parts []part, files []skillFile, err error) {
+// folder of the out folder out, and into fs (§8.2). Each file of each active tool goes into fs
+// too (§10.1). gen is 0 when no commit recorded a generation yet.
+func render(ctx context.Context, s *store.Store, out string) (gen int64, parts []part, fs files, err error) {
 	var st state
 	err = s.Write(ctx, func(tx *sql.Tx) (err error) {
 		st, err = read(ctx, tx)
 		return err
 	})
 	if err != nil || st.gen == 0 {
-		return 0, nil, nil, err
+		return 0, nil, files{}, err
 	}
-	parts, files, err = st.render(dir)
+	parts, skills, err := st.render(skillsDir(out))
 	if err != nil {
-		return 0, nil, nil, err
+		return 0, nil, files{}, err
 	}
-	return st.gen, parts, files, nil
+	return st.gen, parts, files{skills: skills, tools: toolFiles(st.tools, toolsDir(out))}, nil
+}
+
+// toolFiles lists the files of each tool revision in revs, in the tools folder dir, in name
+// order for each revision.
+func toolFiles(revs []store.ItemRevision, dir string) []revFile {
+	var fs []revFile
+	for _, r := range revs {
+		byName := tool.Files(r.Text)
+		for _, name := range slices.Sorted(maps.Keys(byName)) {
+			fs = append(fs, revFile{path: revisionPath(dir, r.ItemID, r.Revision, name), text: byName[name],
+				ref: store.RevisionRef{Item: r.ItemID, Revision: r.Revision}})
+		}
+	}
+	return fs
 }
 
 // CheckGlobal renders the global part from the store state in tx, with the skill files in
@@ -90,13 +115,14 @@ func CheckGlobal(ctx context.Context, tx *sql.Tx, out string) error {
 	return err
 }
 
-// render renders the parts of st, with the skill files in the skills folder dir.
-func (st state) render(dir string) (parts []part, files []skillFile, err error) {
-	isSkill := make(map[int64]bool, len(st.skills))
-	for _, r := range st.skills {
-		isSkill[r.ItemID] = true
+// render renders the parts of st, with the skill files in the skills folder dir. A tool is
+// not a brief item: its text is its contract, and the catalog lists it (E17-S5).
+func (st state) render(dir string) (parts []part, files []revFile, err error) {
+	own := make(map[int64]bool, len(st.skills)+len(st.tools))
+	for _, r := range slices.Concat(st.skills, st.tools) {
+		own[r.ItemID] = true
 	}
-	revs := slices.DeleteFunc(st.revs, func(r store.ItemRevision) bool { return isSkill[r.ItemID] })
+	revs := slices.DeleteFunc(st.revs, func(r store.ItemRevision) bool { return own[r.ItemID] })
 	global, byKey := split(revs, st.m)
 	revision := make(map[int64]int64, len(revs))
 	for _, r := range revs {
@@ -124,21 +150,21 @@ func (st state) render(dir string) (parts []part, files []skillFile, err error) 
 // skillEntry is one skill of a part: its brief entry and its file.
 type skillEntry struct {
 	entry brief.Skill
-	file  skillFile
+	file  revFile
 }
 
 // splitSkills sorts the active skills into the global skills and the skills of each
 // workspace, with the mark of each disputed one, and lists the file of each one in the skills
 // folder dir.
 func splitSkills(skills []store.ItemRevision, m marks, dir string) (global []skillEntry, byKey map[string][]skillEntry,
-	files []skillFile, err error) {
+	files []revFile, err error) {
 	byKey = make(map[string][]skillEntry)
 	for _, r := range skills {
 		sk, err := store.ParseSkill(r.Text)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("item %d: %w", r.ItemID, err)
 		}
-		f := skillFile{path: skillPath(dir, r.ItemID, r.Revision), text: r.Text,
+		f := revFile{path: skillPath(dir, r.ItemID, r.Revision), text: r.Text,
 			ref: store.RevisionRef{Item: r.ItemID, Revision: r.Revision}}
 		e := skillEntry{entry: brief.Skill{Name: sk.Name, Description: sk.Description, Path: f.path,
 			NotAvailable: sk.NotAvailable, Dispute: m.dispute(r.ItemID), Anchors: m.anchors[r.ItemID]}, file: f}

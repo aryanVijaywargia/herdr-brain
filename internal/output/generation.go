@@ -4,7 +4,9 @@
 package output
 
 import (
+	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,11 +14,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
 )
 
 // The names in the out folder and in each generation folder. [NEW] all names except
@@ -31,6 +35,8 @@ const (
 	// skillsName is the skills folder beside the out folder: <store>/skills (§8.2).
 	skillsName    = "skills"
 	skillFileName = "SKILL.md"
+	// toolsName is the tools folder beside the out folder: <store>/tools (§10.1).
+	toolsName = "tools"
 )
 
 // ErrInconsistent means that a file of a generation is missing or does not match the hash in
@@ -45,12 +51,15 @@ type Manifest struct {
 	Files      map[string]File `json:"files"`
 	// Skills lists each skill file that the parts name (§7.5 step 3). A generation built
 	// before E16-S3 has none.
-	Skills []SkillFile `json:"skills"`
+	Skills []RevisionFile `json:"skills"`
+	// Tools lists each file of each active tool (§7.5 step 3, §10.1). A generation built before
+	// E17-S3 has none. [NEW] the field.
+	Tools []RevisionFile `json:"tools"`
 }
 
-// SkillFile is one skill file that a generation names: its exact path, its hash and its
-// (item id, revision) pair. [NEW] the field form.
-type SkillFile struct {
+// RevisionFile is one skill or tool file that a generation names: its exact path, its hash
+// and its (item id, revision) pair. [NEW] the field form.
+type RevisionFile struct {
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256"`
 	store.RevisionRef
@@ -137,25 +146,64 @@ func skillsDir(out string) string {
 // skillPath is the file of revision rev of skill item in the skills folder dir:
 // <dir>/<item id>/r<revision>/SKILL.md (§8.2).
 func skillPath(dir string, item, rev int64) string {
-	return filepath.Join(dir, strconv.FormatInt(item, 10), "r"+strconv.FormatInt(rev, 10), skillFileName)
+	return revisionPath(dir, item, rev, skillFileName)
 }
 
-// changedSkills returns the skill files that m lists and that are missing or no longer match
-// their hash, in list order: each is a conflict (§7.5 step 5, S11). A listed path that is not
-// the path of its pair counts too: the manifest is damaged.
-func changedSkills(out string, m Manifest) ([]string, error) {
+// toolsDir is the tools folder of the store whose out folder is out.
+func toolsDir(out string) string {
+	return filepath.Join(filepath.Dir(out), toolsName)
+}
+
+// revisionPath is the file name of revision rev of item in the skills or tools folder dir:
+// <dir>/<item id>/r<revision>/<name> (§8.2, §10.1).
+func revisionPath(dir string, item, rev int64, name string) string {
+	return filepath.Join(dir, strconv.FormatInt(item, 10), "r"+strconv.FormatInt(rev, 10), name)
+}
+
+// fileKind is one kind of revision files that a generation lists: the skill files or the
+// tool files (§7.5 steps 3, 5 and 8).
+type fileKind struct {
+	dir    func(out string) string
+	listed func(m Manifest) []RevisionFile
+	active func(ctx context.Context, tx *sql.Tx) ([]store.ItemRevision, error)
+	// files are the files of one revision text, by name.
+	files func(text string) map[string]string
+	names []string
+}
+
+// fileKinds are the skill files and the tool files.
+var fileKinds = []fileKind{
+	{dir: skillsDir, listed: func(m Manifest) []RevisionFile { return m.Skills }, active: store.ActiveSkills,
+		files: func(text string) map[string]string { return map[string]string{skillFileName: text} },
+		names: []string{skillFileName}},
+	{dir: toolsDir, listed: func(m Manifest) []RevisionFile { return m.Tools }, active: store.ActiveTools,
+		files: tool.Files, names: []string{tool.TomlName, tool.ScriptName}},
+}
+
+// path is the file name of revision rev of item in the folder of k.
+func (k fileKind) path(out string, item, rev int64, name string) string {
+	return revisionPath(k.dir(out), item, rev, name)
+}
+
+// changedFiles returns the skill and tool files that m lists and that are missing or no
+// longer match their hash, in list order: each is a conflict (§7.5 step 5, S11). A listed path
+// that is not a path of its pair counts too: the manifest is damaged.
+func changedFiles(out string, m Manifest) ([]string, error) {
 	var changed []string
-	for _, f := range m.Skills {
-		path := skillPath(skillsDir(out), f.Item, f.Revision)
-		b, err := os.ReadFile(path)
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-		case err != nil:
-			return nil, err
-		case f.Path == path && hash(b) == f.SHA256:
-			continue
+	for _, k := range fileKinds {
+		for _, f := range k.listed(m) {
+			name := filepath.Base(f.Path)
+			path := k.path(out, f.Item, f.Revision, name)
+			b, err := os.ReadFile(path)
+			switch {
+			case errors.Is(err, fs.ErrNotExist):
+			case err != nil:
+				return nil, err
+			case f.Path == path && slices.Contains(k.names, name) && hash(b) == f.SHA256:
+				continue
+			}
+			changed = append(changed, path)
 		}
-		changed = append(changed, path)
 	}
 	return changed, nil
 }
@@ -201,7 +249,7 @@ func checkManifest(m Manifest) error {
 	if _, ok := m.Files[globalName]; !ok {
 		return fmt.Errorf("no %s", globalName)
 	}
-	for _, f := range m.Skills {
+	for _, f := range slices.Concat(m.Skills, m.Tools) {
 		if _, err := hex.DecodeString(f.SHA256); err != nil || len(f.SHA256) != 2*sha256.Size {
 			return fmt.Errorf("%s: bad sha256", f.Path)
 		}

@@ -16,7 +16,8 @@ var ErrConflict = errors.New("revision conflict")
 // items also holds from r, and records a new output generation, which it returns. A stale
 // expected revision returns ErrConflict before it writes anything. An active skill whose text
 // does not parse, or whose name another active skill of its scope has, returns an error
-// (CheckSkill; ErrSkillName for the name). Run it inside Store.Write, so all of it is one
+// (CheckSkill; ErrSkillName for the name). A tool writes its tools row; a contract that breaks
+// a §10.1 rule, or an active tool name that its scope has, returns an error (syncTool). Run it inside Store.Write, so all of it is one
 // transaction and an error writes nothing.
 func WriteRevision(ctx context.Context, tx *sql.Tx, expected int64, r ItemRevision) (int64, error) {
 	r.Revision = expected + 1
@@ -38,14 +39,18 @@ func WriteRevision(ctx context.Context, tx *sql.Tx, expected int64, r ItemRevisi
 	if err != nil {
 		return 0, err
 	}
-	// Every path that makes a skill active writes a revision here (approve, restore, undo, and
-	// later promotion and link), so the name check runs in the same transaction (§8.2).
-	return gen, CheckSkill(ctx, tx, r.ItemID)
+	// Every path that makes a skill or a tool active writes a revision here (approve, restore,
+	// undo, promotion and link), so the name check runs in the same transaction (§8.2, §10.1).
+	if err := CheckSkill(ctx, tx, r.ItemID); err != nil {
+		return 0, err
+	}
+	return gen, syncTool(ctx, tx, r.ItemID)
 }
 
 // CreateItem adds it with r as its first revision, and records a new output generation. The
 // item's current revision and the fields that it shares with r come from r. It returns the
-// new item id and the generation. it.ID and r.ItemID are ignored.
+// new item id and the generation. A tool writes its tools row, with the checks of syncTool.
+// it.ID and r.ItemID are ignored.
 func CreateItem(ctx context.Context, tx *sql.Tx, it Item, r ItemRevision) (id, generation int64, err error) {
 	r.Revision = 1
 	it.CurrentRevision = r.Revision
@@ -53,8 +58,10 @@ func CreateItem(ctx context.Context, tx *sql.Tx, it Item, r ItemRevision) (id, g
 	if r.ItemID, err = InsertItem(ctx, tx, it); err != nil {
 		return 0, 0, err
 	}
-	generation, err = commitRevision(ctx, tx, r)
-	return r.ItemID, generation, err
+	if generation, err = commitRevision(ctx, tx, r); err != nil {
+		return 0, 0, err
+	}
+	return r.ItemID, generation, syncTool(ctx, tx, r.ItemID)
 }
 
 // commitRevision inserts r and records the next output generation.
