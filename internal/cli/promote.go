@@ -120,6 +120,16 @@ func hint(ctx context.Context, tx *sql.Tx, p store.Proposal, it store.Item) (int
 	return others, err
 }
 
+// promotionLines are the lines of a promotion in show, with others from hint: none for -1.
+// [NEW] the lines (§9.3): the hint is only a hint.
+func promotionLines(others int) string {
+	if others < 0 {
+		return ""
+	}
+	return "promote:  the text goes into the global part of every workspace: remove the workspace details with --approve --edit \"<text>\"\n" +
+		fmt.Sprintf("hint:     also seen in %d other workspaces (only a hint)\n", others)
+}
+
 // checkPromotion checks the approve that moves item it to global: the bar (§9.3), and the
 // budget of the global part with the new revision in it (§8.1). It runs after the write in
 // the same transaction, so a refusal writes nothing.

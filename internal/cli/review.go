@@ -384,11 +384,7 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	if len(p.Dispute) > 0 {
 		b.WriteString(disputeLine)
 	}
-	if others >= 0 {
-		// [NEW] the lines of a promotion (§9.3): the hint is only a hint.
-		fmt.Fprintf(&b, "promote:  the text goes into the global part of every workspace: remove the workspace details with --approve --edit \"<text>\"\n"+
-			"hint:     also seen in %d other workspaces (only a hint)\n", others)
-	}
+	b.WriteString(promotionLines(others))
 	if p.ExpectedBenefit != "" {
 		fmt.Fprintf(&b, "benefit:  %s\n", oneLine(p.ExpectedBenefit))
 	}
