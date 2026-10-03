@@ -168,3 +168,26 @@ func TestSameCheckoutS27(t *testing.T) {
 		}
 	}
 }
+
+// AC S29 (M3 exit, #165): a pinned procedure (a workspace skill) with no relevant session for 6
+// months stays active and is no archive candidate; the same skill unpinned is one.
+func TestPinnedSkillS29(t *testing.T) {
+	f := newFixture(t)
+	pinned := f.approvedSkill(t, skillText("release", "pinned"))
+	idle := f.approvedSkill(t, skillText("deploy", "idle"))
+	if _, err := f.pin(t, fmt.Sprint(pinned)); err != nil {
+		t.Fatal(err)
+	}
+	out := f.mustArchive(t, 183)
+	if strings.Contains(out, fmt.Sprintf("item %d ", pinned)) || !strings.Contains(out, fmt.Sprintf("item %d ", idle)) {
+		t.Errorf("Archive() at day 183 =\n%s\nwant item %d and not the pinned item %d", out, idle, pinned)
+	}
+	f.mustArchive(t, 183, "--all")
+	r := f.rows(t)
+	if it, _ := r.item(t, pinned); it.State != store.StateActive {
+		t.Errorf("pinned skill after archive --all: %s, want active", it.State)
+	}
+	if it, _ := r.item(t, idle); it.State != store.StateRetired {
+		t.Errorf("idle skill after archive --all: %s, want retired", it.State)
+	}
+}
