@@ -105,7 +105,7 @@ func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]s
 		return Outcome{}, err
 	}
 	marker := markers["marker"]
-	dir, err := r.scratch(ctx)
+	dir, err := r.scratch(ctx, c)
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -360,9 +360,19 @@ func newMarker() (string, error) {
 	return string(b), nil
 }
 
-// scratch makes a fresh scratch git folder for one case.
-func (r *Runner) scratch(ctx context.Context) (string, error) {
-	dir, err := os.MkdirTemp(r.Scratch, "brain-eval-case-")
+// scratch makes a fresh scratch git folder for case c. A case with a probe of a profile that
+// has eval.dir runs in that fixed folder, emptied first: agy trusts folders by path, so a new
+// folder for each case would ask for its trust each time (E16-S12) [NEW].
+func (r *Runner) scratch(ctx context.Context, c Case) (string, error) {
+	dir, err := r.fixedDir(c)
+	if err != nil {
+		return "", err
+	}
+	if dir == "" {
+		dir, err = os.MkdirTemp(r.Scratch, "brain-eval-case-")
+	} else {
+		err = emptyDir(dir)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -374,6 +384,44 @@ func (r *Runner) scratch(ctx context.Context) (string, error) {
 		return "", errors.Join(fmt.Errorf("git init %s: %w: %s", dir, err, strings.TrimSpace(string(out))), os.RemoveAll(dir))
 	}
 	return dir, nil
+}
+
+// fixedDir returns the eval.dir of the profiles that the probes of case c ask, or "" when none
+// has one. Two different folders in one case are an error.
+func (r *Runner) fixedDir(c Case) (string, error) {
+	var dir string
+	for _, p := range c.Probes {
+		prof, err := adapter.LoadFS(r.Profiles, p.Harness)
+		if err != nil {
+			return "", err
+		}
+		d := prof.Eval.Dir
+		if d == "" {
+			continue
+		}
+		if dir != "" && d != dir {
+			return "", fmt.Errorf("the probes need two fixed folders, %s and %s", dir, d)
+		}
+		dir = d
+	}
+	return dir, nil
+}
+
+// emptyDir makes dir if it is missing, and removes all that it holds.
+func emptyDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil { // [NEW] 0o700, as os.MkdirTemp
+		return err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // step runs one setup step in the shell pane and waits for its exit code. The done line

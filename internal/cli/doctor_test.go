@@ -48,7 +48,7 @@ func newDoctorFixture(t *testing.T) *doctorFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, kind := range adapter.Kinds(nil) {
+	for _, kind := range adapter.Kinds(testProfiles) {
 		f.install(t, kind, bin)
 	}
 	f.trust(t, "")
@@ -71,7 +71,7 @@ func (f *doctorFixture) installer(bin string) *install.Installer {
 // install adds the Brain hook of kind that runs bin.
 func (f *doctorFixture) install(t *testing.T, kind, bin string) {
 	t.Helper()
-	p, err := adapter.Load(kind)
+	p, err := adapter.LoadFS(testProfiles, kind)
 	if err != nil {
 		t.Fatal(err)
 	}

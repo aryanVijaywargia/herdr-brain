@@ -235,9 +235,6 @@ func TestLoadErrors(t *testing.T) {
 			}
 		})
 	}
-	if _, err := Load("agy"); err == nil {
-		t.Error(`Load("agy") = nil error, want an error: there is no agy profile in M1`)
-	}
 }
 
 // noise_lines is optional; a pattern matches a whole line, and a bad pattern is an error.

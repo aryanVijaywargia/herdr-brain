@@ -1190,7 +1190,7 @@ No learning score (R6). Brain shows raw counts and real examples. It sets no per
 - Learning is off for the test binding, so the M2 listener does not capture it.
 - The runner does its setup steps (`remember`, approve, change, undo, forget) in a shell pane of the test session. So they resolve to the test store like any other call.
 - **Fresh state:** before each case, the runner empties the test store and runs the setup steps of that case. Steps inside one case share state. Different cases never do. Writes by the agent (for example a `brain remember` draft) go to the test store and are removed by the next reset.
-- **Scratch folder:** each case runs in a fresh scratch git folder. The seed, the expected answer and old reply files are never in that folder. A reply file has a new name for each attempt.
+- **Scratch folder:** each case runs in a fresh scratch git folder. A CLI that trusts folders by path, as agy does, has one fixed scratch folder in its profile (`eval.dir`); the runner empties it and makes it a fresh git folder before each case [NEW] (owner, 2026-10-03). The seed, the expected answer and old reply files are never in that folder. A reply file has a new name for each attempt.
 - Each probe runs in a **fresh session** of the official CLI. Each case uses **fresh opaque markers** (for example `kest-4417`). So the agent cannot know the answer from an earlier session or from training.
 - Fixtures come from sanitized look-back examples. The runner never copies real Brain data, and it never reads or changes native CLI memory or CLI credentials.
 - If a named test session does not work (§17 item 27), M0 picks another isolation. A plain test workspace in the main session is not enough.

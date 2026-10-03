@@ -120,7 +120,8 @@ func (r *Runner) hookProbe(ctx context.Context, h Herdr, shell herdr.Pane, dir s
 		return Reply{}, err
 	}
 	rep := Reply{Harness: p.Harness, Pane: pane, Screen: string(data), Text: strings.TrimSpace(string(data)), Status: Delivered}
-	if rep.Text == "" {
+	// The profile's output_none, for example agy's "{}", is how the hook prints nothing (§8.3).
+	if rep.Text == "" || rep.Text == prof.OutputNone {
 		rep.Status, rep.Why = NotDelivered, "the hook printed nothing"
 	}
 	d, ok, err := r.receipt(ctx, b, pane, p.Harness)

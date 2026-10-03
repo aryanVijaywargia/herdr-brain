@@ -1,0 +1,19 @@
+{
+	"hooks": {
+		"SessionStart": [
+			{
+				"hooks": [{"type": "command", "command": "bash '/home/test/.codex/herdr-agent-state.sh' session", "timeout": 10}]
+			},
+			{
+				"hooks": [{"type": "command", "command": "/home/test/bin/fake-projects session-start"}]
+			}
+		],
+		"SubagentStart": [
+			{
+				"matcher": "fake-skill",
+				"hooks": [{"type": "command", "command": "sh '/home/test/skills/fake-skill/inject.sh' SubagentStart"}]
+			}
+		],
+		"PostToolUse": [{"hooks": [{"type": "command", "command": "/home/test/bin/fake-projects tool"}]}]
+	}
+}

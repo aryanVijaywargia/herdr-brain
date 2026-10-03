@@ -21,7 +21,8 @@ import (
 )
 
 // AC 1: each §12.1 stage has a probe for Claude and one for Codex, and each exclusion mode has
-// one for each CLI.
+// one for each of them. Every other CLI with a profile has a delivery probe: only that stage
+// sets its state to verified (§8.5, E16-S12).
 func TestStageProbes(t *testing.T) {
 	cases, err := loadProbes("../../evals/probes")
 	if err != nil {
@@ -32,7 +33,7 @@ func TestStageProbes(t *testing.T) {
 			return !c.Control && match(c) && slices.ContainsFunc(c.Probes, func(p Probe) bool { return p.Harness == h })
 		})
 	}
-	for _, h := range adapter.Kinds(nil) {
+	for _, h := range []string{"claude", "codex"} {
 		for _, s := range stages {
 			if !has(func(c Case) bool { return c.Stage == s }, h) {
 				t.Errorf("stage %s has no %s probe", s, h)
@@ -45,6 +46,11 @@ func TestStageProbes(t *testing.T) {
 		}
 		if !has(func(c Case) bool { return c.FullBrief }, h) {
 			t.Errorf("no full-brief delivery probe for %s", h)
+		}
+	}
+	for _, h := range adapter.Kinds(nil) {
+		if !has(func(c Case) bool { return c.Stage == "delivery" }, h) {
+			t.Errorf("stage delivery has no %s probe", h)
 		}
 	}
 }
@@ -472,6 +478,29 @@ func TestExclusionHook(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The output_none of a profile, for example agy's "{}", is the hook printing nothing: an
+// exclusion probe of that CLI is not delivered (E16-S12). For a CLI with no output_none, "{}"
+// is output.
+func TestExclusionHookOutputNone(t *testing.T) {
+	log := brainOnPath(t)
+	e, _ := fakeEnvWith(t, "output_none = \"{}\"\n")
+	c := Case{ID: "ex", Stage: "exclusion", Hook: "other-workspace",
+		Setup:  []string{"printf '{}\\n' > print.txt"},
+		Probes: []Probe{{Harness: "fake"}, {Harness: "claude"}}}
+	if _, err := e.r.Run(context.Background(), []Case{c}); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(log); err != nil || strings.Count(string(data), "\n") != 2 {
+		t.Fatalf("hook calls %q, %v, want one for each CLI", data, err)
+	}
+	want := map[string]Status{"fake": NotDelivered, "claude": Delivered}
+	for _, r := range readResults(t, e) {
+		if Status(r.Status) != want[r.Harness] {
+			t.Errorf("%s: %s (%s), want %s", r.Harness, r.Status, r.Why, want[r.Harness])
+		}
 	}
 }
 

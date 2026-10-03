@@ -5,6 +5,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -42,8 +44,16 @@ func fakeProfiles(t *testing.T) fstest.MapFS {
 // `brain setup` does it.
 func fakeEnv(t *testing.T) (*env, *adapter.Profile) {
 	t.Helper()
+	return fakeEnvWith(t, "")
+}
+
+// fakeEnvWith is fakeEnv with the profile lines extra added to the fake profile.
+func fakeEnvWith(t *testing.T, extra string) (*env, *adapter.Profile) {
+	t.Helper()
 	e := newEnv(t)
-	e.r.Profiles = fakeProfiles(t)
+	fsys := fakeProfiles(t)
+	fsys["fake.toml"].Data = append(fsys["fake.toml"].Data, extra...)
+	e.r.Profiles = fsys
 	p, err := adapter.LoadFS(e.r.Profiles, "fake")
 	if err != nil {
 		t.Fatal(err)
@@ -117,11 +127,13 @@ func TestProbeCheckKinds(t *testing.T) {
 	if err := pf.Probe[0].check(adapter.Kinds(fakeProfiles(t))); err != nil {
 		t.Errorf("check(with fake) = %v, want nil", err)
 	}
-	if err := pf.Probe[0].check(adapter.Kinds(nil)); err == nil || !strings.Contains(err.Error(), `harness "fake": want claude or codex`) {
+	if err := pf.Probe[0].check(adapter.Kinds(nil)); err == nil || !strings.Contains(err.Error(), `harness "fake": want `+oneOf(adapter.Kinds(nil))) {
 		t.Errorf("check(embedded) = %v, want the fake harness refused", err)
 	}
-	if got := oneOf(adapter.Kinds(fakeProfiles(t))); got != "claude, codex or fake" {
-		t.Errorf("oneOf() = %q, want %q", got, "claude, codex or fake")
+	kinds := append(adapter.Kinds(nil), "fake")
+	slices.Sort(kinds)
+	if want := strings.Join(kinds[:len(kinds)-1], ", ") + " or " + kinds[len(kinds)-1]; oneOf(adapter.Kinds(fakeProfiles(t))) != want {
+		t.Errorf("oneOf() = %q, want %q", oneOf(adapter.Kinds(fakeProfiles(t))), want)
 	}
 }
 
@@ -156,5 +168,61 @@ func TestFakeProfileHookInput(t *testing.T) {
 		if in, err := p.Parse(raw); err != nil || !strings.HasPrefix(in.SessionID, "brain-eval-") {
 			t.Errorf("%s: Parse(%s) = %+v, %v; want the probe's start input", h, raw, in, err)
 		}
+	}
+}
+
+// AC (E16-S12): a case with a probe of a profile with eval.dir runs in that fixed folder. The
+// runner makes it when it is missing and empties it before each case, as a fresh git folder.
+// A case of other profiles keeps a fresh temp folder; two fixed folders in one case are an
+// error.
+func TestFixedEvalDir(t *testing.T) {
+	brainOnPath(t)
+	fixed := filepath.Join(t.TempDir(), "fixed")
+	e, _ := fakeEnvWith(t, "eval.dir = "+strconv.Quote(fixed)+"\n")
+	fsys, ok := e.r.Profiles.(fstest.MapFS)
+	if !ok {
+		t.Fatal("the fake env has no MapFS profiles")
+	}
+	if err := os.MkdirAll(fixed, 0o700); err != nil { // [NEW] 0o700, as the runner makes it
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(fixed, "stale.txt"), "from an old case")
+	where := filepath.Join(t.TempDir(), "where")
+	// Each step fails unless the folder is a fresh git folder; it logs the folder.
+	step := "test -d .git && test ! -e stale.txt && test ! -e made.txt && touch made.txt && pwd -P >> " + shellQuote(where)
+	newCase := func(id string, harnesses ...string) Case {
+		c := Case{ID: id, Stage: "exclusion", Hook: "no-herdr-env", Setup: []string{step}}
+		for _, h := range harnesses {
+			c.Probes = append(c.Probes, Probe{Harness: h})
+		}
+		return c
+	}
+	if _, err := e.r.Run(context.Background(), []Case{newCase("a", "fake"), newCase("b", "claude", "fake"), newCase("c", "claude")}); err != nil {
+		t.Fatal(err)
+	}
+	realFixed, err := filepath.EvalSymlinks(filepath.Dir(fixed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scratch, err := filepath.EvalSymlinks(e.r.Scratch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, err := os.ReadFile(where)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirs := strings.Split(strings.TrimSpace(string(log)), "\n")
+	want := filepath.Join(realFixed, "fixed")
+	// One folder for each of the 3 cases.
+	if len(dirs) != 3 || dirs[0] != want || dirs[1] != want || !strings.HasPrefix(dirs[2], scratch+string(filepath.Separator)) {
+		t.Errorf("case folders %q, want %s twice, then a folder in %s", dirs, want, scratch)
+	}
+
+	// A second profile with another fixed folder.
+	other := strings.Replace(string(fsys["fake.toml"].Data), `kind = "fake"`, `kind = "fake2"`, 1)
+	fsys["fake2.toml"] = &fstest.MapFile{Data: []byte(strings.Replace(other, strconv.Quote(fixed), strconv.Quote(fixed+"2"), 1))}
+	if _, err := e.r.Run(context.Background(), []Case{newCase("d", "fake", "fake2")}); err == nil || !strings.Contains(err.Error(), "two fixed folders") {
+		t.Errorf("Run(two fixed folders) = %v, want an error", err)
 	}
 }

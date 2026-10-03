@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
@@ -22,7 +23,7 @@ func TestParse(t *testing.T) {
 			Probes: []Probe{{Harness: "claude", Prompt: "hi {{marker}}"}, {Harness: "codex", Prompt: "hi {{marker}}"}}}}, ""},
 		{[]string{"--probe", "claude"}, nil, "go together"},
 		{[]string{"--prompt", "hi"}, nil, "go together"},
-		{[]string{"--probe", "gemini", "--prompt", "hi"}, nil, "want claude or codex"},
+		{[]string{"--probe", "gemini", "--prompt", "hi"}, nil, "want " + oneOf(adapter.Kinds(nil))},
 		{[]string{"x"}, nil, "unexpected argument"},
 		{[]string{"--probes", "../../evals/probes", "--step", "a"}, nil, "--probes goes only with --stage and --harness"},
 		{[]string{"--stage", "delivery"}, nil, "go with --probes"},
