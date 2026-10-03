@@ -86,8 +86,12 @@ func (cl caller) undo(ctx context.Context, id int64) error {
 		_, err = fmt.Fprintf(cl.Stdout, "item %d: revision %d is undone already; nothing to do\n", id, undone)
 		return err
 	}
+	target := cl.target(next.Scope)
+	if !cl.sees(next.WorkspaceKey) {
+		target = "back in workspace " + *next.WorkspaceKey // the undo of a link move
+	}
 	_, err = fmt.Fprintf(cl.Stdout, "item %d: revision %d undone; the item is %s at revision %d (%s)\n",
-		id, *next.UndoesRevision, next.State, next.Revision, cl.target(next.Scope))
+		id, *next.UndoesRevision, next.State, next.Revision, target)
 	// The build runs even when the message fails: the commit is done, and the next hook must
 	// print it (E4 post-commit build).
 	return errors.Join(err, cl.deliver(ctx, nil))
@@ -110,11 +114,30 @@ func (cl caller) undone(ctx context.Context, tx *sql.Tx, cur store.ItemRevision)
 		prev.State = store.StateRetired
 	}
 	// The E4 scope check covers the restored target too: undo never moves an item into a
-	// workspace that the caller does not see.
+	// workspace that the caller does not see. The one exception is the undo of a link move
+	// (§9.4 "Link undo").
 	if !cl.sees(prev.WorkspaceKey) {
-		return store.ItemRevision{}, fmt.Errorf("item %d: %w", cur.ItemID, errNotFound)
+		back, err := cl.linkUndo(cur, prev)
+		if err != nil {
+			return store.ItemRevision{}, err
+		}
+		if !back {
+			return store.ItemRevision{}, fmt.Errorf("item %d: %w", cur.ItemID, errNotFound)
+		}
 	}
 	next := nextRevision(prev, cl.Now())
 	next.UndoesRevision = &cur.Revision
 	return next, nil
+}
+
+// linkUndo reports whether undo may return cur, a revision in the caller's workspace, to prev,
+// the revision before it, in a workspace that the caller does not see. Only a link moves a
+// workspace item to another workspace key, so cur is a link move. The old key must be in the
+// relink list of the caller's herdr session and not live, as for the link itself (§9.4).
+func (cl caller) linkUndo(cur, prev store.ItemRevision) (bool, error) {
+	if cur.Scope != store.ScopeWorkspace || prev.Scope != store.ScopeWorkspace {
+		return false, nil
+	}
+	e, ok, err := cl.relinkEntry(*prev.WorkspaceKey)
+	return ok && !live(e), err
 }

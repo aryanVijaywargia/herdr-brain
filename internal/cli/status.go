@@ -717,7 +717,8 @@ func (s *statusCall) output(forgetPending bool) {
 	}
 }
 
-// relinks lists the old workspace keys whose items wait for a relink (S83).
+// relinks lists the old workspace keys whose items wait for a relink (S83), and the command
+// that links one.
 func (s *statusCall) relinks() {
 	rs, err := s.Workspace.Relinks()
 	if err != nil {
@@ -740,6 +741,8 @@ func (s *statusCall) relinks() {
 		s.w.printf("  %s (%s %s): %s %s (%s %s)\n", r.Old.Key, r.Old.WorkspaceID, r.Old.Label, why,
 			r.New.Key, r.New.WorkspaceID, r.New.Label)
 	}
+	// [NEW] the hint: Brain never links by itself (S20); you link on request.
+	s.w.printf("  link on request, from a pane in the new workspace: brain workspace link <old> <new>\n")
 }
 
 // lookupEnv returns the value of key in environ; the last entry wins, as in os/exec.

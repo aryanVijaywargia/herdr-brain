@@ -32,6 +32,7 @@ commands:
   archive   [--all | --keep]: list the items with no relevant session for 90 days; --all retires them, --keep keeps them
   promote   <item>: propose to move a workspace item to the global part of the brief
   undo      <item>: undo the latest revision of an item
+  workspace link <old> <new> [--confirm]: move the items of an old workspace key to this workspace
   forget    <item> | --session <id>: remove the text of an item, or the capture evidence of a session
   repair    [--confirm]: repair the output and list its conflicts; --confirm deletes them
   pane      review --proposal <id>: the review pane of one proposal (herdr runs it)
@@ -52,6 +53,7 @@ var commands = map[string]func(context.Context, cli.Env, []string) error{
 	"archive":   cli.Archive,
 	"promote":   cli.Promote,
 	"undo":      cli.Undo,
+	"workspace": cli.Workspace,
 	"forget":    cli.Forget,
 	"repair":    cli.Repair,
 	"pane":      cli.Pane,
@@ -84,7 +86,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "brain %s\n", version)
 	case "setup":
 		err = setup(context.Background(), osSetupDeps(os.Environ()), args[1:], in, stdout)
-	case "status", "doctor", "remember", "review", "pin", "archive", "promote", "undo", "forget", "repair", "pane", "uninstall", "learn", "extract",
+	case "status", "doctor", "remember", "review", "pin", "archive", "promote", "undo", "workspace", "forget", "repair", "pane", "uninstall", "learn", "extract",
 		"suggest":
 		err = command(commands[args[0]], args[1:], in, stdout, stderr)
 	case "event":
