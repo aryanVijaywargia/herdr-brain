@@ -43,8 +43,16 @@ func fakeProfiles(t *testing.T) fstest.MapFS {
 // `brain setup` does it.
 func fakeEnv(t *testing.T) (*env, *adapter.Profile) {
 	t.Helper()
+	return fakeEnvWith(t, "")
+}
+
+// fakeEnvWith is fakeEnv with the profile lines extra added to the fake profile.
+func fakeEnvWith(t *testing.T, extra string) (*env, *adapter.Profile) {
+	t.Helper()
 	e := newEnv(t)
-	e.r.Profiles = fakeProfiles(t)
+	fsys := fakeProfiles(t)
+	fsys["fake.toml"].Data = append(fsys["fake.toml"].Data, extra...)
+	e.r.Profiles = fsys
 	p, err := adapter.LoadFS(e.r.Profiles, "fake")
 	if err != nil {
 		t.Fatal(err)
@@ -167,20 +175,11 @@ func TestFakeProfileHookInput(t *testing.T) {
 // error.
 func TestFixedEvalDir(t *testing.T) {
 	brainOnPath(t)
-	e := newEnv(t)
 	fixed := filepath.Join(t.TempDir(), "fixed")
-	fsys := fakeProfiles(t)
-	fsys["fake.toml"].Data = append(fsys["fake.toml"].Data, "eval.dir = "+strconv.Quote(fixed)+"\n"...)
-	e.r.Profiles = fsys
-	p, err := adapter.LoadFS(fsys, "fake")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(e.home, ".fake"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := (&install.Installer{Home: e.home, Record: e.r.Install, Binary: "/opt/brain/bin/brain"}).Install(p); err != nil {
-		t.Fatal(err)
+	e, _ := fakeEnvWith(t, "eval.dir = "+strconv.Quote(fixed)+"\n")
+	fsys, ok := e.r.Profiles.(fstest.MapFS)
+	if !ok {
+		t.Fatal("the fake env has no MapFS profiles")
 	}
 	if err := os.MkdirAll(fixed, 0o700); err != nil {
 		t.Fatal(err)

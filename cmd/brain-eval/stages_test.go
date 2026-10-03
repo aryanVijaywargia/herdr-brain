@@ -486,20 +486,7 @@ func TestExclusionHook(t *testing.T) {
 // is output.
 func TestExclusionHookOutputNone(t *testing.T) {
 	log := brainOnPath(t)
-	e := newEnv(t)
-	fsys := fakeProfiles(t)
-	fsys["fake.toml"].Data = append(fsys["fake.toml"].Data, "output_none = \"{}\"\n"...)
-	e.r.Profiles = fsys
-	p, err := adapter.LoadFS(fsys, "fake")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(e.home, ".fake"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := (&install.Installer{Home: e.home, Record: e.r.Install, Binary: "/opt/brain/bin/brain"}).Install(p); err != nil {
-		t.Fatal(err)
-	}
+	e, _ := fakeEnvWith(t, "output_none = \"{}\"\n")
 	c := Case{ID: "ex", Stage: "exclusion", Hook: "other-workspace",
 		Setup:  []string{"printf '{}\\n' > print.txt"},
 		Probes: []Probe{{Harness: "fake"}, {Harness: "claude"}}}
