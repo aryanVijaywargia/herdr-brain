@@ -108,6 +108,10 @@ type Profile struct {
 		// SetupArgs also go to a CLI that runs a setup step, so that it may run
 		// `brain remember` with no ask: the runner never answers a permission dialog.
 		SetupArgs []string `toml:"setup_args"`
+		// Dir [NEW] is one fixed scratch folder for the cases that probe this CLI, for a CLI
+		// that trusts folders by path and asks again in each new folder, as agy 1.2.16 does
+		// (E16-S12). The runner empties it before each case. "" is a fresh temp folder.
+		Dir string `toml:"dir"`
 	} `toml:"eval"`
 	// NoiseLines are optional regular expressions of screen lines that herdr capture drops,
 	// for example the input box (§6.3, E11-S3). A line matches when a pattern matches all of it.
