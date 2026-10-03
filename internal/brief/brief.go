@@ -47,6 +47,8 @@ type Item struct {
 	ConflictsWith []int64
 	// Dispute marks an item whose anchor changed, until you decide (§9.1).
 	Dispute Dispute
+	// Anchors are the paths of the item's anchors. The part keeps room for their mark.
+	Anchors []string
 }
 
 // Dispute is the mark of a disputed item or skill (§9.1, G7): the paths of the anchors that
@@ -77,6 +79,8 @@ type Skill struct {
 	NotAvailable string
 	// Dispute marks a skill whose anchor changed, until you decide (§9.1).
 	Dispute Dispute
+	// Anchors are the paths of the skill's anchors. The part keeps room for their mark.
+	Anchors []string
 }
 
 // The skill list at the end of a part. [NEW] the heading, the instruction line and the entry
@@ -136,6 +140,8 @@ func LastSession(workspace, harness string, at time.Time, transcript string) str
 
 // part renders a label, the items in id order and the skills in name order, so the same items
 // give the same bytes. extra is the size that counts against the budget beyond the part text.
+// The budget counts the room for the dispute mark of every anchor too, so a later dispute
+// always fits (§9.1 "inside the budget"): the build that marks an item never fails.
 func part(name, label string, extra, limit int, items []Item, skills []Skill) (string, error) {
 	items = slices.SortedFunc(slices.Values(items), func(a, b Item) int { return cmp.Compare(a.ID, b.ID) })
 	var b strings.Builder
@@ -146,10 +152,22 @@ func part(name, label string, extra, limit int, items []Item, skills []Skill) (s
 		}
 	}
 	writeSkills(&b, skills)
+	for _, it := range items {
+		extra += markRoom(it.Anchors, it.Dispute)
+	}
+	for _, sk := range skills {
+		extra += markRoom(sk.Anchors, sk.Dispute)
+	}
 	if size := extra + b.Len(); size > limit {
 		return "", &BudgetError{Part: name, Size: size, Limit: limit}
 	}
 	return b.String(), nil
+}
+
+// markRoom is the room that the mark of anchors needs beyond the mark d that the text holds:
+// a dispute names some of the anchors, never more.
+func markRoom(anchors []string, d Dispute) int {
+	return max(0, len(Dispute{Anchors: anchors}.mark())-len(d.mark()))
 }
 
 // writeSkills writes the skill list, one line for each skill, or nothing when there is none.

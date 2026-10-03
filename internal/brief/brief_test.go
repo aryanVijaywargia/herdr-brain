@@ -208,16 +208,38 @@ func TestSkillBudget(t *testing.T) {
 	}
 }
 
-// TestDisputeBudget checks that the dispute mark counts in the budget of its part (§9.1).
+// TestDisputeBudget checks that the budget keeps room for the dispute mark of every anchor
+// (§9.1): a full part with anchors still fits after a dispute marks an item, with the same
+// size, and an anchored item with no room for its mark is over the budget at once.
 func TestDisputeBudget(t *testing.T) {
-	items := fill(t, len(workspaceLabel), workspaceBudget)
-	if _, err := Workspace(items); err != nil {
-		t.Fatalf("Workspace(full) error = %v, want nil", err)
+	anchors := []string{"a.go", "b.go"}
+	room := len(" (disputed: a.go, b.go changed on 2026-10-03)")
+	items := fill(t, len(workspaceLabel)+room, workspaceBudget)
+	items[0].Anchors = anchors
+	w, err := Workspace(items)
+	if err != nil {
+		t.Fatalf("Workspace(full with room) error = %v, want nil", err)
 	}
+	size, _ := WorkspaceSize(w)
 	items[0].Dispute = Dispute{Anchors: []string{"a.go"}, At: time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)}
+	if w, err = Workspace(items); err != nil {
+		t.Fatalf("Workspace(full, disputed) error = %v, want nil", err)
+	}
+	if !strings.Contains(w, " (disputed: a.go changed on 2026-10-03)\n") {
+		t.Errorf("part = %q, want the mark", w)
+	}
+	if got, _ := WorkspaceSize(w); got <= size || got > workspaceBudget {
+		t.Errorf("size after the dispute = %d, want more than %d and within %d", got, size, workspaceBudget)
+	}
+	items[0].Dispute = Dispute{Anchors: anchors, At: items[0].Dispute.At}
+	if w, err = Workspace(items); err != nil || len(w) != workspaceBudget {
+		t.Errorf("Workspace(full, both anchors disputed) = %d bytes, %v, want exactly the budget", len(w), err)
+	}
+	items[0].Dispute = Dispute{}
+	items[1].Anchors = []string{"c.go"}
 	var be *BudgetError
-	if _, err := Workspace(items); !errors.As(err, &be) || be.Size != workspaceBudget+len(" (disputed: a.go changed on 2026-10-03)") {
-		t.Errorf("Workspace(full with a mark) error = %v, want *BudgetError with the mark in its size", err)
+	if _, err := Workspace(items); !errors.As(err, &be) {
+		t.Errorf("Workspace(an anchor with no room) error = %v, want *BudgetError", err)
 	}
 }
 

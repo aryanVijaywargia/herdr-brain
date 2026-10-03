@@ -36,6 +36,32 @@ func AnchoredItems(ctx context.Context, tx *sql.Tx, key string) ([]Item, error) 
 	return items, nil
 }
 
+// AnchorPaths reads the anchor paths of each delivered item that has anchors, by item id: the
+// brief keeps room for their dispute mark (§9.1).
+func AnchorPaths(ctx context.Context, tx *sql.Tx) (map[int64][]string, error) {
+	type row struct {
+		id      int64
+		anchors []Anchor
+	}
+	rows, err := query(ctx, tx, `SELECT id, anchors FROM items
+		WHERE state IN (?, ?) AND json_array_length(anchors) > 0 ORDER BY id`,
+		func(rows *sql.Rows) (row, error) {
+			var r row
+			err := rows.Scan(&r.id, listDest[Anchor]{&r.anchors})
+			return r, err
+		}, StateActive, StateDisputed)
+	if err != nil {
+		return nil, fmt.Errorf("read anchor paths: %w", err)
+	}
+	m := make(map[int64][]string, len(rows))
+	for _, r := range rows {
+		for _, a := range r.anchors {
+			m[r.id] = append(m[r.id], a.Path)
+		}
+	}
+	return m, nil
+}
+
 // Dispute makes item p.ItemID disputed and adds p, its review in the queue (§9.1), when the
 // item is still active at revision *p.BaseRevision. The item keeps its revision and its text:
 // Brain does not change the item itself. It records a new output generation, so the next

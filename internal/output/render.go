@@ -33,7 +33,7 @@ type part struct {
 func render(ctx context.Context, s *store.Store, dir string) (gen int64, parts []part, files []skillFile, err error) {
 	var revs, skills []store.ItemRevision
 	var keys []string
-	var disputes map[int64]store.Disputed
+	var m marks
 	err = s.Write(ctx, func(tx *sql.Tx) error {
 		if gen, err = store.NewestGeneration(ctx, tx); err != nil {
 			return err
@@ -44,7 +44,10 @@ func render(ctx context.Context, s *store.Store, dir string) (gen int64, parts [
 		if skills, err = store.ActiveSkills(ctx, tx); err != nil {
 			return err
 		}
-		if disputes, err = store.Disputes(ctx, tx); err != nil {
+		if m.disputes, err = store.Disputes(ctx, tx); err != nil {
+			return err
+		}
+		if m.anchors, err = store.AnchorPaths(ctx, tx); err != nil {
 			return err
 		}
 		keys, err = store.WorkspaceKeys(ctx, tx)
@@ -58,12 +61,12 @@ func render(ctx context.Context, s *store.Store, dir string) (gen int64, parts [
 		isSkill[r.ItemID] = true
 	}
 	revs = slices.DeleteFunc(revs, func(r store.ItemRevision) bool { return isSkill[r.ItemID] })
-	global, byKey := split(revs, disputes)
+	global, byKey := split(revs, m)
 	revision := make(map[int64]int64, len(revs))
 	for _, r := range revs {
 		revision[r.ItemID] = r.Revision
 	}
-	globalSkills, skillsByKey, files, err := splitSkills(skills, disputes, dir)
+	globalSkills, skillsByKey, files, err := splitSkills(skills, m, dir)
 	if err != nil {
 		return 0, nil, nil, err
 	}
@@ -91,7 +94,7 @@ type skillEntry struct {
 // splitSkills sorts the active skills into the global skills and the skills of each
 // workspace, with the mark of each disputed one, and lists the file of each one in the skills
 // folder dir.
-func splitSkills(skills []store.ItemRevision, disputes map[int64]store.Disputed, dir string) (global []skillEntry, byKey map[string][]skillEntry,
+func splitSkills(skills []store.ItemRevision, m marks, dir string) (global []skillEntry, byKey map[string][]skillEntry,
 	files []skillFile, err error) {
 	byKey = make(map[string][]skillEntry)
 	for _, r := range skills {
@@ -102,7 +105,7 @@ func splitSkills(skills []store.ItemRevision, disputes map[int64]store.Disputed,
 		f := skillFile{path: skillPath(dir, r.ItemID, r.Revision), text: r.Text,
 			ref: store.RevisionRef{Item: r.ItemID, Revision: r.Revision}}
 		e := skillEntry{entry: brief.Skill{Name: sk.Name, Description: sk.Description, Path: f.path,
-			NotAvailable: sk.NotAvailable, Dispute: dispute(disputes, r.ItemID)}, file: f}
+			NotAvailable: sk.NotAvailable, Dispute: m.dispute(r.ItemID), Anchors: m.anchors[r.ItemID]}, file: f}
 		files = append(files, f)
 		if r.Scope == store.ScopeWorkspace {
 			byKey[*r.WorkspaceKey] = append(byKey[*r.WorkspaceKey], e)
@@ -117,7 +120,7 @@ func splitSkills(skills []store.ItemRevision, disputes map[int64]store.Disputed,
 // global part serves every workspace, so a conflict between a global item and a workspace
 // item shows on the workspace item only: in the global part it would show in every workspace.
 // A disputed item gets its mark (§9.1).
-func split(revs []store.ItemRevision, disputes map[int64]store.Disputed) (global []brief.Item, byKey map[string][]brief.Item) {
+func split(revs []store.ItemRevision, m marks) (global []brief.Item, byKey map[string][]brief.Item) {
 	scope := make(map[int64]store.Scope, len(revs))
 	for _, r := range revs {
 		scope[r.ItemID] = r.Scope
@@ -126,7 +129,7 @@ func split(revs []store.ItemRevision, disputes map[int64]store.Disputed) (global
 	toGlobal := make(map[int64][]int64)
 	byKey = make(map[string][]brief.Item)
 	for _, r := range revs {
-		it := brief.Item{ID: r.ItemID, Text: r.Text, Dispute: dispute(disputes, r.ItemID)}
+		it := brief.Item{ID: r.ItemID, Text: r.Text, Dispute: m.dispute(r.ItemID), Anchors: m.anchors[r.ItemID]}
 		if r.ExceptionToItem != nil {
 			it.ExceptionTo = *r.ExceptionToItem
 		}
@@ -153,9 +156,16 @@ func split(revs []store.ItemRevision, disputes map[int64]store.Disputed) (global
 	return global, byKey
 }
 
+// marks holds what the brief needs for the dispute marks (§9.1): the dispute of each disputed
+// item and the anchor paths of each anchored item, by item id.
+type marks struct {
+	disputes map[int64]store.Disputed
+	anchors  map[int64][]string
+}
+
 // dispute is the brief mark of item id: none when the item is not disputed.
-func dispute(disputes map[int64]store.Disputed, id int64) brief.Dispute {
-	d := disputes[id]
+func (m marks) dispute(id int64) brief.Dispute {
+	d := m.disputes[id]
 	return brief.Dispute{Anchors: d.Anchors, At: d.At}
 }
 
