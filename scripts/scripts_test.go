@@ -17,8 +17,9 @@ import (
 
 const fakeAsset = "#!/bin/sh\necho brain release asset\n"
 
-// TestMain turns off git auto maintenance and auto gc for every git process of this package:
-// the helpers, build.sh and the git processes they start all inherit the environment.
+// TestMain turns off git auto maintenance and auto gc for the git processes of this package:
+// the test helpers and build.sh inherit the environment. The file:// transport clears
+// GIT_CONFIG_COUNT for upload-pack, but upload-pack starts no auto maintenance.
 // Since Git 2.47, git commit and git fetch run auto maintenance detached, and the
 // background process can still write in a repo when t.TempDir removes it (#224).
 func TestMain(m *testing.M) {
