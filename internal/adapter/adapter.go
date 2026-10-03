@@ -429,16 +429,7 @@ func assign(node any, st []any, v any) any {
 	if len(st) == 0 {
 		return v
 	}
-	switch s := st[0].(type) {
-	case string:
-		obj, ok := node.(map[string]any)
-		if !ok {
-			obj = map[string]any{}
-		}
-		obj[s] = assign(obj[s], st[1:], v)
-		return obj
-	default:
-		i := s.(int)
+	if i, ok := st[0].(int); ok {
 		arr, _ := node.([]any)
 		for len(arr) <= i {
 			arr = append(arr, nil)
@@ -446,6 +437,13 @@ func assign(node any, st []any, v any) any {
 		arr[i] = assign(arr[i], st[1:], v)
 		return arr
 	}
+	key, _ := st[0].(string)
+	obj, ok := node.(map[string]any)
+	if !ok {
+		obj = map[string]any{}
+	}
+	obj[key] = assign(obj[key], st[1:], v)
+	return obj
 }
 
 // text returns the non-empty string at path in doc, or an error that wraps ErrRetest.

@@ -330,12 +330,13 @@ func (in *Installer) entry(p *adapter.Profile, h adapter.Hook, target string) (E
 	if h.Event != adapter.EventStart {
 		limit = nil // a hook record prints nothing
 	}
-	var v any = handler{"command", command, entryTimeout, limit}
+	hd := handler{"command", command, entryTimeout, limit}
+	var v any = hd
 	if !p.FlatHandlers || h.Event == adapter.EventTool {
 		v = struct {
 			Matcher string    `json:"matcher,omitempty"`
 			Hooks   []handler `json:"hooks"`
-		}{h.Matcher, []handler{v.(handler)}}
+		}{h.Matcher, []handler{hd}}
 	}
 	b, err := json.Marshal(v)
 	if err != nil {
