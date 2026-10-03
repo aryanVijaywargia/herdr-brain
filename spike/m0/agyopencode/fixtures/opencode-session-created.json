@@ -1,0 +1,29 @@
+{
+  "created": 1791021945974,
+  "data": {
+    "agent": "build",
+    "location": {
+      "directory": "/private/tmp/e16s2/opencode"
+    },
+    "model": {
+      "id": "space-bunny-free",
+      "providerID": "opencode",
+      "variant": "max"
+    },
+    "projectID": "773bc2ee64cf50a19bb416f4d6d3a9e8e009ad39",
+    "sessionID": "ses_efec5eb96ffe4uerNGQTIafIgv",
+    "slug": "jolly-wizard",
+    "subpath": "",
+    "version": "2.0.18"
+  },
+  "durable": {
+    "aggregateID": "ses_efec5eb96ffe4uerNGQTIafIgv",
+    "seq": 0,
+    "version": 1
+  },
+  "id": "evt_1013a1476001cvV9issqh77Znp",
+  "location": {
+    "directory": "/private/tmp/e16s2/opencode"
+  },
+  "type": "session.created"
+}

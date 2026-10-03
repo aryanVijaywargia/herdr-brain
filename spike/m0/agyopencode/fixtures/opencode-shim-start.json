@@ -1,0 +1,33 @@
+{
+  "cwd": "/private/tmp/e16s2/opencode",
+  "event": {
+    "created": 1791022770048,
+    "data": {
+      "agent": "build",
+      "location": {
+        "directory": "/private/tmp/e16s2/opencode"
+      },
+      "model": {
+        "id": "space-bunny-free",
+        "providerID": "opencode",
+        "variant": "max"
+      },
+      "projectID": "773bc2ee64cf50a19bb416f4d6d3a9e8e009ad39",
+      "sessionID": "ses_efeb95889ffeT4IzpamDDU4gBL",
+      "slug": "quiet-tiger",
+      "subpath": "",
+      "version": "2.0.18"
+    },
+    "durable": {
+      "aggregateID": "ses_efeb95889ffeT4IzpamDDU4gBL",
+      "seq": 0,
+      "version": 1
+    },
+    "id": "evt_10146a780001GS6WXqm9XFhHKg",
+    "location": {
+      "directory": "/private/tmp/e16s2/opencode"
+    },
+    "type": "session.created"
+  },
+  "session_id": "ses_efeb95889ffeT4IzpamDDU4gBL"
+}
