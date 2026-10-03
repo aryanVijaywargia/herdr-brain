@@ -91,23 +91,29 @@ var ErrSkillName = errors.New("another active skill in this scope has this name"
 // ActiveSkills reads the current revision of each delivered skill item, in item id order: the
 // active skills and the disputed ones (§9.1).
 func ActiveSkills(ctx context.Context, tx *sql.Tx) ([]ItemRevision, error) {
+	return activeOfKind(ctx, tx, KindSkill)
+}
+
+// activeOfKind reads the current revision of each active or disputed item of kind, in item id
+// order.
+func activeOfKind(ctx context.Context, tx *sql.Tx, kind Kind) ([]ItemRevision, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT `+revisionColumns+` FROM item_revisions r
 		JOIN items i ON r.item_id = i.id AND r.revision = i.current_revision
-		WHERE i.state IN (?, ?) AND i.kind = ? ORDER BY i.id`, StateActive, StateDisputed, KindSkill)
+		WHERE i.state IN (?, ?) AND i.kind = ? ORDER BY i.id`, StateActive, StateDisputed, kind)
 	if err != nil {
-		return nil, fmt.Errorf("read active skills: %w", err)
+		return nil, fmt.Errorf("read active %ss: %w", kind, err)
 	}
 	defer rows.Close() //nolint:errcheck // read-only: rows.Err reports the read errors
 	var rs []ItemRevision
 	for rows.Next() {
 		r, err := scanRevision(rows)
 		if err != nil {
-			return nil, fmt.Errorf("read active skills: %w", err)
+			return nil, fmt.Errorf("read active %ss: %w", kind, err)
 		}
 		rs = append(rs, r)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read active skills: %w", err)
+		return nil, fmt.Errorf("read active %ss: %w", kind, err)
 	}
 	return rs, nil
 }
@@ -133,20 +139,35 @@ func CheckSkill(ctx context.Context, tx *sql.Tx, item int64) error {
 	if err != nil {
 		return err
 	}
-	all, err := ActiveSkills(ctx, tx)
-	if err != nil {
+	other, err := nameTaken(ctx, tx, KindSkill, cur, sk.Name, func(text string) (string, error) {
+		o, err := ParseSkill(text)
+		return o.Name, err
+	})
+	if err != nil || other == 0 {
 		return err
 	}
+	return fmt.Errorf("skill %q: item %d: %w", sk.Name, other, ErrSkillName)
+}
+
+// nameTaken returns the id of another active or disputed item of kind that has name in the
+// scope of cur (one workspace key, or global), or 0 when there is none. nameOf reads the name
+// from an item text.
+func nameTaken(ctx context.Context, tx *sql.Tx, kind Kind, cur ItemRevision, name string,
+	nameOf func(text string) (string, error)) (int64, error) {
+	all, err := activeOfKind(ctx, tx, kind)
+	if err != nil {
+		return 0, err
+	}
 	for _, o := range all {
-		if o.ItemID == item || o.Scope != cur.Scope || ptrString(o.WorkspaceKey) != ptrString(cur.WorkspaceKey) {
+		if o.ItemID == cur.ItemID || o.Scope != cur.Scope || ptrString(o.WorkspaceKey) != ptrString(cur.WorkspaceKey) {
 			continue
 		}
-		// An active skill passed this check when it became active, so its text parses.
-		if other, err := ParseSkill(o.Text); err == nil && other.Name == sk.Name {
-			return fmt.Errorf("skill %q: item %d: %w", sk.Name, o.ItemID, ErrSkillName)
+		// An active item passed this check when it became active, so its text parses.
+		if n, err := nameOf(o.Text); err == nil && n == name {
+			return o.ItemID, nil
 		}
 	}
-	return nil
+	return 0, nil
 }
 
 func ptrString(p *string) string {

@@ -30,6 +30,11 @@ func ItemTextFields() []Field {
 		// The prompts that led to a proposal of the item or matched it (§6.7, E14-S1). Forget
 		// deletes the rows, with their hashes; brain forget --session deletes them by session.
 		{"prompt_index", "text"},
+		// The tool contract and the fields that come from it (§10.1, E17-S3).
+		{"tools", "name"},
+		{"tools", "contract"},
+		{"tools", "cwd"},
+		{"tools", "effects"},
 	}
 }
 
@@ -192,5 +197,10 @@ func noItemTextFields() []Field {
 		// An outcome holds ids only (E15-S1, §11).
 		{"outcomes", "kind"},
 		{"outcomes", "at"},
+		{"tools", "scope"},
+		{"tools", "workspace_key"},
+		{"tools", "contract_hash"},
+		{"tools", "approved_hash"},
+		{"tools", "approved"},
 	}
 }
