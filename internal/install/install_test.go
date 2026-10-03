@@ -1,6 +1,7 @@
 package install
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -662,5 +663,39 @@ func TestNamedHookEdited(t *testing.T) {
 	expect(t, "Uninstall", Edited)(in.Uninstall(p))
 	if got := string(read(t, path)); got != edited {
 		t.Errorf("file = %s, want the edited one %s", got, edited)
+	}
+}
+
+// TestProfileRoundTrip (S60): for each embedded profile, testdata/profiles/<kind>.json is a hook
+// file with other hooks in it. Install of every Brain hook entry of the profile adds the start
+// entry, a second install changes nothing, and uninstall gives back the file, byte for byte. A
+// new profile adds its file there with no Go change.
+func TestProfileRoundTrip(t *testing.T) {
+	for _, kind := range adapter.Kinds(nil) {
+		fixture := read(t, filepath.Join("testdata", "profiles", kind+".json"))
+		for _, tc := range []struct{ name, data string }{{"other hooks", string(fixture)}, {"empty object", "{}"}} {
+			t.Run(kind+"/"+tc.name, func(t *testing.T) {
+				in := newInstaller(t)
+				p := profile(t, kind)
+				path := put(t, in, p, []byte(tc.data))
+				for _, h := range p.Hooks() {
+					expect(t, "InstallHook("+h.CLIEvent+")", Added)(in.InstallHook(p, h))
+				}
+				installed := read(t, path)
+				if cmd := fakeBinary + " hook --profile " + kind + " --event start"; !strings.Contains(string(installed), cmd) {
+					t.Errorf("installed file has no %q:\n%s", cmd, installed)
+				}
+				for _, h := range p.Hooks() {
+					expect(t, "InstallHook("+h.CLIEvent+") again", Present)(in.InstallHook(p, h))
+				}
+				if got := read(t, path); !bytes.Equal(got, installed) {
+					t.Errorf("second install changed the file:\n%s", got)
+				}
+				expect(t, "Uninstall", Removed)(in.Uninstall(p))
+				if got := string(read(t, path)); got != tc.data {
+					t.Errorf("after uninstall:\n%s\nwant\n%s", got, tc.data)
+				}
+			})
+		}
 	}
 }
