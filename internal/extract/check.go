@@ -245,24 +245,26 @@ func knownClaim(f json.RawMessage, j job) (string, error) {
 
 // checkSkill returns the skill of claim r of kind skill. It refuses a bad name, and a missing
 // description, required tools, example or steps: the skill text must pass store.ParseSkill.
-// [NEW] a header field is one line: its white space folds to single spaces.
+// The secret filter runs first (Redact), so the checks see the text that Brain stores, and no
+// error holds model text. [NEW] a header field is one line: its white space folds to single
+// spaces.
 func checkSkill(r rawClaim) (store.Skill, error) {
 	field := func(f *string) string {
 		if f == nil {
 			return ""
 		}
-		return strings.Join(strings.Fields(*f), " ")
+		return Redact(strings.Join(strings.Fields(*f), " "))
 	}
 	sk := store.Skill{Name: field(r.Name), Description: field(r.Description), RequiredTools: field(r.RequiredTools),
 		Example: field(r.Example)}
 	if r.Steps != nil {
-		sk.Steps = strings.TrimSpace(*r.Steps)
+		sk.Steps = Redact(strings.TrimSpace(*r.Steps))
 	}
 	switch {
 	case !skillName.MatchString(sk.Name):
-		return store.Skill{}, fmt.Errorf("skill name %q: want 1-40 lower-case letters, digits and hyphens", sk.Name)
+		return store.Skill{}, fmt.Errorf("bad skill name: want 1-40 lower-case letters, digits and hyphens")
 	case sk.Example == "":
-		return store.Skill{}, fmt.Errorf("skill %s has no example", sk.Name)
+		return store.Skill{}, fmt.Errorf("the skill has no example")
 	}
 	if _, err := store.ParseSkill(sk.Text()); err != nil {
 		return store.Skill{}, err

@@ -207,3 +207,42 @@ func TestSkillRedraftKind(t *testing.T) {
 		t.Errorf("proposals = %d, want none", n)
 	}
 }
+
+// A secret in the skill name is filtered before the name check: the reply is refused, and the
+// stored failure reason holds no secret.
+func TestSkillSecretName(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = skillReply(map[string]any{"name": "sk-ant-abcdefghijklmnopqrst"})
+	f.releaseSession()
+	f.mustRun()
+	bs := f.batches()
+	if len(bs) != 1 || bs[0].Status != store.BatchInvalid || strings.Contains(bs[0].Reason, "sk-ant") {
+		t.Errorf("batches = %+v, want one invalid batch with no secret in its reason", bs)
+	}
+	if n := f.count(`SELECT COUNT(*) FROM proposals`); n != 0 {
+		t.Errorf("proposals = %d, want none", n)
+	}
+}
+
+// A patch that removes a safety step warns, though the new text has no permission word (§7.4).
+func TestSkillPatchRemovesSafety(t *testing.T) {
+	f := newFixture(t)
+	item := f.skillItem()
+	safe := releaseSkill
+	safe.Steps += "\n4. Never run git push --force."
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE item_revisions SET text = ? WHERE item_id = ? AND revision = 2`, safe.Text(), item)
+		return err
+	})
+	f.cli.reply = func(_ context.Context, prompt string) ([]byte, error) {
+		return claudeReply(map[string]any{"claims": []any{replyOf(map[string]any{"situation": "releasing",
+			"rule": "follow the release steps", "evidence_refs": promptRefs(prompt)})}})
+	}
+	f.comebacks(item, 2, 2)
+	f.cli.reply = skillReply(nil)
+	f.mustRun()
+	ps := f.proposals()
+	if len(ps) != 1 || !ps[0].PermissionWarning || !strings.Contains(ps[0].Diff, "- 4. Never run git push --force.") {
+		t.Fatalf("proposals = %+v, want one patch with a permission warning", ps)
+	}
+}

@@ -387,7 +387,8 @@ func redraftKind(k store.Kind) string {
 // the same candidate, item and base revision. [NEW] it keeps the scope and the target of the
 // original proposal: you change them in review. The item does not change. The draft of an
 // item revision has no candidate: it is a proposal of the item, as an edit in review is. The
-// draft of an active skill is a patch: its diff holds only the changed lines (§9.2).
+// draft of an active skill is a patch: its diff holds only the changed lines (§9.2). The diff
+// holds the removed lines too, so a patch that removes a safety rule warns (§7.4).
 func (p Pass) redraft(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Time) (int64, error) {
 	ch := j.change
 	c = redactClaim(c)
@@ -406,7 +407,7 @@ func (p Pass) redraft(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.
 	base := ch.req.Revision
 	pr := store.Proposal{ItemID: &ch.item.ItemID, BaseRevision: &base,
 		Text: text, Scope: ch.proposal.Scope, Target: ch.proposal.Target, Diff: diff, ExpectedBenefit: c.ExpectedBenefit,
-		PermissionWarning: c.TouchesPermission, ConflictsWith: conflicts,
+		PermissionWarning: c.TouchesPermission || store.TouchesPermission(diff), ConflictsWith: conflicts,
 		Status: store.ProposalPending, Created: now}
 	if ch.req.Source == store.ChangeItem {
 		return store.InsertProposal(ctx, tx, pr)

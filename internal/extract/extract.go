@@ -673,16 +673,10 @@ func draft(c Claim) (text, diff string) {
 	return text, "+ " + text
 }
 
-// redactClaim returns c with each secret of its model text replaced (Redact): the claim text,
-// the expected benefit and the skill fields.
+// redactClaim returns c with each secret of its model text replaced (Redact). checkSkill
+// filtered the skill fields already.
 func redactClaim(c Claim) Claim {
 	c.Situation, c.Rule, c.ExpectedBenefit = Redact(c.Situation), Redact(c.Rule), Redact(c.ExpectedBenefit)
-	if c.Skill != nil {
-		sk := *c.Skill
-		sk.Name, sk.Description, sk.RequiredTools = Redact(sk.Name), Redact(sk.Description), Redact(sk.RequiredTools)
-		sk.Example, sk.Steps = Redact(sk.Example), Redact(sk.Steps)
-		c.Skill = &sk
-	}
 	return c
 }
 
