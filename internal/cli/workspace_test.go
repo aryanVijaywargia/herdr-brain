@@ -141,16 +141,15 @@ func dumpTable(ctx context.Context, tx *sql.Tx, table string, b *strings.Builder
 	return rows.Err()
 }
 
-// AC S20, §9.4: the dry run lists what moves and writes nothing. The link moves the items of
-// the closed old key, with a new revision each; a fresh hook in the new workspace gets the old
-// items and skills; the items of the new key stay. A second link of the same pair moves
-// nothing. Undo of one moved item from the new workspace sends it back.
-func TestWorkspaceLink(t *testing.T) {
-	f := newFixture(t)
+// oldShop adds the closed key ws_a9 (S20) with an active fact, an active skill and a retired
+// item, and an active item of ws_a14. It returns the ids of the fact, the skill, the retired
+// item and the ws_a14 item.
+func (f *fixture) oldShop(t *testing.T) (fact, skill, retired, own int64) {
+	t.Helper()
 	f.addEntry(t, "ws_a9", "default", "w9", true)
-	fact := f.oldItem(t, "ws_a9", store.KindFact, "c-old", "old fact marker-old")
-	skill := f.oldItem(t, "ws_a9", store.KindSkill, "c-skill", skillText("deploy", "old"))
-	retired := f.oldItem(t, "ws_a9", store.KindFact, "c-retired", "retired marker")
+	fact = f.oldItem(t, "ws_a9", store.KindFact, "c-old", "old fact marker-old")
+	skill = f.oldItem(t, "ws_a9", store.KindSkill, "c-skill", skillText("deploy", "old"))
+	retired = f.oldItem(t, "ws_a9", store.KindFact, "c-retired", "retired marker")
 	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
 		cur, err := store.ItemRevisionByKey(ctx, tx, retired, 1)
 		if err != nil {
@@ -160,7 +159,16 @@ func TestWorkspaceLink(t *testing.T) {
 		_, err = store.WriteRevision(ctx, tx, 1, cur)
 		return err
 	})
-	own := f.addActive(t, ptr("ws_a14"), "own item")
+	return fact, skill, retired, f.addActive(t, ptr("ws_a14"), "own item")
+}
+
+// AC S20, §9.4: the dry run lists what moves and writes nothing. The link moves the items of
+// the closed old key, with a new revision each; a fresh hook in the new workspace gets the old
+// items and skills; the items of the new key stay. A second link of the same pair moves
+// nothing.
+func TestWorkspaceLink(t *testing.T) {
+	f := newFixture(t)
+	fact, skill, retired, own := f.oldShop(t)
 	before := f.rows(t)
 
 	out := f.mustLink(t, "ws_a9", "ws_a14")
@@ -174,8 +182,7 @@ func TestWorkspaceLink(t *testing.T) {
 		t.Fatalf("dry run wrote: newest generation %d, want %d; item %d key %q", after.newest, before.newest, fact, after.keyOf(t, fact))
 	}
 
-	out = f.mustLink(t, "ws_a9", "ws_a14", "--confirm")
-	if !strings.Contains(out, "linked ws_a9 to ws_a14: moved 3") {
+	if out := f.mustLink(t, "ws_a9", "ws_a14", "--confirm"); !strings.Contains(out, "linked ws_a9 to ws_a14: moved 3") {
 		t.Errorf("link = %q, want the moved items", out)
 	}
 	r := f.rows(t)
@@ -209,18 +216,28 @@ func TestWorkspaceLink(t *testing.T) {
 	if got := f.rows(t).newest; got != newest {
 		t.Errorf("second link: newest generation %d, want %d", got, newest)
 	}
+}
+
+// AC §9.4 link undo: undo of one moved item from the new workspace sends it back to the old
+// key, and the next hook no longer gets it. The item is out of the caller's view again.
+func TestWorkspaceLinkUndo(t *testing.T) {
+	f := newFixture(t)
+	fact, _, _, _ := f.oldShop(t)
+	f.mustLink(t, "ws_a9", "ws_a14", "--confirm")
 
 	if out := f.mustUndo(t, fmt.Sprint(fact)); !strings.Contains(out, "back in workspace ws_a9") {
 		t.Errorf("undo = %q, want the item back in ws_a9", out)
 	}
-	r = f.rows(t)
+	r := f.rows(t)
 	if _, cur := r.item(t, fact); r.keyOf(t, fact) != "ws_a9" || cur.State != store.StateActive || cur.UndoesRevision == nil {
 		t.Errorf("item %d after undo: key %q, state %s, want ws_a9, active, an undo revision", fact, r.keyOf(t, fact), cur.State)
 	}
 	if b := f.brief(t); strings.Contains(b, "marker-old") || !strings.Contains(b, "- deploy: ") {
 		t.Errorf("brief of ws_a14 after undo = %q, want the skill only", b)
 	}
-	// The item is out of the caller's view again: a second undo finds nothing.
+	if d := f.hookStart(t, "s2"); slices.ContainsFunc(d.ItemRevisions, func(r store.RevisionRef) bool { return r.Item == fact }) {
+		t.Errorf("hook receipt after undo = %v, want no item %d", d.ItemRevisions, fact)
+	}
 	if _, err := f.undo(t, fmt.Sprint(fact)); !errors.Is(err, errNotFound) {
 		t.Errorf("second undo = %v, want errNotFound", err)
 	}
