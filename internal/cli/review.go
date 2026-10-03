@@ -32,6 +32,7 @@ const reviewUsage = `usage:
   brain review --reset <rejection>               keep a rejection, and count its new evidence from now
   brain review --restore <item>                  make a retired item active again
   brain review --item <item> --edit "<text>" | --retire   propose a change to an active item
+  brain review --item <item> --scope global      propose to promote a workspace item (as brain promote)
   brain review --item <item> --exception-to <global item> | --conflicts-with <global item>
                                                  link a workspace item to a global item`
 
@@ -87,6 +88,9 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 	switch {
 	case r.exceptionTo != 0 || r.conflictsWith != 0:
 		return cl.link(ctx, r)
+	case r.item != 0 && r.scope != "":
+		// The review action "change scope" of an active item (§9.3).
+		return cl.promote(ctx, r.item)
 	case r.item != 0:
 		return cl.proposeChange(ctx, r)
 	case r.retired:
@@ -217,13 +221,13 @@ func (r review) check() error {
 		return errors.New("--change needs a proposal id and a text")
 	case r.item != 0:
 		changes := 0
-		for _, on := range []bool{r.edit != nil, r.retire, r.exceptionTo != 0, r.conflictsWith != 0} {
+		for _, on := range []bool{r.edit != nil, r.retire, r.exceptionTo != 0, r.conflictsWith != 0, r.scope != ""} {
 			if on {
 				changes++
 			}
 		}
-		if r.id != 0 || modifiers || changes != 1 {
-			return errors.New("--item takes one of --edit, --retire, --exception-to or --conflicts-with, and no proposal id")
+		if r.id != 0 || r.pin || r.confirm || r.conflict != "" || changes != 1 || r.scope == store.ScopeWorkspace {
+			return errors.New("--item takes one of --edit, --retire, --scope global, --exception-to or --conflicts-with, and no proposal id")
 		}
 	case r.exceptionTo != 0 || r.conflictsWith != 0:
 		return errors.New("--exception-to and --conflicts-with need --item")
@@ -585,13 +589,15 @@ func (cl caller) approve(ctx context.Context, r review) error {
 				return err
 			}
 		}
-		// A promotion, or the "change scope" of approve (§9.3).
-		if cur.Scope == store.ScopeWorkspace && next.Scope == store.ScopeGlobal {
-			if err := cl.checkPromotion(ctx, tx, it); err != nil {
-				return err
-			}
+		if err := anchor(ctx, tx, next); err != nil {
+			return err
 		}
-		return anchor(ctx, tx, next)
+		// A promotion, or the "change scope" of approve (§9.3). The check comes after anchor,
+		// which drops the workspace anchors: the budget counts the room of their mark.
+		if cur.Scope == store.ScopeWorkspace && next.Scope == store.ScopeGlobal {
+			return cl.checkPromotion(ctx, tx, it)
+		}
+		return nil
 	})
 	if err != nil {
 		return skillError(err)

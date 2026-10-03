@@ -90,7 +90,7 @@ func bar(ctx context.Context, tx *sql.Tx, it store.Item) error {
 	return nil
 }
 
-// claimSeen returns the evidence of the claim of workspace item it in its workspace, and the
+// claimSeen returns the evidence of the claim of workspace item it, in every scope, and the
 // number of other workspaces with a candidate of the same claim id: the "also seen in N
 // workspaces" hint (§9.3).
 func claimSeen(ctx context.Context, tx *sql.Tx, it store.Item) (evidence, others int, err error) {
@@ -99,11 +99,11 @@ func claimSeen(ctx context.Context, tx *sql.Tx, it store.Item) (evidence, others
 		return 0, 0, err
 	}
 	for _, c := range cs {
-		switch {
-		case c.ClaimID != it.ClaimID || c.Scope != store.ScopeWorkspace:
-		case c.WorkspaceKey == *it.WorkspaceKey:
-			evidence += c.Count
-		default:
+		if c.ClaimID != it.ClaimID {
+			continue
+		}
+		evidence += c.Count
+		if c.Scope == store.ScopeWorkspace && c.WorkspaceKey != *it.WorkspaceKey {
 			others++
 		}
 	}
@@ -139,7 +139,7 @@ func (cl caller) checkPromotion(ctx context.Context, tx *sql.Tx, it store.Item) 
 	}
 	err := output.CheckGlobal(ctx, tx, filepath.Join(cl.Binding.Store, outDir))
 	if be := (*brief.BudgetError)(nil); errors.As(err, &be) {
-		return fmt.Errorf("item %d does not fit: %w; or shorten its text with --edit; nothing was written", it.ID, err)
+		return fmt.Errorf("item %d does not fit (or shorten its text with --edit); nothing was written: %w", it.ID, err)
 	}
 	return err
 }

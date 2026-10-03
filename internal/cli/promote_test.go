@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/brief"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -91,6 +92,7 @@ func TestPromoteBar(t *testing.T) {
 		{name: "a Brain item with 1 piece of evidence", item: func(f *fixture) int64 { return f.brainItem(t, 1) },
 			want: "is a Brain item with 1 piece(s) of evidence"},
 		{name: "a Brain item with 2 pieces of evidence", item: func(f *fixture) int64 { return f.brainItem(t, 2) }},
+		{name: "a Brain item with evidence in 2 workspaces", item: func(f *fixture) int64 { return f.brainItem(t, 1, "ws_b") }},
 		{name: "an item that you wrote", item: func(f *fixture) int64 { return f.addActive(t, ptr("ws_a14"), "use pnpm") }},
 	}
 	for _, c := range cases {
@@ -311,5 +313,57 @@ func TestPanePromote(t *testing.T) {
 	}
 	if it, rev := f.rows(t).item(t, id); it.Scope != store.ScopeGlobal || rev.Text != "use pnpm" {
 		t.Errorf("item %+v, revision %+v; want %q in global", it, rev, "use pnpm")
+	}
+}
+
+// AC: the review action "change scope" of an active item makes one promotion proposal, with
+// the bar; it takes global only.
+func TestReviewItemScope(t *testing.T) {
+	f := newFixture(t)
+	id := f.addActive(t, ptr("ws_a14"), "use pnpm")
+	out := f.mustReview(t, "--item", fmt.Sprint(id), "--scope", "global")
+	r := f.rows(t)
+	p := r.proposals[len(r.proposals)-1]
+	if !strings.Contains(out, fmt.Sprintf("proposal %d: promote item %d to global", p.ID, id)) || !promotion(p, r.items[id-1]) {
+		t.Errorf("--item --scope global printed %q, proposal %+v; want a promotion proposal", out, p)
+	}
+	if _, err := f.review(t, "--item", fmt.Sprint(id), "--scope", "workspace"); err == nil || !strings.Contains(err.Error(), "--scope global") {
+		t.Errorf("--item --scope workspace = %v, want refused", err)
+	}
+	h := f.remember(t, "next: port the cart page", "--kind", "handoff")
+	f.mustReview(t, fmt.Sprint(h), "--approve")
+	handoff := *f.rows(t).proposal(t, h).ItemID
+	if _, err := f.review(t, "--item", fmt.Sprint(handoff), "--scope", "global"); err == nil || !strings.Contains(err.Error(), "is a handoff") {
+		t.Errorf("--item %d --scope global = %v, want refused: a handoff", handoff, err)
+	}
+}
+
+// AC (§8.1): the budget check counts the promoted item without its workspace anchors, which
+// the global revision drops: a promotion that fills the global part to its limit passes.
+func TestPromoteBudgetAnchors(t *testing.T) {
+	// promoted promotes an anchored item next to a global item of fill bytes, and returns the
+	// size of the global part after it.
+	promoted := func(fill int) (int, error) {
+		f := newFixture(t)
+		f.gitRepo(t, "config/load.go", "Makefile")
+		id := f.approved(t, loaderText)
+		if it, _ := f.rows(t).item(t, id); len(it.Anchors) == 0 {
+			t.Fatalf("item %+v has no anchors", it)
+		}
+		f.addActive(t, nil, strings.Repeat("g", fill))
+		if _, err := f.review(t, fmt.Sprint(f.mustPromote(t, id)), "--approve"); err != nil {
+			return 0, err
+		}
+		global, _ := f.parts(t)
+		size, _ := brief.GlobalSize(global)
+		return size, nil
+	}
+	size, err := promoted(100)
+	if err != nil {
+		t.Fatalf("promotion with a short global item = %v", err)
+	}
+	_, limit := brief.GlobalSize("")
+	if size, err = promoted(100 + limit - size); err != nil || size != limit {
+		t.Errorf("promotion that fills the global part = %d, %v; want %d, nil", size, err, limit)
 	}
 }
