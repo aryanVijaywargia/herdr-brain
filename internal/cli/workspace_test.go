@@ -358,7 +358,8 @@ func TestWorkspaceLinkMovesOnlyItems(t *testing.T) {
 		t.Errorf("draft proposal %d: %s, key %q, want pending in ws_a9", draft, dp.Status, r.keyOf(t, *dp.ItemID))
 	}
 	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
-		for key, want := range map[string]bool{"ws_a14": true, "ws_a9": false} {
+		// The claim is known in both keys: the item is in ws_a14, and it was in ws_a9 (§7.3).
+		for key, want := range map[string]bool{"ws_a14": true, "ws_a9": true, "ws_a15": false} {
 			if has, err := store.ClaimHasItem(ctx, tx, claim, key); err != nil || has != want {
 				t.Errorf("ClaimHasItem(%s) = %v, %v, want %v", key, has, err, want)
 			}
