@@ -428,8 +428,8 @@ Result (fill in): **not run yet.**
 - Verdict per CLI, with each non-PASS result and its reply text.
 
 **Checklist C: agy delivery stage** (E10 delivery stage; owner, 2026-10-03; moved from #163)
-1. Do the common preparation. Run `brain setup` and accept the agy hook: Brain writes its entry in the real `~/.gemini/config/hooks.json`. Check `brain status`: agy is `configured`.
-2. Record the version: `agy --version`. The profile's tested version is 1.2.16; the target is 1.2.16 or later (owner, 2026-10-03).
+1. Do the common preparation. Run `brain setup` and accept the agy hook: Brain writes its entry in the real `~/.gemini/config/hooks.json`. Check `brain status`: agy is `configured` (or `retest`, step 2).
+2. Record the version: `agy --version`. The profile's tested version is 1.2.16; the target is 1.2.16 or later (owner, 2026-10-03). On a later version, `brain status` shows agy `retest` before the run; a pass on that version makes it `verified` (§8.5).
 3. Trust the fixed eval folder once, by hand. The profile's `eval.dir` is `/tmp/brain-eval-agy`. On macOS `/tmp` is `/private/tmp`, and agy trusts the exact real path. `mkdir -p /private/tmp/brain-eval-agy && cd /private/tmp/brain-eval-agy && agy`. Accept the trust question, then exit agy. This is the one trust write in agy's own settings. Do no other config change.
 4. Run: `/tmp/brain-eval --probes evals/probes/delivery.toml --stage delivery --harness agy`. The case `delivery-agy` approves a workspace item with a fresh marker in the test store and asks agy for it, in the fixed folder.
 5. Read the result: the printed line `delivery-agy agy: <status>, <label>`, `<evalstore>/eval-report.md`, and the conformance record: `jq '[.results[] | select(.harness == "agy")] | last' ~/.local/share/brain/conformance.json`. `brain status` shows agy `verified` after a pass.
