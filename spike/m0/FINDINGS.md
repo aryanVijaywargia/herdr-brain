@@ -609,7 +609,7 @@ OpenCode:
 - **Setup.**
   - Named test session `brain-spike-e17s2` beside `default`, with a clean env (`e17s2/ht.sh`). Claude ran in pane `w1:p1` in `/private/tmp/e11s1/agent/e17s2` (E11-S1 trusted the parent folder; no trust dialog came). Codex ran in pane `w2:p1` in `/private/tmp/e17s2/codex`. Neither folder is a git repo.
   - **The test server** `mcpspike` (stdio, JSON-RPC, one message per line) reads only the four names `HERDR_ENV`, `HERDR_SOCKET_PATH`, `HERDR_PANE_ID` and `HERDR_WORKSPACE_ID`, never the whole env. Without `HERDR_ENV=1` it returns an empty tool list and refuses a call. With it, it offers `spike_echo(text)`, which returns the text and the marker `mcp-echo-7316`. The tool has no annotations (no `readOnlyHint`).
-  - The real HOME was used, so the CLIs used their own sign-in. The user's own settings and plugins stayed active.
+  - The live cases used the real HOME, so the CLIs used their own sign-in (the owner brief: no auth files go into a scratch home). The user's own settings and plugins stayed active. The server went in only through the no-write routes below. Scratch homes were used only for the register and remove commands, which need no model call.
 - **Server route with no config write.**
   - Claude: `claude --mcp-config <file> --strict-mcp-config` (`e17s2/claude-run.sh`). The file holds `{"mcpServers":{"spike":{"type":"stdio","command":...,"args":[...]}}}`. `--strict-mcp-config` keeps the user's own MCP servers out.
   - Codex: `-c 'mcp_servers.spike.command="..."'` and `-c 'mcp_servers.spike.args=[...]'` (`e17s2/codex-run.sh`), with folder trust `-c 'projects={...}'` and `-c check_for_update_on_startup=false`. At "Hooks need review" (3 user hooks) the answer was "Continue without trusting".
@@ -690,7 +690,7 @@ Codex, with `HOME` and `CODEX_HOME` under `/private/tmp/e17s2/reg-codex` (`e17s2
 
 ### Side effects and cleanup
 
-- **No change to the real Claude and Codex config** (`e17s2/snapshot.sh`, stat only): `~/.codex/config.toml` (10715 bytes, same mtime), `~/.claude/settings.json` and `~/.claude/settings.local.json` are the same before and after. No `~/.mcp.json` exists. No MCP server or hook went into a real config.
+- **Real config files, stat only** (`e17s2/snapshot.sh`): `~/.codex/config.toml` (10715 bytes, same mtime), `~/.claude/settings.json` and `~/.claude/settings.local.json` are the same before and after. No `~/.mcp.json` exists. So the AC holds for these files. **`~/.claude.json` is not proven:** its size and mtime changed (next point), and the spike may not read it. The routes used (`--mcp-config`, `-c`) have no register step, and no `mcp add` ran against the real HOME.
 - `~/.claude.json` changed size and mtime. Claude writes its own state there at each run, and the thread's own Claude session also runs on this machine, so the cause cannot be split. The file was not read. No trust dialog came, so no new folder-trust entry came from this spike. The `~/.claude/plugins` folder mtime changed at 20:38, after the last Claude case; the cause is unknown.
 - Codex wrote its own state in `~/.codex` (session, log and state SQLite files), as in normal use. They were not read or edited.
 - Cleanup done: the test session `brain-spike-e17s2` is stopped and deleted. `/private/tmp/e17s2` (with both scratch homes), `/private/tmp/e11s1/agent/e17s2` and `~/.claude/projects/-private-tmp-e11s1-agent-e17s2/` (3 test transcripts and a `memory/` folder) are removed. The real `default` session, the main server and the session `brain-spike-e17s1` were not touched.
