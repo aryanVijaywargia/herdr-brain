@@ -1,0 +1,111 @@
+time         run kind  pane   status   prev    agent.get              K    KT   KJ   P     case
+20:34:28.852 r1  event w1:p1  working  idle    working/5/f0e8bcdb                          C-normal: prompt T1
+20:34:30.715 r1  event w1:p1  idle     working idle/6/f0e8bcdb        CLM  CLM  CLM  CLM   C-normal: prompt T1
+20:34:47.021 r1  event w1:p1  working  idle    working/7/f0e8bcdb                          C-dup-working: prompt T2, dup while working
+20:34:48.050 r1  dup   w1:p1  idle     working working/7/f0e8bcdb     CLM  CLM  -    skip  C-dup-working: prompt T2, dup while working
+20:34:49.715 r1  event w1:p1  blocked  idle    blocked/8/f0e8bcdb                          C-dup-working: prompt T2, dup while working
+20:36:49.164 r1  dup   w1:p1  idle     blocked blocked/8/f0e8bcdb     CLM  -    -    skip  C-dup-after-stop2: dup after stop 2
+20:37:05.606 r1  event w1:p1  idle     idle    idle/9/f0e8bcdb        CLM  -    -    -     correction: the previous dup came while blocked on an approval for a herdr-projects report command from the user SessionStart hook
+20:37:24.618 r1  event w1:p1  working  idle    working/10/f0e8bcdb                         C-approve: prompt T3, approve with 1
+20:37:26.701 r1  event w1:p1  blocked  working blocked/11/f0e8bcdb                         C-approve: prompt T3, approve with 1
+20:37:32.484 r1  dup   w1:p1  idle     blocked blocked/11/f0e8bcdb    CLM  -    -    skip  C-approve: prompt T3, approve with 1
+20:37:32.989 r1  event w1:p1  working  idle    working/12/f0e8bcdb                         C-approve: prompt T3, approve with 1
+20:37:35.469 r1  event w1:p1  idle     working idle/13/f0e8bcdb       CLM  CLM  CLM  CLM   C-approve: prompt T3, approve with 1
+20:37:40.827 r1  dup   w1:p1  idle     idle    idle/13/f0e8bcdb       dup  -    -    -     C-dup-after-approval-stop
+20:37:48.106 r1  event w1:p1  working  idle    working/14/f0e8bcdb                         C-user-stop: prompt T4, Esc while working
+20:37:51.420 r1  event w1:p1  idle     working idle/15/f0e8bcdb       CLM  CLM  CLM  CLM   C-user-stop: prompt T4, Esc while working
+20:38:05.440 r1  event w2:p1  idle     done    idle/4/-               CLM  -    -    -     C-unfocused: w2 focused, prompt T5 to w1
+20:38:05.963 r1  event w1:p1  working  idle    working/16/f0e8bcdb                         C-unfocused: w2 focused, prompt T5 to w1
+20:38:07.415 r1  event w1:p1  done     working done/17/f0e8bcdb       CLM  CLM  CLM  CLM   C-unfocused: w2 focused, prompt T5 to w1
+20:38:13.858 r1  event w1:p1  idle     done    idle/17/f0e8bcdb       dup  -    -    -     C-seen: focus w1
+20:38:30.447 r1  event w1:p1  unknown  idle    not found                                   C-replace: /exit, dup with no agent
+20:38:33.421 r1  dup   w1:p1  idle     unknown not found              CLM  -    -    skip  C-replace: /exit, dup with no agent
+20:38:37.727 r1  event w1:p1  idle     idle    idle/19/72fe6516       CLM  -    -    -     C-replace: start a new claude c2, dup at its idle
+20:38:39.750 r1  dup   w1:p1  idle     idle    idle/19/72fe6516       dup  -    -    -     C-replace: start a new claude c2, dup at its idle
+20:39:13.604 r1  event w1:p1  working  idle    working/20/72fe6516                         C-replace: c2 turn T6, dup of the old stop while c2 works
+20:39:14.150 r1  dup   w1:p1  idle     working working/20/72fe6516    CLM  CLM  -    skip  C-replace: c2 turn T6, dup of the old stop while c2 works
+20:39:17.632 r1  event w1:p1  idle     idle    idle/21/72fe6516       CLM  -    -    CLM   C-replace: c2 turn T6, dup of the old stop while c2 works
+20:39:18.589 r1  dup   w1:p1  idle     idle    idle/21/72fe6516       dup  -    -    -     C-replace: dup after the c2 stop
+20:39:32.982 r1  event w2:p1  working  idle    working/22/-                                X-normal: prompt X1, dup while working, dup after stop
+20:39:33.445 r1  dup   w2:p1  idle     working working/22/01a1024a    CLM  CLM  -    skip  X-normal: prompt X1, dup while working, dup after stop
+20:39:43.798 r1  event w2:p1  done     idle    done/23/01a1024a       CLM  -    -    CLM   X-normal: prompt X1, dup while working, dup after stop
+20:39:44.819 r1  dup   w2:p1  done     done    done/23/01a1024a       dup  -    -    -     X-normal: prompt X1, dup while working, dup after stop
+20:39:53.773 r1  event w2:p1  working  done    working/24/01a1024a                         X-approve: prompt X2, needs approval
+20:40:01.325 r1  event w2:p1  blocked  working blocked/25/01a1024a                         X-approve: prompt X2, needs approval
+20:40:07.263 r1  dup   w2:p1  done     blocked blocked/25/01a1024a    CLM  -    -    skip  X-approve: prompt X2, needs approval
+20:40:07.672 r1  event w2:p1  working  done    working/26/01a1024a                         X-approve: prompt X2, needs approval
+20:40:10.687 r1  event w2:p1  done     working done/27/01a1024a       CLM  CLM  CLM  CLM   X-approve: prompt X2, needs approval
+20:40:11.744 r1  dup   w2:p1  done     done    done/27/01a1024a       dup  -    -    -     X-approve: prompt X2, needs approval
+20:40:17.640 r1  event w2:p1  working  done    working/28/01a1024a                         X-user-stop: prompt X3, Esc while working
+20:40:20.965 r1  event w2:p1  done     working done/29/01a1024a       CLM  CLM  CLM  CLM   X-user-stop: prompt X3, Esc while working
+20:40:33.017 r1  event w2:p1  unknown  done    not found                                   X-replace: /exit, start x2
+20:40:40.376 r1  event w2:p1  idle     unknown idle/31/-              CLM  -    -    -     X-replace: /exit, start x2
+20:40:42.749 r1  event w2:p1  working  idle    working/32/-                                X-replace: hooks dialog, continue without trusting
+20:40:43.679 r1  event w2:p1  done     working done/33/-              CLM  CLM  -    skip  X-replace: hooks dialog, continue without trusting
+20:40:48.412 r1  dup   w2:p1  done     done    done/33/-              dup  -    -    -     X-replace: dup at x2 idle
+20:40:56.352 r1  event w2:p1  working  done    working/34/-                                X-replace: x2 turn X4, dup while working
+20:40:56.887 r1  dup   w2:p1  done     working working/34/01a10251    CLM  CLM  -    skip  X-replace: x2 turn X4, dup while working
+20:41:05.161 r1  event w2:p1  done     done    done/35/01a10251       CLM  -    -    CLM   X-replace: x2 turn X4, dup while working
+20:41:06.604 r1  event w2:p1  working  done    working/36/01a10251                         X-two-stops: x2 turn X5
+20:41:13.244 r1  event w2:p1  done     working done/37/01a10251       CLM  CLM  CLM  CLM   X-two-stops: x2 turn X5
+20:41:32.824 r2  dup   w1:p1  idle     idle    idle/21/72fe6516       dup  -    -    -     R1: restarted, dup of the earlier stops by inject
+20:41:32.830 r2  dup   w2:p1  done     done    done/37/01a10251       dup  -    -    -     R1: restarted, dup of the earlier stops by inject
+20:41:43.338 r2  event w1:p1  working  idle    working/38/72fe6516                         R2: prompt T7 to claude, stop the reader while it works, restart
+20:41:45.764 r3  event w1:p1  idle     working idle/39/72fe6516       CLM  CLM  CLM  CLM   R2: restarted while claude works
+20:41:47.417 r3  event w2:p1  working  done    working/40/01a10251                         R3: prompt X6 to codex, stop the reader, codex stops while the reader is down
+20:41:58.902 r4  dup   w2:p1  done     done    done/41/01a10251       CLM  -    -    -     R3: inject a dup of the missed codex stop
+20:42:51.278 r5  event w2:p1  idle     blocked idle/5/01a10251        CLM  -    -    -     S1: herdr restored claude --resume 72fe6516 and codex resume 01a10251; exit the restored codex with ctrl+c
+20:43:00.019 r5  event w2:p1  unknown  idle    not found                                   S1: restored codex shows the folder trust dialog; answer 2 No quit
+20:43:13.002 r5  event w1:p1  working  idle    working/7/72fe6516                          S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:14.148 r5  event w1:p1  idle     working idle/8/72fe6516        CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:15.396 r5  event w1:p1  working  idle    working/9/72fe6516                          S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:16.628 r5  event w1:p1  idle     working idle/10/72fe6516       CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:17.557 r5  event w1:p1  working  idle    working/11/72fe6516                         S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:18.698 r5  event w1:p1  idle     working idle/12/72fe6516       CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:19.633 r5  event w1:p1  working  idle    working/13/72fe6516                         S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:20.878 r5  event w1:p1  idle     working idle/14/72fe6516       CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:22.019 r5  event w1:p1  working  idle    working/15/72fe6516                         S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:22.955 r5  event w1:p1  idle     working idle/16/72fe6516       CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:23.900 r5  event w1:p1  working  idle    working/17/72fe6516                         S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:25.051 r5  event w1:p1  idle     working idle/18/72fe6516       CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:26.303 r5  event w1:p1  working  idle    working/19/72fe6516                         S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:27.235 r5  event w1:p1  idle     working idle/20/72fe6516       dup  dup  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:28.064 r5  event w1:p1  working  idle    working/21/72fe6516                         S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:29.626 r5  event w1:p1  idle     working idle/22/72fe6516       CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:30.869 r5  event w1:p1  working  idle    working/23/72fe6516                         S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:31.701 r5  event w1:p1  idle     working idle/24/72fe6516       CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:32.622 r5  event w1:p1  working  idle    working/25/72fe6516                         S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:33.866 r5  event w1:p1  idle     working idle/26/72fe6516       CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:35.016 r5  event w1:p1  working  idle    working/27/72fe6516                         S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:35.956 r5  event w1:p1  idle     working idle/28/72fe6516       CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:37.201 r5  event w1:p1  working  idle    working/29/72fe6516                         S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:38.669 r5  event w1:p1  idle     working idle/30/72fe6516       CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:39.605 r5  event w1:p1  working  idle    working/31/72fe6516                         S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:40.747 r5  event w1:p1  idle     working idle/32/72fe6516       CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:41.992 r5  event w1:p1  working  idle    working/33/72fe6516                         S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:42.928 r5  event w1:p1  idle     working idle/34/72fe6516       CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:44.079 r5  event w1:p1  working  idle    working/35/72fe6516                         S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:45.320 r5  event w1:p1  idle     working idle/36/72fe6516       CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:46.249 r5  event w1:p1  working  idle    working/37/72fe6516                         S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:48.940 r5  event w1:p1  idle     working idle/38/72fe6516       CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:49.872 r5  event w1:p1  working  idle    working/39/72fe6516                         S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:51.324 r5  event w1:p1  idle     working idle/40/72fe6516       CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:52.577 r5  event w1:p1  working  idle    working/41/72fe6516                         S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:53.502 r5  event w1:p1  idle     working idle/42/72fe6516       CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:54.638 r5  event w1:p1  working  idle    working/43/72fe6516                         S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:43:55.876 r5  event w1:p1  idle     working idle/44/72fe6516       CLM  CLM  CLM  CLM   S1: short claude turns on the resumed session 72fe6516 until the seq reaches claimed values
+20:44:26.190 r6  event w1:p1  unknown  idle    unknown/1/72fe6516                          S2: stop the test session server again; start the reader as soon as the socket answers
+20:44:29.492 r6  event w1:p1  idle     unknown idle/2/72fe6516        CLM  -    -    -     S2: stop the test session server again; start the reader as soon as the socket answers
+20:44:53.224 r7  event w2:p1  idle             idle/3/-               CLM  -    -    -     F: start codex x3 in w2:p1, focus w2, one turn
+20:44:55.616 r7  event w2:p1  working  idle    working/4/-                                 F: start codex x3 in w2:p1, focus w2, one turn
+20:44:56.543 r7  event w2:p1  done     working done/5/-               CLM  CLM  -    skip  F: start codex x3 in w2:p1, focus w2, one turn
+20:45:00.389 r7  event w2:p1  idle     done    idle/5/-               dup  -    -    -     F: start codex x3 in w2:p1, focus w2, one turn
+20:45:01.330 r7  event w2:p1  working  idle    working/6/-                                 F: start codex x3 in w2:p1, focus w2, one turn
+20:45:06.809 r7  event w2:p1  idle     working idle/7/01a10255        CLM  CLM  CLM  CLM   F: start codex x3 in w2:p1, focus w2, one turn
+
+claims K  48
+claims KT 33
+claims KJ 28
+claims P  31
+replay of K, KT, KJ gives the probe's claims: yes
+agent.get time after the event read: min 0.14 ms, median 0.28 ms, max 102.41 ms (116 calls)
