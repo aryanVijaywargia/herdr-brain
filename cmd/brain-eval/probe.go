@@ -12,11 +12,33 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
+	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// probeFile is one file evals/probes/*.toml (HLD §12.1 "Probe format").
+// probeFile is one file evals/probes/*.toml (HLD §12.1 "Probe format"). Its [[skill]] and
+// [[negative]] entries make the skill choice cases (E16-S5).
 type probeFile struct {
-	Probe []probeEntry `toml:"probe"`
+	Probe    []probeEntry    `toml:"probe"`
+	Skill    []skillEntry    `toml:"skill"`
+	Negative []negativeEntry `toml:"negative"`
+}
+
+// skillEntry is one [[skill]] of a probe file: a fixture skill, whose example prompt is a
+// skill choice case of each of its harnesses. Its steps hold {{marker}}.
+type skillEntry struct {
+	Name        string   `toml:"name"`
+	Description string   `toml:"description"`
+	Example     string   `toml:"example"`
+	Steps       string   `toml:"steps"`
+	Harnesses   []string `toml:"harnesses"`
+}
+
+// negativeEntry is one [[negative]] of a probe file: a prompt that must select no fixture
+// skill of the file.
+type negativeEntry struct {
+	ID        string   `toml:"id"`
+	Ask       string   `toml:"ask"`
+	Harnesses []string `toml:"harnesses"`
 }
 
 // probeEntry is one [[probe]] of a probe file. Setup holds shell steps, as the runner runs
@@ -44,7 +66,7 @@ type probeEntry struct {
 }
 
 // stages are the eval stages of §12.1.
-var stages = []string{"delivery", "exclusion", "transfer", "update", "restraint", "forget", "usefulness"}
+var stages = []string{"delivery", "exclusion", "transfer", "update", "restraint", "forget", "usefulness", skillStage}
 
 // hookModes are the herdr states in which an exclusion probe calls the hook (§12.1
 // exclusion): no herdr, a closed pane, no herdr answer in time, a socket with no binding, and
@@ -87,18 +109,25 @@ func loadProbes(path string) ([]Case, error) {
 		if un := md.Undecoded(); len(un) > 0 {
 			return nil, fmt.Errorf("%s: unknown key %q", f, un[0].String())
 		}
-		if len(pf.Probe) == 0 {
-			return nil, fmt.Errorf("%s: no [[probe]]", f)
+		if len(pf.Probe) == 0 && len(pf.Skill) == 0 {
+			return nil, fmt.Errorf("%s: no [[probe]] or [[skill]]", f)
 		}
+		var fc []Case
 		for i, p := range pf.Probe {
 			if err := p.check(kinds); err != nil {
 				return nil, fmt.Errorf("%s: probe %d (%q): %w", f, i+1, p.ID, err)
 			}
-			if other, ok := seen[p.ID]; ok {
-				return nil, fmt.Errorf("%s: probe %d: id %q is also in %s", f, i+1, p.ID, other)
+			fc = append(fc, p.toCase())
+		}
+		sc, err := skillCases(pf, kinds)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", f, err)
+		}
+		for _, c := range append(fc, sc...) {
+			if other, ok := seen[c.ID]; ok {
+				return nil, fmt.Errorf("%s: id %q is also in %s", f, c.ID, other)
 			}
-			seen[p.ID] = f
-			c := p.toCase()
+			seen[c.ID] = f
 			ctl := c
 			ctl.Control, ctl.Setup = true, nil
 			cases = append(cases, c, ctl)
@@ -107,13 +136,90 @@ func loadProbes(path string) ([]Case, error) {
 	return cases, nil
 }
 
+// skillCases checks the [[skill]] and [[negative]] entries of pf and returns their skill
+// choice cases: the example of each skill, then each negative prompt, each with all fixture
+// skills of the file. The case of a skill's example has the id "skill-<name>".
+func skillCases(pf probeFile, kinds []string) ([]Case, error) {
+	if len(pf.Negative) > 0 && len(pf.Skill) == 0 {
+		return nil, errors.New("[[negative]] needs a [[skill]] in the same file")
+	}
+	skills := make([]FixtureSkill, len(pf.Skill))
+	for i, e := range pf.Skill {
+		skills[i] = FixtureSkill{Name: e.Name, Description: e.Description, Example: e.Example, Steps: e.Steps}
+		if err := e.check(kinds, pf.Skill[:i]); err != nil {
+			return nil, fmt.Errorf("skill %d (%q): %w", i+1, e.Name, err)
+		}
+	}
+	var cases []Case
+	add := func(id, ask, skillFor string, harnesses []string) {
+		c := Case{ID: id, Stage: skillStage, Source: "fixture skills", Setup: []string{skillSetup}, Skills: skills, SkillFor: skillFor}
+		for _, h := range harnesses {
+			c.Probes = append(c.Probes, Probe{Harness: h, Prompt: ask})
+		}
+		cases = append(cases, c)
+	}
+	for _, e := range pf.Skill {
+		add("skill-"+e.Name, e.Example, e.Name, e.Harnesses)
+	}
+	for i, e := range pf.Negative {
+		errs := []error{checkHarnesses(e.Harnesses, kinds), checkPlain("ask", e.Ask)}
+		if !probeID.MatchString(e.ID) {
+			errs = append(errs, errors.New("id: want lower-case letters, digits and dashes"))
+		}
+		if err := errors.Join(errs...); err != nil {
+			return nil, fmt.Errorf("negative %d (%q): %w", i+1, e.ID, err)
+		}
+		add(e.ID, e.Ask, "", e.Harnesses)
+	}
+	return cases, nil
+}
+
+// check checks one fixture skill; before are the skills before it in its file. Its text, with
+// a marker in its steps, must be a skill text that Brain accepts (E16-S3).
+func (e skillEntry) check(kinds []string, before []skillEntry) error {
+	errs := []error{checkHarnesses(e.Harnesses, kinds), checkPlain("description", e.Description), checkPlain("example", e.Example)}
+	if slices.ContainsFunc(before, func(o skillEntry) bool { return o.Name == e.Name }) {
+		errs = append(errs, errors.New("name: another skill of this file has it"))
+	}
+	if !strings.Contains(e.Steps, "{{marker}}") {
+		errs = append(errs, errors.New("steps: want {{marker}}, so that a reply shows that the agent read the skill"))
+	}
+	for _, m := range slot.FindAllString(e.Steps, -1) {
+		if m != "{{marker}}" {
+			errs = append(errs, fmt.Errorf("placeholder %s: a skill's steps hold {{marker}} only", m))
+		}
+	}
+	sk := FixtureSkill{Name: e.Name, Description: e.Description, Example: e.Example, Steps: e.Steps}
+	if _, err := store.ParseSkill(sk.text("kest-1234")); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// checkPlain checks a one-line text field with no placeholder: a marker in a prompt or in the
+// skill list would give the answer away.
+func checkPlain(field, s string) error {
+	switch {
+	case strings.TrimSpace(s) == "":
+		return fmt.Errorf("%s is empty", field)
+	case strings.Contains(s, "\n"):
+		return fmt.Errorf("%s: want one line", field)
+	case slot.MatchString(s):
+		return fmt.Errorf("%s: want no placeholder", field)
+	}
+	return nil
+}
+
 // check checks the fields of one probe; kinds are the profile kinds that a probe can ask.
 func (p probeEntry) check(kinds []string) error {
 	var errs []error
 	if !probeID.MatchString(p.ID) {
 		errs = append(errs, errors.New("id: want lower-case letters, digits and dashes"))
 	}
-	if !slices.Contains(stages, p.Stage) {
+	switch {
+	case p.Stage == skillStage:
+		errs = append(errs, errors.New("stage skill-choice: give its cases as [[skill]] and [[negative]]"))
+	case !slices.Contains(stages, p.Stage):
 		errs = append(errs, fmt.Errorf("stage %q: want one of %s", p.Stage, strings.Join(stages, ", ")))
 	}
 	switch {
@@ -137,17 +243,7 @@ func (p probeEntry) check(kinds []string) error {
 	if p.ExpectRevision < 0 {
 		errs = append(errs, fmt.Errorf("expect_revision %d: want 1 or more", p.ExpectRevision))
 	}
-	if len(p.Harnesses) == 0 {
-		errs = append(errs, errors.New("harnesses is empty"))
-	}
-	for i, h := range p.Harnesses {
-		switch {
-		case !slices.Contains(kinds, h):
-			errs = append(errs, fmt.Errorf("harness %q: want %s", h, oneOf(kinds)))
-		case slices.Contains(p.Harnesses[:i], h):
-			errs = append(errs, fmt.Errorf("harness %q is listed twice", h))
-		}
-	}
+	errs = append(errs, checkHarnesses(p.Harnesses, kinds))
 	if slices.ContainsFunc(slices.Concat(p.Setup, p.Expect, p.Stale, p.Forgotten), func(s string) bool { return strings.TrimSpace(s) == "" }) {
 		errs = append(errs, errors.New("an empty entry in setup, expect, stale or forgotten"))
 	}
@@ -156,6 +252,24 @@ func (p probeEntry) check(kinds []string) error {
 			if !markerName.MatchString(m[1]) {
 				errs = append(errs, fmt.Errorf("placeholder %s: want {{marker}} or {{marker<n>}}", m[0]))
 			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// checkHarnesses checks the harnesses of one entry: one or more profile kinds of kinds, each
+// once.
+func checkHarnesses(harnesses, kinds []string) error {
+	if len(harnesses) == 0 {
+		return errors.New("harnesses is empty")
+	}
+	var errs []error
+	for i, h := range harnesses {
+		switch {
+		case !slices.Contains(kinds, h):
+			errs = append(errs, fmt.Errorf("harness %q: want %s", h, oneOf(kinds)))
+		case slices.Contains(harnesses[:i], h):
+			errs = append(errs, fmt.Errorf("harness %q is listed twice", h))
 		}
 	}
 	return errors.Join(errs...)

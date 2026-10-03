@@ -24,7 +24,8 @@ const (
 // verdicts returns the verdict of each result of rs, in order: "" for a control and for an
 // ad-hoc case. A result with no label did not get its brief, so it fails. A restraint case
 // must pass in its control too: it fails when its control does not pass, also when its control
-// was skipped, and it is unsure while its control is UNSURE (§12.1).
+// was skipped, and it is unsure while its control is UNSURE (§12.1). A skill choice control
+// gets its own verdict: no marker may appear in it (§12.1).
 func verdicts(rs []store.EvalResult) []string {
 	ctl := map[[2]string]string{}
 	for _, r := range rs {
@@ -35,7 +36,7 @@ func verdicts(rs []store.EvalResult) []string {
 	out := make([]string, len(rs))
 	for i, r := range rs {
 		switch {
-		case r.Control || r.Stage == "":
+		case r.Stage == "" || r.Control && r.Stage != skillStage:
 		case r.Status == string(Skipped):
 			out[i] = verdictSkipped
 		case r.Stage == "usefulness":
@@ -76,8 +77,8 @@ func score(vs []string) string {
 
 // writeReport writes the short report of a run to the test store folder and prints its score
 // to w: the score, one line for each probe, the UNSURE results that you resolve at the
-// milestone exit, and the usefulness records (§12.1, E10-S3). A run of ad-hoc cases only has
-// no report.
+// milestone exit, the usefulness records (§12.1, E10-S3), and the skill choice verdict of each
+// CLI (E16-S5). A run of ad-hoc cases only has no report.
 func writeReport(storeDir string, cases []Case, rs []store.EvalResult, w io.Writer) error {
 	if !hasStage(cases) {
 		return nil
@@ -112,6 +113,8 @@ func writeReport(storeDir string, cases []Case, rs []store.EvalResult, w io.Writ
 	section("Usefulness records", verdictRecord, func(r store.EvalResult) string {
 		return fmt.Sprintf("%s; reply %q", r.Why, clip(r.Reply))
 	})
+	skills, lines := skillReport(rs, vs)
+	b.WriteString(skills)
 	path := paths.EvalReport(storeDir)
 	f, err := os.CreateTemp(filepath.Dir(path), "eval-report.*.tmp")
 	if err != nil {
@@ -130,7 +133,7 @@ func writeReport(storeDir string, cases []Case, rs []store.EvalResult, w io.Writ
 		_ = os.Remove(f.Name())
 		return err
 	}
-	fmt.Fprintf(w, "%s\nreport: %s\n", score(vs), path)
+	fmt.Fprintf(w, "%s\n%sreport: %s\n", score(vs), lines, path)
 	return nil
 }
 
