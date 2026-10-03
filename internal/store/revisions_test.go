@@ -307,3 +307,41 @@ func TestTwoWritersOneWins(t *testing.T) {
 		t.Errorf("current revision = %d, want 2", after.item.CurrentRevision)
 	}
 }
+
+// E16-S9: a claim is known in a scope while an item of the claim is there, and after a link
+// moved the item out of it: a revision of the item had that key. Another scope stays unknown.
+func TestClaimHasItemMovedItem(t *testing.T) {
+	s := openM1(t)
+	_, id := newItem(t, s)
+	ctx := context.Background()
+	has := func(key string) bool {
+		t.Helper()
+		var ok bool
+		write(t, s, func(tx *sql.Tx) (err error) {
+			ok, err = ClaimHasItem(ctx, tx, "c1", key)
+			return err
+		})
+		return ok
+	}
+	if !has("k1") || has("k2") || has("") {
+		t.Fatalf("before the move: k1 %v, k2 %v, global %v, want true, false, false", has("k1"), has("k2"), has(""))
+	}
+	write(t, s, func(tx *sql.Tx) error {
+		if err := InsertWorkspace(ctx, tx, Workspace{Key: "k2", HerdrSession: "default", HerdrWorkspaceID: "w2",
+			Status: WorkspaceLive, LastSeen: testNow}); err != nil {
+			return err
+		}
+		r, err := ItemRevisionByKey(ctx, tx, id, 1)
+		if err != nil {
+			return err
+		}
+		r.WorkspaceKey, r.State = ptr("k2"), StateActive
+		_, err = WriteRevision(ctx, tx, 1, r)
+		return err
+	})
+	for key, want := range map[string]bool{"k1": true, "k2": true, "": false, "k3": false} {
+		if got := has(key); got != want {
+			t.Errorf("ClaimHasItem(c1, %q) after the move = %v, want %v", key, got, want)
+		}
+	}
+}

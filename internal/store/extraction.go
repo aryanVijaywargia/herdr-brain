@@ -265,16 +265,21 @@ func CandidateOf(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string) 
 		WHERE claim_id = ? AND COALESCE(workspace_key, '') = ?`, claimID, workspaceKey))
 }
 
-// ClaimHasItem reports whether an item of claim claimID is in the scope with key workspaceKey
-// ("" for global): its claim is known, so a new proposal would be a duplicate (§7.3).
+// ClaimHasItem reports whether claim claimID is known in the scope with key workspaceKey ("" for
+// global): an item of the claim is in that scope now, or a revision of an item of the claim had
+// that scope's key. So a new proposal would be a duplicate (§7.3). The second case keeps a
+// claim known in a workspace that a link (§9.4) or a promotion moved its item out of: a queued
+// extraction there must not draft the item again.
 func ClaimHasItem(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string) (bool, error) {
-	var n int
-	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM items WHERE claim_id = ?
-		AND COALESCE(workspace_key, '') = ?`, claimID, workspaceKey).Scan(&n)
+	var has bool
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM items WHERE claim_id = ?1
+			AND COALESCE(workspace_key, '') = ?2)
+		OR EXISTS (SELECT 1 FROM item_revisions r JOIN items i ON i.id = r.item_id
+			WHERE i.claim_id = ?1 AND COALESCE(r.workspace_key, '') = ?2)`, claimID, workspaceKey).Scan(&has)
 	if err != nil {
 		return false, fmt.Errorf("read items of claim %s: %w", claimID, err)
 	}
-	return n > 0, nil
+	return has, nil
 }
 
 // MarkProposed sets candidate id to proposed.
