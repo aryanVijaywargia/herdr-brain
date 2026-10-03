@@ -28,6 +28,8 @@ extraction: on; off for workspace ws_a15; capture and rules keep running
   waiting in workspace ws_a15: 1 batches, the oldest 14d old; extraction is off
   failed batches: none
 
+archive: no candidates
+
 brief (output generation 3):
   global: 270 of 3800 bytes
   workspace ws_a14: 67 of 5700 bytes

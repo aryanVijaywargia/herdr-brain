@@ -50,12 +50,12 @@ func (a archiveStore) add(key *string, pinned bool) int64 {
 	return id
 }
 
-// receipt adds a receipt of result in workspace key that holds revision 1 of item, at day n.
-func (a archiveStore) receipt(key string, item int64, result Result, n int) {
+// receipt adds a receipt of result in workspace key that holds revision 1 of item, at day 89.
+func (a archiveStore) receipt(key string, item int64, result Result) {
 	a.t.Helper()
 	write(a.t, a.s, func(tx *sql.Tx) error {
 		_, err := InsertDelivery(context.Background(), tx, Delivery{Profile: "claude", PaneID: "w1:p1", WorkspaceKey: &key,
-			ItemRevisions: []RevisionRef{{Item: item, Revision: 1}}, Result: result, At: a.day(n)})
+			ItemRevisions: []RevisionRef{{Item: item, Revision: 1}}, Result: result, At: a.day(89)})
 		return err
 	})
 }
@@ -82,9 +82,9 @@ func TestArchiveCandidatesAge(t *testing.T) {
 	seen := a.add(ptr("kA"), false)
 	withheld := a.add(ptr("kA"), false)
 	elsewhere := a.add(ptr("kA"), false)
-	a.receipt("kA", seen, ResultEmitted, 89)
-	a.receipt("kA", withheld, ResultWithheld, 89)
-	a.receipt("kB", elsewhere, ResultEmitted, 89)
+	a.receipt("kA", seen, ResultEmitted)
+	a.receipt("kA", withheld, ResultWithheld)
+	a.receipt("kB", elsewhere, ResultEmitted)
 	if got := a.candidates(90); len(got) != 0 {
 		t.Errorf("candidates at day 90 = %v, want none", got)
 	}
@@ -122,7 +122,7 @@ func TestArchiveCandidatesPinned(t *testing.T) {
 func TestArchiveCandidatesGlobal(t *testing.T) {
 	a := newArchiveStore(t)
 	global := a.add(nil, false)
-	a.receipt("kB", global, ResultEmitted, 89)
+	a.receipt("kB", global, ResultEmitted)
 	if got := a.candidates(91); len(got) != 0 {
 		t.Errorf("candidates at day 91 = %v, want none", got)
 	}

@@ -150,10 +150,10 @@ func (s *statusCall) run(ctx context.Context) {
 		if err := s.queue(ctx, tx); err != nil {
 			return err
 		}
-		if err := s.archive(ctx, tx); err != nil {
+		if err := s.extraction(ctx, tx); err != nil {
 			return err
 		}
-		if err := s.extraction(ctx, tx); err != nil {
+		if err := s.archive(ctx, tx); err != nil {
 			return err
 		}
 		pending, err := store.ForgetPending(ctx, tx)

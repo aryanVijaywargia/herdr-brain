@@ -26,6 +26,8 @@ extraction: no extractor CLI is chosen, so Brain makes no extractor call; run br
   waiting: none
   failed batches: none
 
+archive: no candidates
+
 brief: <tmp>/main/out/gen-2: global.md changed: output files do not match their manifest
 output conflicts: 1 (brain repair --confirm deletes them)
   output generation 2 changed outside Brain: global.md

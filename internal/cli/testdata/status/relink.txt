@@ -27,6 +27,8 @@ extraction: no extractor CLI is chosen, so Brain makes no extractor call; run br
   waiting: none
   failed batches: none
 
+archive: no candidates
+
 brief (output generation 1):
   global: 270 of 3800 bytes
 output conflicts: none
