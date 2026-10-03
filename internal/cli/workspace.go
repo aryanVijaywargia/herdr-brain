@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
@@ -172,25 +173,34 @@ func (cl caller) move(ctx context.Context, tx *sql.Tx, oldKey, newKey string) (m
 		}
 	}
 	slices.Sort(m.items)
+	ended, err := endProposals(ctx, tx, m.items, cl.surface, cl.Now())
+	m.ended = ended
+	return m, err
+}
+
+// endProposals ends the pending proposals of items as superseded, and returns their ids. A link
+// and its undo move an item to another key: the proposals are for a base revision that the move
+// replaces. [NEW] superseded, made in surface: the link is your action.
+func endProposals(ctx context.Context, tx *sql.Tx, items []int64, surface store.Surface, now time.Time) ([]int64, error) {
 	pending, err := store.PendingProposalIDs(ctx, tx)
 	if err != nil {
-		return moved{}, err
+		return nil, err
 	}
+	var ended []int64
 	for _, id := range pending {
 		p, err := store.ProposalByID(ctx, tx, id)
 		if err != nil {
-			return moved{}, err
+			return nil, err
 		}
-		if p.ItemID == nil || !slices.Contains(m.items, *p.ItemID) {
+		if p.ItemID == nil || !slices.Contains(items, *p.ItemID) {
 			continue
 		}
-		// [NEW] superseded: the link is your action, made in this surface.
-		if err := store.DecideProposal(ctx, tx, id, store.ProposalSuperseded, cl.surface, cl.Now()); err != nil {
-			return moved{}, err
+		if err := store.DecideProposal(ctx, tx, id, store.ProposalSuperseded, surface, now); err != nil {
+			return nil, err
 		}
-		m.ended = append(m.ended, id)
+		ended = append(ended, id)
 	}
-	return m, nil
+	return ended, nil
 }
 
 // listOrNone is itemList of ids, or "none".

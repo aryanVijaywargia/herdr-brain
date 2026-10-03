@@ -314,6 +314,21 @@ func (s Session) Relinks() ([]Relink, error) {
 	return rs, nil
 }
 
+// Entry returns the map entry of key in the herdr session of s, and false when there is none.
+// It reads the map file only.
+func (s Session) Entry(key string) (Entry, bool, error) {
+	m, err := readMap(s.MapFile)
+	if err != nil {
+		return Entry{}, false, err
+	}
+	for _, e := range m.Entries {
+		if e.Key == key && e.Session == s.Name {
+			return e, true, nil
+		}
+	}
+	return Entry{}, false, nil
+}
+
 // Close marks workspace id of s closed: each entry of the pair, the remapped ones too, and
 // their store rows. The items stay in the store, without delivery (§9.4). A later workspace
 // with the same id is then unmapped, and the next `brain` call gives it a new key (D4). An

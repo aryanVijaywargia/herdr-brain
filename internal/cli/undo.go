@@ -75,7 +75,15 @@ func (cl caller) undo(ctx context.Context, id int64) error {
 		// Undo of the disputed revision ends the dispute: keep and retire of a dispute need a
 		// disputed item, so its pending dispute would stay in the queue for ever.
 		if it.State == store.StateDisputed && next.State != store.StateDisputed {
-			return store.SupersedeDisputes(ctx, tx, it.ID, cl.Now())
+			if err := store.SupersedeDisputes(ctx, tx, it.ID, cl.Now()); err != nil {
+				return err
+			}
+		}
+		// The undo of a link move takes the item out of the caller's view: its pending
+		// proposals end, as in the link, or no pane could decide them.
+		if !cl.sees(next.WorkspaceKey) {
+			_, err := endProposals(ctx, tx, []int64{it.ID}, cl.surface, cl.Now())
+			return err
 		}
 		return nil
 	})
@@ -132,12 +140,13 @@ func (cl caller) undone(ctx context.Context, tx *sql.Tx, cur store.ItemRevision)
 
 // linkUndo reports whether undo may return cur, a revision in the caller's workspace, to prev,
 // the revision before it, in a workspace that the caller does not see. Only a link moves a
-// workspace item to another workspace key, so cur is a link move. The old key must be in the
-// relink list of the caller's herdr session and not live, as for the link itself (§9.4).
+// workspace item to another workspace key, so cur is a link move. The old key must be an entry
+// of the caller's herdr session that is not live (§9.4). It need not be in the relink list any
+// more: a later close of another workspace can drop it from there.
 func (cl caller) linkUndo(cur, prev store.ItemRevision) (bool, error) {
 	if cur.Scope != store.ScopeWorkspace || prev.Scope != store.ScopeWorkspace {
 		return false, nil
 	}
-	e, ok, err := cl.relinkEntry(*prev.WorkspaceKey)
+	e, ok, err := cl.Workspace.Entry(*prev.WorkspaceKey)
 	return ok && !live(e), err
 }

@@ -461,3 +461,32 @@ func TestWorkspaceLinkReplaced(t *testing.T) {
 		t.Errorf("after link: key %q, brief %q, want ws_a14 and the old item", r.keyOf(t, id), f.brief(t))
 	}
 }
+
+// Review fix: undo of a link move ends the pending proposals of the item, which no pane could
+// decide in the closed old key. It works when the old key is no longer in the relink list, as
+// long as it is not live: here its project changed, so no current entry shares its root.
+func TestWorkspaceLinkUndoEndsProposals(t *testing.T) {
+	f := newFixture(t)
+	fact, _, _, _ := f.oldShop(t)
+	f.mustLink(t, "ws_a9", "ws_a14", "--confirm")
+	pid := f.mustPromote(t, fact)
+	path := filepath.Join(f.store, "workspaces.json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := m["entries"].([]any)
+	last, _ := entries[len(entries)-1].(map[string]any)
+	last["project"] = "/elsewhere"
+	writeJSON(t, path, m)
+
+	f.mustUndo(t, fmt.Sprint(fact))
+	r := f.rows(t)
+	if r.keyOf(t, fact) != "ws_a9" || r.proposal(t, pid).Status != store.ProposalSuperseded {
+		t.Errorf("after undo: key %q, proposal %d %s, want ws_a9 and superseded", r.keyOf(t, fact), pid, r.proposal(t, pid).Status)
+	}
+}
