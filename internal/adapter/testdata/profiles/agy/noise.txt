@@ -1,0 +1,9 @@
+⣽  Generating...
+⠋  Generating...
+  └ Tip: Use /help to see all commands
+>
+ > 
+────────────────────────────────────────
+? for shortcuts                                   Gemini 3.8 Flash · high
+esc to cancel · ctrl+c to quit
+▸ Thought for 4s, 716 tokens

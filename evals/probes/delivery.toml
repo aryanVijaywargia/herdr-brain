@@ -52,3 +52,18 @@ setup = [
 ask = "What is the release code word of this workspace? Answer with the code word only."
 expect = ["{{marker}}"]
 harnesses = ["claude", "codex"]
+
+# agy delivery (E16-S12): a workspace item, so the brief reaches agy through the cwd path
+# workspacePaths[0]. agy trusts folders by path, so this case runs in the profile's fixed
+# folder (eval.dir), not in a fresh temp folder. Only claude and codex have the full-brief probe.
+[[probe]]
+id = "delivery-agy"
+stage = "delivery"
+source = "synthetic marker"
+setup = [
+  'brain remember "The test code word of this workspace is {{marker}}."',
+  "brain review 1 --approve",
+]
+ask = "What is the test code word of this workspace? Answer with the code word only."
+expect = ["{{marker}}"]
+harnesses = ["agy"]
