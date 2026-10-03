@@ -117,11 +117,12 @@ func TestProbeCheckKinds(t *testing.T) {
 	if err := pf.Probe[0].check(adapter.Kinds(fakeProfiles(t))); err != nil {
 		t.Errorf("check(with fake) = %v, want nil", err)
 	}
-	if err := pf.Probe[0].check(adapter.Kinds(nil)); err == nil || !strings.Contains(err.Error(), `harness "fake": want claude or codex`) {
+	if err := pf.Probe[0].check(adapter.Kinds(nil)); err == nil || !strings.Contains(err.Error(), `harness "fake": want `+oneOf(adapter.Kinds(nil))) {
 		t.Errorf("check(embedded) = %v, want the fake harness refused", err)
 	}
-	if got := oneOf(adapter.Kinds(fakeProfiles(t))); got != "claude, codex or fake" {
-		t.Errorf("oneOf() = %q, want %q", got, "claude, codex or fake")
+	// The embedded kinds sort before "fake".
+	if want := strings.Join(adapter.Kinds(nil), ", ") + " or fake"; oneOf(adapter.Kinds(fakeProfiles(t))) != want {
+		t.Errorf("oneOf() = %q, want %q", oneOf(adapter.Kinds(fakeProfiles(t))), want)
 	}
 }
 
