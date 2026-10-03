@@ -17,6 +17,26 @@ import (
 
 const fakeAsset = "#!/bin/sh\necho brain release asset\n"
 
+// TestMain turns off git auto maintenance and auto gc for the git processes of this package:
+// the test helpers and build.sh inherit the environment. The file:// transport clears
+// GIT_CONFIG_COUNT for upload-pack, but upload-pack starts no auto maintenance.
+// Since Git 2.47, git commit and git fetch run auto maintenance detached, and the
+// background process can still write in a repo when t.TempDir removes it (#224).
+func TestMain(m *testing.M) {
+	for k, v := range map[string]string{
+		"GIT_CONFIG_COUNT":   "2",
+		"GIT_CONFIG_KEY_0":   "maintenance.auto",
+		"GIT_CONFIG_VALUE_0": "false",
+		"GIT_CONFIG_KEY_1":   "gc.auto",
+		"GIT_CONFIG_VALUE_1": "0",
+	} {
+		if err := os.Setenv(k, v); err != nil {
+			panic(err)
+		}
+	}
+	os.Exit(m.Run())
+}
+
 func manifestVersion(t *testing.T) string {
 	t.Helper()
 	b, err := os.ReadFile("../herdr-plugin.toml")
@@ -312,5 +332,19 @@ func TestCheckTag(t *testing.T) {
 		if err == nil || !strings.Contains(out, "does not match the manifest version") {
 			t.Errorf("check-tag.sh %s = %v\n%s\nwant a failure", tag, err, out)
 		}
+	}
+}
+
+// #224 AC: no git process of the tests runs auto maintenance or auto gc.
+func TestGitAutoMaintenanceOff(t *testing.T) {
+	dir := newRepo(t)
+	for key, want := range map[string]string{"maintenance.auto": "false", "gc.auto": "0"} {
+		if got := strings.TrimSpace(gitOut(t, dir, "config", "--get", key)); got != want {
+			t.Errorf("git config %s = %q, want %q", key, got, want)
+		}
+	}
+	out, err := runScript(t, dir, os.Getenv("PATH"), "-c", "git config --get maintenance.auto; git config --get gc.auto")
+	if err != nil || out != "false\n0\n" {
+		t.Errorf("git config in a script = %v %q, want false and 0", err, out)
 	}
 }
