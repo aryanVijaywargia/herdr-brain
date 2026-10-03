@@ -25,64 +25,100 @@ type part struct {
 	revisions []store.RevisionRef
 }
 
+// state is what one store read gives the renderer: the newest generation, the active item
+// revisions, the active skills, the dispute marks and the workspace keys.
+type state struct {
+	gen          int64
+	revs, skills []store.ItemRevision
+	keys         []string
+	m            marks
+}
+
+// read reads the state that render renders, in tx.
+func read(ctx context.Context, tx *sql.Tx) (st state, err error) {
+	if st.gen, err = store.NewestGeneration(ctx, tx); err != nil {
+		return state{}, err
+	}
+	if st.revs, err = store.ActiveRevisions(ctx, tx); err != nil {
+		return state{}, err
+	}
+	if st.skills, err = store.ActiveSkills(ctx, tx); err != nil {
+		return state{}, err
+	}
+	if st.m.disputes, err = store.Disputes(ctx, tx); err != nil {
+		return state{}, err
+	}
+	if st.m.anchors, err = store.AnchorPaths(ctx, tx); err != nil {
+		return state{}, err
+	}
+	st.keys, err = store.WorkspaceKeys(ctx, tx)
+	return st, err
+}
+
 // render reads the newest generation and the active items in one store transaction, and
 // renders the parts of that generation: the global part and one part for each workspace. So
 // the text and the revisions in the manifest come from the same read. Each active skill goes
 // into the skill list of its scope part, with the path of its revision file in the skills
 // folder dir, and into files (§8.2). gen is 0 when no commit recorded a generation yet.
 func render(ctx context.Context, s *store.Store, dir string) (gen int64, parts []part, files []skillFile, err error) {
-	var revs, skills []store.ItemRevision
-	var keys []string
-	var m marks
-	err = s.Write(ctx, func(tx *sql.Tx) error {
-		if gen, err = store.NewestGeneration(ctx, tx); err != nil {
-			return err
-		}
-		if revs, err = store.ActiveRevisions(ctx, tx); err != nil {
-			return err
-		}
-		if skills, err = store.ActiveSkills(ctx, tx); err != nil {
-			return err
-		}
-		if m.disputes, err = store.Disputes(ctx, tx); err != nil {
-			return err
-		}
-		if m.anchors, err = store.AnchorPaths(ctx, tx); err != nil {
-			return err
-		}
-		keys, err = store.WorkspaceKeys(ctx, tx)
+	var st state
+	err = s.Write(ctx, func(tx *sql.Tx) (err error) {
+		st, err = read(ctx, tx)
 		return err
 	})
-	if err != nil || gen == 0 {
+	if err != nil || st.gen == 0 {
 		return 0, nil, nil, err
 	}
-	isSkill := make(map[int64]bool, len(skills))
-	for _, r := range skills {
+	parts, files, err = st.render(dir)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	return st.gen, parts, files, nil
+}
+
+// CheckGlobal renders the global part from the store state in tx, with the skill files in
+// the out folder out, and returns a *brief.BudgetError when it is over its budget (§8.1). A
+// promotion runs it after its write, in the same transaction, so a full global part refuses
+// the promotion and nothing is written (§9.3).
+func CheckGlobal(ctx context.Context, tx *sql.Tx, out string) error {
+	st, err := read(ctx, tx)
+	if err != nil {
+		return err
+	}
+	st.keys = nil // the workspace parts are not this check's matter
+	_, _, err = st.render(skillsDir(out))
+	return err
+}
+
+// render renders the parts of st, with the skill files in the skills folder dir.
+func (st state) render(dir string) (parts []part, files []skillFile, err error) {
+	isSkill := make(map[int64]bool, len(st.skills))
+	for _, r := range st.skills {
 		isSkill[r.ItemID] = true
 	}
-	revs = slices.DeleteFunc(revs, func(r store.ItemRevision) bool { return isSkill[r.ItemID] })
-	global, byKey := split(revs, m)
+	revs := slices.DeleteFunc(st.revs, func(r store.ItemRevision) bool { return isSkill[r.ItemID] })
+	global, byKey := split(revs, st.m)
 	revision := make(map[int64]int64, len(revs))
 	for _, r := range revs {
 		revision[r.ItemID] = r.Revision
 	}
-	globalSkills, skillsByKey, files, err := splitSkills(skills, m, dir)
+	globalSkills, skillsByKey, files, err := splitSkills(st.skills, st.m, dir)
 	if err != nil {
-		return 0, nil, nil, err
+		return nil, nil, err
 	}
 	p, err := renderPart(globalName, global, revision, globalSkills, brief.Global)
 	if err != nil {
-		return 0, nil, nil, err
+		return nil, nil, err
 	}
 	parts = append(parts, p)
-	for _, k := range keys {
+	for _, k := range st.keys {
 		p, err := renderPart(workspaceName(k), byKey[k], revision, skillsByKey[k], brief.Workspace)
 		if err != nil {
-			return 0, nil, nil, fmt.Errorf("workspace %s: %w", k, err)
+			return nil, nil, fmt.Errorf("workspace %s: %w", k, err)
 		}
 		parts = append(parts, p)
 	}
-	return gen, parts, files, nil
+	return parts, files, nil
 }
 
 // skillEntry is one skill of a part: its brief entry and its file.

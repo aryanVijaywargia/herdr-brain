@@ -30,6 +30,8 @@ func TestRun(t *testing.T) {
 		{[]string{"pin"}, 1, ""},
 		{[]string{"archive", "x"}, 1, ""},
 		{[]string{"help"}, 0, "archive   [--all | --keep]"},
+		{[]string{"promote"}, 1, ""},
+		{[]string{"help"}, 0, "promote   <item>"},
 		{[]string{"undo"}, 1, ""},
 		{[]string{"help"}, 0, "undo      <item>"},
 		{[]string{"forget"}, 1, ""},

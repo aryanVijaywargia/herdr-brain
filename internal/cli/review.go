@@ -312,6 +312,9 @@ func summary(p store.Proposal, it store.Item) string {
 	if p.Text == "" {
 		return fmt.Sprintf("retire item %d", it.ID)
 	}
+	if promotion(p, it) {
+		return fmt.Sprintf("promote item %d to %s: %s", it.ID, p.Scope, oneLine(p.Text))
+	}
 	if sk, err := store.ParseSkill(p.Text); err == nil && it.Kind == store.KindSkill {
 		if patch(p, it) {
 			return fmt.Sprintf("patch of skill %s (item %d)", sk.Name, it.ID)
@@ -343,6 +346,7 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	var cur store.ItemRevision
 	var excerpts, conflicts []string
 	var changeable bool
+	others := -1 // the workspaces of the "also seen" hint of a promotion; -1 for none
 	// The review pane shows a pending proposal only: it closes on one that another surface
 	// decided (E5-S1).
 	read := cl.proposal
@@ -355,6 +359,11 @@ func (cl caller) show(ctx context.Context, id int64) error {
 		}
 		if excerpts, changeable, err = cl.excerpts(ctx, tx, p); err != nil {
 			return err
+		}
+		if promotion(p, it) && it.Scope == store.ScopeWorkspace {
+			if _, others, err = claimSeen(ctx, tx, it); err != nil {
+				return err
+			}
 		}
 		conflicts, err = cl.conflicts(ctx, tx, p)
 		return err
@@ -376,6 +385,11 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	fmt.Fprintf(&b, "diff:\n  %s\n", strings.ReplaceAll(p.Diff, "\n", "\n  "))
 	if len(p.Dispute) > 0 {
 		b.WriteString(disputeLine)
+	}
+	if others >= 0 {
+		// [NEW] the lines of a promotion (§9.3): the hint is only a hint.
+		fmt.Fprintf(&b, "promote:  the text goes into the global part of every workspace: remove the workspace details with --approve --edit \"<text>\"\n"+
+			"hint:     also seen in %d other workspaces (only a hint)\n", others)
 	}
 	if p.ExpectedBenefit != "" {
 		fmt.Fprintf(&b, "benefit:  %s\n", oneLine(p.ExpectedBenefit))
@@ -420,9 +434,10 @@ func proposalText(p store.Proposal, it store.Item) string {
 }
 
 // patch reports whether p is a patch of an active or disputed skill it: a change with a new
-// text. A dispute is not a patch: it keeps the text, and its diff is the anchor diff.
+// text. A dispute is not a patch: it keeps the text, and its diff is the anchor diff. A
+// promotion is not one either: it shows the whole text, for you to edit.
 func patch(p store.Proposal, it store.Item) bool {
-	return it.Kind == store.KindSkill && it.State != store.StateDraft && p.Text != "" && len(p.Dispute) == 0
+	return it.Kind == store.KindSkill && it.State != store.StateDraft && p.Text != "" && len(p.Dispute) == 0 && !promotion(p, it)
 }
 
 // source says where proposal p of item it, at revision cur, comes from.
@@ -576,6 +591,12 @@ func (cl caller) approve(ctx context.Context, r review) error {
 				return err
 			}
 		}
+		// A promotion, or the "change scope" of approve (§9.3).
+		if cur.Scope == store.ScopeWorkspace && next.Scope == store.ScopeGlobal {
+			if err := cl.checkPromotion(ctx, tx, it); err != nil {
+				return err
+			}
+		}
 		return anchor(ctx, tx, next)
 	})
 	if err != nil {
@@ -615,11 +636,12 @@ func (cl caller) approved(r review, p store.Proposal, it store.Item, cur store.I
 	if r.edit != nil {
 		next.Text = *r.edit
 	}
-	switch r.scope {
+	scope := r.scope
+	if scope == "" && promotion(p, it) {
+		scope = p.Scope
+	}
+	switch scope {
 	case store.ScopeGlobal:
-		if it.Kind == store.KindHandoff {
-			return store.ItemRevision{}, errors.New("a handoff is a workspace item; it cannot go global")
-		}
 		// An exception link is for a workspace item only (§7.4); undo of the promotion brings it back.
 		next.Scope, next.WorkspaceKey, next.ExceptionToItem, next.ExceptionToRevision = store.ScopeGlobal, nil, nil, nil
 	case store.ScopeWorkspace:
