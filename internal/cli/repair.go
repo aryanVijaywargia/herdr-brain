@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
+	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
 )
 
 const repairUsage = `usage: brain repair [--confirm]`
@@ -66,16 +67,22 @@ func printConflicts(w io.Writer, cs []output.ConflictError, format, end string) 
 	return err
 }
 
-// printSkillFiles names each skill file of cs that you confirmed (§7.5 step 5). Repair wrote
-// it again when the brief still lists its revision; else cleanup removes it with its item.
+// printSkillFiles names each skill or tool file of cs that you confirmed (§7.5 step 5). Repair
+// wrote it again when the generation still lists its revision; else cleanup removes it with
+// its item.
 func printSkillFiles(w io.Writer, cs []output.ConflictError) error {
 	for _, c := range cs {
 		for _, f := range c.Files {
-			// A skill file has an absolute path; a file of a generation folder has a relative one.
+			// A skill or tool file has an absolute path; a file of a generation folder has a
+			// relative one.
 			if !filepath.IsAbs(f) {
 				continue
 			}
-			if _, err := fmt.Fprintf(w, "skill file %s: written again, or removed when the skill is no longer active\n", f); err != nil {
+			kind := "skill"
+			if b := filepath.Base(f); b == tool.TomlName || b == tool.ScriptName {
+				kind = "tool"
+			}
+			if _, err := fmt.Fprintf(w, "%s file %s: written again, or removed when the %s is no longer active\n", kind, f, kind); err != nil {
 				return err
 			}
 		}

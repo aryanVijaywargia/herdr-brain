@@ -135,10 +135,7 @@ func (c Contract) check() error {
 			return err
 		}
 	}
-	steps := c.Steps
-	if c.Argv != nil {
-		steps = [][]string{c.Argv}
-	}
+	steps := c.Commands()
 	if len(steps) == 0 {
 		return fmt.Errorf("%s: steps is empty", TomlName)
 	}
@@ -148,6 +145,14 @@ func (c Contract) check() error {
 		}
 	}
 	return c.checkScript(steps)
+}
+
+// Commands are the argv lists of c in run order: its argv, or its steps.
+func (c Contract) Commands() [][]string {
+	if c.Argv != nil {
+		return [][]string{c.Argv}
+	}
+	return c.Steps
 }
 
 func (in Input) check(n string) error {

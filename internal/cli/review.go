@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/extract"
 	"github.com/aryanVijaywargia/herdr-brain/internal/secret"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
 )
 
 const reviewUsage = `usage:
@@ -319,6 +321,9 @@ func summary(p store.Proposal, it store.Item) string {
 	if promotion(p, it) {
 		return fmt.Sprintf("promote item %d to %s: %s", it.ID, p.Scope, oneLine(p.Text))
 	}
+	if c, err := tool.Parse(p.Text); err == nil && it.Kind == store.KindTool {
+		return fmt.Sprintf("tool %s: %s", c.Name, oneLine(c.Description))
+	}
 	if sk, err := store.ParseSkill(p.Text); err == nil && it.Kind == store.KindSkill {
 		if patch(p, it) {
 			return fmt.Sprintf("patch of skill %s (item %d)", sk.Name, it.ID)
@@ -375,10 +380,16 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "proposal %d (%s)\n", p.ID, p.Status)
-	if it.Kind == store.KindSkill {
+	switch it.Kind {
+	case store.KindSkill:
 		b.WriteString(skillLine)
+	case store.KindTool:
+		b.WriteString(toolLine)
 	}
 	b.WriteString(proposalText(p, it))
+	if it.Kind == store.KindTool && p.Text != "" {
+		b.WriteString(contractLines(p.Text))
+	}
 	if it.ClaimID != "" {
 		fmt.Fprintf(&b, "claim:    %s\n", it.ClaimID)
 	}
@@ -416,19 +427,56 @@ func (cl caller) show(ctx context.Context, id int64) error {
 // one-line edit cannot hold a skill file.
 const skillLine = "kind:     skill\n"
 
+// toolLine is the line of a tool proposal in show.
+const toolLine = "kind:     tool\n"
+
 // proposalText is the text line of p in show. A skill draft shows the whole file (S8). A
 // skill patch shows no text: its diff holds the changed lines, and approve writes the whole
-// new file (§9.2).
+// new file (§9.2). A tool shows its whole contract text, a change too: your approval covers
+// all of it (§10.1).
 func proposalText(p store.Proposal, it store.Item) string {
 	switch {
 	case p.Text == "":
 		return "text:     (none: this proposal retires the item)\n"
 	case patch(p, it):
 		return "text:     (a skill patch: the diff shows the changed lines)\n"
-	case it.Kind == store.KindSkill:
+	case it.Kind == store.KindSkill || it.Kind == store.KindTool:
 		return "text:\n  " + strings.ReplaceAll(strings.TrimSuffix(p.Text, "\n"), "\n", "\n  ") + "\n"
 	}
 	return fmt.Sprintf("text:     %s\n", p.Text)
+}
+
+// contractLines are the lines of the contract of tool text in show (§10.1): the command bytes
+// of each step, quoted, the input schema, the cwd, the timeout, the stated effects and the
+// read-only restriction. The scope line shows the scope. A contract that breaks a rule shows
+// why: approve refuses it.
+func contractLines(text string) string {
+	c, err := tool.Parse(text)
+	if err != nil {
+		return fmt.Sprintf("contract: refused: %v\n", err)
+	}
+	var b strings.Builder
+	b.WriteString("contract:\n")
+	for i, argv := range c.Commands() {
+		q := make([]string, len(argv))
+		for j, a := range argv {
+			q[j] = strconv.Quote(a)
+		}
+		fmt.Fprintf(&b, "  step %d:    %s\n", i+1, strings.Join(q, " "))
+	}
+	if c.Script != "" {
+		fmt.Fprintf(&b, "  %s:    the text after the --- %s --- line; inputs reach it as \"$1\", \"$2\"\n", tool.ScriptName, tool.ScriptName)
+	}
+	for _, n := range slices.Sorted(maps.Keys(c.Inputs)) {
+		fmt.Fprintf(&b, "  input:     %s: %s, pattern %s\n", n, c.Inputs[n].Type, c.Inputs[n].Pattern)
+	}
+	readOnly := "no"
+	if c.ReadOnly {
+		readOnly = "yes"
+	}
+	fmt.Fprintf(&b, "  cwd:       %s\n  timeout:   %d s\n  effects:   %s\n  read-only: %s\n", c.Cwd, c.TimeoutS,
+		oneLine(c.Effects), readOnly)
+	return b.String()
 }
 
 // patch reports whether p is a patch of an active or disputed skill it: a change with a new
@@ -655,10 +703,13 @@ func (cl caller) approved(r review, p store.Proposal, it store.Item, cur store.I
 }
 
 // skillError asks for a new name when the store refused a write because another active skill
-// in the scope has the name (§8.2). The transaction wrote nothing.
+// or tool in the scope has the name (§8.2, §10.1). The transaction wrote nothing.
 func skillError(err error) error {
-	if errors.Is(err, store.ErrSkillName) {
+	switch {
+	case errors.Is(err, store.ErrSkillName):
 		return fmt.Errorf("%w: give this skill a new name (approve with --edit and a new name: line); nothing was written", err)
+	case errors.Is(err, store.ErrToolName):
+		return fmt.Errorf("%w: give this tool a new name (approve with --edit and a new name = line); nothing was written", err)
 	}
 	return err
 }
@@ -1018,6 +1069,13 @@ func (cl caller) proposeChange(ctx context.Context, r review) error {
 			// whole text, so a text that is not a skill would only wait in the queue.
 			if _, err := store.ParseSkill(*r.edit); err != nil {
 				return fmt.Errorf("item %d is a skill: %w; nothing was written", it.ID, err)
+			}
+			p.Text, p.Diff = *r.edit, store.SkillDiff(cur.Text, *r.edit)
+		case r.edit != nil && it.Kind == store.KindTool:
+			// A tool change: approve writes the whole contract, so a contract that breaks a
+			// rule would only wait in the queue (§10.1).
+			if _, err := tool.Parse(*r.edit); err != nil {
+				return fmt.Errorf("item %d is a tool: %w; nothing was written", it.ID, err)
 			}
 			p.Text, p.Diff = *r.edit, store.SkillDiff(cur.Text, *r.edit)
 		case r.edit != nil:
