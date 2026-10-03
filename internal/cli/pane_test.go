@@ -254,3 +254,49 @@ func TestPaneForgetWhileOpen(t *testing.T) {
 		t.Errorf("pane after forget = %v\n%s", err, screen)
 	}
 }
+
+// AC E16-S6: for a dispute, the pane offers keep, edit then approve, and retire instead of
+// reject: k runs --keep, e --approve --edit, t --retire, and r does nothing.
+func TestPaneDispute(t *testing.T) {
+	cases := []struct {
+		name, keys string
+		status     store.ProposalStatus
+		state      store.State
+		screen     string
+	}{
+		{name: "k keep", keys: "k", status: store.ProposalApproved, state: store.StateActive, screen: "kept"},
+		{name: "e edit", keys: "eThe loader is in config/loader.go.\r", status: store.ProposalApproved, state: store.StateActive,
+			screen: "approved"},
+		{name: "t retire", keys: "t", status: store.ProposalApproved, state: store.StateRetired, screen: "retired"},
+		{name: "r does nothing", keys: "rq", status: store.ProposalPending, state: store.StateDisputed},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t)
+			_, git := f.gitRepo(t, "config/load.go")
+			item := f.approved(t, loaderText)
+			git("mv", "config/load.go", "config/loader.go")
+			f.stale(t)
+			p := f.pendingDispute(t)
+			screen, err := f.pane(t, p.ID, typed(c.keys))
+			if err != nil {
+				t.Fatalf("pane = %v", err)
+			}
+			if !strings.Contains(screen, "k keep  e edit  t retire  l later  q close") || strings.Contains(screen, "r reject") {
+				t.Errorf("screen = %q, want the dispute keys and no reject", screen)
+			}
+			if !strings.Contains(screen, c.screen) {
+				t.Errorf("screen = %q, want %q", screen, c.screen)
+			}
+			r := f.rows(t)
+			got := r.proposal(t, p.ID)
+			it, _ := r.item(t, item)
+			if got.Status != c.status || it.State != c.state {
+				t.Errorf("proposal %s, item %s; want %s, %s", got.Status, it.State, c.status, c.state)
+			}
+			if c.status != store.ProposalPending && (got.Surface == nil || *got.Surface != store.SurfacePane) {
+				t.Errorf("surface = %v, want pane", got.Surface)
+			}
+		})
+	}
+}

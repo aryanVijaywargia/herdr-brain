@@ -368,6 +368,9 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	fmt.Fprintf(&b, "scope:    %s\ntarget:   %s\n", p.Scope, p.Target)
 	fmt.Fprintf(&b, "revision: item %d revision %d, from revision %d (now %d)\n", it.ID, *p.BaseRevision+1, *p.BaseRevision, it.CurrentRevision)
 	fmt.Fprintf(&b, "diff:\n  %s\n", strings.ReplaceAll(p.Diff, "\n", "\n  "))
+	if len(p.Dispute) > 0 {
+		b.WriteString(disputeLine)
+	}
 	if p.ExpectedBenefit != "" {
 		fmt.Fprintf(&b, "benefit:  %s\n", oneLine(p.ExpectedBenefit))
 	}
@@ -401,6 +404,10 @@ func source(p store.Proposal, it store.Item, cur store.ItemRevision) string {
 	}
 	return fmt.Sprintf("%s, sender unconfirmed", cur.Origin)
 }
+
+// disputeLine is the line of a dispute in show. The review pane finds a dispute by it, and
+// then offers the keys of a dispute.
+const disputeLine = "dispute:  the item stays in the brief with a mark until you keep, edit or retire it\n"
 
 // actions writes the action lines of pending proposal p to b: the change request for a
 // proposal with evidence (changeable), and the conflict choices when p has an open conflict.
