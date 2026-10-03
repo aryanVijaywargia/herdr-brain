@@ -147,6 +147,18 @@ func (c Contract) check() error {
 	return c.checkScript(steps)
 }
 
+// DropsRestriction reports whether next removes the read-only restriction of old: both are
+// tool texts, old with read_only true and next with read_only false. That change is a change
+// of a safety rule (§7.4).
+func DropsRestriction(old, next string) bool {
+	o, err := Parse(old)
+	if err != nil || !o.ReadOnly {
+		return false
+	}
+	n, err := Parse(next)
+	return err == nil && !n.ReadOnly
+}
+
 // Commands are the argv lists of c in run order: its argv, or its steps.
 func (c Contract) Commands() [][]string {
 	if c.Argv != nil {
@@ -172,6 +184,8 @@ func (in Input) check(n string) error {
 
 // checkArgv checks one argv list. An input fills one whole element, never the first one, and
 // never an element after a shell's -c flag or after eval: there it would be command text.
+// After a shell, an input also never comes before the script file: there it could be the -c
+// flag itself.
 func (c Contract) checkArgv(argv []string) error {
 	if len(argv) == 0 {
 		return errors.New("argv is empty")
@@ -190,7 +204,7 @@ func (c Contract) checkArgv(argv []string) error {
 				return fmt.Errorf("element 1 %q: an input never fills the first element", el)
 			case len(ms) > 1 || ms[0][0] != el:
 				return fmt.Errorf("element %d %q: an input fills one whole element", i+1, el)
-			case command:
+			case command || shell:
 				return fmt.Errorf("element %d %q: an input never fills a command position (after sh -c, bash -c or eval)", i+1, el)
 			}
 			continue
@@ -203,6 +217,9 @@ func (c Contract) checkArgv(argv []string) error {
 			shell = true
 		case shell && cFlag(el):
 			command = true
+		case shell && !strings.HasPrefix(el, "-"):
+			// The script file: the elements after it are its arguments.
+			shell = false
 		}
 	}
 	return nil

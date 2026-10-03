@@ -63,6 +63,8 @@ func TestParseRefuses(t *testing.T) {
 		"input after sh -c":                     {head + `argv = ["sh", "-c", "{package}"]` + "\n" + input, "command position"},
 		"input after bash -c, later":            {later(`["bash", "-c", "{package}"]`), "step 2: element 3"},
 		"input after /bin/bash -lc":             {head + `argv = ["env", "/bin/bash", "-lc", "{package}"]` + "\n" + input, "command position"},
+		"input as the shell flag":               {head + `argv = ["sh", "{package}", "{package}"]` + "\n" + input, "command position"},
+		"input as the shell flag, later":        {later(`["pnpm", "exec", "bash", "-e", "{package}"]`), "step 2: element 5"},
 		"input after eval":                      {head + `argv = ["eval", "{package}"]` + "\n" + input, "command position"},
 		"input after eval, later":               {later(`["xargs", "eval", "{package}"]`), "step 2: element 3"},
 		"input with no type": {head + `argv = ["pnpm", "{package}"]` + "\n[inputs.package]\npattern = \"^a$\"\n",

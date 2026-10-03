@@ -685,7 +685,7 @@ func (cl caller) approved(r review, p store.Proposal, it store.Item, cur store.I
 		}
 		// A retired revision keeps its text, so that restore can bring it back (§9.2).
 		next.State = store.StateRetired
-		return next, confirmed(r, p, next)
+		return next, confirmed(r, p, cur, next)
 	}
 	next.Text, next.State, next.Pinned = p.Text, store.StateActive, cur.Pinned || r.pin
 	if r.edit != nil {
@@ -706,7 +706,7 @@ func (cl caller) approved(r review, p store.Proposal, it store.Item, cur store.I
 		}
 		next.Scope, next.WorkspaceKey = store.ScopeWorkspace, &cl.key
 	}
-	return next, confirmed(r, p, next)
+	return next, confirmed(r, p, cur, next)
 }
 
 // skillError asks for a new name when the store refused a write because another active skill
@@ -725,9 +725,11 @@ func skillError(err error) error {
 var errConfirm = errors.New("may change a permission, an allow rule or a safety rule")
 
 // confirmed checks that you gave --confirm when approving p may change a permission, an allow
-// rule or a safety rule (§7.4). The revision's text counts too, as an --edit can add a keyword.
-func confirmed(r review, p store.Proposal, next store.ItemRevision) error {
-	if (p.PermissionWarning || permissionWords.MatchString(next.Text)) && !r.confirm {
+// rule or a safety rule (§7.4). The revision's text counts too, as an --edit can add a keyword
+// or remove the read-only restriction of the tool at revision cur.
+func confirmed(r review, p store.Proposal, cur, next store.ItemRevision) error {
+	warn := p.PermissionWarning || permissionWords.MatchString(next.Text) || tool.DropsRestriction(cur.Text, next.Text)
+	if warn && !r.confirm {
 		return fmt.Errorf("proposal %d %w: read it with brain review %d, then approve with --confirm; nothing was written",
 			p.ID, errConfirm, p.ID)
 	}
@@ -1090,7 +1092,7 @@ func (cl caller) proposeChange(ctx context.Context, r review) error {
 		}
 		// The diff holds the old text too: a retire or an edit that removes a safety rule
 		// changes it (§7.4).
-		p.PermissionWarning = permissionWords.MatchString(p.Diff)
+		p.PermissionWarning = permissionWords.MatchString(p.Diff) || tool.DropsRestriction(cur.Text, p.Text)
 		pid, err = store.InsertProposal(ctx, tx, p)
 		return err
 	})

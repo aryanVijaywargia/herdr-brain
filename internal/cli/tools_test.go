@@ -142,7 +142,18 @@ func TestToolChangeNeedsApproval(t *testing.T) {
 			if tl := f.mustMayRun(t, id); tl.ContractHash != old || tl.Contract != toolText("test-package") {
 				t.Errorf("MayRun() while the change waits = %+v, want the approved contract", tl)
 			}
-			f.mustReview(t, fmt.Sprint(pid), "--approve")
+			approve := []string{fmt.Sprint(pid), "--approve"}
+			if name == "restriction" {
+				// The end of the read-only restriction changes a safety rule (§7.4).
+				if out := f.mustReview(t, fmt.Sprint(pid)); !strings.Contains(out, "warning:  this may change a permission") {
+					t.Errorf("Review(%d) = %q, want the permission warning", pid, out)
+				}
+				if _, err := f.review(t, approve...); !errors.Is(err, errConfirm) {
+					t.Fatalf("Review(--approve) = %v, want errConfirm", err)
+				}
+				approve = append(approve, "--confirm")
+			}
+			f.mustReview(t, approve...)
 			tl := f.mustMayRun(t, id)
 			if tl.ContractHash == old || tl.Contract != next || *tl.ApprovedHash != tl.ContractHash {
 				t.Errorf("MayRun() after the approval = %+v, want the new contract and hash", tl)
