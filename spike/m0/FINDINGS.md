@@ -691,8 +691,8 @@ Codex, with `HOME` and `CODEX_HOME` under `/private/tmp/e17s2/reg-codex` (`e17s2
 ### Side effects and cleanup
 
 - **Real config files, stat only** (`e17s2/snapshot.sh`): `~/.codex/config.toml` (10715 bytes, same mtime), `~/.claude/settings.json` and `~/.claude/settings.local.json` are the same before and after. No `~/.mcp.json` exists. So the AC holds for these files. **`~/.claude.json` is not proven:** its size and mtime changed (next point), and the spike may not read it. The routes used (`--mcp-config`, `-c`) have no register step, and no `mcp add` ran against the real HOME.
-- `~/.claude.json` changed size and mtime. Claude writes its own state there at each run, and the thread's own Claude session also runs on this machine, so the cause cannot be split. The file was not read. No trust dialog came, so no new folder-trust entry came from this spike. The `~/.claude/plugins` folder mtime changed at 20:38, after the last Claude case; the cause is unknown.
-- Codex wrote its own state in `~/.codex` (session, log and state SQLite files), as in normal use. They were not read or edited.
+- `~/.claude.json` changed size and mtime. Claude writes its own state there at each run, and the thread's own Claude session also runs on this machine, so the cause cannot be split. The file was not read. No trust dialog came, so no new folder-trust entry came from this spike.
+- Codex keeps its own session state in `~/.codex`, as in normal use. It was not read or edited.
 - Cleanup done: the test session `brain-spike-e17s2` is stopped and deleted. `/private/tmp/e17s2` (with both scratch homes), `/private/tmp/e11s1/agent/e17s2` and `~/.claude/projects/-private-tmp-e11s1-agent-e17s2/` (3 test transcripts and a `memory/` folder) are removed. The real `default` session, the main server and the session `brain-spike-e17s1` were not touched.
 
 ## Cleanup done

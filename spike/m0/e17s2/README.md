@@ -8,5 +8,5 @@ Results: `spike/m0/FINDINGS.md`, section "E17-S2: MCP gateway facts (§17 items 
 - `claude-run.sh`: starts Claude with the server from a `--mcp-config` file and `--strict-mcp-config`.
 - `codex-run.sh`: starts Codex with the server from `-c mcp_servers.spike.*` and folder trust on the command line.
 - `reg-claude.sh`, `reg-codex.sh`: the official `mcp add`, `list`, `get` and `remove` commands with a scratch `HOME` or `CODEX_HOME`. No model call.
-- `snapshot.sh`: names, sizes and mtimes of the real Claude and Codex config files and folders, before and after (no file is read).
+- `snapshot.sh`: sizes and mtimes of the 5 real Claude and Codex config files, before and after (no file is read).
 - `data/`: `mcp.jsonl` (server log), `drive.log` (start and prompt times), `screens.txt` (pane reads), `reg-claude.txt`, `reg-codex.txt`, `snapshot-before.txt`, `snapshot-after.txt`. The home path, user name and host name are replaced by `~`, `<user>` and `<host>`.
