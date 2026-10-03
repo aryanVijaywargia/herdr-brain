@@ -415,3 +415,27 @@ func TestMarkRetestError(t *testing.T) {
 		t.Errorf("MarkRetest(over a bad marker) = %v, want a retest marker error", err)
 	}
 }
+
+// TestConfiguredNamedHook (E16-S11): a profile whose hook object sits at a named root key,
+// with a flat start handler, is configured after its install, and not when the entry is in
+// another named hook.
+func TestConfiguredNamedHook(t *testing.T) {
+	p, err := adapter.LoadFS(os.DirFS("../adapter/testdata/agylike"), "agylike")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := newEnv(t)
+	e.cli(t, "agylike", "1.2.16")
+	entry := e.install(t, p)
+	if s := check(t, e, fakeHerdr{}, p); !s.Configured {
+		t.Errorf("%+v, want configured", s)
+	}
+	data, err := os.ReadFile(entry.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rewrite(`"brain"`, `"other"`)(t, entry.Target, data)
+	if s := check(t, e, fakeHerdr{}, p); s.Configured {
+		t.Errorf("%+v, want not configured", s)
+	}
+}
