@@ -826,15 +826,16 @@ SQLite is the authority. Files are outputs.
 
 The facts below come from vendor docs and source, read on 2026-09-27. None is tested on this machine yet. M0 checks each one on the installed CLI versions. Gemini CLI is replaced by agy.
 
-| What | Claude Code | Codex | agy 1.2.11 | OpenCode v2.0.18 | pi | Other CLIs |
+| What | Claude Code | Codex | agy 1.2.16 | OpenCode v2.0.18 | pi | Other CLIs |
 |---|---|---|---|---|---|---|
-| Start-time delivery | `SessionStart` hook, `hookSpecificOutput.additionalContext` | `SessionStart` hook, `hookSpecificOutput.additionalContext` | `PreInvocation` with `invocationNum == 0`, returns `injectSteps[].ephemeralMessage` | plugin: `session.created` and `experimental.chat.system.transform` (experimental) | extension: `before_agent_start` edits the system prompt | none known: a gap in `brain status` |
-| Hook config | `~/.claude/settings.json` | `~/.codex/hooks.json` | `~/.gemini/config/hooks.json` | plugin folder (M0) | `~/.pi/agent/extensions/` | — |
+| Start-time delivery | `SessionStart` hook, `hookSpecificOutput.additionalContext` | `SessionStart` hook, `hookSpecificOutput.additionalContext` | `PreInvocation` with `invocationNum == 0` and `initialNumSteps == 1` [NEW], returns `injectSteps[0].ephemeralMessage`; input `conversationId`, `workspacePaths[0]` (E16-S2) | V2 plugin: `ctx.event.subscribe()` `session.created` and `ctx.session.hook("context")` (E16-S2). A gap in M3 (see below) | extension: `before_agent_start` edits the system prompt | none known: a gap in `brain status` |
+| Hook config | `~/.claude/settings.json` | `~/.codex/hooks.json` | `~/.gemini/config/hooks.json` (docs): one named hook at a root key; flat handlers for `PreInvocation` and `Stop`, matcher groups for `PostToolUse` (E16-S2) | plugin folder (M0) | `~/.pi/agent/extensions/` | — |
 | Hook form | command | command | command | TypeScript shim that calls `brain hook` | TypeScript shim that calls `brain hook` | — |
-| Tool event (hook records) | `PostToolUse` | `PostToolUse` | M0 | `tool.execute.after` | `tool_result` | none |
+| Tool event (hook records) | `PostToolUse` | `PostToolUse` | `PostToolUse`, tool `run_command` (E16-S2) | `ctx.tool.hook("execute.after")` (E16-S2) | `tool_result` | none |
 | Skills, global and workspace (M3) | Brain folder; listed in the brief | Brain folder; listed in the brief | Brain folder; listed in the brief | Brain folder; listed in the brief | Brain folder; listed in the brief | — |
 | Plan | M1 profile | M1 profile | profile after M0 | profile + shim after M0 | profile + shim after M0 | gap in `brain status` |
 
+- **OpenCode is a gap in M3** (E16-S2): a plain `opencode` runs plugins in one shared background service, and that process has no herdr pane env (`HERDR_PANE_ID`), so the hook cannot check the pane.
 - **Skills are M3.** The M1 compiler builds only the brief (the global and workspace parts).
 - **Skill files outside repos:** each skill revision has its own file: `<store>/skills/<item id>/r<revision>/SKILL.md`. The file never changes after the write. A new revision gets a new file (§7.5). Two items never share a file (owner decision 2026-09-29) [ASTRA8].
 - **Workspace skills:** the hook adds a short list to the workspace part of the brief: name, one-line description and the absolute path of the current revision file. The agent reads the file when the skill is relevant. The receipt names the item revisions, so it names the exact skill text that the session got. So two workspaces that share a checkout do not share skills.
@@ -849,7 +850,7 @@ Brain installs one hook entry in each CLI's user-level config, as its profile sa
 
 What `brain hook` does at session start:
 1. If `HERDR_ENV` is not `1`: print nothing, exit 0. A session outside herdr gets no Brain items.
-2. If the profile has a start condition (for example agy `invocationNum == 0`) and the hook input does not meet it: print nothing, exit 0.
+2. If the profile has a start condition (for example agy `invocationNum == 0` and `initialNumSteps == 1` [NEW]) and the hook input does not meet it: print nothing, exit 0. agy sends `invocationNum == 0` at the start of each turn, so that check alone fires at every turn; `initialNumSteps == 1` holds only at the first turn of a conversation (E16-S2).
 3. **Resolve and check (G1):** the resolver (below) finds the store from `HERDR_SOCKET_PATH`. Then it asks that herdr session for `HERDR_PANE_ID`. If the session is not bound, the pane does not exist, or the pane is not in `HERDR_WORKSPACE_ID`: print nothing, and record "withheld" with the reason (no receipt for an unbound session, because no store is open). If herdr does not answer before the lookup deadline: print nothing and write nothing; `brain status` shows "unknown" (S50). So an inherited `HERDR_ENV=1` from a closed pane gets nothing.
    - **Limit:** this checks the target pane, not the calling process. A detached child of a pane that is still live can pass. M0 result `[M0]`: at hook time, herdr does not yet show the agent or its `agent_session` in the pane. herdr fills it in after the hook exits. Later, the value matches the hook's `session_id` (Claude and Codex). So the hook cannot check the match. The hook records (pane id, session id), and the next `brain` call checks the match. A nested agent (for example `claude -p` inside an agent pane) sees the parent's `agent_session`, so the later check marks it "not this pane's agent". Brain claims only this: stale or missing panes get nothing.
 4. Read the pointer to the current output generation of that store once (§7.5). Read the workspace map. **If the workspace is not mapped** (a new workspace since the last `brain` call): print the global part only, and record "unmapped". The next `brain` call maps it. A new workspace never gets the items of another workspace with the same root folder. **If it is mapped**, read its saved `identity_cwd` from `<session_dir>/session.json` and check that it is the recorded project folder or lies beneath it (canonical paths, §11). The hook only compares paths: it never runs git and never calls `workspace list`. A root outside the project folder, or a root that cannot be read, gives no workspace part: print the global part only, and record "withheld: identity" (owner decision 2026-09-28).
@@ -912,7 +913,7 @@ Rules:
 kind = "agy"                                   # herdr agent kind
 install_target = "~/.gemini/config/hooks.json"
 events.start = "PreInvocation"
-start_condition = "invocationNum == 0"
+start_condition = "invocationNum == 0 && initialNumSteps == 1"   # [NEW], E16-S2
 events.prompt = ""                             # empty until M0 tests it
 events.tool = ""
 output_form = "injectSteps.ephemeralMessage"
@@ -926,7 +927,7 @@ shim = ""                                      # "ts" for OpenCode and pi
 | herdr kind | The agent kind that herdr reports |
 | Install target | The user-level config file or folder for the hook entry |
 | Event map | Start, prompt, tool and stop events. An empty event is off. |
-| Start condition | A check on the hook input, for a CLI with no pure start event |
+| Start condition | One or more checks on the hook input, for a CLI with no pure start event. agy: `invocationNum == 0` and `initialNumSteps == 1` [NEW], because `invocationNum == 0` alone fires at every turn (E16-S2) |
 | Input JSON paths | Where the agent session id, cwd, prompt text and command are in the hook input |
 | Output form | How the brief goes back to the CLI |
 | Shim | None, or the shared TypeScript shim template |
