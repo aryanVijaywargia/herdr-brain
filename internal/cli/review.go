@@ -346,7 +346,7 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	var cur store.ItemRevision
 	var excerpts, conflicts []string
 	var changeable bool
-	others := -1 // the workspaces of the "also seen" hint of a promotion; -1 for none
+	var others int // the workspaces of the "also seen" hint of a promotion; -1 for none
 	// The review pane shows a pending proposal only: it closes on one that another surface
 	// decided (E5-S1).
 	read := cl.proposal
@@ -360,10 +360,8 @@ func (cl caller) show(ctx context.Context, id int64) error {
 		if excerpts, changeable, err = cl.excerpts(ctx, tx, p); err != nil {
 			return err
 		}
-		if promotion(p, it) && it.Scope == store.ScopeWorkspace {
-			if _, others, err = claimSeen(ctx, tx, it); err != nil {
-				return err
-			}
+		if others, err = hint(ctx, tx, p, it); err != nil {
+			return err
 		}
 		conflicts, err = cl.conflicts(ctx, tx, p)
 		return err

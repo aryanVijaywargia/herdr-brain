@@ -110,6 +110,16 @@ func claimSeen(ctx context.Context, tx *sql.Tx, it store.Item) (evidence, others
 	return evidence, others, nil
 }
 
+// hint is the number of other workspaces of the "also seen" hint of p, a proposal of item it,
+// or -1 when p is not a promotion of a workspace item.
+func hint(ctx context.Context, tx *sql.Tx, p store.Proposal, it store.Item) (int, error) {
+	if !promotion(p, it) || it.Scope != store.ScopeWorkspace {
+		return -1, nil
+	}
+	_, others, err := claimSeen(ctx, tx, it)
+	return others, err
+}
+
 // checkPromotion checks the approve that moves item it to global: the bar (§9.3), and the
 // budget of the global part with the new revision in it (§8.1). It runs after the write in
 // the same transaction, so a refusal writes nothing.
