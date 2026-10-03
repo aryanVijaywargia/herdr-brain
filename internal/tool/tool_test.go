@@ -131,7 +131,9 @@ func TestHashCoversTheContract(t *testing.T) {
 	text := head + `argv = ["run.sh", "{package}"]` + "\n" + input + scriptLine + "echo \"$1\"\n"
 	base := Hash(text, "workspace", "ws_a14")
 	for name, change := range map[string]func(string) string{
-		"command": func(s string) string { return strings.Replace(s, `"run.sh", "{package}"`, `"run.sh", "--", "{package}"`, 1) },
+		"command": func(s string) string {
+			return strings.Replace(s, `"run.sh", "{package}"`, `"run.sh", "--", "{package}"`, 1)
+		},
 		"schema":  func(s string) string { return strings.Replace(s, "{1,64}", "{1,65}", 1) },
 		"cwd":     func(s string) string { return strings.Replace(s, "~/src/shop", "~/src/shop2", 1) },
 		"timeout": func(s string) string { return strings.Replace(s, "timeout_s = 600", "timeout_s = 601", 1) },

@@ -380,16 +380,7 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "proposal %d (%s)\n", p.ID, p.Status)
-	switch it.Kind {
-	case store.KindSkill:
-		b.WriteString(skillLine)
-	case store.KindTool:
-		b.WriteString(toolLine)
-	}
-	b.WriteString(proposalText(p, it))
-	if it.Kind == store.KindTool && p.Text != "" {
-		b.WriteString(contractLines(p.Text))
-	}
+	b.WriteString(itemText(p, it))
 	if it.ClaimID != "" {
 		fmt.Fprintf(&b, "claim:    %s\n", it.ClaimID)
 	}
@@ -426,6 +417,22 @@ func (cl caller) show(ctx context.Context, id int64) error {
 // skillLine is the line of a skill proposal in show. The review pane finds a skill by it: its
 // one-line edit cannot hold a skill file.
 const skillLine = "kind:     skill\n"
+
+// itemText is the kind line, the text line and, for a tool, the contract lines of p in show.
+func itemText(p store.Proposal, it store.Item) string {
+	var b strings.Builder
+	switch it.Kind {
+	case store.KindSkill:
+		b.WriteString(skillLine)
+	case store.KindTool:
+		b.WriteString(toolLine)
+	}
+	b.WriteString(proposalText(p, it))
+	if it.Kind == store.KindTool && p.Text != "" {
+		b.WriteString(contractLines(p.Text))
+	}
+	return b.String()
+}
 
 // toolLine is the line of a tool proposal in show.
 const toolLine = "kind:     tool\n"

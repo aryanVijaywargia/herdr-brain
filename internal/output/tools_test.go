@@ -26,14 +26,12 @@ func toolText(marker string) string {
 	return toolToml(marker) + "--- run.sh ---\npnpm test --filter \"$1\" | tail -n 20\n"
 }
 
-// addTool commits a new active tool item. key "" makes a global tool.
-func addTool(t *testing.T, s *store.Store, key, text string) int64 {
+// addTool commits a new active tool item in workspace k1.
+func addTool(t *testing.T, s *store.Store, text string) int64 {
 	t.Helper()
-	r := store.ItemRevision{Text: text, Scope: store.ScopeGlobal, State: store.StateActive,
+	key := "k1"
+	r := store.ItemRevision{Text: text, Scope: store.ScopeWorkspace, WorkspaceKey: &key, State: store.StateActive,
 		Author: store.AuthorYou, Origin: store.OriginReview, Created: testNow}
-	if key != "" {
-		r.Scope, r.WorkspaceKey = store.ScopeWorkspace, &key
-	}
 	var id int64
 	write(t, s, func(tx *sql.Tx) (err error) {
 		id, _, err = store.CreateItem(context.Background(), tx,
@@ -65,7 +63,7 @@ func wantMayNotRun(t *testing.T, s *store.Store, out string, id int64, want stri
 // may run.
 func TestToolFiles(t *testing.T) {
 	s, out := newStore(t)
-	id := addTool(t, s, "k1", toolText("m1"))
+	id := addTool(t, s, toolText("m1"))
 	gen := mustBuild(t, s, out)
 	dir := toolsDir(out)
 	if want := filepath.Join(filepath.Dir(out), "tools", "1", "r1", "tool.toml"); revisionPath(dir, id, 1, tool.TomlName) != want {
@@ -95,7 +93,7 @@ func TestToolFiles(t *testing.T) {
 // next build writes it again (§7.5 step 5).
 func TestToolUnlistedFile(t *testing.T) {
 	s, out := newStore(t)
-	id := addTool(t, s, "k1", toolText("m1"))
+	id := addTool(t, s, toolText("m1"))
 	path := revisionPath(toolsDir(out), id, 1, tool.TomlName)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
@@ -113,7 +111,7 @@ func TestToolUnlistedFile(t *testing.T) {
 // confirm; then repair writes it again, and the tool runs.
 func TestToolHandEdit(t *testing.T) {
 	s, out := newStore(t)
-	id := addTool(t, s, "k1", toolText("m1"))
+	id := addTool(t, s, toolText("m1"))
 	gen := mustBuild(t, s, out)
 	path := revisionPath(toolsDir(out), id, 1, tool.TomlName)
 	if err := os.WriteFile(path, []byte(strings.Replace(toolToml("m1"), "600", "6000", 1)), 0o600); err != nil {
@@ -146,7 +144,7 @@ func TestToolHandEdit(t *testing.T) {
 // the hash of the current revision, does not run. An approved change runs with its new hash.
 func TestToolApproval(t *testing.T) {
 	s, out := newStore(t)
-	id := addTool(t, s, "k1", toolText("m1"))
+	id := addTool(t, s, toolText("m1"))
 	mustBuild(t, s, out)
 	old := mustMayRun(t, s, out, id).ContractHash
 
@@ -212,7 +210,7 @@ func TestToolApproval(t *testing.T) {
 // counts them until then, so forget stays pending.
 func TestToolRetireCleanup(t *testing.T) {
 	s, out := newStore(t)
-	id := addTool(t, s, "k1", toolText("r1"))
+	id := addTool(t, s, toolText("r1"))
 	mustBuild(t, s, out)
 	mustRevise(t, s, id, 1, toolText("r2"))
 	mustBuild(t, s, out)
