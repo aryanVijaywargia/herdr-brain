@@ -1,0 +1,6 @@
+> run ls in this folder
+The build code word of this workspace is k7q2.
+Tip: run go test before you push.
+Generating the report now...
+- item ─ one
+Thought for a while about it.

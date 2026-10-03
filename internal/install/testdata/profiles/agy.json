@@ -1,0 +1,21 @@
+{
+  "herdr": {
+    "PreInvocation": [
+      { "type": "command", "command": "sh '/tmp/home/.gemini/herdr-agent-state.sh' working", "timeout": 10 }
+    ],
+    "Stop": [
+      { "type": "command", "command": "sh '/tmp/home/.gemini/herdr-agent-state.sh' idle" }
+    ]
+  },
+  "lint-checker": {
+    "enabled": false,
+    "PostToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          { "type": "command", "command": "/tmp/home/bin/fake-lint --quiet", "timeout": 5 }
+        ]
+      }
+    ]
+  }
+}
