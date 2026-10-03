@@ -37,8 +37,8 @@ func TestKinds(t *testing.T) {
 		}
 		fsys[k+".toml"] = &fstest.MapFile{Data: data}
 	}
-	// The embedded kinds sort before "fake".
 	want := append(slices.Clone(embedded), "fake")
+	slices.Sort(want)
 	if got := Kinds(fsys); !slices.Equal(got, want) {
 		t.Errorf("Kinds(with fake) = %q, want %q", got, want)
 	}

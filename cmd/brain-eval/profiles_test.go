@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -129,8 +130,9 @@ func TestProbeCheckKinds(t *testing.T) {
 	if err := pf.Probe[0].check(adapter.Kinds(nil)); err == nil || !strings.Contains(err.Error(), `harness "fake": want `+oneOf(adapter.Kinds(nil))) {
 		t.Errorf("check(embedded) = %v, want the fake harness refused", err)
 	}
-	// The embedded kinds sort before "fake".
-	if want := strings.Join(adapter.Kinds(nil), ", ") + " or fake"; oneOf(adapter.Kinds(fakeProfiles(t))) != want {
+	kinds := append(adapter.Kinds(nil), "fake")
+	slices.Sort(kinds)
+	if want := strings.Join(kinds[:len(kinds)-1], ", ") + " or " + kinds[len(kinds)-1]; oneOf(adapter.Kinds(fakeProfiles(t))) != want {
 		t.Errorf("oneOf() = %q, want %q", oneOf(adapter.Kinds(fakeProfiles(t))), want)
 	}
 }
@@ -181,7 +183,7 @@ func TestFixedEvalDir(t *testing.T) {
 	if !ok {
 		t.Fatal("the fake env has no MapFS profiles")
 	}
-	if err := os.MkdirAll(fixed, 0o700); err != nil {
+	if err := os.MkdirAll(fixed, 0o700); err != nil { // [NEW] 0o700, as the runner makes it
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(fixed, "stale.txt"), "from an old case")
@@ -212,6 +214,7 @@ func TestFixedEvalDir(t *testing.T) {
 	}
 	dirs := strings.Split(strings.TrimSpace(string(log)), "\n")
 	want := filepath.Join(realFixed, "fixed")
+	// One folder for each of the 3 cases.
 	if len(dirs) != 3 || dirs[0] != want || dirs[1] != want || !strings.HasPrefix(dirs[2], scratch+string(filepath.Separator)) {
 		t.Errorf("case folders %q, want %s twice, then a folder in %s", dirs, want, scratch)
 	}
