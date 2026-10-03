@@ -119,3 +119,16 @@ func Disputes(ctx context.Context, tx *sql.Tx) (map[int64]Disputed, error) {
 	}
 	return m, nil
 }
+
+// SupersedeDisputes closes the pending dispute proposals of item id with status superseded at
+// now: an approval of another proposal of the item wrote a new revision and fresh anchors, so
+// the dispute no longer has a base. Superseded is not your decision (§7.4), as in forget.
+func SupersedeDisputes(ctx context.Context, tx *sql.Tx, id int64, now time.Time) error {
+	_, err := tx.ExecContext(ctx, `UPDATE proposals SET status = ?, decided = ?
+		WHERE item_id = ? AND status = ? AND json_array_length(dispute) > 0`,
+		ProposalSuperseded, timeArg(now), id, ProposalPending)
+	if err != nil {
+		return fmt.Errorf("supersede the disputes of item %d: %w", id, err)
+	}
+	return nil
+}

@@ -531,6 +531,13 @@ func (cl caller) approve(ctx context.Context, r review) error {
 		if _, err := store.WriteRevision(ctx, tx, *p.BaseRevision, next); err != nil {
 			return err
 		}
+		// The approval of another proposal of a disputed item ends its dispute: the new
+		// revision gets fresh anchors (§9.1).
+		if it.State == store.StateDisputed && len(p.Dispute) == 0 {
+			if err := store.SupersedeDisputes(ctx, tx, it.ID, cl.Now()); err != nil {
+				return err
+			}
+		}
 		return anchor(ctx, tx, next)
 	})
 	if err != nil {

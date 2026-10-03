@@ -262,3 +262,34 @@ func TestNoAnchors(t *testing.T) {
 		}
 	}
 }
+
+// An edit proposal made before the stale check, approved while the item is disputed, ends the
+// dispute: the dispute is superseded in the same write, the queue is empty, the mark is gone,
+// and the new text gets fresh anchors (Sol finding 3).
+func TestDisputeOverlap(t *testing.T) {
+	f := newFixture(t)
+	root, git := f.gitRepo(t, "config/load.go")
+	item := f.approved(t, loaderText)
+	f.mustReview(t, "--item", fmt.Sprint(item), "--edit", "The config loader is in config/loader.go.")
+	edit := f.rows(t).proposals[len(f.rows(t).proposals)-1]
+	git("mv", "config/load.go", "config/loader.go")
+	f.stale(t)
+	dispute := f.pendingDispute(t)
+
+	f.mustReview(t, fmt.Sprint(edit.ID), "--approve")
+	r := f.rows(t)
+	it, rev := r.item(t, item)
+	want := []store.Anchor{{Root: root, Path: "config/loader.go", Blob: git("rev-parse", ":config/loader.go")}}
+	if it.State != store.StateActive || rev.Text != "The config loader is in config/loader.go." || !reflect.DeepEqual(it.Anchors, want) {
+		t.Errorf("item = %+v %+v, want active with the edit and anchors %+v", it, rev, want)
+	}
+	if p := r.proposal(t, dispute.ID); p.Status != store.ProposalSuperseded || p.Decided.IsZero() {
+		t.Errorf("dispute = %+v, want superseded", p)
+	}
+	if out := f.mustReview(t); !strings.Contains(out, "no proposals") {
+		t.Errorf("list = %q, want an empty queue", out)
+	}
+	if b := f.brief(t); strings.Contains(b, "disputed") {
+		t.Errorf("brief = %q, want no mark", b)
+	}
+}
