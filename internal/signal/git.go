@@ -83,8 +83,15 @@ func goesBack(hash, raw string, blobs map[string]map[string]string) []string {
 
 // git runs the read-only git command args in dir and returns its output.
 func git(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	return gitIn(ctx, dir, "", args...)
+}
+
+// gitIn runs the read-only git command args in dir with stdin as its input, and returns its
+// output.
+func gitIn(ctx context.Context, dir, stdin string, args ...string) ([]byte, error) {
 	var stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir, "--no-pager"}, args...)...)
+	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {

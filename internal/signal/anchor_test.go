@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -112,5 +113,43 @@ func TestCheckAnchors(t *testing.T) {
 	changes, now, err = CheckAnchors(ctx, gone)
 	if err != nil || len(changes) != 1 || changes[0].Blob != "" || now != nil {
 		t.Errorf("CheckAnchors(gone repo) = %+v, %v, %v, want one deleted anchor", changes, now, err)
+	}
+}
+
+// A saved edit, a git mv and a deletion count before a commit: the anchors follow the work
+// tree of the tracked files.
+func TestCheckAnchorsUncommitted(t *testing.T) {
+	gitEnv(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	run(t, dir, "init", "-q")
+	commit(t, dir, "edit.txt", "e1", "add edit")
+	commit(t, dir, "move.txt", "m", "add move")
+	commit(t, dir, "drop.txt", "d", "add drop")
+	as, err := FindAnchors(ctx, dir, "edit.txt move.txt drop.txt")
+	if err != nil || len(as) != 3 {
+		t.Fatalf("FindAnchors = %v, %v, want 3 anchors", as, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "edit.txt"), []byte("e2"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run(t, dir, "mv", "move.txt", "moved.txt")
+	if err := os.Remove(filepath.Join(dir, "drop.txt")); err != nil {
+		t.Fatal(err)
+	}
+	changes, now, err := CheckAnchors(ctx, as)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := run(t, dir, "hash-object", "edit.txt")
+	want := []AnchorChange{{Anchor: as[0], Blob: edited}, {Anchor: as[1], MovedTo: "moved.txt"}, {Anchor: as[2]}}
+	if !reflect.DeepEqual(changes, want) {
+		t.Errorf("changes = %+v, want %+v", changes, want)
+	}
+	if wantNow := []store.Anchor{{Root: as[0].Root, Path: "edit.txt", Blob: edited}}; !reflect.DeepEqual(now, wantNow) {
+		t.Errorf("now = %+v, want %+v", now, wantNow)
+	}
+	if n := run(t, dir, "count-objects"); !strings.HasPrefix(n, "9 objects") {
+		t.Errorf("count-objects = %q, want the 9 objects of the 3 commits: the check writes none", n)
 	}
 }

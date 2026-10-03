@@ -101,8 +101,7 @@ func TestDisputeKeep(t *testing.T) {
 		t.Fatalf("anchors = %+v, want %+v", it.Anchors, want)
 	}
 
-	git("mv", "config/load.go", "config/loader.go")
-	git("commit", "-q", "-m", "rename")
+	git("mv", "config/load.go", "config/loader.go") // no commit: the work tree counts
 	f.stale(t)
 	it, rev := f.rows(t).item(t, item)
 	if it.State != store.StateDisputed || it.CurrentRevision != 2 || rev.Text != loaderText {
