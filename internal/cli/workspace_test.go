@@ -13,7 +13,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/extract"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -489,4 +491,46 @@ func TestWorkspaceLinkUndoEndsProposals(t *testing.T) {
 	if r.keyOf(t, fact) != "ws_a9" || r.proposal(t, pid).Status != store.ProposalSuperseded {
 		t.Errorf("after undo: key %q, proposal %d %s, want ws_a9 and superseded", r.keyOf(t, fact), pid, r.proposal(t, pid).Status)
 	}
+}
+
+// Review fix: a queued extraction of the old key runs after the link. Its evidence goes to the
+// old candidate of the moved skill's claim, but the claim stays known in the old key: no draft
+// and no pending proposal appear there (§7.3, §9.4).
+func TestWorkspaceLinkQueuedExtraction(t *testing.T) {
+	f := newFixture(t)
+	f.setClaude(t)
+	f.addEntry(t, "ws_a9", "default", "w9", true)
+	var claim string
+	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) (err error) {
+		claim, err = store.ClaimID(ctx, tx, store.ClaimKey{Situation: "releasing", Rule: "follow the release steps"}, testNow)
+		return err
+	})
+	skill := f.oldItem(t, "ws_a9", store.KindSkill, claim, skillText("release", "old"))
+	f.mustLink(t, "ws_a9", "ws_a14", "--confirm")
+	f.releaseSession(t, "ws_a9") // ended, not extracted yet
+	proposals := len(f.rows(t).proposals)
+
+	s := openStore(t, f.store)
+	cli := &skillCLI{}
+	err := extract.Pass{Store: s, Runner: cli, HerdrSession: "default", DefaultOn: true,
+		Now: func() time.Time { return testNow.Add(time.Hour) }}.Run(context.Background())
+	closeStore(t, s)
+	if err != nil || cli.calls != 1 {
+		t.Fatalf("Run() = %v with %d calls, want one call", err, cli.calls)
+	}
+	r := f.rows(t)
+	if len(r.proposals) != proposals {
+		t.Errorf("proposals after the old extraction: %d, want %d", len(r.proposals), proposals)
+	}
+	for _, it := range r.items {
+		if it.ID != skill && it.ClaimID == claim {
+			t.Errorf("item %d of the moved claim in %v (%s), want none", it.ID, *it.WorkspaceKey, it.State)
+		}
+	}
+	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
+		if c, err := store.CandidateOf(ctx, tx, claim, "ws_a9"); err != nil || c.Count == 0 {
+			t.Errorf("old candidate = %+v, %v, want the new evidence", c, err)
+		}
+		return nil
+	})
 }
