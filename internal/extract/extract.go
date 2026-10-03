@@ -435,7 +435,7 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	if c.Refs = kept; err != nil || len(kept) == 0 {
 		return err
 	}
-	c.Situation, c.Rule, c.ExpectedBenefit = Redact(c.Situation), Redact(c.Rule), Redact(c.ExpectedBenefit)
+	c = redactClaim(c)
 	claim, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: normal(c.Situation), Rule: normal(c.Rule)}, now)
 	if err != nil {
 		return err
@@ -587,7 +587,7 @@ func candidateKind(c Claim) store.CandidateKind {
 			return store.CandidateKind(r.kind)
 		}
 	}
-	if c.Kind == "procedure" {
+	if c.Kind == "procedure" || c.Kind == kindSkill {
 		return store.CandidateProcedure
 	}
 	return store.CandidateCorrection
@@ -624,11 +624,14 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 	case err != nil:
 		return err
 	}
-	// [NEW] a fact claim makes a fact; every other claim kind makes a preference, the kind of
-	// a lesson. Skills, tools and automations come from later epics.
+	// [NEW] a fact claim makes a fact, a skill claim a skill (E16-S4); every other claim kind
+	// makes a preference, the kind of a lesson. Tools and automations come from later epics.
 	kind := store.KindPreference
-	if c.Kind == "fact" {
+	switch c.Kind {
+	case "fact":
 		kind = store.KindFact
+	case kindSkill:
+		kind = store.KindSkill
 	}
 	conflicts, err := conflictItems(ctx, tx, cand, c)
 	if err != nil {
@@ -639,10 +642,10 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 	if err != nil {
 		return err
 	}
-	text := claimText(c)
+	text, diff := draft(c)
 	base := int64(1)
 	pid, err := store.ProposeCandidate(ctx, tx, id, store.Proposal{ItemID: &item, BaseRevision: &base, Text: text,
-		Scope: cand.Scope, Target: target, Diff: "+ " + text, ExpectedBenefit: c.ExpectedBenefit,
+		Scope: cand.Scope, Target: target, Diff: diff, ExpectedBenefit: c.ExpectedBenefit,
 		PermissionWarning: c.TouchesPermission, ConflictsWith: conflicts,
 		Status: store.ProposalPending, Created: now})
 	if err != nil {
@@ -658,6 +661,30 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 
 // claimText is the item text of claim c [NEW]: "situation: rule".
 func claimText(c Claim) string { return c.Situation + ": " + c.Rule }
+
+// draft is the text and the diff of a new item of claim c: the skill text for a skill (the
+// review shows the whole file, S8), else the claim text.
+func draft(c Claim) (text, diff string) {
+	if c.Skill != nil {
+		text = c.Skill.Text()
+		return text, store.SkillDiff("", text)
+	}
+	text = claimText(c)
+	return text, "+ " + text
+}
+
+// redactClaim returns c with each secret of its model text replaced (Redact): the claim text,
+// the expected benefit and the skill fields.
+func redactClaim(c Claim) Claim {
+	c.Situation, c.Rule, c.ExpectedBenefit = Redact(c.Situation), Redact(c.Rule), Redact(c.ExpectedBenefit)
+	if c.Skill != nil {
+		sk := *c.Skill
+		sk.Name, sk.Description, sk.RequiredTools = Redact(sk.Name), Redact(sk.Description), Redact(sk.RequiredTools)
+		sk.Example, sk.Steps = Redact(sk.Example), Redact(sk.Steps)
+		c.Skill = &sk
+	}
+	return c
+}
 
 // conflictItems returns the conflicts of a proposal of claim c for candidate cand: the active
 // items of the claim that c names in conflicts_with, in the scope of cand. [NEW] a claim with
