@@ -47,6 +47,8 @@ measurement (raw counts, no score; a week starts on Monday 00:00 UTC):
     comebacks: none
     uncertain matches: none
 
+tools: 0 active, none stopped
+
 relink: old workspaces with the same root: 1
   ws_a14 (w14 shop): same root as ws_a15 (w15 blog)
   link on request, from a pane in the new workspace: brain workspace link <old> <new>
