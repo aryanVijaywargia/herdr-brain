@@ -229,12 +229,15 @@ func TestRunOtherWorkspace(t *testing.T) {
 }
 
 // AC: a timeout stops the run and its children, and a ran row logs the call with exit code
-// 124.
+// 124. A child that kept running would hold the output pipe open for 2 s more (tool.waitDelay).
 func TestRunTimeout(t *testing.T) {
 	f := newRunFixture(t)
-	// run.sh starts a child that would write the file after 3 s, and waits for it.
-	f.approvedTool(t, runTool("slow", f.dir, "1", "(sleep 3; printf late > ran) &\nwait\n"))
+	f.approvedTool(t, runTool("slow", f.dir, "1", "sleep 30 &\nwait\n"))
+	start := time.Now()
 	_, err := f.run(t, "w14:p1", "w14", "slow", "--word", "hello")
+	if d := time.Since(start); d >= 2500*time.Millisecond {
+		t.Errorf("Run() took %s, want the run and its child stopped at the 1 s timeout", d)
+	}
 	var x *ExitError
 	if !errors.As(err, &x) || x.Code != 124 || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("Run() = %v, want the timeout with exit code 124", err)
@@ -244,7 +247,6 @@ func TestRunTimeout(t *testing.T) {
 		cs[0].Duration < 900*time.Millisecond {
 		t.Errorf("tool_calls = %+v, want one ran row with exit code 124 and about 1 s", cs)
 	}
-	waitGone(t, filepath.Join(f.dir, "ran"))
 }
 
 // AC: run contract A, approve contract B, and run again: the two rows keep hash A and hash B.
@@ -363,15 +365,6 @@ func TestRunToolPane(t *testing.T) {
 		Origin: store.OriginAutomation, Tool: "write-word", Inputs: map[string]string{"word": "auto"},
 		Stdout: &out, Stderr: &out}); err == nil {
 		t.Errorf("RunTool(w15:p1) = nil, want no tool")
-	}
-}
-
-// waitGone fails when path appears within 3 s: a child of a stopped run wrote it.
-func waitGone(t *testing.T, path string) {
-	t.Helper()
-	time.Sleep(3 * time.Second)
-	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("%s: %v, want no file: a child of the stopped run kept running", path, err)
 	}
 }
 

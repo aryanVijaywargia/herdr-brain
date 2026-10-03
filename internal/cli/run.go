@@ -78,7 +78,7 @@ func Run(ctx context.Context, e Env, args []string) error {
 // input once. [NEW] the flag forms.
 func parseRun(args []string) (string, map[string]string, error) {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return "", nil, errors.New(runUsage)
+		return "", nil, fmt.Errorf("want a tool name first\n%s", runUsage)
 	}
 	name, inputs := args[0], map[string]string{}
 	for rest := args[1:]; len(rest) > 0; {
@@ -119,23 +119,8 @@ func RunTool(ctx context.Context, e Env, r ToolRun) (_ ToolResult, err error) {
 		return ToolResult{}, fmt.Errorf("tool %s: %w", r.Tool, err)
 	}
 	defer func() { err = errors.Join(err, c.Close()) }()
-	key, label, keyErr := c.WorkspaceKey()
-	var found store.Tool
-	var session int64
-	err = c.Store.Write(ctx, func(tx *sql.Tx) (err error) {
-		if found, err = store.ToolByName(ctx, tx, r.Tool, key); err != nil {
-			return err
-		}
-		session, err = store.PaneSession(ctx, tx, c.Binding.Session, c.PaneID)
-		return err
-	})
-	switch {
-	case errors.Is(err, sql.ErrNoRows) && keyErr != nil:
-		return ToolResult{}, fmt.Errorf("no global tool %s, and no workspace tools here (%w); nothing ran", r.Tool, keyErr)
-	case errors.Is(err, sql.ErrNoRows):
-		return ToolResult{}, fmt.Errorf("no tool %s in workspace %s (%s) or in the global tools; nothing ran", r.Tool,
-			c.WorkspaceID, label)
-	case err != nil:
+	found, session, err := findTool(ctx, c, r.Tool)
+	if err != nil {
 		return ToolResult{}, err
 	}
 	call := store.ToolCall{ToolID: found.ID, SessionID: session, Origin: r.Origin, At: e.Now()}
@@ -167,16 +152,44 @@ func RunTool(ctx context.Context, e Env, r ToolRun) (_ ToolResult, err error) {
 	}
 	run := tool.Run{Commands: cmds, Dir: contract.Dir(lookupEnv(e.Environ, "HOME")), ScriptDir: dir,
 		Env: e.Environ, Timeout: time.Duration(t.TimeoutS) * time.Second, Stdout: r.Stdout, Stderr: r.Stderr}
+	call.ContractHash = t.ContractHash
+	return execTool(ctx, c.Store, run, call, r.Tool)
+}
+
+// findTool finds tool name for call c (store.ToolByName), and the open capture session of
+// the calling pane, which gives the session key of the call.
+func findTool(ctx context.Context, c *Call, name string) (found store.Tool, session int64, err error) {
+	key, label, keyErr := c.WorkspaceKey()
+	err = c.Store.Write(ctx, func(tx *sql.Tx) (err error) {
+		if found, err = store.ToolByName(ctx, tx, name, key); err != nil {
+			return err
+		}
+		session, err = store.PaneSession(ctx, tx, c.Binding.Session, c.PaneID)
+		return err
+	})
+	switch {
+	case errors.Is(err, sql.ErrNoRows) && keyErr != nil:
+		return store.Tool{}, 0, fmt.Errorf("no global tool %s, and no workspace tools here (%w); nothing ran", name, keyErr)
+	case errors.Is(err, sql.ErrNoRows):
+		return store.Tool{}, 0, fmt.Errorf("no tool %s in workspace %s (%s) or in the global tools; nothing ran", name,
+			c.WorkspaceID, label)
+	}
+	return found, session, err
+}
+
+// execTool runs run outside any transaction, and logs it as call, a ran row with the exit
+// code and the duration.
+func execTool(ctx context.Context, s *store.Store, run tool.Run, call store.ToolCall, name string) (ToolResult, error) {
 	start := time.Now()
 	code, runErr := run.Exec(ctx)
-	call.Result, call.ContractHash, call.ExitCode, call.Duration = store.CallRan, t.ContractHash, &code, time.Since(start)
-	id, err := addCall(ctx, c.Store, call)
-	res := ToolResult{CallID: id, ExitCode: code, Duration: call.Duration}
+	call.Result, call.ExitCode, call.Duration = store.CallRan, &code, time.Since(start)
+	id, err := addCall(ctx, s, call)
 	if err != nil {
 		return ToolResult{}, errors.Join(runErr, err)
 	}
+	res := ToolResult{CallID: id, ExitCode: code, Duration: call.Duration}
 	if runErr != nil {
-		return res, fmt.Errorf("tool %s: %w (exit code %d)", r.Tool, runErr, code)
+		return res, fmt.Errorf("tool %s: %w (exit code %d)", name, runErr, code)
 	}
 	return res, nil
 }

@@ -102,21 +102,19 @@ func TestExecNotStart(t *testing.T) {
 	}
 }
 
-// The timeout stops the step and its children, and returns ExitTimeout.
+// The timeout stops the step and its children, and returns ExitTimeout. A child that kept
+// running would hold the output pipe open, and Exec would wait waitDelay for it.
 func TestExecTimeout(t *testing.T) {
-	dir := t.TempDir()
-	sd := script(t, "(sleep 2; touch late) &\nsleep 30\n")
-	r := Run{Commands: [][]string{{"run.sh"}}, Dir: dir, ScriptDir: sd, Timeout: 300 * time.Millisecond}
+	sd := script(t, "sleep 30 &\nsleep 30\n")
+	var out bytes.Buffer
+	r := Run{Commands: [][]string{{"run.sh"}}, Dir: t.TempDir(), ScriptDir: sd, Timeout: 300 * time.Millisecond,
+		Stdout: &out, Stderr: &out}
 	start := time.Now()
 	code, err := r.Exec(context.Background())
 	if code != ExitTimeout || !errors.Is(err, ErrTimeout) {
 		t.Errorf("Exec() = %d, %v, want the timeout", code, err)
 	}
-	if d := time.Since(start); d > 2*time.Second {
-		t.Errorf("Exec() took %s, want it stopped at the timeout", d)
-	}
-	time.Sleep(2500 * time.Millisecond)
-	if _, err := os.Stat(filepath.Join(dir, "late")); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("late: %v, want no file: a child kept running after the timeout", err)
+	if d := time.Since(start); d >= 300*time.Millisecond+waitDelay {
+		t.Errorf("Exec() took %s, want the step and its child stopped at the timeout", d)
 	}
 }
