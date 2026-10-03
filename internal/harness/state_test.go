@@ -434,6 +434,15 @@ func TestConfiguredNamedHook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// agy metadata in the named hook, such as "enabled", keeps the entry configured.
+	rewrite(`"brain":{`, `"brain":{"enabled":true,`)(t, entry.Target, data)
+	if s := check(t, e, fakeHerdr{}, p); !s.Configured {
+		t.Errorf("with enabled: %+v, want configured", s)
+	}
+	data, err = os.ReadFile(entry.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
 	rewrite(`"brain"`, `"other"`)(t, entry.Target, data)
 	if s := check(t, e, fakeHerdr{}, p); s.Configured {
 		t.Errorf("%+v, want not configured", s)

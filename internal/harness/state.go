@@ -150,13 +150,15 @@ func configured(e install.Entry, key, event string) (bool, error) {
 		return false, err
 	}
 	// RawMessage keeps the exact bytes of each entry, as install hashed them.
-	// The other root members, such as the Claude settings, may be of any shape.
-	var root map[string]json.RawMessage
-	var hooks map[string][]json.RawMessage
-	if json.Unmarshal(data, &root) != nil || json.Unmarshal(root[key], &hooks) != nil {
+	// The other root members, and the other members of the hooks object such as the agy
+	// "enabled" flag, may be of any shape.
+	var root, hooks map[string]json.RawMessage
+	var entries []json.RawMessage
+	if json.Unmarshal(data, &root) != nil || json.Unmarshal(root[key], &hooks) != nil ||
+		json.Unmarshal(hooks[event], &entries) != nil {
 		return false, nil //nolint:nilerr // a file of another shape holds no start hook that the CLI runs
 	}
-	for _, g := range hooks[event] {
+	for _, g := range entries {
 		sum := sha256.Sum256(g)
 		if hex.EncodeToString(sum[:]) == e.SHA256 {
 			return true, nil

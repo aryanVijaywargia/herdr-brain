@@ -124,25 +124,16 @@ type Hook struct {
 // exits then. A run that the cap stops prints nothing after the cap and writes no receipt,
 // so status shows the session as unknown (S50).
 func (h Hook) Run(ctx context.Context, stdin io.Reader, stdout io.Writer) error {
-	out := &gate{w: stdout}
-	err := h.capped(ctx, stdin, out)
-	if !out.used() {
-		err = errors.Join(err, h.Profile.WriteNone(out))
-	}
-	return err
-}
-
-// capped is Run with no output for "nothing".
-func (h Hook) capped(ctx context.Context, stdin io.Reader, out *gate) error {
-	// Outside herdr the hook reads no file and asks no herdr (S61).
-	if lookup(h.Environ, "HERDR_ENV") != "1" {
-		return nil
-	}
 	ctx, cancel := context.WithDeadline(ctx, h.Start.Add(hookCap))
 	defer cancel()
+	out := &gate{w: stdout}
 	done := make(chan error, 1)
 	go func() {
-		err := h.run(ctx, stdin, out)
+		err := h.inHerdr(ctx, stdin, out)
+		// The output for "nothing" is under the cap too.
+		if !out.used() {
+			err = errors.Join(err, h.Profile.WriteNone(out))
+		}
 		if h.ended != nil {
 			h.ended()
 		}
@@ -156,6 +147,15 @@ func (h Hook) capped(ctx context.Context, stdin io.Reader, out *gate) error {
 		out.close()
 		return fmt.Errorf("%w: %w", errCapped, ctx.Err())
 	}
+}
+
+// inHerdr is run for a hook inside herdr. Outside herdr the hook reads no file and asks no
+// herdr (S61).
+func (h Hook) inHerdr(ctx context.Context, stdin io.Reader, stdout io.Writer) error {
+	if lookup(h.Environ, "HERDR_ENV") != "1" {
+		return nil
+	}
+	return h.run(ctx, stdin, stdout)
 }
 
 // run is Run without the cap.

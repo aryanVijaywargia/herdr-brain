@@ -1031,6 +1031,7 @@ func TestNoneOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixture := func(name string) string {
+		t.Helper()
 		b, err := os.ReadFile(filepath.Join("../adapter/testdata/agy", name))
 		if err != nil {
 			t.Fatal(err)
@@ -1081,5 +1082,31 @@ func TestNoneOutput(t *testing.T) {
 	dec := json.NewDecoder(&out)
 	if err := dec.Decode(&got); err != nil || len(got.InjectSteps) != 1 || !strings.Contains(got.InjectSteps[0].EphemeralMessage, "brain:begin") || dec.More() {
 		t.Errorf("Run(new conversation) printed %+v, %v; want one brief and nothing after it", got, err)
+	}
+}
+
+// TestNoneOutputCap (S50): the output for "nothing" is under the cap too, so a stalled stdout
+// ends Run by the cap, also outside herdr and for a call that is not the start.
+func TestNoneOutputCap(t *testing.T) {
+	p, err := adapter.LoadFS(os.DirFS("../adapter/testdata/agylike"), "agylike")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, env := range [][]string{{"HOME=/home/me"}, nil} {
+		f := newFixture(t)
+		if env == nil {
+			env = environ(f.mainSock, "", "w14:p1", "w14")
+		}
+		h := f.hook(p, env)
+		ended := make(chan struct{})
+		h.ended = func() { close(ended) }
+		bw := &blockedWriter{release: make(chan struct{}), started: make(chan struct{})}
+		err := h.Run(context.Background(), strings.NewReader(`{"invocationNum":1}`), bw)
+		if took := time.Since(h.Start); !errors.Is(err, errCapped) || took > hookCap+capSlack {
+			t.Errorf("Run(%q) = %v after %v, want %v by %v", env, err, took, errCapped, hookCap+capSlack)
+		}
+		<-bw.started
+		close(bw.release)
+		<-ended
 	}
 }
