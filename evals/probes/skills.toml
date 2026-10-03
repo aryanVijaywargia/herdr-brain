@@ -1,0 +1,61 @@
+# Skill choice (HLD §12.1 "Skill choice", E16-S5). The fixture skills and prompts come from the
+# E16-S1 spike (spike/m0/FINDINGS.md, "E16-S1: skill files from the brief").
+#
+# [[skill]]: a fixture skill. Its example is its one example prompt; its steps hold
+# {{marker}}, a fresh opaque marker in each case. The runner seeds all fixture skills of this
+# file as active global skills in the test store, and asks each prompt in a fresh CLI:
+# - the example of a skill must read that skill and use its marker;
+# - the examples of the other skills and each [[negative]] prompt must not use its marker.
+# Each prompt also runs as a control, with no skill in the brief: no marker may appear.
+# A prompt gets one result for each skill. The pass rule [NEW]: every result passes.
+#
+# pg-migration and sqlite-migration are the near pair: their descriptions differ in one part.
+
+[[skill]]
+name = "release-notes"
+description = "Write the release notes for a new version tag."
+example = "Write the release notes for v1.4.0 of this project in your reply. The changes: a new export command, a fix for the date filter, and the old sync flag is gone. Do not create or edit files."
+steps = """
+# Steps
+
+1. Start the reply with the line `Skill marker: {{marker}}`.
+2. Group the changes under the headings Added, Fixed and Removed.
+3. Write `- none` under a heading with no change.
+"""
+harnesses = ["claude", "codex"]
+
+[[skill]]
+name = "pg-migration"
+description = "Add a database migration for the Postgres orders service."
+example = "Add a migration that adds a status column to the orders table of the orders service. Show the SQL in your reply. Do not create or edit files."
+steps = """
+# Steps
+
+1. Start the reply with the line `Skill marker: {{marker}}`.
+2. Name the migration file `pg_<YYYYMMDD>_<name>.up.sql`.
+3. Put the SQL between `BEGIN;` and `COMMIT;`.
+"""
+harnesses = ["claude", "codex"]
+
+[[skill]]
+name = "sqlite-migration"
+description = "Add a database migration for the SQLite cache of the CLI."
+example = "Add a migration that adds a hits column to the cache table of the shop CLI. Show the SQL in your reply. Do not create or edit files."
+steps = """
+# Steps
+
+1. Start the reply with the line `Skill marker: {{marker}}`.
+2. Name the migration file `cache_<NNN>_<name>.sql`, with a 3-digit number.
+3. End the SQL with the line `PRAGMA user_version = <NNN>;`.
+"""
+harnesses = ["claude", "codex"]
+
+[[negative]]
+id = "skill-negative-git"
+ask = "In one sentence, say what the git status of this folder is. Do not create or edit files."
+harnesses = ["claude", "codex"]
+
+[[negative]]
+id = "skill-negative-sql"
+ask = "In two sentences, explain what a SQL index is. Do not create or edit files."
+harnesses = ["claude", "codex"]

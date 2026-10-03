@@ -4,8 +4,9 @@
 // a real pane, the CLI config files or the install record.
 //
 // E10-S1 gave the runner frame and its isolation rules, E10-S2 the probe files, the labels and
-// the results file, E10-S3 the M1 stages, the score, the report and conformance.json. The cases come from
-// --probes, or one ad-hoc case from the other flags, for a hand test.
+// the results file, E10-S3 the M1 stages, the score, the report and conformance.json, and
+// E16-S5 the skill choice stage. The cases come from --probes, or one ad-hoc case from the
+// other flags, for a hand test.
 package main
 
 import (
@@ -33,7 +34,9 @@ const usage = `usage: brain-eval --probes <file or folder> [--stage <stage>]... 
 With --probes, runs each probe of the probe file, or of each *.toml file of the folder, and
 its control; --stage and --harness keep only the probes of those stages and CLIs. A CLI is
 the kind of a Brain profile, for example claude or codex. The stages
-are delivery, exclusion, transfer, update, restraint, forget and usefulness. It writes the
+are delivery, exclusion, transfer, update, restraint, forget, usefulness and skill-choice. A
+skill-choice case asks one prompt with all fixture skills of its file in the brief, and gets
+one result for each skill. It writes the
 results to eval-results.json and a short report to eval-report.md in the test store folder. A
 run of the delivery stage writes the conformance record of each CLI to conformance.json in
 the data home: pending at the start, then pass, fail or inconclusive when the run completes.
