@@ -43,11 +43,19 @@ func ActiveTools(ctx context.Context, tx *sql.Tx) ([]ItemRevision, error) {
 // tool whose name another active tool of its scope has (ErrToolName). Each revision write that
 // makes a tool active is your decision (approve, restore, undo, promotion, link), so it
 // approves the contract hash of that revision. Any other state clears the approval, and the
-// tool does not run. Any other item passes.
+// tool does not run; a retired tool keeps the rest of its row. Any other item passes.
 func syncTool(ctx context.Context, tx *sql.Tx, item int64) error {
 	it, err := ItemByID(ctx, tx, item)
 	if err != nil || it.Kind != KindTool {
 		return err
+	}
+	if it.State == StateRetired {
+		// A retired revision needs no contract: forget writes one with no text (§6.7).
+		_, err := tx.ExecContext(ctx, `UPDATE tools SET approved_hash = NULL, approved = NULL WHERE id = ?`, item)
+		if err != nil {
+			return fmt.Errorf("retire tool %d: %w", item, err)
+		}
+		return nil
 	}
 	cur, err := ItemRevisionByKey(ctx, tx, item, it.CurrentRevision)
 	if err != nil {
