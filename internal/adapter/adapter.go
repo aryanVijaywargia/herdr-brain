@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -21,8 +22,13 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/adapters"
 )
 
-// formAdditionalContext is the output form of Claude and Codex (HLD §8.3, M0 item 1).
+// formAdditionalContext is the output form of Claude and Codex (HLD §8.3, M0 item 1). Its
+// output also names the start event in hookSpecificOutput.hookEventName.
 const formAdditionalContext = "hookSpecificOutput.additionalContext"
+
+// defaultHooksKey is the root key of the hook object in a CLI hook file: Claude and Codex keep
+// their events in "hooks" (§8.3).
+const defaultHooksKey = "hooks"
 
 // TrustCodex is the hook_trust value of a CLI that runs a new or changed hook entry only after
 // you trust it, with the trust state in the hooks.state table of its config.toml, as Codex
@@ -52,9 +58,24 @@ type Profile struct {
 		ToolMatcher string   `toml:"tool_matcher"` // the shell tool: the tool hook runs only for it
 		Stop        string   `toml:"stop"`
 	} `toml:"events"`
+	// StartCondition is one or more checks `<JSON path> == <JSON value>`, joined by "&&" [NEW],
+	// for example `invocationNum == 0 && initialNumSteps == 1` (§8.3 step 2, E16-S11).
 	StartCondition string `toml:"start_condition"`
-	OutputForm     string `toml:"output_form"`
-	Input          struct {
+	// OutputForm is the JSON path of the brief in the hook output, for example
+	// `injectSteps[0].ephemeralMessage` (E16-S11). A path is object keys joined by dots; a key
+	// may end in array steps such as "[0]" [NEW syntax].
+	OutputForm string `toml:"output_form"`
+	// OutputNone [NEW] is the output of a run that delivers nothing, for a CLI that wants JSON
+	// on every hook run: agy reads "{}" (spike/m0/FINDINGS.md "E16-S2"). "" prints nothing.
+	OutputNone string `toml:"output_none"`
+	// HooksKey [NEW] is the root key of the object that holds the CLI events in the hook file:
+	// "hooks" when empty, as for Claude and Codex. agy keeps each named hook at its own root
+	// key, so its profile names Brain's key (E16-S2).
+	HooksKey string `toml:"hooks_key"`
+	// FlatHandlers [NEW]: the entry of each event but the tool events is the handler object
+	// itself, not a matcher group around it, as agy wants for PreInvocation and Stop (E16-S2).
+	FlatHandlers bool `toml:"flat_handlers"`
+	Input        struct {
 		SessionID string `toml:"session_id"`
 		CWD       string `toml:"cwd"`
 		// TranscriptPath is the path of the CLI's transcript file in the start input (E15-S4).
@@ -95,19 +116,27 @@ type Profile struct {
 	// changed profile needs a new test (§8.5, E8-S4).
 	SHA256 string `toml:"-"`
 
-	// cond is StartCondition, parsed; its path is empty when the profile has no condition.
-	cond condition
+	// cond is StartCondition, parsed; empty when the profile has no condition.
+	cond []condition
 	// noise is NoiseLines, compiled.
 	noise []*regexp.Regexp
 	// exit is ExitPattern, compiled; nil when the profile has none.
 	exit *regexp.Regexp
 }
 
-// condition is a start condition of the form `<JSON path> == <JSON value>`, for example
+// condition is one check of a start condition, `<JSON path> == <JSON value>`, for example
 // `invocationNum == 0` (§8.3 step 2).
 type condition struct {
 	path  string
 	value any
+}
+
+// HookKey returns the root key of the hook object in the CLI hook file.
+func (p *Profile) HookKey() string {
+	if p.HooksKey == "" {
+		return defaultHooksKey
+	}
+	return p.HooksKey
 }
 
 // Input is what the base adapter reads from one hook input.
@@ -200,8 +229,22 @@ func (p *Profile) check() error {
 			return fmt.Errorf("%s is empty", r.key)
 		}
 	}
-	if p.OutputForm != formAdditionalContext {
-		return fmt.Errorf("unknown output_form %q", p.OutputForm)
+	for _, c := range []struct{ key, path string }{
+		{"output_form", p.OutputForm},
+		{"input.session_id", p.Input.SessionID},
+		{"input.cwd", p.Input.CWD},
+		{"input.transcript_path", p.Input.TranscriptPath},
+		{"input.prompt", p.Input.Prompt},
+		{"input.command", p.Input.Command},
+		{"input.error", p.Input.Error},
+		{"input.reply", p.Input.Reply},
+	} {
+		if _, err := steps(c.path); c.path != "" && err != nil {
+			return fmt.Errorf("%s: %w", c.key, err)
+		}
+	}
+	if p.OutputNone != "" && !json.Valid([]byte(p.OutputNone)) {
+		return fmt.Errorf("output_none %q is not JSON", p.OutputNone)
 	}
 	if p.HookTrust != "" && p.HookTrust != TrustCodex {
 		return fmt.Errorf("unknown hook_trust %q", p.HookTrust)
@@ -232,15 +275,21 @@ func (p *Profile) check() error {
 	if p.StartCondition == "" {
 		return nil
 	}
-	path, value, ok := strings.Cut(p.StartCondition, "==")
-	path = strings.TrimSpace(path)
-	if !ok || path == "" {
-		return fmt.Errorf("start_condition %q is not `<path> == <value>`", p.StartCondition)
+	for _, check := range strings.Split(p.StartCondition, "&&") {
+		path, value, ok := strings.Cut(check, "==")
+		path = strings.TrimSpace(path)
+		if !ok || path == "" {
+			return fmt.Errorf("start_condition %q is not `<path> == <value>`", check)
+		}
+		if _, err := steps(path); err != nil {
+			return fmt.Errorf("start_condition %q: %w", check, err)
+		}
+		c := condition{path: path}
+		if err := json.Unmarshal([]byte(value), &c.value); err != nil {
+			return fmt.Errorf("start_condition %q: value: %w", check, err)
+		}
+		p.cond = append(p.cond, c)
 	}
-	if err := json.Unmarshal([]byte(value), &p.cond.value); err != nil {
-		return fmt.Errorf("start_condition %q: value: %w", p.StartCondition, err)
-	}
-	p.cond.path = path
 	return nil
 }
 
@@ -256,19 +305,20 @@ func (p *Profile) Noise(line string) bool {
 
 // Parse reads the agent session id, the cwd and the transcript path from raw hook input by the
 // profile's JSON paths. It returns an error that wraps ErrRetest when the input is not a JSON object, a path
-// has no non-empty string, or the start condition's path is missing. It returns ErrNotStart
-// when the input does not meet the start condition. On any error the hook prints nothing.
+// has no non-empty string, or the path of a start condition check is missing. It returns
+// ErrNotStart when the input does not meet each check of the start condition. On any error the
+// hook prints no brief.
 func (p *Profile) Parse(raw []byte) (Input, error) {
 	var doc map[string]any
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return Input{}, fmt.Errorf("%w: %w", ErrRetest, err)
 	}
-	if p.cond.path != "" {
-		v, ok := lookup(doc, p.cond.path)
+	for _, c := range p.cond {
+		v, ok := lookup(doc, c.path)
 		if !ok {
-			return Input{}, fmt.Errorf("%w: no %q for the start condition", ErrRetest, p.cond.path)
+			return Input{}, fmt.Errorf("%w: no %q for the start condition", ErrRetest, c.path)
 		}
-		if !reflect.DeepEqual(v, p.cond.value) {
+		if !reflect.DeepEqual(v, c.value) {
 			return Input{}, ErrNotStart
 		}
 	}
@@ -288,20 +338,39 @@ func (p *Profile) Parse(raw []byte) (Input, error) {
 	return in, nil
 }
 
-// Write writes brief to w in the profile's output form.
+// Write writes brief to w in the profile's output form: the Claude and Codex form with the
+// start event name, or else one JSON object that holds brief at the output_form path.
 func (p *Profile) Write(w io.Writer, brief string) error {
-	out := struct {
-		HookSpecificOutput struct {
-			HookEventName     string `json:"hookEventName"`
-			AdditionalContext string `json:"additionalContext"`
-		} `json:"hookSpecificOutput"`
-	}{}
-	out.HookSpecificOutput.HookEventName = p.Events.Start
-	out.HookSpecificOutput.AdditionalContext = brief
+	var out any
+	if p.OutputForm == formAdditionalContext {
+		hso := struct {
+			HookSpecificOutput struct {
+				HookEventName     string `json:"hookEventName"`
+				AdditionalContext string `json:"additionalContext"`
+			} `json:"hookSpecificOutput"`
+		}{}
+		hso.HookSpecificOutput.HookEventName = p.Events.Start
+		hso.HookSpecificOutput.AdditionalContext = brief
+		out = hso
+	} else {
+		out = put(nil, p.OutputForm, brief)
+	}
 	enc := json.NewEncoder(w)
 	// The brief markers hold < and >; the CLI reads JSON, not HTML, so keep them readable.
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(out); err != nil {
+		return fmt.Errorf("write hook output: %w", err)
+	}
+	return nil
+}
+
+// WriteNone writes the profile's output for a run that delivers nothing, and nothing when the
+// profile has none.
+func (p *Profile) WriteNone(w io.Writer) error {
+	if p.OutputNone == "" {
+		return nil
+	}
+	if _, err := io.WriteString(w, p.OutputNone+"\n"); err != nil {
 		return fmt.Errorf("write hook output: %w", err)
 	}
 	return nil
@@ -312,27 +381,69 @@ func (p *Profile) Write(w io.Writer, brief string) error {
 // `brain hook` with it (§12.1 exclusion), so input of the profile's own shape does not set the
 // adapter to retest.
 func (p *Profile) StartInput(sessionID, cwd string) ([]byte, error) {
-	doc := map[string]any{}
-	put(doc, p.Input.SessionID, sessionID)
-	put(doc, p.Input.CWD, cwd)
-	if p.cond.path != "" {
-		put(doc, p.cond.path, p.cond.value)
+	doc := put(nil, p.Input.SessionID, sessionID)
+	doc = put(doc, p.Input.CWD, cwd)
+	for _, c := range p.cond {
+		doc = put(doc, c.path, c.value)
 	}
 	return json.Marshal(doc)
 }
 
-// put sets the dotted JSON path in doc to v, and makes the nested objects on the way.
-func put(doc map[string]any, path string, v any) {
-	keys := strings.Split(path, ".")
-	for _, k := range keys[:len(keys)-1] {
-		next, ok := doc[k].(map[string]any)
-		if !ok {
-			next = map[string]any{}
-			doc[k] = next
+// pathRe is one dot-separated part of a JSON path: an object key, then zero or more array
+// steps such as "[0]".
+var pathRe = regexp.MustCompile(`^([^.\[\]]+)((?:\[\d+\])*)$`)
+
+// stepRe is one array step of a path part.
+var stepRe = regexp.MustCompile(`\[(\d+)\]`)
+
+// steps splits a JSON path, for example "injectSteps[0].ephemeralMessage", into its steps: a
+// string for an object key, an int for an array index.
+func steps(path string) ([]any, error) {
+	var out []any
+	for _, part := range strings.Split(path, ".") {
+		m := pathRe.FindStringSubmatch(part)
+		if m == nil {
+			return nil, fmt.Errorf("bad JSON path %q", path)
 		}
-		doc = next
+		out = append(out, m[1])
+		for _, s := range stepRe.FindAllStringSubmatch(m[2], -1) {
+			i, err := strconv.Atoi(s[1])
+			if err != nil {
+				return nil, fmt.Errorf("bad JSON path %q: %w", path, err)
+			}
+			out = append(out, i)
+		}
 	}
-	doc[keys[len(keys)-1]] = v
+	return out, nil
+}
+
+// put sets the JSON path in doc to v, makes the objects and arrays on the way, and returns
+// the new doc. A nil doc is a new object. The profile check has parsed each path.
+func put(doc any, path string, v any) any {
+	st, _ := steps(path)
+	return assign(doc, st, v)
+}
+
+// assign sets the value at steps st under node to v; see put.
+func assign(node any, st []any, v any) any {
+	if len(st) == 0 {
+		return v
+	}
+	if i, ok := st[0].(int); ok {
+		arr, _ := node.([]any)
+		for len(arr) <= i {
+			arr = append(arr, nil)
+		}
+		arr[i] = assign(arr[i], st[1:], v)
+		return arr
+	}
+	key, _ := st[0].(string)
+	obj, ok := node.(map[string]any)
+	if !ok {
+		obj = map[string]any{}
+	}
+	obj[key] = assign(obj[key], st[1:], v)
+	return obj
 }
 
 // text returns the non-empty string at path in doc, or an error that wraps ErrRetest.
@@ -345,16 +456,30 @@ func text(doc map[string]any, path string) (string, error) {
 	return s, nil
 }
 
-// lookup follows a dotted JSON path, for example "session.id", through nested objects.
+// lookup follows a JSON path, for example "session.id" or "workspacePaths[0]", through nested
+// objects and arrays.
 func lookup(doc map[string]any, path string) (any, bool) {
+	st, err := steps(path)
+	if err != nil {
+		return nil, false
+	}
 	var v any = doc
-	for _, key := range strings.Split(path, ".") {
-		obj, ok := v.(map[string]any)
-		if !ok {
-			return nil, false
-		}
-		if v, ok = obj[key]; !ok {
-			return nil, false
+	for _, s := range st {
+		switch s := s.(type) {
+		case string:
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return nil, false
+			}
+			if v, ok = obj[s]; !ok {
+				return nil, false
+			}
+		case int:
+			arr, ok := v.([]any)
+			if !ok || s >= len(arr) {
+				return nil, false
+			}
+			v = arr[s]
 		}
 	}
 	return v, true

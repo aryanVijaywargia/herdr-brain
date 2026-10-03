@@ -97,7 +97,7 @@ func Check(ctx context.Context, h Panes, f Files, profiles []*adapter.Profile) (
 		s := Status{Kind: p.Kind, Detected: detected(panes, p.Kind)}
 		e, ok := rec.Entries[p.Kind]
 		if ok {
-			if s.Configured, err = configured(e, p.Events.Start); err != nil {
+			if s.Configured, err = configured(e, p.HookKey(), p.Events.Start); err != nil {
 				return nil, err
 			}
 		}
@@ -137,10 +137,10 @@ func detected(panes []herdr.Pane, kind string) bool {
 	return false
 }
 
-// configured reports whether the start event array of the hook file holds a matcher group
-// with the recorded hash. The group must be there, not only somewhere in the file: only the
-// start event delivers the brief.
-func configured(e install.Entry, event string) (bool, error) {
+// configured reports whether the start event array in the hooks object at root key key of the
+// hook file holds an entry with the recorded hash. The entry must be there, not only somewhere
+// in the file: only the start event delivers the brief.
+func configured(e install.Entry, key, event string) (bool, error) {
 	data, err := os.ReadFile(e.Target)
 	// A deleted hook file holds no entry.
 	if errors.Is(err, fs.ErrNotExist) {
@@ -149,14 +149,16 @@ func configured(e install.Entry, event string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	// RawMessage keeps the exact bytes of each group, as install hashed them.
-	var doc struct {
-		Hooks map[string][]json.RawMessage `json:"hooks"`
-	}
-	if json.Unmarshal(data, &doc) != nil {
+	// RawMessage keeps the exact bytes of each entry, as install hashed them.
+	// The other root members, and the other members of the hooks object such as the agy
+	// "enabled" flag, may be of any shape.
+	var root, hooks map[string]json.RawMessage
+	var entries []json.RawMessage
+	if json.Unmarshal(data, &root) != nil || json.Unmarshal(root[key], &hooks) != nil ||
+		json.Unmarshal(hooks[event], &entries) != nil {
 		return false, nil //nolint:nilerr // a file of another shape holds no start hook that the CLI runs
 	}
-	for _, g := range doc.Hooks[event] {
+	for _, g := range entries {
 		sum := sha256.Sum256(g)
 		if hex.EncodeToString(sum[:]) == e.SHA256 {
 			return true, nil

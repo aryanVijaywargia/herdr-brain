@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -215,8 +216,13 @@ func TestLoadErrors(t *testing.T) {
 	}{
 		{"unknown field", good + "events.notify = \"PostToolUse\"\n", `unknown field "events.notify"`},
 		{"missing field", strings.Replace(good, `input.cwd = "workspace.dir"`, "", 1), "input.cwd is empty"},
-		{"unknown output form", strings.Replace(good, "hookSpecificOutput.additionalContext", "injectSteps.ephemeralMessage", 1), "unknown output_form"},
+		{"bad output path", strings.Replace(good, "hookSpecificOutput.additionalContext", "injectSteps[x].ephemeralMessage", 1), "output_form"},
+		{"empty output step", strings.Replace(good, "hookSpecificOutput.additionalContext", "injectSteps..ephemeralMessage", 1), "output_form"},
+		{"bad input path", strings.Replace(good, `"workspace.dir"`, `"workspace[0"`, 1), "input.cwd"},
+		{"bad none output", good + "output_none = \"{\"\n", "output_none"},
 		{"bad condition", strings.Replace(good, "turn.index == 0", "turn.index < 1", 1), "start_condition"},
+		{"bad second check", strings.Replace(good, "turn.index == 0", "turn.index == 0 && turn.steps", 1), "start_condition"},
+		{"bad condition path", strings.Replace(good, "turn.index == 0", "turn[a] == 0", 1), "start_condition"},
 		{"bad condition value", strings.Replace(good, "turn.index == 0", "turn.index == zero", 1), "start_condition"},
 		{"bad toml", "kind = ", "profile fake.toml"},
 	}
@@ -251,5 +257,97 @@ func TestNoiseLines(t *testing.T) {
 	}
 	if p, err := Load("codex"); err != nil || p.Noise("› type here") {
 		t.Errorf("Load(codex) = %v; a profile without noise_lines drops no line", err)
+	}
+}
+
+// TestAgyLike (E16-S11 AC): a fake profile with each new form runs with no Go change, on the
+// agy 1.2.16 hook inputs of E16-S2 (spike/m0/agyopencode/fixtures): an output path with an
+// array step, the "nothing" output, a start condition with two checks and input paths with an
+// array index.
+func TestAgyLike(t *testing.T) {
+	p, err := LoadFS(os.DirFS("testdata/agylike"), "agylike")
+	if err != nil {
+		t.Fatalf("LoadFS(agylike) = %v", err)
+	}
+	const id = "f4920981-0957-42c7-8391-1cdf6b5153fd"
+	raw := readFile(t, "agy/preinvocation-new.json")
+	in, err := p.Parse(raw)
+	want := Input{SessionID: id, CWD: "/private/tmp/e16s2/agy",
+		TranscriptPath: "~/.gemini/antigravity-cli/brain/" + id + "/.system_generated/logs/transcript_full.jsonl"}
+	if err != nil || in != want {
+		t.Errorf("Parse(new conversation) = %+v, %v, want %+v", in, err, want)
+	}
+	got, err := hook(t, p, raw, string(readFile(t, "brief.txt")))
+	if golden := readFile(t, "agylike.golden"); err != nil || !bytes.Equal(got, golden) {
+		t.Errorf("output = %s, %v, want\n%s", got, err, golden)
+	}
+
+	// invocationNum 1 (a call after a tool step), and initialNumSteps 4 (the next turn).
+	for _, name := range []string{"agy/preinvocation-after-tool.json", "agy/preinvocation-next-turn.json"} {
+		out, err := hook(t, p, readFile(t, name), "brief")
+		if !errors.Is(err, ErrNotStart) || len(out) != 0 {
+			t.Errorf("hook(%s) = %q, %v, want no brief and ErrNotStart", name, out, err)
+		}
+	}
+	var none bytes.Buffer
+	if err := p.WriteNone(&none); err != nil || none.String() != "{}\n" {
+		t.Errorf("WriteNone() = %q, %v, want {}", none.String(), err)
+	}
+
+	// A missing check path, or an index past the end of the array, is an unknown shape.
+	for _, raw := range []string{
+		`{"conversationId":"c","workspacePaths":["/w"],"invocationNum":0}`,
+		`{"conversationId":"c","workspacePaths":[],"invocationNum":0,"initialNumSteps":1}`,
+		`{"conversationId":"c","workspacePaths":"/w","invocationNum":0,"initialNumSteps":1}`,
+	} {
+		if _, err := p.Parse([]byte(raw)); !errors.Is(err, ErrRetest) {
+			t.Errorf("Parse(%s) = %v, want ErrRetest", raw, err)
+		}
+	}
+
+	r, err := p.ParseRecord(EventTool, readFile(t, "agy/posttooluse-run_command.json"))
+	if err != nil || r.SessionID != "6f1a7c3a-6c3f-4af7-a7da-25fb3120324c" || r.CWD != "/private/tmp/e16s2/agy" ||
+		r.Command != "ls" || r.ExitStatus != nil {
+		t.Errorf("ParseRecord(tool) = %+v, %v, want command ls in /private/tmp/e16s2/agy, no exit status", r, err)
+	}
+
+	// The eval runner's start input has the profile's own shape, array steps too.
+	start, err := p.StartInput("s-1", "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"conversationId":"s-1","initialNumSteps":1,"invocationNum":0,"workspacePaths":["/w"]}`; string(start) != want {
+		t.Errorf("StartInput() = %s, want %s", start, want)
+	}
+	if in, err := p.Parse(start); err != nil || in != (Input{SessionID: "s-1", CWD: "/w"}) {
+		t.Errorf("Parse(StartInput()) = %+v, %v", in, err)
+	}
+}
+
+// TestNoneOutput: Claude and Codex keep printing nothing for "nothing" (E16-S11).
+func TestNoneOutput(t *testing.T) {
+	for _, harness := range []string{"claude", "codex"} {
+		p, err := Load(harness)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		if err := p.WriteNone(&out); err != nil || out.Len() != 0 {
+			t.Errorf("%s: WriteNone() = %q, %v, want nothing", harness, out.String(), err)
+		}
+	}
+}
+
+func TestPath(t *testing.T) {
+	doc := map[string]any{"a": []any{map[string]any{"b": "x"}, []any{"y", "z"}}}
+	for path, want := range map[string]any{"a[0].b": "x", "a[1][1]": "z", "a[2]": nil, "a.b": nil, "a[0].c": nil} {
+		got, ok := lookup(doc, path)
+		if got != want || ok != (want != nil) {
+			t.Errorf("lookup(%q) = %v, %v, want %v", path, got, ok, want)
+		}
+	}
+	b, err := json.Marshal(put(nil, "a[1].b", "v"))
+	if err != nil || string(b) != `{"a":[null,{"b":"v"}]}` {
+		t.Errorf("put(a[1].b) = %s, %v", b, err)
 	}
 }

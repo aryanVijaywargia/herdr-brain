@@ -1,0 +1,20 @@
+# A profile for a fake agy-like harness (E16-S11 AC), with the forms of the agy 1.2.16 facts
+# (spike/m0/FINDINGS.md "E16-S2"). The base adapter runs it with no Go change.
+kind = "agylike"
+install_target = "~/.gemini/config/hooks.json"
+# A named hook at the root of hooks.json, with flat handlers for the events but the tool event.
+hooks_key = "brain"
+flat_handlers = true
+events.start = "PreInvocation"
+events.tool = ["PostToolUse"]
+events.tool_matcher = "run_command"
+# invocationNum is 0 at each turn; initialNumSteps is 1 only at the first turn.
+start_condition = "invocationNum == 0 && initialNumSteps == 1"
+output_form = "injectSteps[0].ephemeralMessage"
+output_none = "{}"
+input.session_id = "conversationId"
+input.cwd = "workspacePaths[0]"
+input.transcript_path = "transcriptPath"
+input.command = "toolCall.args.CommandLine"
+input.error = "error"
+tested_version = "1.2.16"

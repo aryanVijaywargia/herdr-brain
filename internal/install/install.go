@@ -54,8 +54,10 @@ const (
 )
 
 // The wraps say what install created around the entry, so uninstall removes exactly that.
+// The hooks object is the root member of the profile's hook key: "hooks" for Claude and
+// Codex, a named hook for agy (adapter.Profile.HookKey).
 const (
-	wrapGroup = "group" // one matcher group in the existing event array
+	wrapGroup = "group" // one entry in the existing event array
 	wrapEvent = "event" // the event member, "SessionStart":[entry], in the hooks object
 	wrapHooks = "hooks" // the hooks member, "hooks":{"SessionStart":[entry]}, in the root
 )
@@ -312,7 +314,8 @@ func (in *Installer) target(p *adapter.Profile) string {
 }
 
 // entry builds the frozen Brain entry of hook h of p: one matcher group with one command
-// handler (§8.3). The Codex profile sets additional_context_limit 0, so Codex sends the whole
+// handler (§8.3), or the handler alone for a profile with flat handlers, except for a tool
+// event (E16-S11). The Codex profile sets additional_context_limit 0, so Codex sends the whole
 // brief inline; the field is in the start entry and its hash, so Codex trust covers it (E8
 // epic). A tool entry has the matcher of the shell tool (§6.1).
 func (in *Installer) entry(p *adapter.Profile, h adapter.Hook, target string) (Entry, error) {
@@ -327,11 +330,15 @@ func (in *Installer) entry(p *adapter.Profile, h adapter.Hook, target string) (E
 	if h.Event != adapter.EventStart {
 		limit = nil // a hook record prints nothing
 	}
-	group := struct {
-		Matcher string    `json:"matcher,omitempty"`
-		Hooks   []handler `json:"hooks"`
-	}{h.Matcher, []handler{{"command", command, entryTimeout, limit}}}
-	b, err := json.Marshal(group)
+	hd := handler{"command", command, entryTimeout, limit}
+	var v any = hd
+	if !p.FlatHandlers || h.Event == adapter.EventTool {
+		v = struct {
+			Matcher string    `json:"matcher,omitempty"`
+			Hooks   []handler `json:"hooks"`
+		}{h.Matcher, []handler{hd}}
+	}
+	b, err := json.Marshal(v)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -363,14 +370,15 @@ func insert(b []byte, event string, p *adapter.Profile, e, prev Entry) (out []by
 	if err != nil || root.kind != '{' {
 		return nil, "", "", layoutError(e, event, "the file is not one JSON object")
 	}
-	hi := root.member("hooks")
+	key := p.HookKey()
+	hi := root.member(key)
 	if hi < 0 {
-		text := `"hooks":{` + jsonString(event) + ":[" + e.Text + "]}"
+		text := jsonString(key) + ":{" + jsonString(event) + ":[" + e.Text + "]}"
 		return spliceAppend(b, root, text), wrapHooks, Added, nil
 	}
 	hooks := root.items[hi].val
 	if hooks.kind != '{' {
-		return nil, "", "", layoutError(e, event, `"hooks" is not an object`)
+		return nil, "", "", layoutError(e, event, fmt.Sprintf("%q is not an object", key))
 	}
 	ei := hooks.member(event)
 	if ei < 0 {
@@ -400,7 +408,7 @@ func remove(b []byte, event string, p *adapter.Profile, e Entry) ([]byte, Status
 	if err != nil || root.kind != '{' {
 		return nil, "", layoutError(e, event, "the file is not one JSON object")
 	}
-	hi := root.member("hooks")
+	hi := root.member(p.HookKey())
 	if hi < 0 || root.items[hi].val.kind != '{' {
 		return nil, NotFound, nil
 	}
@@ -434,21 +442,23 @@ func remove(b []byte, event string, p *adapter.Profile, e Entry) ([]byte, Status
 	return append(b[:from:from], b[to:]...), Removed, nil
 }
 
-// isBrain reports whether the matcher group text has a handler that runs `brain hook` for p.
-// It matches the fixed arguments, not the whole command, so an entry whose command you edited
+// isBrain reports whether the entry text, a matcher group or a flat handler, has a handler
+// that runs `brain hook` for p. It matches the fixed arguments, not the whole command, so an entry whose command you edited
 // still counts as the Brain entry: install adds no second one, and uninstall keeps it and its
 // record.
 func isBrain(text []byte, p *adapter.Profile) bool {
-	var g struct {
-		Hooks []struct {
-			Command string `json:"command"`
-		} `json:"hooks"`
+	type handler struct {
+		Command string `json:"command"`
 	}
-	// A group of another shape is not a Brain entry, so a decode error means "no".
+	var g struct {
+		handler
+		Hooks []handler `json:"hooks"`
+	}
+	// An entry of another shape is not a Brain entry, so a decode error means "no".
 	if json.Unmarshal(text, &g) != nil {
 		return false
 	}
-	for _, h := range g.Hooks {
+	for _, h := range append(g.Hooks, g.handler) {
 		if strings.Contains(h.Command, " hook --profile "+p.Kind+" ") {
 			return true
 		}

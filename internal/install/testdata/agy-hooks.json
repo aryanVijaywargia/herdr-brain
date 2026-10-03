@@ -1,0 +1,18 @@
+{
+  "lint-checker": {
+    "PostToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          { "type": "command", "command": "./scripts/lint.sh", "timeout": 10 }
+        ]
+      }
+    ]
+  },
+  "reminder": {
+    "enabled": false,
+    "PreInvocation": [
+      { "type": "command", "command": "./scripts/reminder.sh" }
+    ]
+  }
+}

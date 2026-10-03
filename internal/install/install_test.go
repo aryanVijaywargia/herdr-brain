@@ -602,3 +602,65 @@ func TestRemoveRecord(t *testing.T) {
 		t.Errorf("lock file after RemoveRecord: %v, want it kept", err)
 	}
 }
+
+// TestNamedHookLayout (E16-S11 AC): install and uninstall in the agy hooks.json layout of
+// E16-S2 (a named hook at the root, flat handlers but for the tool event) keep every other
+// byte, and the entries are where the layout wants them.
+func TestNamedHookLayout(t *testing.T) {
+	p, err := adapter.LoadFS(os.DirFS("../adapter/testdata/agylike"), "agylike")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, data string }{
+		{"other named hooks", string(read(t, filepath.Join("testdata", "agy-hooks.json")))},
+		{"brain key with another event", "{\n  \"brain\": {\n    \"Stop\": [{\"command\": \"x\"}]\n  }\n}\n"},
+		{"empty object", "{}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := newInstaller(t)
+			path := put(t, in, p, []byte(tc.data))
+			for _, h := range p.Hooks() {
+				expect(t, "InstallHook("+h.CLIEvent+")", Added)(in.InstallHook(p, h))
+				expect(t, "InstallHook("+h.CLIEvent+") again", Present)(in.InstallHook(p, h))
+			}
+			var doc struct {
+				Brain map[string][]map[string]any `json:"brain"`
+			}
+			if err := json.Unmarshal(read(t, path), &doc); err != nil {
+				t.Fatalf("hook file: %v\n%s", err, read(t, path))
+			}
+			start, tool := doc.Brain["PreInvocation"], doc.Brain["PostToolUse"]
+			if len(start) != 1 || start[0]["command"] != fakeBinary+" hook --profile agylike --event start" || start[0]["hooks"] != nil {
+				t.Errorf("PreInvocation = %v, want one flat handler", start)
+			}
+			if len(tool) != 1 || tool[0]["matcher"] != "run_command" || tool[0]["hooks"] == nil {
+				t.Errorf("PostToolUse = %v, want one run_command group", tool)
+			}
+			expect(t, "Uninstall", Removed)(in.Uninstall(p))
+			if got := string(read(t, path)); got != tc.data {
+				t.Errorf("after uninstall:\n%s\nwant\n%s", got, tc.data)
+			}
+		})
+	}
+}
+
+// TestNamedHookEdited: a flat Brain handler that you edited stays, and install adds no second
+// one (§8.1).
+func TestNamedHookEdited(t *testing.T) {
+	p, err := adapter.LoadFS(os.DirFS("../adapter/testdata/agylike"), "agylike")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := newInstaller(t)
+	path := put(t, in, p, []byte("{}"))
+	expect(t, "Install", Added)(in.Install(p))
+	edited := strings.Replace(string(read(t, path)), `"timeout":5`, `"timeout":9`, 1)
+	if err := os.WriteFile(path, []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	expect(t, "Install", Edited)(in.Install(p))
+	expect(t, "Uninstall", Edited)(in.Uninstall(p))
+	if got := string(read(t, path)); got != edited {
+		t.Errorf("file = %s, want the edited one %s", got, edited)
+	}
+}

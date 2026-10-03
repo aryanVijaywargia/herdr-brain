@@ -1020,3 +1020,93 @@ func TestTiming(t *testing.T) {
 		t.Errorf("p99 = %v in each of %d rounds, want < %v (probe stall %v)", last.p99, timingRounds, timingTarget, last.stall)
 	}
 }
+
+// TestNoneOutput (E16-S11 AC): a profile with output_none prints it for each run that delivers
+// nothing: outside herdr, a call that is not the start (invocationNum 1, or initialNumSteps
+// above 1, agy 1.2.16 inputs of E16-S2), an unknown input shape and a hook record. A start
+// prints the brief in the profile's output form, and no "nothing" output after it.
+func TestNoneOutput(t *testing.T) {
+	p, err := adapter.LoadFS(os.DirFS("../adapter/testdata/agylike"), "agylike")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := func(name string) string {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join("../adapter/testdata/agy", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	tests := []struct {
+		name, event, input string
+		outside            bool
+		wantErr            error
+	}{
+		{"outside herdr", "", fixture("preinvocation-new.json"), true, nil},
+		{"after a tool step", "", fixture("preinvocation-after-tool.json"), false, nil},
+		{"next turn", "", fixture("preinvocation-next-turn.json"), false, nil},
+		{"unknown shape", "", `{"conversationId":"c"}`, false, adapter.ErrRetest},
+		{"tool record", adapter.EventTool, fixture("posttooluse-run_command.json"), false, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			env := environ(f.mainSock, "", "w14:p1", "w14")
+			if tt.outside {
+				env = []string{"HOME=/home/me"}
+			}
+			h := f.hook(p, env)
+			h.Event = tt.event
+			var out bytes.Buffer
+			err := h.Run(context.Background(), strings.NewReader(tt.input), &out)
+			if !errors.Is(err, tt.wantErr) || out.String() != "{}\n" {
+				t.Errorf("Run() = %v, output %q; want %v and {}", err, out.String(), tt.wantErr)
+			}
+			if ds := deliveries(t, f.mainStore); len(ds) != 0 {
+				t.Errorf("receipts = %s, want none", show(ds[0]))
+			}
+		})
+	}
+
+	f := newFixture(t)
+	var out bytes.Buffer
+	if err := f.hook(p, environ(f.mainSock, "", "w14:p1", "w14")).Run(context.Background(), strings.NewReader(fixture("preinvocation-new.json")), &out); err != nil {
+		t.Fatalf("Run(new conversation) = %v", err)
+	}
+	var got struct {
+		InjectSteps []struct {
+			EphemeralMessage string `json:"ephemeralMessage"`
+		} `json:"injectSteps"`
+	}
+	dec := json.NewDecoder(&out)
+	if err := dec.Decode(&got); err != nil || len(got.InjectSteps) != 1 || !strings.Contains(got.InjectSteps[0].EphemeralMessage, "brain:begin") || dec.More() {
+		t.Errorf("Run(new conversation) printed %+v, %v; want one brief and nothing after it", got, err)
+	}
+}
+
+// TestNoneOutputCap (S50): the output for "nothing" is under the cap too, so a stalled stdout
+// ends Run by the cap, also outside herdr and for a call that is not the start.
+func TestNoneOutputCap(t *testing.T) {
+	p, err := adapter.LoadFS(os.DirFS("../adapter/testdata/agylike"), "agylike")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, env := range [][]string{{"HOME=/home/me"}, nil} {
+		f := newFixture(t)
+		if env == nil {
+			env = environ(f.mainSock, "", "w14:p1", "w14")
+		}
+		h := f.hook(p, env)
+		ended := make(chan struct{})
+		h.ended = func() { close(ended) }
+		bw := &blockedWriter{release: make(chan struct{}), started: make(chan struct{})}
+		err := h.Run(context.Background(), strings.NewReader(`{"invocationNum":1}`), bw)
+		if took := time.Since(h.Start); !errors.Is(err, errCapped) || took > hookCap+capSlack {
+			t.Errorf("Run(%q) = %v after %v, want %v by %v", env, err, took, errCapped, hookCap+capSlack)
+		}
+		<-bw.started
+		close(bw.release)
+		<-ended
+	}
+}

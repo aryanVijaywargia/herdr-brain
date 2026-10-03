@@ -117,22 +117,23 @@ type Hook struct {
 
 // Run reads the hook input from stdin and prints the brief to stdout, or nothing. A result
 // that withholds the brief is not an error. On an error Run has printed nothing, unless the
-// receipt write after the print failed: then the delivery is unknown (§8.3 step 7).
+// receipt write after the print failed: then the delivery is unknown (§8.3 step 7). For a
+// profile with output_none, "nothing" is that output (E16-S11), also on an error.
 //
 // Run returns by hookCap after Start, also when stdin, herdr or stdout stall. The caller
 // exits then. A run that the cap stops prints nothing after the cap and writes no receipt,
 // so status shows the session as unknown (S50).
 func (h Hook) Run(ctx context.Context, stdin io.Reader, stdout io.Writer) error {
-	// Outside herdr the hook reads no file and asks no herdr (S61).
-	if lookup(h.Environ, "HERDR_ENV") != "1" {
-		return nil
-	}
 	ctx, cancel := context.WithDeadline(ctx, h.Start.Add(hookCap))
 	defer cancel()
 	out := &gate{w: stdout}
 	done := make(chan error, 1)
 	go func() {
-		err := h.run(ctx, stdin, out)
+		err := h.inHerdr(ctx, stdin, out)
+		// The output for "nothing" is under the cap too.
+		if !out.used() {
+			err = errors.Join(err, h.Profile.WriteNone(out))
+		}
 		if h.ended != nil {
 			h.ended()
 		}
@@ -146,6 +147,15 @@ func (h Hook) Run(ctx context.Context, stdin io.Reader, stdout io.Writer) error 
 		out.close()
 		return fmt.Errorf("%w: %w", errCapped, ctx.Err())
 	}
+}
+
+// inHerdr is run for a hook inside herdr. Outside herdr the hook reads no file and asks no
+// herdr (S61).
+func (h Hook) inHerdr(ctx context.Context, stdin io.Reader, stdout io.Writer) error {
+	if lookup(h.Environ, "HERDR_ENV") != "1" {
+		return nil
+	}
+	return h.run(ctx, stdin, stdout)
 }
 
 // run is Run without the cap.
@@ -369,17 +379,27 @@ func (rc *receipts) insert(ctx context.Context, tx *sql.Tx, d store.Delivery) er
 type gate struct {
 	mu     sync.Mutex
 	closed bool
+	wrote  bool // a print came to the gate, before the cap or after it
 	w      io.Writer
 }
 
 func (g *gate) Write(p []byte) (int, error) {
 	g.mu.Lock()
 	closed := g.closed
+	g.wrote = true
 	g.mu.Unlock()
 	if closed {
 		return 0, errCapped
 	}
 	return g.w.Write(p)
+}
+
+// used reports whether the gate is closed or a print came to it: then the output for
+// "nothing" does not go out.
+func (g *gate) used() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.closed || g.wrote
 }
 
 func (g *gate) close() {
