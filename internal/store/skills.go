@@ -88,11 +88,12 @@ func ParseSkill(text string) (Skill, error) {
 // ErrSkillName means that another active skill in the same scope has the name already (§8.2).
 var ErrSkillName = errors.New("another active skill in this scope has this name")
 
-// ActiveSkills reads the current revision of each active skill item, in item id order.
+// ActiveSkills reads the current revision of each delivered skill item, in item id order: the
+// active skills and the disputed ones (§9.1).
 func ActiveSkills(ctx context.Context, tx *sql.Tx) ([]ItemRevision, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT `+revisionColumns+` FROM item_revisions r
 		JOIN items i ON r.item_id = i.id AND r.revision = i.current_revision
-		WHERE i.state = ? AND i.kind = ? ORDER BY i.id`, StateActive, KindSkill)
+		WHERE i.state IN (?, ?) AND i.kind = ? ORDER BY i.id`, StateActive, StateDisputed, KindSkill)
 	if err != nil {
 		return nil, fmt.Errorf("read active skills: %w", err)
 	}

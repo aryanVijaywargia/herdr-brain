@@ -375,7 +375,7 @@ func TestEraseItemClaimText(t *testing.T) {
 		{"a global item", func(t *testing.T, e *evidenceStore, claim string) {
 			write(t, e.Store, func(tx *sql.Tx) error {
 				_, err := InsertItem(ctx, tx, Item{ClaimID: claim, CurrentRevision: 1, Kind: KindFact, Scope: ScopeGlobal,
-					State: StateActive, Anchors: []string{}, Created: testNow})
+					State: StateActive, Created: testNow})
 				return err
 			})
 		}, true},
@@ -398,7 +398,7 @@ func TestEraseItemClaimText(t *testing.T) {
 					return err
 				}
 				item, err = InsertItem(ctx, tx, Item{ClaimID: claim, CurrentRevision: 1, Kind: KindFact, Scope: ScopeWorkspace,
-					WorkspaceKey: ptr("ka"), State: StateActive, Anchors: []string{}, Created: testNow})
+					WorkspaceKey: ptr("ka"), State: StateActive, Created: testNow})
 				return err
 			})
 			tc.other(t, e, claim)

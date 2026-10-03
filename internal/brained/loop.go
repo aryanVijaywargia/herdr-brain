@@ -35,6 +35,7 @@ type daemon struct {
 	queue        int
 	onBehind     func()                                  // tests only: called after a reader drops an event
 	extract      func(ctx context.Context, g Gate) error // one extraction pass of the store of g; nil for none
+	stale        func(ctx context.Context, g Gate) error // the stale check of every workspace of the store of g; nil for none
 }
 
 // item is one event, or the end of a stream, from a reader.
@@ -67,6 +68,10 @@ type loop struct {
 	extracting  bool       // an extraction pass runs
 	lastExtract time.Time  // the start of the last extraction pass
 	extracted   chan error // the end of an extraction pass
+
+	staling   bool       // a stale check runs
+	lastStale time.Time  // the start of the last stale check of every workspace
+	staled    chan error // the end of a stale check
 }
 
 // run connects, reconciles and then handles events until an ErrStop or ctx ends.
@@ -103,8 +108,12 @@ func (d *daemon) run(ctx context.Context) error {
 				l.report(l.sync(ctx, GapLearning, false))
 			}
 			l.extract(ctx)
+			l.checkStale(ctx)
 		case err := <-l.extracted:
 			l.extracting = false
+			l.report(err)
+		case err := <-l.staled:
+			l.staling = false
 			l.report(err)
 		}
 	}
@@ -112,7 +121,23 @@ func (d *daemon) run(ctx context.Context) error {
 
 func newLoop(d *daemon) *loop {
 	return &loop{d: d, items: make(chan item, d.queue), behind: make(chan struct{}, 1), panes: map[string]*pane{},
-		extracted: make(chan error, 1)}
+		extracted: make(chan error, 1), staled: make(chan error, 1)}
+}
+
+// checkStale starts the stale check of every workspace of the bound store (§9.1 "once a
+// day"), unless one runs or the last one started less than staleEvery ago. The first tick
+// with a binding starts one. It runs beside the loop, as the extraction pass.
+func (l *loop) checkStale(ctx context.Context) {
+	if l.d.stale == nil || l.gate == nil || l.staling || !l.lastStale.IsZero() && time.Since(l.lastStale) < staleEvery {
+		return
+	}
+	l.staling, l.lastStale = true, time.Now()
+	g := *l.gate
+	l.wg.Add(1)
+	go func() {
+		defer l.wg.Done()
+		l.staled <- l.d.stale(ctx, g)
+	}()
 }
 
 // extract starts an extraction pass of the bound store (§7.3), unless one runs or the last

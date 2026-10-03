@@ -48,7 +48,7 @@ func addFixture(t *testing.T, s *Store) fixture {
 		ws: Workspace{Key: "k1", HerdrSession: "default", HerdrWorkspaceID: "w1", Label: "brain",
 			RootFolder: ptr("/src/brain"), Status: WorkspaceLive, LastSeen: testNow},
 		item: Item{ClaimID: "c1", CurrentRevision: 1, Kind: KindFact, Scope: ScopeWorkspace,
-			WorkspaceKey: ptr("k1"), State: StateActive, Anchors: []string{"a.go"}, Created: testNow},
+			WorkspaceKey: ptr("k1"), State: StateActive, Anchors: []Anchor{{Root: "/r", Path: "a.go", Blob: "b1"}}, Created: testNow},
 		proposal: Proposal{Text: "use pnpm", Scope: ScopeWorkspace, Target: "fact", Diff: "+use pnpm",
 			ExpectedBenefit: "stops the npm lockfile mistake", TriggerPrompts: []string{"h1"}, ConflictsWith: []int64{1},
 			Status: ProposalPending, Created: testNow},
@@ -364,7 +364,7 @@ func TestRoundTrip(t *testing.T) {
 		}},
 		{"item", func(tx *sql.Tx) (any, any, error) {
 			it := Item{ClaimID: "c2", CurrentRevision: 3, Kind: KindHandoff, Scope: ScopeGlobal,
-				State: StateDraft, Pinned: true, Anchors: []string{"x", "y"}, Created: testNow}
+				State: StateDraft, Pinned: true, Anchors: []Anchor{{Root: "/r", Path: "x", Blob: "b1"}, {Root: "/r", Path: "y", Blob: "b2"}}, Created: testNow}
 			id, err := InsertItem(ctx, tx, it)
 			if err != nil {
 				return nil, nil, err
@@ -390,6 +390,7 @@ func TestRoundTrip(t *testing.T) {
 			p.CandidateID, p.BaseRevision, p.PermissionWarning = ptr[int64](7), ptr[int64](1), true
 			p.ChangeRequest, p.Status, p.Surface = ptr("shorter"), ProposalChanged, ptr(SurfacePane)
 			p.Decided, p.ReviewSeconds = later, ptr[int64](12)
+			p.Dispute = []string{"a.go"}
 			id, err := InsertProposal(ctx, tx, p)
 			if err != nil {
 				return nil, nil, err

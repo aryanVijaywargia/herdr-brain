@@ -74,6 +74,7 @@ func Main(ctx context.Context, environ []string, log io.Writer) error {
 		env: e, sock: herdr.Socket{Path: e.socket}, bindingsFile: bf,
 		handler: NewCapture(herdr.Socket{Path: e.socket}, environ), log: log, tick: t.C,
 		tries: connectTries, pause: connectPause, queue: queueSize, extract: extractPass,
+		stale: func(ctx context.Context, g Gate) error { return Stale(ctx, g, "", time.Now) },
 	}
 	return d.run(ctx)
 }

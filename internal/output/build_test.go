@@ -651,7 +651,7 @@ func TestConflictMarkOnWorkspaceItem(t *testing.T) {
 		{ItemID: 3, Text: "use yarn", Scope: store.ScopeGlobal},
 		{ItemID: 4, Text: "use bun", Scope: store.ScopeWorkspace, WorkspaceKey: &key, ExceptionToItem: ptr64(3)},
 	}
-	global, byKey := split(revs)
+	global, byKey := split(revs, marks{})
 	if got := global[0].ConflictsWith; !slices.Equal(got, []int64{3}) {
 		t.Errorf("global item 1 conflicts = %v, want [3]", got)
 	}

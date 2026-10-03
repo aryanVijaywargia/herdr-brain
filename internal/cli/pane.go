@@ -98,6 +98,7 @@ type reviewPane struct {
 	// exception [NEW key x].
 	conflict string
 	msg      string // the result of the last key
+	dispute  bool   // the proposal is a dispute (§9.1): the pane offers keep, edit and retire
 }
 
 // run shows the proposal and reads keys until a decision, q or the end of input. It reads
@@ -109,7 +110,7 @@ func (p *reviewPane) run(ctx context.Context) error {
 		if err != nil {
 			return p.close(ctx, err)
 		}
-		p.view = view
+		p.view, p.dispute = view, strings.Contains(view, "\n"+disputeLine)
 		p.draw("")
 		k, _, err := p.keys.ReadRune()
 		if errors.Is(err, io.EOF) {
@@ -128,6 +129,9 @@ func (p *reviewPane) run(ctx context.Context) error {
 // key runs the action of key k. done is true when the proposal is decided, or stays in the
 // queue with later. Any other error is on the screen, and the pane goes on.
 func (p *reviewPane) key(ctx context.Context, k rune) (done bool, err error) {
+	if p.dispute {
+		return p.disputeKey(ctx, k)
+	}
 	switch k {
 	case 'a':
 		return p.approve(ctx, nil)
@@ -147,6 +151,22 @@ func (p *reviewPane) key(ctx context.Context, k rune) (done bool, err error) {
 		p.msg = ""
 	case 'p':
 		p.pin, p.msg = !p.pin, ""
+	}
+	return false, nil
+}
+
+// disputeKey runs the action of key k on a dispute: keep, edit then approve, retire or later
+// (§9.1). [NEW keys k and t]. The other keys do nothing: reject is refused for a dispute.
+func (p *reviewPane) disputeKey(ctx context.Context, k rune) (done bool, err error) {
+	switch k {
+	case 'k':
+		return p.decide(ctx, "--keep")
+	case 'e':
+		return p.edit(ctx)
+	case 't':
+		return p.decide(ctx, "--retire")
+	case 'l':
+		return p.decide(ctx, "--later")
 	}
 	return false, nil
 }
@@ -278,8 +298,13 @@ func (p *reviewPane) draw(prompt string) {
 	pin := map[bool]string{true: "yes", false: "no"}[p.pin]
 	conflict := cmp.Or(p.conflict, conflictKeep)
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s%s\napprove with scope: %s, pin: %s, on a conflict: %s\n\n", clearScreen, p.view, scope, pin, conflict)
-	b.WriteString("a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  q close\n")
+	if p.dispute {
+		fmt.Fprintf(&b, "%s%s\n", clearScreen, p.view)
+		b.WriteString("k keep  e edit  t retire  l later  q close\n")
+	} else {
+		fmt.Fprintf(&b, "%s%s\napprove with scope: %s, pin: %s, on a conflict: %s\n\n", clearScreen, p.view, scope, pin, conflict)
+		b.WriteString("a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  q close\n")
+	}
 	if p.msg != "" {
 		fmt.Fprintf(&b, "\n%s\n", strings.TrimSpace(p.msg))
 	}

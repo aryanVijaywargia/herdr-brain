@@ -47,7 +47,7 @@ func (f *fixture) activeItem(key *string, text string) {
 			return err
 		}
 		id, err := store.InsertItem(ctx, tx, store.Item{ClaimID: claim, CurrentRevision: 1, Kind: store.KindFact,
-			Scope: scope, WorkspaceKey: key, State: store.StateActive, Anchors: []string{}, Created: t0})
+			Scope: scope, WorkspaceKey: key, State: store.StateActive, Created: t0})
 		if err != nil {
 			return err
 		}
