@@ -167,12 +167,12 @@ func (sk Skill) Text() string {
 	return b.String()
 }
 
-// SkillDiff is the diff of a skill patch (§9.2): only the changed lines of new against old,
+// SkillDiff is the diff of a skill patch (§9.2): only the changed lines of next against old,
 // each "- " for a removed line and "+ " for an added line. [NEW] the form: each run of changed
 // lines starts with "@@ line <n>", n the line of old where it starts. The lines that stay are
 // not in it. The diff of a new skill ("" for old) adds all its lines.
-func SkillDiff(old, new string) string {
-	a, b := diffLines(old), diffLines(new)
+func SkillDiff(old, next string) string {
+	a, b := diffLines(old), diffLines(next)
 	// lcs[i][j] is the length of the longest common subsequence of a[i:] and b[j:].
 	lcs := make([][]int, len(a)+1)
 	for i := range lcs {
