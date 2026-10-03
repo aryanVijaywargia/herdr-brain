@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
 )
 
 // days is the time n days after testNow, when the fixture items became active.
@@ -197,5 +198,28 @@ func TestStatusArchive(t *testing.T) {
 	}
 	if !strings.Contains(out, "\narchive: no candidates\n  closed workspace ws_a15 (blog): 2 items, 2 archive candidates;") {
 		t.Errorf("brain status after --all:\n%s", out)
+	}
+}
+
+// Review finding: a workspace that closes after the caller's key was read, while archive waits
+// for the store, neither lists nor retires its items.
+func TestArchiveWorkspaceClosesDuringCall(t *testing.T) {
+	f := newFixture(t)
+	own, _ := f.archiveItems(t)
+	var out bytes.Buffer
+	e := f.env(f.sock, "w14:p1", "w14", &out)
+	e.Now = func() time.Time { return days(91) }
+	sync := e.Sync
+	e.Sync = func(ctx context.Context, s workspace.Session, st *store.Store) error {
+		if err := sync(ctx, s, st); err != nil {
+			return err
+		}
+		return st.Write(ctx, func(tx *sql.Tx) error { return store.CloseWorkspace(ctx, tx, "ws_a14") })
+	}
+	if err := Archive(context.Background(), e, []string{"--all"}); err != nil || !strings.HasPrefix(out.String(), "retired 1 items;") {
+		t.Errorf("Archive(--all) = %q, %v; want only the global item retired", out.String(), err)
+	}
+	if it, _ := f.rows(t).item(t, own); it.State != store.StateActive {
+		t.Errorf("item %d of the closed workspace is %s", own, it.State)
 	}
 }

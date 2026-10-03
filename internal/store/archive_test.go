@@ -171,3 +171,30 @@ func TestClosedWorkspaces(t *testing.T) {
 		t.Errorf("ClosedWorkspaces() = %v, want %v", ws, want)
 	}
 }
+
+// A disputed item is still delivered (§9.1), so it ages like an active one. A candidate of a
+// closed workspace says so, and ClosedWorkspaces counts its disputed items.
+func TestArchiveCandidatesDisputedClosed(t *testing.T) {
+	a := newArchiveStore(t)
+	disputed := a.add(ptr("kB"), false)
+	write(t, a.s, func(tx *sql.Tx) error {
+		_, err := WriteRevision(context.Background(), tx, 1, ItemRevision{ItemID: disputed, Text: "x", Scope: ScopeWorkspace,
+			WorkspaceKey: ptr("kB"), State: StateDisputed, Author: AuthorBrain, Origin: OriginReview, Created: a.day(10)})
+		return err
+	})
+	var cs []ArchiveCandidate
+	var ws []ClosedWorkspace
+	write(t, a.s, func(tx *sql.Tx) (err error) {
+		if cs, err = ArchiveCandidates(context.Background(), tx, a.day(91).Add(-ArchiveAge)); err != nil {
+			return err
+		}
+		ws, err = ClosedWorkspaces(context.Background(), tx)
+		return err
+	})
+	if len(cs) != 1 || cs[0].ItemID != disputed || !cs[0].Closed || !cs[0].Since.Equal(a.t0) {
+		t.Errorf("ArchiveCandidates() = %+v, want item %d of closed kB since day 0", cs, disputed)
+	}
+	if want := []ClosedWorkspace{{Key: "kB", Label: "blog", Items: 1}}; !slices.Equal(ws, want) {
+		t.Errorf("ClosedWorkspaces() = %v, want %v", ws, want)
+	}
+}

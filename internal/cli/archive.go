@@ -45,7 +45,9 @@ func Archive(ctx context.Context, e Env, args []string) (err error) {
 	return cl.listArchive(ctx)
 }
 
-// archiveCandidates reads the archive candidates that the caller sees, the oldest first.
+// archiveCandidates reads the archive candidates that the caller sees, the oldest first. The
+// closed state comes from the same transaction, so a workspace that closed after the caller's
+// key was read shows nothing (§9.4).
 func (cl caller) archiveCandidates(ctx context.Context, tx *sql.Tx) ([]store.ArchiveCandidate, error) {
 	cs, err := store.ArchiveCandidates(ctx, tx, cl.Now().Add(-store.ArchiveAge))
 	if err != nil {
@@ -53,7 +55,7 @@ func (cl caller) archiveCandidates(ctx context.Context, tx *sql.Tx) ([]store.Arc
 	}
 	var seen []store.ArchiveCandidate
 	for _, c := range cs {
-		if cl.sees(c.WorkspaceKey) {
+		if cl.sees(c.WorkspaceKey) && !c.Closed {
 			seen = append(seen, c)
 		}
 	}

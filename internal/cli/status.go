@@ -436,7 +436,7 @@ func (s *statusCall) queue(ctx context.Context, tx *sql.Tx) error {
 const archiveShown = 3
 
 // archive prints the count of the archive candidates that the caller sees and the ids and idle
-// times of the oldest ones, then one count line for each closed workspace with active items
+// times of the oldest ones, then one count line for each closed workspace with live items
 // (§9.2, §9.4). It shows no item text and asks nothing (D7). The items of a closed workspace
 // are in no pane's view: you act on them after a link.
 func (s *statusCall) archive(ctx context.Context, tx *sql.Tx) error {
@@ -448,8 +448,9 @@ func (s *statusCall) archive(ctx context.Context, tx *sql.Tx) error {
 	n := 0
 	byKey := map[string]int{}
 	for _, c := range all {
-		if c.WorkspaceKey != nil {
+		if c.Closed {
 			byKey[*c.WorkspaceKey]++
+			continue
 		}
 		if !s.sees(c.WorkspaceKey) {
 			continue
