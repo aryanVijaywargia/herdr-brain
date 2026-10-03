@@ -97,3 +97,37 @@ func TestCheckSkill(t *testing.T) {
 		t.Errorf("CheckSkill(bad text) = %v, want a parse error", err)
 	}
 }
+
+// Text writes the form that ParseSkill reads back.
+func TestSkillText(t *testing.T) {
+	for _, sk := range []Skill{
+		{Name: "release", Description: "Ship a release.", RequiredTools: "git", Example: "Ship v2.", Steps: "1. Tag.\n2. Push."},
+		{Name: "notes", Description: "d", RequiredTools: "gh", NotAvailable: "gh in codex", Example: "e", Steps: "1. Read."},
+	} {
+		got, err := ParseSkill(sk.Text())
+		if err != nil || got != sk {
+			t.Errorf("ParseSkill(Text()) = %+v, %v, want %+v", got, err, sk)
+		}
+	}
+}
+
+// The diff of a skill patch holds the changed lines only (§9.2).
+func TestSkillDiff(t *testing.T) {
+	old := "---\nname: a\n---\n\n1. One.\n2. Two.\n3. Three.\n"
+	for _, c := range []struct {
+		name, old, new, want string
+	}{
+		{"one changed line", old, "---\nname: a\n---\n\n1. One.\n2. Two, with care.\n3. Three.\n",
+			"@@ line 6\n- 2. Two.\n+ 2. Two, with care."},
+		{"added and removed", old, "---\nname: a\n---\n\n0. Zero.\n1. One.\n2. Two.\n",
+			"@@ line 5\n+ 0. Zero.\n@@ line 7\n- 3. Three."},
+		{"same", old, old, ""},
+		{"new skill", "", "a\nb\n", "@@ line 1\n+ a\n+ b"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := SkillDiff(c.old, c.new); got != c.want {
+				t.Errorf("SkillDiff() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}

@@ -155,3 +155,65 @@ func ptrString(p *string) string {
 	}
 	return *p
 }
+
+// Text is the text form of sk, the text of its skill revision: ParseSkill reads it back.
+func (sk Skill) Text() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "---\nname: %s\ndescription: %s\nrequired-tools: %s\n", sk.Name, sk.Description, sk.RequiredTools)
+	if sk.NotAvailable != "" {
+		fmt.Fprintf(&b, "not-available: %s\n", sk.NotAvailable)
+	}
+	fmt.Fprintf(&b, "example: %s\n---\n\n%s\n", sk.Example, sk.Steps)
+	return b.String()
+}
+
+// SkillDiff is the diff of a skill patch (§9.2): only the changed lines of new against old,
+// each "- " for a removed line and "+ " for an added line. [NEW] the form: each run of changed
+// lines starts with "@@ line <n>", n the line of old where it starts. The lines that stay are
+// not in it. The diff of a new skill ("" for old) adds all its lines.
+func SkillDiff(old, new string) string {
+	a, b := diffLines(old), diffLines(new)
+	// lcs[i][j] is the length of the longest common subsequence of a[i:] and b[j:].
+	lcs := make([][]int, len(a)+1)
+	for i := range lcs {
+		lcs[i] = make([]int, len(b)+1)
+	}
+	for i := len(a) - 1; i >= 0; i-- {
+		for j := len(b) - 1; j >= 0; j-- {
+			if a[i] == b[j] {
+				lcs[i][j] = lcs[i+1][j+1] + 1
+			} else {
+				lcs[i][j] = max(lcs[i+1][j], lcs[i][j+1])
+			}
+		}
+	}
+	var out []string
+	same := true // the last line was a line that stays
+	i, j := 0, 0
+	for i < len(a) || j < len(b) {
+		if i < len(a) && j < len(b) && a[i] == b[j] {
+			i, j, same = i+1, j+1, true
+			continue
+		}
+		if same {
+			out = append(out, fmt.Sprintf("@@ line %d", i+1))
+			same = false
+		}
+		if i < len(a) && (j == len(b) || lcs[i+1][j] >= lcs[i][j+1]) {
+			out = append(out, "- "+a[i])
+			i++
+			continue
+		}
+		out = append(out, "+ "+b[j])
+		j++
+	}
+	return strings.Join(out, "\n")
+}
+
+// diffLines are the lines of s, with no last empty line; none for "".
+func diffLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+}
