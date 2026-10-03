@@ -1,0 +1,18 @@
+{
+  "brain-spike": {
+    "PreInvocation": [
+      { "type": "command", "command": "brain hook --profile agy --event start", "timeout": 5 }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "brain hook --profile agy --event tool", "timeout": 5 }
+        ]
+      }
+    ],
+    "Stop": [
+      { "type": "command", "command": "brain hook --profile agy --event stop", "timeout": 5 }
+    ]
+  }
+}

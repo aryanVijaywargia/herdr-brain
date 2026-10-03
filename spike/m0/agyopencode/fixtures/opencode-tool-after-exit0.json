@@ -1,0 +1,30 @@
+{
+  "agent": "build",
+  "id": "call_f21c61b844b74be68b1ed0ed",
+  "input": {
+    "command": "ls"
+  },
+  "messageID": "msg_1013a53b1001T0YhaWlpFS4Rv2",
+  "result": {
+    "content": [
+      {
+        "text": "README.md\n",
+        "type": "text"
+      }
+    ],
+    "metadata": {
+      "exit": 0,
+      "status": "completed",
+      "truncated": false
+    },
+    "output": {
+      "exit": 0,
+      "output": "README.md\n",
+      "status": "completed",
+      "truncated": false
+    }
+  },
+  "sessionID": "ses_efec5eb96ffe4uerNGQTIafIgv",
+  "status": "completed",
+  "tool": "shell"
+}

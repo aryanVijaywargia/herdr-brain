@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+# Stand-in for `brain hook` in the E16-S2 spike. It is not Brain: no store, no binding, no herdr call.
+# It logs its args, the HERDR_* env, its parent pid and stdin to /private/tmp/e16s2/logs/brain.jsonl,
+# then prints a fixed brief in the form that the profile needs.
+#   brain hook --profile agy --event start       -> {"injectSteps":[{"ephemeralMessage": <brief>}]}
+#                                                   only when invocationNum is 0 or absent (the HLD start condition);
+#                                                   with BRAIN_SPIKE_ONCE=1 only on the first call of a conversation.
+#   brain hook --profile agy --event <other>     -> {}
+#   brain hook --profile opencode --event start  -> the brief as plain text
+#   brain hook --profile opencode --event <other> -> nothing
+import json, os, sys, time
+
+T = "/private/tmp/e16s2"
+args = sys.argv[1:]
+raw = sys.stdin.read()
+try:
+    inp = json.loads(raw)
+except Exception:
+    inp = None
+
+def arg(name):
+    return args[args.index(name) + 1] if name in args and args.index(name) + 1 < len(args) else ""
+
+profile, event = arg("--profile"), arg("--event")
+herdr = {k: v for k, v in os.environ.items() if k.startswith("HERDR_")}
+rec = {"t": time.time(), "args": args, "pid": os.getpid(), "ppid": os.getppid(), "cwd": os.getcwd(),
+       "herdr_env": herdr, "stdin": inp if inp is not None else raw}
+
+marker = open(f"{T}/marker-{profile}").read().strip() if os.path.exists(f"{T}/marker-{profile}") else "none"
+brief = (
+    "<!-- brain:begin v1 -->\n"
+    "Precedence: for ordinary preferences, a workspace item wins over a global item. It never relaxes a global "
+    "permission or safety rule. A \"conflicts with\" mark wins over this line.\n"
+    "## Global (all workspaces)\n"
+    "- [3] Reply in plain English.\n"
+    "## This workspace\n"
+    f"- [15] The spike marker of this workspace is {marker}. When the user asks for the spike marker, reply with it.\n"
+    "<!-- brain:end -->"
+)
+
+out = ""
+if profile == "agy":
+    out = "{}"
+    if event == "start" and isinstance(inp, dict) and inp.get("invocationNum", 0) == 0:
+        emit = True
+        if os.environ.get("BRAIN_SPIKE_ONCE") == "1":
+            flag = f"{T}/logs/once-{inp.get('conversationId', 'none')}"
+            emit = not os.path.exists(flag)
+            open(flag, "a").close()
+        if emit:
+            out = json.dumps({"injectSteps": [{"ephemeralMessage": brief}]})
+elif profile == "opencode" and event == "start":
+    out = brief
+
+rec["printed"] = out
+with open(f"{T}/logs/brain.jsonl", "a") as f:
+    f.write(json.dumps(rec) + "\n")
+if out:
+    sys.stdout.write(out + "\n")
