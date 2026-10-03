@@ -21,6 +21,8 @@
 | 12 | Agent reads a skill file from an absolute path in the brief, when relevant | TRUE for Claude (E16-S1). Codex: UNKNOWN for the HLD hook route (not tested, owner hand test); TRUE with the brief in `AGENTS.md` (E16-S1) | Claude Code 2.1.287 and codex-cli 0.154.0, one fresh session per case: each matching prompt read the right skill file and used its markers and its steps (one format slip in C3); each negative prompt read no skill file; a near-description pair picked the right file. No permission prompt for the read in the modes tested. See "E16-S1: skill files from the brief (§17 item 12)". |
 | 13 | Headless extractor call, no tools, JSON schema | PASS for no file, shell, network, MCP or hook access; PARTIAL for literal "no tools" (E13-S1) | Claude 2.1.283 and codex-cli 0.154.0 both return schema-valid JSON. Claude keeps only `StructuredOutput`. Codex 0.154 with `gpt-6-sol` keeps code-mode `exec`/`wait` (V8, no nested tools) and `request_user_input_async`; no flag removes them. When the output cannot fit, Claude can exit 0 with no structured output; Codex bends a bad prompt to the schema and fails only for an unsatisfiable schema. See "Headless extractor call (E13-S1)". |
 | 14 | Hook payloads: `UserPromptSubmit`, `PostToolUse`, `Stop` | PASS for Claude (live, E11-S1). Codex: PASS from source, live hook OPEN (E11-S1b) | Claude: the `prompt` field is the exact text. An empty hook leaves the prompt unchanged. `PostToolUse` has the command and the shell cwd after the command, but no exit code. A failed command goes to `PostToolUseFailure` with `error` = "Exit code N...". Codex (source): `tool_input.command`, the session cwd, no exit code. See "brained hosting and capture (E11-S1)". Codex live (E11-S1b): a hook set with `-c` still needs the hook-trust step, so no Codex hook ran and the source facts stay. The legacy `notify` command (no trust gate) gave the typed prompt with the @-mention as typed and the final reply. See "Codex live capture (E11-S1b)". |
+| 16 | agy: `PreInvocation` with `invocationNum == 0` and `injectSteps[].ephemeralMessage` reach the model; hook file; input paths; tool event | TRUE for delivery on agy 1.2.16, print mode (E16-S2). `invocationNum == 0` is not a session start: FALSE. Interactive mode and 1.2.11: UNKNOWN | `PreInvocation` ran at each turn with `invocationNum` 0; the ephemeral brief reached the model (2 of 2 markers) and stayed in the conversation. Input: `conversationId`, `workspacePaths[0]`. Tool event `PostToolUse` (`run_command`, `toolCall.args.CommandLine`). Workspace `.agents/hooks.json`; the global `~/.gemini/config/hooks.json` from docs only. agy updated itself from 1.2.11 during the test. See "E16-S2: agy and OpenCode facts (§17 items 16, 18)". |
+| 18 | OpenCode: `session.created` and `experimental.chat.system.transform` add the brief through the shim; the API's stability | TRUE on OpenCode v2.0.18 with the V2 API (E16-S2). The V1 names: FALSE (2.x does not load V1 plugins) | A V2 project plugin (`.opencode/plugins/brain.ts`) with `ctx.event.subscribe()` `session.created` and `ctx.session.hook("context")` added the brief; the marker came back. `ctx.tool.hook("execute.after")` gives `input.command` and `result.output.exit`. The pane env reaches the shim only with `--standalone`. See "E16-S2: agy and OpenCode facts (§17 items 16, 18)". |
 | 20 | `recent-unwrapped` while `working` or `blocked` | FAIL for Claude (E11-S1), PASS for Codex (E11-S1b) | Claude: `--lines 300` returns `agent_not_idle` in `working`, `blocked` and just after submit. `--lines 20` (at or below the screen) and `visible` work in every state. At idle, a `--lines` value larger than the history often returns only the screen, with exit 0. Codex (live, E11-S1b): `--lines 300` gave exit 0 in all 112 `working` reads and all 42 `blocked` reads, with the history growing as the reply grew. At idle, `--lines` 300, 1000 and 5000 gave the whole pane history (142 lines) in 9 of 9 reads. `visible` gives the 40-row screen. |
 | 21 | Conformance test | OPEN | |
 | 25 | No `brain` on PATH | PASS | `command -v brain` finds nothing. |
@@ -488,6 +490,112 @@ One fresh CLI session for each case. Prompts: positive "Write the release notes 
 - **Not met in full: one write to a real CLI file.** Claude's folder-trust dialog for `/private/tmp/e16s1/claude` was answered "Yes", so Claude wrote a trust entry for that folder into `~/.claude.json`, as in E11-S1. Claude also keeps its own project state there. The spike may not read or edit that file (credential file rule), so the entry is not removed. Owner decision: remove it by hand, or keep it. A later spike can avoid a new entry with a folder that is already trusted.
 - Codex keeps its own session logs for the 4 runs in `~/.codex`; they were not read or edited.
 - Cleanup done: the test session `brain-spike-e16s1` is stopped and deleted. `/private/tmp/e16s1` and `~/.claude/projects/-private-tmp-e16s1-claude/` (the 5 test transcripts and an empty `memory/` folder) are removed. The real `default` session and the main server were not touched.
+
+## E16-S2: agy and OpenCode facts (§17 items 16, 18)
+
+- Date: 2026-10-03. herdr 0.9.1. agy: `1.2.11` at the start, `1.2.16` for every hook run (see "agy self-update"). OpenCode: `opencode v2.0.18`. pi is out of scope (#217).
+- Files: `agyopencode/` (stand-in `brain`, agy hook file, OpenCode shim, run scripts). Raw logs: `agyopencode/data/runs.txt` (drive log), `data/brain-calls.jsonl` (every hook and shim call with its input), `data/opencode-shim.jsonl`, `data/opencode-screens.txt`. Hook inputs for golden tests: `agyopencode/fixtures/`.
+- **Setup.**
+  - Named test session `brain-spike-e16s2` beside `default`, with a clean env (`agyopencode/ht.sh`). agy ran in pane `w1:p1` in `/private/tmp/e16s2/agy`. OpenCode ran in pane `w2:p1` in `/private/tmp/e16s2/opencode`. Neither folder is a git repo.
+  - **A stand-in `brain`**, not a `brain` built from main (`agyopencode/bin/brain`, first on the pane `PATH`). It logs its args, the `HERDR_*` env and stdin, and prints a fixed brief with a fresh marker: for agy `{"injectSteps":[{"ephemeralMessage":"<brief>"}]}` when `invocationNum` is 0, else `{}`; for OpenCode the brief as plain text. The brief uses the frame of today's hook output. No `install.json`, no Brain store.
+  - The real HOME was used, so the CLIs used their own sign-in. The user's own settings and plugins stayed active.
+- **How a delivery was seen.** A fresh marker in the brief (agy `itjp-6810`, then `pohq-6776`; OpenCode `ukjp-2944`). The question asks for "the spike marker of this workspace" and does not contain it. The hook input JSON paths come from the logged stdin, not from the docs.
+
+### Config routes with no real file change
+
+| CLI | Route used | Relation to the profile's global path |
+|---|---|---|
+| agy | Workspace customization root: `<workspace>/.agents/hooks.json`. Print mode (`agy -p`) loads it with no folder-trust dialog; `agy -p "/hooks"` listed the 3 spike hooks. | The global root is `~/.gemini/config/` (agy docs in the binary: "Global Discovery: `~/.gemini/config/`"), so the profile path `~/.gemini/config/hooks.json` has the same file format. **Not tested live:** a scratch HOME has no sign-in ("You are not logged into Antigravity" in the scratch `cli.log`; print mode hung with no output). |
+| OpenCode | Project plugin folder: `<project>/.opencode/plugins/brain.ts`, with `opencode --standalone` (a private server, child of the TUI in the pane). | The global plugin folder is `~/.config/opencode/plugins/`: the loader scans `plugin/` and `plugins/` in each config folder, and the global config folder is `$OPENCODE_CONFIG_DIR`, else `$XDG_CONFIG_HOME/opencode` (`~/.config/opencode`) (OpenCode binary). herdr installs its own OpenCode plugin there (`herdr integration status`). **Not tested live** (a write to the real folder). |
+
+- **agy interactive mode: not run.** The interactive start in an untrusted folder shows "Do you trust the contents of this project?". "Yes" saves the folder in the user's agy settings (`trustedWorkspaces`), a real config write; no flag skips the dialog (`agy --help`). The answer was "No, exit". The agy changelog (1.1.1) says workspace hooks load only after the folder is trusted. So every agy result below is for print mode.
+
+### agy self-update
+
+- `agy` updated itself from 1.2.11 to 1.2.16 during the first print run (A0, 15:28): the `~/.local/bin/agy` mtime is 15:28, and `agy changelog` starts at 1.2.16 afterwards. No flag or env var to stop it was found in `agy --help` or the binary strings.
+- So the hook runs A1-A4 ran on **1.2.16**. Item 16 for 1.2.11 stays **unknown**, except that its interactive start shows the trust dialog. A later agy test must expect a new version at each run.
+
+### Results: agy 1.2.16 (item 16)
+
+| Fact | Result | Evidence |
+|---|---|---|
+| Agent kind that herdr shows | `agy` | `herdr agent start --kind agy` returned `"agent":"agy"`. |
+| `agy --version` | `1.2.16` (a bare version; `1.2.11` before the update) | `runs.txt`, "Versions". |
+| `PreInvocation` runs, with `invocationNum` 0 | TRUE | A1-A4: one `PreInvocation` call with `invocationNum` 0 at the start of each turn, then `invocationNum` 1 after a tool step. |
+| `invocationNum == 0` means a session start | **FALSE** | `invocationNum` counts model calls inside one turn. It is 0 again at the start of each turn: A2 (a resumed conversation) and A4 got `invocationNum` 0 with `initialNumSteps` 4. `initialNumSteps` was 1 at the first turn of each new conversation (A1, A3). |
+| `injectSteps[].ephemeralMessage` reaches the model | TRUE | A1 replied `itjp-6810`, A3 replied `pohq-6776`. |
+| The ephemeral brief stays in the conversation | TRUE | A4: the hook printed nothing in the second turn (`BRAIN_SPIKE_ONCE=1`), and the reply still had `pohq-6776`, in a new `agy` process with `--conversation`. So with the HLD condition alone, the brief goes in again at each turn (A2 got it twice). |
+| Hook file layout | TRUE (workspace file); global path from docs only | A top-level JSON object keyed by a hook name (`"brain-spike": {...}`); `"enabled": false` turns a name off. `PreInvocation` and `Stop` hold a flat list of handlers `{type, command, timeout}`; `PostToolUse` holds groups `{matcher, hooks: [...]}`. The command runs with `sh -c`, in the folder of `hooks.json` (the logged hook cwd was `<workspace>/.agents`), with `timeout` in seconds (default 30). Same-event hooks of all names run in order. File: `agyopencode/agy/hooks.json`. |
+| Input: session id | `conversationId` | All calls. herdr's own agy integration (`herdr integration`, `antigravity_cli` v3) reports the same field as the agent session. |
+| Input: cwd | `workspacePaths[0]` (an array; there is no `cwd` field) | All calls: `["/private/tmp/e16s2/agy"]`. The process cwd is the `hooks.json` folder, not the workspace. |
+| Input: transcript | `transcriptPath` (`~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript_full.jsonl`) | A1 call. Brain stores the path only (E15-S4). |
+| `HERDR_*` env reaches the hook | TRUE | `HERDR_ENV=1`, `HERDR_PANE_ID=w1:p1`, `HERDR_SOCKET_PATH`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, `HERDR_SESSION`, `HERDR_BIN_PATH` in every call. |
+| Tool event | `PostToolUse`; the shell tool is `run_command` | A4: `toolCall.name` `run_command`, `toolCall.args.CommandLine` `ls`, `toolCall.args.Cwd` the folder, `error` `""`, `stepIdx`. A2: `view_file` with `toolCall.args.AbsolutePath`. No exit code and no output in the input. A failed command: `error` holds the error text (docs: `"exit status 1"`); not run live. |
+| `Stop` input | `terminationReason`, `executionNum`, `fullyIdle`, `error`; no reply text | A1-A4. |
+| Output for "nothing" | `{}` worked; empty stdout **unknown** | The stand-in printed `{}` for each non-start call and for an empty brief, and agy went on. The docs say each hook must print a JSON object; herdr's own agy hook prints `{}` on every path. Empty stdout was not tested. |
+| Session id source for herdr | `conversationId` through herdr's own hook | `herdr agent get` had no `agent_session` here: herdr's agy integration is not installed on this machine, and print runs are not interactive agents. |
+| Noise lines for capture (E11) | **unknown** | Interactive agy was not run (trust write). The owner can trust a test folder by hand, or the E16-S12 author can record the screens then. |
+
+Proposed start condition [NEW]: `invocationNum == 0` **and** `initialNumSteps == 1`. In A1 and A3 only the first call of a new conversation meets it. A resumed conversation then gets no new brief; the old one is still in its history (A4). Not tested: a first message with attachments (which can add steps), and `/clear` or a new conversation inside one interactive agy.
+
+### Results: OpenCode v2.0.18 (item 18)
+
+**The HLD names are the V1 plugin API. OpenCode 2.x loads only V2 plugins.** The V2 docs ("Migrate plugins from V1", opencode.ai/v2) map `event` to `ctx.event.subscribe()`, `experimental.chat.system.transform` to `ctx.session.hook("context", ...)` with an edit of `event.system`, and `tool.execute.after` to `ctx.tool.hook("execute.after", ...)`. They say 2.x "rejects the v1 async-function shape with `PluginModule.LoadError`". Live: the user's two V1 plugins in `~/.config/opencode/plugins/` showed "2 plugins failed" at the start. The shim uses the V2 names (`agyopencode/opencode/brain.ts`).
+
+| Fact | Result | Evidence |
+|---|---|---|
+| Agent kind that herdr shows | `opencode` | `herdr agent start --kind opencode` returned `"agent":"opencode"`. |
+| `opencode --version` | `opencode v2.0.18` (with the `opencode v` prefix) | `runs.txt`. The TUI offers `/update to install v2.0.22`; OpenCode did not update itself. |
+| Plugin folder | Project: `<project>/.opencode/plugins/` (TRUE, live). Global: `~/.config/opencode/plugins/` (from source, not live) | The shim loaded from the project folder (setup log: `version` 2.0.18, `location.directory`). |
+| A shim with no npm package | TRUE | The shim is a plain default object `{id, setup}` in one `.ts` file. It imports only `node:fs` and `node:child_process`. OpenCode ran the `.ts` file with no install. |
+| `session.created` runs | TRUE, at the **first prompt**, not at TUI start | O0 start 15:35:32, `session.created` 15:35:45 with the O1 prompt. Payload (`fixtures/opencode-session-created.json`): `data.sessionID`, `data.location.directory`, `data.projectID`, `data.agent`, `data.model`; no `data.parentID` for a top session. |
+| System prompt hook (`ctx.session.hook("context")`) adds the brief | TRUE | O1 replied `ukjp-2944`. The hook got 4 system parts and the shim added a fifth with the 407-character brief. |
+| The added text is not kept in history | TRUE from docs; live: the hook runs before **each** model call | 6 `context` calls in O1-O4 (one per model call, two in each tool turn), each with the brief added. The docs: the change applies "only the outgoing model call, not persisted history". So the shim must add the brief on every call. It calls `brain` once per session and keeps the text. |
+| `HERDR_*` env reaches the shim | TRUE with `--standalone` | The private server `opencode serve --stdio --port 0` is a child of the TUI in the pane; the shim logged `HERDR_PANE_ID=w2:p1`, `HERDR_ENV=1`. |
+| `HERDR_*` env with the default background service | **FALSE (from source), not tested live** | A plain `opencode` connects to one shared `opencode serve --service`, started detached with the env of the process that first started it (OpenCode binary: `spawn(..., {detached: true, env: {...process.env, ...}})`). herdr's own V2 plugin says: "Its shared server cannot attribute sessions using its process environment: the pane-local TUI owns both selection and lifecycle reporting there". The test did not load the spike plugin into the user's running service. |
+| Tool event (`ctx.tool.hook("execute.after")`) | TRUE | `fixtures/opencode-tool-after-exit0.json` and `-exit1.json`: `tool` `shell`, `sessionID`, `agent`, `messageID`, `id`, `input.command`, `status` `completed`, `result.output.exit` (0 and 1), `result.output.output`, `result.output.truncated`. A failed command still has `status` `completed`; the exit code is in `result.output.exit`. No cwd. |
+| Session id source | `data.sessionID` of `session.created`; `sessionID` in the other hooks (`ses_...`) | O1-O3. `herdr agent get` had no `agent_session`: herdr's own OpenCode plugin here is v10 (V1) and did not load in 2.x. |
+| How stable the API is | The V1 experimental hook is gone in 2.x | All V1 plugins broke at the major version. The V2 `context` hook is not marked experimental in the V2 docs; `experimental.ws.*` hooks are. HLD §18 (an API that can change) stays true. |
+| Noise lines for capture (E11) | Found (from `data/opencode-screens.txt`) | Idle footer `  <cwd>  <n>K (<p>%)  ctrl+p commands`; working footer `<spinner> esc interrupt  <n>K (<p>%)  ctrl+p commands` (spinner `⬝` and `■`); the composer mode line `┃  Build · <model> <provider> · <variant>`; its bottom rule `╹▀▀▀…`; empty `┃` rows; the turn footer `Build · <model> · 4.8s · 6.6 tok/s`. Patterns are for E16-S13 [NEW]. |
+
+### Base adapter changes (for E16-S11 #162)
+
+agy:
+1. Output form: a JSON path with an array step, `injectSteps[0].ephemeralMessage` (as #162 plans).
+2. "Nothing" output: print `{}`, not empty stdout, for the start event with no brief and for the tool and stop events. Empty stdout is untested; `{}` is what herdr's hook does.
+3. Start condition with two checks: `invocationNum == 0` and `initialNumSteps == 1` [NEW] (an HLD change, see below).
+4. An input path with an array index: `input.cwd = "workspacePaths[0]"`.
+5. Install layout: one top-level named entry in `hooks.json` (for example `"brain"`), with a flat handler list for `PreInvocation` and a matcher group for `PostToolUse`. This is not the Claude and Codex layout (`hooks.<Event>[]`). Install and uninstall change only that key.
+6. Tool event map: `events.tool = "PostToolUse"`, matcher `run_command`; `input.command = "toolCall.args.CommandLine"`, `input.error = "error"`; no exit status.
+7. No hook-trust step (agy has none for hooks). Interactive agy loads workspace hooks only in a trusted folder; for the global file this is unknown.
+
+OpenCode:
+1. A shim file install: the Brain-owned V2 plugin `brain.ts` in `~/.config/opencode/plugins/` (as #162 plans), with its hash in `install.json`.
+2. A plain text output form for the shim (as #162 plans).
+3. No hook file entry: the shim is the whole install.
+4. Input paths on the data the shim sends: start = the `session.created` event (`input.session_id = "data.sessionID"`, `input.cwd = "data.location.directory"`); tool = the `execute.after` event (`input.command = "input.command"`, an exit path `result.output.exit`, a number). The Claude profile has only `exit_pattern` on text; a numeric exit path is new.
+5. The shim must add the brief at every `context` call and call `brain` once per session.
+6. Version check: `opencode --version` prints `opencode v2.0.18`; the version parse must drop the prefix.
+
+### Decisions for the owner (not changed here)
+
+- **HLD §8.3 step 2 and §8.5 (agy start condition):** `invocationNum == 0` alone fires at every turn. Proposed: `invocationNum == 0 and initialNumSteps == 1` [NEW].
+- **HLD §8.2 (OpenCode row):** the hook names are the V1 API, which OpenCode 2.x does not load. The V2 names are `session.created` through `ctx.event.subscribe()`, `ctx.session.hook("context")` and `ctx.tool.hook("execute.after")`. The agy tool event is `PostToolUse` (`run_command`), not "M0".
+- **OpenCode pane identity (affects §8.3 steps 1 and 3 and E16-S13):** the default OpenCode runs plugins in one shared background service. That process does not have the pane's `HERDR_*` env, so `brain hook` would withhold or give the wrong pane. Only `--standalone` (or `--server` to a private server) gives the pane env. Options: a TUI-side part of the shim that runs in the pane process (as herdr's own plugin does) and passes the pane id to the server part; or support only `opencode --standalone`; or keep OpenCode as a gap. This needs a decision before E16-S13.
+
+### Limits
+
+- One run per case, one model per CLI (agy `gemini-3.8-flash-high`, OpenCode `space-bunny-free`), one machine. agy in print mode only; OpenCode with `--standalone` only.
+- The global install paths of both CLIs were not tested live.
+- The stand-in `brain` is not Brain: the live checks of E7 (pane, membership, receipts) did not run.
+- agy 1.2.11 hook facts are unknown (the update came first).
+
+### Side effects and cleanup
+
+- No file in `~/.gemini/config/`, `~/.gemini/settings.json`, `~/.gemini/trustedFolders.json`, `~/.gemini/antigravity-cli/settings.json` or `~/.config/opencode/` changed (`agyopencode/snapshot.sh`: names, sizes and mtimes, before and after; no file was read). No trust was given, and no hook or plugin went into a real config.
+- **agy updated its own binary** `~/.local/bin/agy` from 1.2.11 to 1.2.16 (see "agy self-update"). Owner decision: keep 1.2.16 (the profile records it as `tested_version`) or go back.
+- The CLIs' own state changed, as in normal use: agy wrote its conversations, artifacts, logs and caches in `~/.gemini/antigravity-cli/` (2 conversations with 2 turns each; the scratch-HOME try wrote only to the scratch HOME); OpenCode wrote its session to `~/.local/share/opencode/opencode.db` and its prompts to `~/.local/state/opencode/prompt-history.jsonl`. They were not read or edited.
+- Cleanup done: the test session `brain-spike-e16s2` is stopped and deleted. `/private/tmp/e16s2` (with the scratch HOME) is removed. The real `default` session, the main server and the user's OpenCode background service were not touched.
 
 ## Cleanup done
 
