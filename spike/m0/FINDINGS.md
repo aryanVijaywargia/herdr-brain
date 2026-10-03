@@ -25,6 +25,7 @@
 | 18 | OpenCode: `session.created` and `experimental.chat.system.transform` add the brief through the shim; the API's stability | TRUE on OpenCode v2.0.18 with the V2 API (E16-S2). The V1 names: the V2 docs say V1 plugins do not run in 2.x (not tested one by one) | A V2 project plugin (`.opencode/plugins/brain.ts`) with `ctx.event.subscribe()` `session.created` and `ctx.session.hook("context")` added the brief; the marker came back (O1, O5), and a reopened session got it through the first `context` call (O7). `ctx.tool.hook("execute.after")` gives `input.command` and `result.output.exit`. The pane env reaches the shim only with `--standalone`. See "E16-S2: agy and OpenCode facts (§17 items 16, 18)". |
 | 20 | `recent-unwrapped` while `working` or `blocked` | FAIL for Claude (E11-S1), PASS for Codex (E11-S1b) | Claude: `--lines 300` returns `agent_not_idle` in `working`, `blocked` and just after submit. `--lines 20` (at or below the screen) and `visible` work in every state. At idle, a `--lines` value larger than the history often returns only the screen, with exit 0. Codex (live, E11-S1b): `--lines 300` gave exit 0 in all 112 `working` reads and all 42 `blocked` reads, with the history growing as the reply grew. At idle, `--lines` 300, 1000 and 5000 gave the whole pane history (142 lines) in 9 of 9 reads. `visible` gives the 40-row screen. |
 | 21 | Conformance test | OPEN | |
+| 23 | "Agent stopped working" condition per CLI; the §10.4 event key | TRUE for both CLIs: `working → idle` (focused pane) or `working → done` (unfocused pane). §10.4 key: FALSE. Proposed method P: TRUE in all tested cases (E17-S1) | Claude Code 2.1.288 and codex-cli 0.154.0 on herdr 0.9.1. A user stop (Esc) gives the same change as a normal end; an approval turn ends `blocked → working → idle/done`; a denied approval (Claude) ends `blocked → idle`, not a stop. `state_change_seq` is one counter for the whole herdr server and starts at 0 again after a server restart, and herdr then resumes the same agent session in the same pane, so the §10.4 key repeats (a real stop was skipped). The key alone also claims a duplicate that comes while the agent works again. P (join the event to `agent get`, keep only joined states, add `terminal_id` to the key) claimed 31 of 31 live stops once and nothing else. See "E17-S1: stopped working and the event key (§17 item 23)". |
 | 25 | No `brain` on PATH | PASS | `command -v brain` finds nothing. |
 | 27 | Named test session | PASS (session parts) | `herdr --session brain-eval server` (background) ran beside `default` with its own socket. Its first workspace was `w1`. Its panes had `HERDR_SESSION=brain-eval` and their own `HERDR_SOCKET_PATH`. `herdr session stop brain-eval` and `herdr session delete brain-eval` touched only that session. |
 | 28 | `agent read` of a reply | PASS for Claude and Codex | Claude, a 150-line reply: `--lines 80` gave lines 80-150, `--lines 200` gave all 150. Codex (E10-S4), a 150-line reply: `--lines 80` gave lines 76-150, `--lines 200` gave all 150. See "Codex long reply (E10-S4)". |
@@ -623,3 +624,111 @@ OpenCode:
 - Items 9 and 20 for Codex: answered live by E11-S1b; the HLD text is updated (owner, 2026-09-29). Item 14 for Codex: the source facts stay. The owner's M2 hand test with normal `/hooks` trust confirms the live `PostToolUse` fields and an empty `UserPromptSubmit`. Codex `notify` is not a Brain source (owner decision).
 - herdr scroll capture of Claude history sends mouse-scroll input to the pane. HLD §6.2 says Brain never scrolls a pane. Owner decision.
 - The eval delivery and exclusion stages (scripts plus the owner's check).
+
+## E17-S1: stopped working and the event key (§17 item 23)
+
+- Date: 2026-10-03. herdr 0.9.1, Claude Code 2.1.288 (`claude-haiku-4-5-20251001`), codex-cli 0.154.0 (`gpt-6-astra`, effort low). Go 1.23.0.
+- Named test session `brain-spike-e17s1` beside `default`, with a clean env (`e17s1/ht.sh`). Claude ran in pane `w1:p1` in `/private/tmp/e11s1/agent/e17s1`; Codex ran in pane `w2:p1` in `/private/tmp/e17s1/codex`, with folder trust, the update check and the approval mode on the command line only (as in "How Codex ran with no config write"). At "Hooks need review" the answer was "Continue without trusting".
+- **No `brain` and no `brained`.** The reader is a small probe (`e17s1/probe`, its own Go module). It subscribes to `pane.agent_detected`, `pane.exited`, `pane.closed` and `pane.agent_status_changed` of the two panes, and calls `agent.get` at once for each status event. Its claims go to a file, so they live across a reader restart, as `automation_runs` rows would. No install, no store, no hook.
+- **Duplicates are made by the probe.** herdr sent no duplicate by itself in 86 status events. The probe hands a stop event to the methods again (`dup`), or a made event with the same bytes (`inject`), at a chosen time: 17 duplicates.
+- Files: `e17s1/data/probe-log.jsonl` (every event, `agent.get` answer, claim, skip and drive note), `e17s1/data/eval.txt` (one row per stop event for each method), `e17s1/data/terminals.txt`, `e17s1/README.md`.
+
+### Stop condition per CLI
+
+| Turn | Claude 2.1.288 | Codex 0.154.0 | Evidence (`probe-log.jsonl`) |
+|---|---|---|---|
+| Normal end, focused pane | `working → idle` | `working → idle` | Claude seq 5 → 6 (T1); Codex seq 6 → 7 (run r7) |
+| Normal end, pane not focused | `working → done` | `working → done` | Claude seq 16 → 17 (T5); Codex seq 22 → 23 (X1) |
+| Approval, approved | `working → blocked → working → idle` | `working → blocked → working → done` (not focused) | Claude seq 10-13 (T3); Codex seq 24-27 (X2) |
+| Approval, denied | `blocked → idle` (seq 8 → 9): no `working` before it, so **not a stop** | not tested: **unknown** | Claude T2: the test Claude asked to run a command from the user's own SessionStart hook; the answer was "No" |
+| User stop (Esc while working) | `working → idle`, the same as a normal end | `working → done` (not focused), the same as a normal end | Claude seq 14 → 15 (T4); Codex seq 28 → 29 (X3) |
+| The user sees a `done` pane | `done → idle`; `state_change_seq` stays the same | `done → idle`; `state_change_seq` stays the same | Claude seq 17 (focus `w1`); Codex seq 4 and 5 |
+| False stop | none seen | `working → done` for about 1 s just after "Continue without trusting", with **no agent session id** | Codex seq 32 → 33 (x2) and 4 → 5 (x3) |
+
+- **Result:** the stop condition is the same for both CLIs: `working → idle` or `working → done`. Which one comes depends on the pane focus, not on the CLI. TRUE for both CLIs.
+- herdr cannot tell a user stop from a normal end. A trigger on this condition also runs after a user stop. TRUE (both CLIs).
+
+### Event and key facts
+
+- The status event holds only `pane_id`, `workspace_id`, `agent` and `agent_status`. Every stop of one pane gives the same bytes, so a duplicate of an old stop looks the same as a new stop.
+- **`state_change_seq` is one counter for the whole herdr server**, not one for each pane or agent. Its values interleave across the two panes (Claude start 1, Codex 2-4, Claude turn 5-6). It moves at each status change of any pane, also `unknown` (restore: seq 1). It does not move at `done → idle` (seen).
+- **The M0 fact explained:** `state_change_seq` changed between runs in one pane (E11-S1: 10 and 12) because other changes moved the shared counter. **After a server restart it starts again at 0**: the restored Claude had `idle`/0, then `unknown`/1, then `idle`/2.
+- **herdr 0.9.1 restores agents at a server restart with the same session id**: it ran `claude --resume 72fe6516-…` in `w1:p1` and `codex resume 01a10251-…` in `w2:p1`, with the same pane ids. `agent_session.value` stayed the same. `terminal_id` changed at each restart (`data/terminals.txt`). The restored Codex had no `-c` flags from the first start, so it showed the update dialog and the folder-trust dialog; "No, quit" ended it.
+- So the §10.4 key (pane, agent session id, `state_change_seq`) **repeats after a server restart**. Live: after the restart, the real stop at seq 20 of session `72fe6516` had the key of a duplicate claim from before the restart, so K and KT skipped it (`eval.txt`, 20:43:27).
+- At a reconnect herdr sends only `subscription_started`. It does not send the current state.
+- `agent.get` took 0.14 ms at least, 0.28 ms as the median and 102 ms at most (the first call after a reader start), counted from the event read. 116 calls.
+- Codex has no `agent_session` at the `working` event of the first turn of a run. It has one at that turn's stop (seq 22 → 23, 34 → 35, 6 → 7). E11-S1b found the same.
+- `pane list` and `pane get` do not give `state_change_seq`. `agent get` (and `agent start`) do.
+
+### Methods tested
+
+All methods start at a reader start or reconnect with the current `agent.get` state as a baseline, and claim nothing for it (§10.4 step 1).
+
+- **K:** the §10.4 key alone. Each event with status `idle` or `done` builds (pane, agent session id, `state_change_seq`) from `agent.get` and claims it.
+- **KT:** K, but only when the last status that the reader saw for the pane (from the stream) is `working`.
+- **KJ:** KT, and `agent.get` must have the event status and an agent session id.
+- **P (proposed) [NEW]:**
+  1. At each status event, call `agent.get` for the pane at once.
+  2. The event **joins** only when `agent.get` gives the event status. An event that does not join is skipped and does not change the reader's memory.
+  3. The memory of a pane is its last joined status. A reader start or reconnect sets it from `agent.get` (baseline).
+  4. A stop is a joined `idle` or `done` event after a joined `working`, and `agent.get` gives an agent session id.
+  5. Key: (pane, `terminal_id`, agent session id, `state_change_seq`), all from that `agent.get`.
+
+K, KT and KJ ran live in the probe. P ran on the same log (`eval.py`). The replay of K, KT and KJ gives the same claims as the probe.
+
+### Key results
+
+"TRUE" means the method passes the case: no second claim for one stop, and one claim for each stop.
+
+| Case | Evidence (`eval.txt`) | K | KT | KJ | P |
+|---|---|---|---|---|---|
+| One stop, then a duplicate while the agent works again | Claude 20:34:48, 20:39:14; Codex 20:39:33, 20:40:56 | FALSE (claims again) | FALSE (claims again) | TRUE | TRUE |
+| A duplicate while the agent is `blocked` | Claude 20:36:49, 20:37:32; Codex 20:40:07 | FALSE | TRUE | TRUE | TRUE |
+| A duplicate after an agent replacement | Claude 20:38:33 (no agent), 20:38:39 (new agent at rest), 20:39:14 (new agent works); Codex 20:40:48, 20:40:56 | FALSE | FALSE (20:39:14, 20:40:56) | TRUE | TRUE |
+| A duplicate at rest after its own stop | Claude 20:37:40, 20:39:18; Codex 20:39:44, 20:40:11 | TRUE (key held) | TRUE | TRUE | TRUE |
+| Two separate stops: one claim each (31 live stops) | all turns | TRUE for the stops, but see the rows above | FALSE: missed seq 21, 23 and 35 (a duplicate had changed its memory) and seq 20 after the server restart | FALSE: missed seq 21, 23 and 35 | TRUE: 31 of 31 |
+| Reader restart with the agents at rest, then duplicates | 20:41:32 (r2) | TRUE (key held) | TRUE | TRUE | TRUE |
+| Reader restart while the agent works, then its stop | 20:41:45 (r3) | TRUE (a new stop, claimed) | TRUE | TRUE | TRUE |
+| A stop while the reader is down (no backfill), then a duplicate of it | 20:41:58 (r4) | FALSE (claims late) | TRUE | TRUE | TRUE |
+| Server restart: the restored state (`idle` → `unknown` → `idle`) | 20:44:29 (r6); 20:42:51 (r5, Codex `blocked` → `idle`) | FALSE | TRUE | TRUE | TRUE |
+| Server restart: a real stop after the restart with a used key | 20:43:27 (seq 20) | FALSE (skipped) | FALSE (skipped) | FALSE by design (the same key; it passed here only because KJ had no claim at seq 20) | TRUE (`terminal_id` changed) |
+| Codex false stop after the hooks dialog | 20:40:43, 20:44:56 | FALSE (claims) | FALSE (claims) | TRUE | TRUE |
+
+- **Result:** the §10.4 key alone (K) and its tested forms (KT, KJ) do **not** pass. P passes every tested case: 31 claims for 31 live stops, no claim for a duplicate, a restored state or a false stop.
+- Claims: K 48, KT 33, KJ 28, P 31.
+- P is not the §10.4 key. It goes to the owner as an HLD update before E17-S11 #176.
+
+### Source agent (E11 binding and capture identity)
+
+- The event names only the pane. P finds the source agent from the same `agent.get` answer that joins the event: `agent` (the harness) and `agent_session.value`. With the bound herdr session (the socket that sent the event), this is the §6.2 session key (binding, harness, agent session id). TRUE in the live runs.
+- A stop with no herdr agent session id (a §6.2 local capture id only) is skipped. In the live runs every real stop had the id; only the Codex hooks-dialog false stops had none.
+- Not tested: the join with the state of a running `brained` (`internal/brained` keeps the agent session id of each followed pane in `capturePane.native`). The probe is not `brained`. E17-S11 can compare the `agent.get` answer with that state.
+- `brained` reads panes with `pane.get`, which has no `state_change_seq`. The automation runner needs `agent.get`.
+
+### Proposed §10.4 text (for the owner; the HLD is not changed)
+
+Step 1 of "Claim before run", in place of the present step 1:
+
+> 1. The event arrives. Brain calls `agent get` for the pane at once. The event joins only when `agent get` gives the event status; Brain skips an event that does not join, and it does not change Brain's state for the pane. Brain keeps the last joined status of each followed pane in memory. A stop is a joined `idle` or `done` event after a joined `working`. Brain builds the event key from (pane, `terminal_id`, agent session id, `state_change_seq`), all from that `agent get` answer [NEW]. `state_change_seq` is one counter for the whole herdr server and starts again after a server restart, and herdr then resumes the same agent session in the same pane, so the key needs `terminal_id`, which changes at a restart (M0 E17-S1). herdr events have no id and no time. Brain finds the source agent with the binding and the agent session id from `agent get` (§6.2). It skips a stop with no herdr agent session id. After a restart or a reconnect of `brained`, the current agent state from `agent get` is a baseline, not a stop.
+
+Trigger row of the automation table: "`working → done` or `working → idle`" stays. Add: "The two are one condition for Claude and Codex; focus decides which one comes (M0 E17-S1). A user stop also matches."
+
+### Limits
+
+- One run per case, one model per CLI, one machine. The duplicates are made by the probe; herdr sent none by itself.
+- Reader lag was not tested. If a whole turn passes between the event and `agent.get`, P skips the stop (a missed run, not a second run). The measured gap was below 1 ms, and the shortest turn was about 0.9 s.
+- A denied approval in Codex was not tested.
+- `terminal_id` changed at each of the 2 restarts. herdr does not document its format, so it is not proven unique across all restarts. The values grow with time (`term_65cf0eb9…`, `term_65cf112d…`, `term_65cf11aa…`).
+- The test Claude loaded the user's own Claude settings and hooks (the real HOME, as in E11-S1). One SessionStart hook asked the model to run a command; the approval answer was "No".
+
+### Side effects and cleanup
+
+- The test session `brain-spike-e17s1` is stopped and deleted. Its restored `claude --resume` and `codex resume` processes ended with it. The real `default` session and the main server were not touched.
+- `/private/tmp/e17s1`, `/private/tmp/e11s1/agent/e17s1` and `~/.claude/projects/-private-tmp-e11s1-agent-e17s1/` are removed. `/private/tmp/e11s1/agent` was there before (E11-S1) and stays.
+- `~/.codex/config.toml` has the same mtime and size before and after (01:20, 10,715 bytes); it was not read. The restored Codex update dialog got ctrl+c and its folder-trust dialog got "No, quit". Codex and Claude keep their own session logs and history lines for these runs; they were not read or edited.
+- No hook or Brain install went into `~/.claude` or `~/.codex`. No credential file was read.
+
+### Open points
+
+- Owner: accept P and the proposed §10.4 text before E17-S11 #176, or choose another method.
+- Owner: should a user stop (Esc) run the automation? herdr gives the same change as a normal end, so P cannot tell them apart.

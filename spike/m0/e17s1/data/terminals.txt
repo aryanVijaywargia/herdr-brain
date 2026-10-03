@@ -1,0 +1,9 @@
+# terminal_id of each test pane in each run of the test session server brain-spike-e17s1.
+# Sources: the workspace create answer (server run s1), pane list after each restart (s2, s3).
+# server run, probe runs, pane, terminal_id
+s1 r1,r2,r3,r4 w1:p1 term_65cf0eb90442a1
+s1 r1,r2,r3,r4 w2:p1 term_65cf0eb907cf02
+s2 r5 w1:p1 term_65cf112d6cc401
+s2 r5 w2:p1 term_65cf112d6ccb82
+s3 r6,r7 w1:p1 term_65cf11aa4b1691
+s3 r6,r7 w2:p1 term_65cf11aa4c6a32
