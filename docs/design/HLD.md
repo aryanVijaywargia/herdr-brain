@@ -848,7 +848,7 @@ The facts below come from vendor docs and source, read on 2026-09-27. None is te
 
 Brain installs one hook entry in each CLI's user-level config, as its profile says. It asks you first and shows the uninstall steps. It keeps all other hooks in those files, for example the herdr integration hooks.
 
-What `brain hook` does at session start:
+What `brain hook` does at session start ("print nothing" means the profile's `output_none`: no bytes for Claude and Codex, `{}` for agy, E16-S2):
 1. If `HERDR_ENV` is not `1`: print nothing, exit 0. A session outside herdr gets no Brain items.
 2. If the profile has a start condition (for example agy `invocationNum == 0` and `initialNumSteps == 1` [NEW]) and the hook input does not meet it: print nothing, exit 0. agy sends `invocationNum == 0` at the start of each turn, so that check alone fires at every turn; `initialNumSteps == 1` holds only at the first turn of a conversation (E16-S2).
 3. **Resolve and check (G1):** the resolver (below) finds the store from `HERDR_SOCKET_PATH`. Then it asks that herdr session for `HERDR_PANE_ID`. If the session is not bound, the pane does not exist, or the pane is not in `HERDR_WORKSPACE_ID`: print nothing, and record "withheld" with the reason (no receipt for an unbound session, because no store is open). If herdr does not answer before the lookup deadline: print nothing and write nothing; `brain status` shows "unknown" (S50). So an inherited `HERDR_ENV=1` from a closed pane gets nothing.
@@ -880,7 +880,7 @@ Rules:
 - **Continuity** [ASTRA7] 1: the same name does not prove the same herdr state. If herdr has a persistent session identity (M0 checks, §17 item 31), the binding records it. When it changes, the binding is marked "rebind needed": the hook withholds, and `brain setup` rebinds with fresh workspace mappings. Old items stay in the store for an explicit relink (§9.4). Brain never deletes them.
 - **Time limits:** the hook has three limits. Total cap: 300 ms (default, no source). Performance target: < 100 ms. The herdr lookup deadline sits inside the cap and leaves time for the manifest check and the receipt. The herdr lookup deadline is 150 ms, counted from the hook start (owner decision 2026-09-28, §17 item 10). The hook reads only local files and asks the local herdr socket once. No `brained`, no network, no LLM.
 - A completed negative lookup records "withheld". A hook that the cap stops records nothing, and `brain status` shows the session as "unknown" (S50). A timeout never falls back to the global part.
-- **Output form:** the profile holds it. Claude and Codex use `hookSpecificOutput.additionalContext`. agy uses `injectSteps[].ephemeralMessage`. OpenCode and pi get the brief through the shim.
+- **Output form:** the profile holds it. Claude and Codex use `hookSpecificOutput.additionalContext`. agy uses `injectSteps[0].ephemeralMessage` (E16-S2). OpenCode and pi get the brief through the shim.
 - Claude also runs SessionStart hooks after resume, clear and compact. So a delivery can come before a new Brain session record. An item that you approve during a session reaches the next hook run.
 - Labels and badges update on `brain` calls. Between calls, they can be stale.
 - Content that a session already got cannot be removed from it.
@@ -916,9 +916,10 @@ events.start = "PreInvocation"
 start_condition = "invocationNum == 0 && initialNumSteps == 1"   # [NEW], E16-S2
 events.prompt = ""                             # empty until M0 tests it
 events.tool = ""
-output_form = "injectSteps.ephemeralMessage"
-input.session_id = "<JSON path, set by M0>"
-input.cwd = "<JSON path, set by M0>"
+output_form = "injectSteps[0].ephemeralMessage" # E16-S2
+output_none = "{}"                             # E16-S2
+input.session_id = "conversationId"            # E16-S2
+input.cwd = "workspacePaths[0]"                # E16-S2
 shim = ""                                      # "ts" for OpenCode and pi
 ```
 
