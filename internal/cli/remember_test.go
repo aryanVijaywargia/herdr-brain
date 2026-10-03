@@ -100,6 +100,7 @@ func (f *fixture) env(socket, paneID, workspaceID string, stdout *bytes.Buffer) 
 		Environ: []string{"HERDR_ENV=1", "HERDR_SOCKET_PATH=" + socket, "HERDR_PANE_ID=" + paneID,
 			"HERDR_WORKSPACE_ID=" + workspaceID},
 		Bindings: f.file,
+		Profiles: testProfiles,
 		Pane: func(_ context.Context, t herdr.Target, id string) (herdr.Pane, error) {
 			p, ok := f.panes[id]
 			if !ok || t.Socket != f.sock {

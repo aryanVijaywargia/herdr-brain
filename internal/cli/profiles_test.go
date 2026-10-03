@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,18 +20,26 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 )
 
-// fakeProfiles is the embedded profiles and an extra fake profile, which has no Go code
-// (E16-S10). The fake profile lives in test data only, never in the embedded set.
-func fakeProfiles(t *testing.T) fstest.MapFS {
-	t.Helper()
-	fsys := fstest.MapFS{"fake.toml": {Data: readFile(t, "../adapter/testdata/fake/fake.toml")}}
-	for _, k := range adapter.Kinds(nil) {
+// testProfiles is the Claude and Codex profiles of the embedded set. The status and doctor
+// tests run with it, so a new embedded profile (S60) changes none of their outputs.
+var testProfiles = func() fstest.MapFS {
+	fsys := fstest.MapFS{}
+	for _, k := range []string{"claude", "codex"} {
 		data, err := fs.ReadFile(adapters.Profiles, k+".toml")
 		if err != nil {
-			t.Fatal(err)
+			panic(err)
 		}
 		fsys[k+".toml"] = &fstest.MapFile{Data: data}
 	}
+	return fsys
+}()
+
+// fakeProfiles is testProfiles and an extra fake profile, which has no Go code (E16-S10). The
+// fake profile lives in test data only, never in the embedded set.
+func fakeProfiles(t *testing.T) fstest.MapFS {
+	t.Helper()
+	fsys := maps.Clone(testProfiles)
+	fsys["fake.toml"] = &fstest.MapFile{Data: readFile(t, "../adapter/testdata/fake/fake.toml")}
 	return fsys
 }
 
