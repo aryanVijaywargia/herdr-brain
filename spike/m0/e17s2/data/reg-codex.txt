@@ -1,0 +1,51 @@
+-- files:
+-- codexhome/config.toml:
+(none)
+$ codex mcp add brain -- /private/tmp/e17s2/bin/mcpspike -log /private/tmp/e17s2/logs/reg.jsonl -case reg-codex
+Added global MCP server 'brain'.
+(exit 0)
+-- files:
+./codexhome/config.toml
+-- codexhome/config.toml:
+[mcp_servers.brain]
+command = "/private/tmp/e17s2/bin/mcpspike"
+args = ["-log", "/private/tmp/e17s2/logs/reg.jsonl", "-case", "reg-codex"]
+$ codex mcp add brain-env --env HERDR_X=1 -- /bin/true
+Added global MCP server 'brain-env'.
+(exit 0)
+-- files:
+./codexhome/config.toml
+-- codexhome/config.toml:
+[mcp_servers.brain]
+command = "/private/tmp/e17s2/bin/mcpspike"
+args = ["-log", "/private/tmp/e17s2/logs/reg.jsonl", "-case", "reg-codex"]
+
+[mcp_servers.brain-env]
+command = "/bin/true"
+
+[mcp_servers.brain-env.env]
+HERDR_X = "1"
+$ codex mcp list
+Name       Command                          Args                                                    Env            Cwd  Status   Auth       
+brain      /private/tmp/e17s2/bin/mcpspike  -log /private/tmp/e17s2/logs/reg.jsonl -case reg-codex  -              -    enabled  Unsupported
+brain-env  /bin/true                        -                                                       HERDR_X=*****  -    enabled  Unsupported
+(exit 0)
+$ codex mcp get brain
+brain
+  enabled: true
+  transport: stdio
+  command: /private/tmp/e17s2/bin/mcpspike
+  args: -log /private/tmp/e17s2/logs/reg.jsonl -case reg-codex
+  cwd: -
+  env: -
+  remove: codex mcp remove brain
+(exit 0)
+$ codex mcp remove brain
+Removed global MCP server 'brain'.
+(exit 0)
+$ codex mcp remove brain-env
+Removed global MCP server 'brain-env'.
+(exit 0)
+-- files:
+./codexhome/config.toml
+-- codexhome/config.toml:
