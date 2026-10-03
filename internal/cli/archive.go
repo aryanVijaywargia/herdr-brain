@@ -119,6 +119,13 @@ func (cl caller) archive(ctx context.Context, retire bool) error {
 			if _, err := store.WriteRevision(ctx, tx, it.CurrentRevision, next); err != nil {
 				return err
 			}
+			// A retired item is no longer disputed, and keep and retire of a dispute need a
+			// disputed item: its pending dispute would stay in the queue for ever.
+			if it.State == store.StateDisputed {
+				if err := store.SupersedeDisputes(ctx, tx, it.ID, cl.Now()); err != nil {
+					return err
+				}
+			}
 		}
 		return nil
 	})

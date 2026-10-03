@@ -293,3 +293,56 @@ func TestDisputeOverlap(t *testing.T) {
 		t.Errorf("brief = %q, want no mark", b)
 	}
 }
+
+// disputed makes an approved item of workspace ws_a14 disputed and returns it and its pending
+// dispute.
+func (f *fixture) disputed(t *testing.T) (int64, store.Proposal) {
+	t.Helper()
+	_, git := f.gitRepo(t, "config/load.go", "Makefile")
+	item := f.approved(t, loaderText)
+	git("mv", "config/load.go", "config/loader.go")
+	f.stale(t)
+	return item, f.pendingDispute(t)
+}
+
+// supersededDispute fails when proposal p is not superseded: no pending dispute stays in the
+// queue for an item that is no longer disputed.
+func (f *fixture) supersededDispute(t *testing.T, p store.Proposal) {
+	t.Helper()
+	for _, q := range f.rows(t).proposals {
+		if q.ID == p.ID && q.Status != store.ProposalSuperseded {
+			t.Errorf("dispute %d is %s, want superseded", p.ID, q.Status)
+		}
+	}
+	if out := f.mustReview(t); strings.Contains(out, "disputed") {
+		t.Errorf("queue = %q, want no dispute", out)
+	}
+}
+
+// Coordinator fix on PR #214: brain archive --all retires a disputed item and closes its
+// dispute; restore brings the item back.
+func TestArchiveDisputed(t *testing.T) {
+	f := newFixture(t)
+	item, p := f.disputed(t)
+	if out := f.mustArchive(t, 91, "--all"); !strings.HasPrefix(out, "retired 2 items;") {
+		t.Errorf("Archive(--all) = %q, want the global item and item %d retired", out, item)
+	}
+	f.supersededDispute(t, p)
+	if out := f.mustReview(t, "--restore", fmt.Sprint(item)); !strings.Contains(out, "restored") {
+		t.Errorf("Review(--restore) = %q", out)
+	}
+	if it, _ := f.rows(t).item(t, item); it.State != store.StateActive {
+		t.Errorf("restored item %d is %s", item, it.State)
+	}
+}
+
+// Coordinator fix on PR #214: undo of the disputed revision ends the dispute. Revision 1 is the
+// draft, so the undo retires the item.
+func TestUndoDisputed(t *testing.T) {
+	f := newFixture(t)
+	item, p := f.disputed(t)
+	if out := f.mustUndo(t, fmt.Sprint(item)); !strings.Contains(out, "the item is retired") {
+		t.Errorf("Undo() = %q, want the item retired", out)
+	}
+	f.supersededDispute(t, p)
+}
