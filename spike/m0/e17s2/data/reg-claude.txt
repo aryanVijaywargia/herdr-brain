@@ -1,0 +1,229 @@
+-- files under the scratch HOME and the project:
+$ claude mcp add -s user brain-user -- /private/tmp/e17s2/bin/mcpspike -log /private/tmp/e17s2/logs/reg.jsonl -case reg-user
+Added stdio MCP server brain-user with command: /private/tmp/e17s2/bin/mcpspike -log /private/tmp/e17s2/logs/reg.jsonl -case reg-user to user config
+File modified: /private/tmp/e17s2/reg-claude/home/.claude.json
+(exit 0)
+-- files under the scratch HOME and the project:
+./home/.claude.json
+./home/.claude/backups/.claude.json.backup.1791040118467
+-- /private/tmp/e17s2/reg-claude/home/.claude.json
+{
+ "mcpServers": {
+  "brain-user": {
+   "type": "stdio",
+   "command": "/private/tmp/e17s2/bin/mcpspike",
+   "args": [
+    "-log",
+    "/private/tmp/e17s2/logs/reg.jsonl",
+    "-case",
+    "reg-user"
+   ],
+   "env": {}
+  }
+ }
+}
+-- /private/tmp/e17s2/reg-claude/proj/.mcp.json
+(none)
+$ claude mcp add -s local brain-local -- /private/tmp/e17s2/bin/mcpspike -log /private/tmp/e17s2/logs/reg.jsonl -case reg-local
+Added stdio MCP server brain-local with command: /private/tmp/e17s2/bin/mcpspike -log /private/tmp/e17s2/logs/reg.jsonl -case reg-local to local config
+File modified: /private/tmp/e17s2/reg-claude/home/.claude.json [project: /private/tmp/e17s2/reg-claude/proj]
+(exit 0)
+-- files under the scratch HOME and the project:
+./home/.claude.json
+./home/.claude/backups/.claude.json.backup.1791040118467
+-- /private/tmp/e17s2/reg-claude/home/.claude.json
+{
+ "mcpServers": {
+  "brain-user": {
+   "type": "stdio",
+   "command": "/private/tmp/e17s2/bin/mcpspike",
+   "args": [
+    "-log",
+    "/private/tmp/e17s2/logs/reg.jsonl",
+    "-case",
+    "reg-user"
+   ],
+   "env": {}
+  }
+ },
+ "projects": {
+  "/private/tmp/e17s2/reg-claude/proj": {
+   "allowedTools": [],
+   "mcpContextUris": [],
+   "mcpServers": {
+    "brain-local": {
+     "type": "stdio",
+     "command": "/private/tmp/e17s2/bin/mcpspike",
+     "args": [
+      "-log",
+      "/private/tmp/e17s2/logs/reg.jsonl",
+      "-case",
+      "reg-local"
+     ],
+     "env": {}
+    }
+   },
+   "enabledMcpjsonServers": [],
+   "disabledMcpjsonServers": [],
+   "hasTrustDialogAccepted": false,
+   "hasClaudeMdExternalIncludesApproved": false,
+   "hasClaudeMdExternalIncludesWarningShown": false
+  }
+ }
+}
+-- /private/tmp/e17s2/reg-claude/proj/.mcp.json
+(none)
+$ claude mcp add -s project brain-project -- /private/tmp/e17s2/bin/mcpspike -log /private/tmp/e17s2/logs/reg.jsonl -case reg-project
+Added stdio MCP server brain-project with command: /private/tmp/e17s2/bin/mcpspike -log /private/tmp/e17s2/logs/reg.jsonl -case reg-project to project config
+File modified: /private/tmp/e17s2/reg-claude/proj/.mcp.json
+(exit 0)
+-- files under the scratch HOME and the project:
+./home/.claude.json
+./home/.claude/backups/.claude.json.backup.1791040118467
+./proj/.mcp.json
+-- /private/tmp/e17s2/reg-claude/home/.claude.json
+{
+ "mcpServers": {
+  "brain-user": {
+   "type": "stdio",
+   "command": "/private/tmp/e17s2/bin/mcpspike",
+   "args": [
+    "-log",
+    "/private/tmp/e17s2/logs/reg.jsonl",
+    "-case",
+    "reg-user"
+   ],
+   "env": {}
+  }
+ },
+ "projects": {
+  "/private/tmp/e17s2/reg-claude/proj": {
+   "allowedTools": [],
+   "mcpContextUris": [],
+   "mcpServers": {
+    "brain-local": {
+     "type": "stdio",
+     "command": "/private/tmp/e17s2/bin/mcpspike",
+     "args": [
+      "-log",
+      "/private/tmp/e17s2/logs/reg.jsonl",
+      "-case",
+      "reg-local"
+     ],
+     "env": {}
+    }
+   },
+   "enabledMcpjsonServers": [],
+   "disabledMcpjsonServers": [],
+   "hasTrustDialogAccepted": false,
+   "hasClaudeMdExternalIncludesApproved": false,
+   "hasClaudeMdExternalIncludesWarningShown": false
+  }
+ }
+}
+-- /private/tmp/e17s2/reg-claude/proj/.mcp.json
+{
+ "mcpServers": {
+  "brain-project": {
+   "type": "stdio",
+   "command": "/private/tmp/e17s2/bin/mcpspike",
+   "args": [
+    "-log",
+    "/private/tmp/e17s2/logs/reg.jsonl",
+    "-case",
+    "reg-project"
+   ],
+   "env": {}
+  }
+ }
+}
+$ claude mcp list
+Checking MCP server health…
+
+brain-user: /private/tmp/e17s2/bin/mcpspike -log /private/tmp/e17s2/logs/reg.jsonl -case reg-user - ✔ Connected
+brain-project: /private/tmp/e17s2/bin/mcpspike -log /private/tmp/e17s2/logs/reg.jsonl -case reg-project - ⏸ Pending approval (run `claude` to approve)
+brain-local: /private/tmp/e17s2/bin/mcpspike -log /private/tmp/e17s2/logs/reg.jsonl -case reg-local - ✔ Connected
+(exit 0)
+$ claude mcp get brain-user
+brain-user:
+  Scope: User config (available in all your projects)
+  Status: ✔ Connected
+  Type: stdio
+  Command: /private/tmp/e17s2/bin/mcpspike
+  Args: -log /private/tmp/e17s2/logs/reg.jsonl -case reg-user
+  Environment:
+
+To remove this server, run: claude mcp remove brain-user -s user
+(exit 0)
+$ claude mcp remove -s user brain-user
+Removed MCP server brain-user from user config
+File modified: /private/tmp/e17s2/reg-claude/home/.claude.json
+(exit 0)
+$ claude mcp remove -s local brain-local
+Removed MCP server brain-local from local config
+File modified: /private/tmp/e17s2/reg-claude/home/.claude.json [project: /private/tmp/e17s2/reg-claude/proj]
+(exit 0)
+$ claude mcp remove -s project brain-project
+Removed MCP server brain-project from project config
+File modified: /private/tmp/e17s2/reg-claude/proj/.mcp.json
+(exit 0)
+-- files under the scratch HOME and the project:
+./home/.claude.json
+./home/.claude/backups/.claude.json.backup.1791040118467
+./home/Library/Caches/claude-cli-nodejs/-private-tmp-e17s2-reg-claude-proj/mcp-logs-brain-local/2026-10-03T15-08-39-984Z.jsonl
+./home/Library/Caches/claude-cli-nodejs/-private-tmp-e17s2-reg-claude-proj/mcp-logs-brain-user/2026-10-03T15-08-39-984Z.jsonl
+./home/Library/Caches/claude-cli-nodejs/-private-tmp-e17s2-reg-claude-proj/mcp-logs-brain-user/2026-10-03T15-08-40-510Z.jsonl
+./proj/.mcp.json
+-- /private/tmp/e17s2/reg-claude/home/.claude.json
+{
+ "mcpServers": {},
+ "projects": {
+  "/private/tmp/e17s2/reg-claude/proj": {
+   "allowedTools": [],
+   "mcpContextUris": [],
+   "mcpServers": {},
+   "enabledMcpjsonServers": [],
+   "disabledMcpjsonServers": [],
+   "hasTrustDialogAccepted": false,
+   "hasClaudeMdExternalIncludesApproved": false,
+   "hasClaudeMdExternalIncludesWarningShown": false
+  }
+ }
+}
+-- /private/tmp/e17s2/reg-claude/proj/.mcp.json
+{
+ "mcpServers": {}
+}
+$ claude mcp add -s user brain-env -e HERDR_X=1 -- /bin/true
+Added stdio MCP server brain-env with command: /bin/true  to user config
+File modified: /private/tmp/e17s2/reg-claude/home/.claude.json
+(exit 0)
+-- /private/tmp/e17s2/reg-claude/home/.claude.json
+{
+ "mcpServers": {
+  "brain-env": {
+   "type": "stdio",
+   "command": "/bin/true",
+   "args": [],
+   "env": {
+    "HERDR_X": "1"
+   }
+  }
+ },
+ "projects": {
+  "/private/tmp/e17s2/reg-claude/proj": {
+   "allowedTools": [],
+   "mcpContextUris": [],
+   "mcpServers": {},
+   "enabledMcpjsonServers": [],
+   "disabledMcpjsonServers": [],
+   "hasTrustDialogAccepted": false,
+   "hasClaudeMdExternalIncludesApproved": false,
+   "hasClaudeMdExternalIncludesWarningShown": false
+  }
+ }
+}
+$ claude mcp remove brain-env
+Removed MCP server "brain-env" from user config
+File modified: /private/tmp/e17s2/reg-claude/home/.claude.json
+(exit 0)

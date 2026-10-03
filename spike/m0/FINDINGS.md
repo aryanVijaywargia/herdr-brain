@@ -14,6 +14,7 @@
 | 2 | Claude `additionalContext` size limit | PASS, limit found | 10,000 characters reach the model inline. At 10,001 characters Claude writes the text to `~/.claude/projects/<proj>/<sid>/tool-results/hook-...-additionalContext.txt` and gives the model only the path. |
 | 2 | Codex size limit | PASS, no limit seen | `codex exec` returned both markers at 10,500, 30,000 and 100,000 characters. |
 | 4 | Workspace root | ANSWERED (E2-S5), owner decision open | The API has no root. `workspace_cwd` is the focused pane's live folder. `identity_cwd` is the root pane's folder at the last save. Both follow `cd`. See "Workspace root folder source". |
+| 7 | An MCP server started by the CLI inherits `HERDR_ENV`, `HERDR_SOCKET_PATH`, `HERDR_PANE_ID` and `HERDR_WORKSPACE_ID` of the pane | TRUE for Claude Code 2.1.288. FALSE for codex-cli 0.154.0 by default; TRUE with `env_vars` in the server config (E17-S2) | Claude (C1, C2): the server, a child of `claude`, logged all four values of pane `w1:p1` in the test session. Codex (X1): the server logged none of the four. With `-c 'mcp_servers.spike.env_vars=["HERDR_ENV",...]'` (X2, X3) it logged all four of pane `w2:p1`. `codex mcp add` has no flag for `env_vars`. See "E17-S2: MCP gateway facts (§17 items 7, 15, 17)". |
 | 8 | Event delay after a state change | PASS (E11-S1) | Claude 2.1.284, 7 real changes: the socket `pane.agent_status_changed` came 0.14-0.42 s after the matching Claude hook or key press. A fake `pane report-agent` change: 0.03-0.10 s to the socket and to an `[[events]]` hook. The event has no time and no id. See "brained hosting and capture (E11-S1)". Codex 0.154 (E11-S1b), 8 real changes: 0.04-0.31 s after Enter or the approval key, 0.39-0.58 s after the Codex turn-end `notify`. See "Codex live capture (E11-S1b)". |
 | 9 | Alternate-screen loss, user message at turn start | PASS for Claude (E11-S1), PASS for Codex (E11-S1b) | Claude draws in the alternate screen. While `working` or `blocked`, only the screen (37 rows here) can be read; rows that scroll off are gone until idle. At idle herdr can scroll-capture the full history (138 of 138 lines), but most idle reads with `--lines` above the history size returned only the screen, with exit 0 (6 of 6, then 15 of 19). The user prompt line is on the screen at turn start. Codex (live, E11-S1b): draws inline; the scrollback grew with the reply (`max_offset_from_bottom` 3 → 102) and no row was lost. Its approval prompt is inline too. The prompt line is on the screen and in the read at turn start. See "Codex live capture (E11-S1b)". |
 | 10 | Hook timing | PASS (E7-S4) | Normal load (M0): whole hook 5.4-10.7 ms. E7-S4, with the manifest check and a SQLite receipt, 100 runs per level: whole hook p95 7.6 ms idle, 8.1 ms with output bursts, 16.5 ms with a flood (max 80.9 ms, from one slow `pane get`). Manifest check ≤ 0.6 ms. Proposed lookup deadline: 150 ms from hook start [NEW]. See "Hook under load and manifest check (E7-S4)". |
@@ -21,7 +22,9 @@
 | 12 | Agent reads a skill file from an absolute path in the brief, when relevant | TRUE for Claude (E16-S1). Codex: UNKNOWN for the HLD hook route (not tested, owner hand test); TRUE with the brief in `AGENTS.md` (E16-S1) | Claude Code 2.1.287 and codex-cli 0.154.0, one fresh session per case: each matching prompt read the right skill file and used its markers and its steps (one format slip in C3); each negative prompt read no skill file; a near-description pair picked the right file. No permission prompt for the read in the modes tested. See "E16-S1: skill files from the brief (§17 item 12)". |
 | 13 | Headless extractor call, no tools, JSON schema | PASS for no file, shell, network, MCP or hook access; PARTIAL for literal "no tools" (E13-S1) | Claude 2.1.283 and codex-cli 0.154.0 both return schema-valid JSON. Claude keeps only `StructuredOutput`. Codex 0.154 with `gpt-6-sol` keeps code-mode `exec`/`wait` (V8, no nested tools) and `request_user_input_async`; no flag removes them. When the output cannot fit, Claude can exit 0 with no structured output; Codex bends a bad prompt to the schema and fails only for an unsatisfiable schema. See "Headless extractor call (E13-S1)". |
 | 14 | Hook payloads: `UserPromptSubmit`, `PostToolUse`, `Stop` | PASS for Claude (live, E11-S1). Codex: PASS from source, live hook OPEN (E11-S1b) | Claude: the `prompt` field is the exact text. An empty hook leaves the prompt unchanged. `PostToolUse` has the command and the shell cwd after the command, but no exit code. A failed command goes to `PostToolUseFailure` with `error` = "Exit code N...". Codex (source): `tool_input.command`, the session cwd, no exit code. See "brained hosting and capture (E11-S1)". Codex live (E11-S1b): a hook set with `-c` still needs the hook-trust step, so no Codex hook ran and the source facts stay. The legacy `notify` command (no trust gate) gave the typed prompt with the @-mention as typed and the final reply. See "Codex live capture (E11-S1b)". |
+| 15 | Outside herdr the server sees no `HERDR_ENV` and returns an empty tool list | TRUE for Claude Code 2.1.288 and codex-cli 0.154.0 (E17-S2) | The CLI started with the four names removed from its env (C3, X4): the server logged all four as not set and answered `tools/list` with 0 tools. Claude (C3) then had no MCP tool and said so. |
 | 16 | agy: `PreInvocation` with `invocationNum == 0` and `injectSteps[].ephemeralMessage` reach the model; hook file; input paths; tool event | TRUE for delivery on agy 1.2.16, print mode (E16-S2). `invocationNum == 0` is not a session start: FALSE. Interactive mode and 1.2.11: UNKNOWN | `PreInvocation` ran at each turn with `invocationNum` 0; the ephemeral brief reached the model (3 of 3 markers) and stayed in the conversation (B2: a fact that no reply had shown, with no new brief). Input: `conversationId`, `workspacePaths[0]`. Tool event `PostToolUse` (`run_command`, `toolCall.args.CommandLine`). Workspace `.agents/hooks.json`; the global `~/.gemini/config/hooks.json` from docs only. agy updated itself from 1.2.11 during the test. See "E16-S2: agy and OpenCode facts (§17 items 16, 18)". |
+| 17 | The CLI prompts for each MCP tool call | Per mode (E17-S2). Claude Code 2.1.288: TRUE in `manual` mode, FALSE in `auto` mode. codex-cli 0.154.0: FALSE in the default mode ("Approve for me"), TRUE in "Ask for approval" (`-a on-request`, user reviewer) | A harmless tool with no annotations. Claude `manual` (C1) asked at both of 2 calls; `auto` (C2) ran 1 call with no prompt. Codex default (X2) ran 1 call with no prompt; "Ask for approval" (X3) asked at both of 2 calls. Each answer was the once-only choice. |
 | 18 | OpenCode: `session.created` and `experimental.chat.system.transform` add the brief through the shim; the API's stability | TRUE on OpenCode v2.0.18 with the V2 API (E16-S2). The V1 names: the V2 docs say V1 plugins do not run in 2.x (not tested one by one) | A V2 project plugin (`.opencode/plugins/brain.ts`) with `ctx.event.subscribe()` `session.created` and `ctx.session.hook("context")` added the brief; the marker came back (O1, O5), and a reopened session got it through the first `context` call (O7). `ctx.tool.hook("execute.after")` gives `input.command` and `result.output.exit`. The pane env reaches the shim only with `--standalone`. See "E16-S2: agy and OpenCode facts (§17 items 16, 18)". |
 | 20 | `recent-unwrapped` while `working` or `blocked` | FAIL for Claude (E11-S1), PASS for Codex (E11-S1b) | Claude: `--lines 300` returns `agent_not_idle` in `working`, `blocked` and just after submit. `--lines 20` (at or below the screen) and `visible` work in every state. At idle, a `--lines` value larger than the history often returns only the screen, with exit 0. Codex (live, E11-S1b): `--lines 300` gave exit 0 in all 112 `working` reads and all 42 `blocked` reads, with the history growing as the reply grew. At idle, `--lines` 300, 1000 and 5000 gave the whole pane history (142 lines) in 9 of 9 reads. `visible` gives the 40-row screen. |
 | 21 | Conformance test | OPEN | |
@@ -598,6 +601,99 @@ OpenCode:
 - **agy updated its own binary** `~/.local/bin/agy` from 1.2.11 to 1.2.16 (see "agy self-update"). Owner decision: keep 1.2.16 (the profile records it as `tested_version`) or go back.
 - The CLIs' own state changed, as in normal use: agy wrote its conversations, artifacts, logs and caches in `~/.gemini/antigravity-cli/` (3 conversations with 2 turns each; the scratch-HOME try wrote only to the scratch HOME); OpenCode wrote its 2 sessions to `~/.local/share/opencode/opencode.db` and its prompts to `~/.local/state/opencode/prompt-history.jsonl`. They were not read or edited.
 - Cleanup done (after the first run and again after the rerun): the test session `brain-spike-e16s2` is stopped and deleted. `/private/tmp/e16s2` (with the scratch HOME) is removed. The real `default` session, the main server and the user's OpenCode background service were not touched.
+
+## E17-S2: MCP gateway facts (§17 items 7, 15, 17)
+
+- Date: 2026-10-03. herdr 0.9.1. Claude Code 2.1.288 (`claude --version`), model Sonnet 5.5, effort medium (from the user settings). codex-cli 0.154.0 (`codex --version`), model `gpt-6-astra` (the Codex default here), effort low.
+- Files: `e17s2/` (test MCP server `mcpspike/`, run scripts). Raw logs: `e17s2/data/mcp.jsonl` (every server start with the four `HERDR_*` values, the parent command and each MCP method), `data/drive.log` (start and prompt times), `data/screens.txt` (pane reads with the prompts and replies), `data/reg-claude.txt` and `data/reg-codex.txt` (register and remove), `data/snapshot-before.txt` and `data/snapshot-after.txt`.
+- **Setup.**
+  - Named test session `brain-spike-e17s2` beside `default`, with a clean env (`e17s2/ht.sh`). Claude ran in pane `w1:p1` in `/private/tmp/e11s1/agent/e17s2` (E11-S1 trusted the parent folder; no trust dialog came). Codex ran in pane `w2:p1` in `/private/tmp/e17s2/codex`. Neither folder is a git repo.
+  - **The test server** `mcpspike` (stdio, JSON-RPC, one message per line) reads only the four names `HERDR_ENV`, `HERDR_SOCKET_PATH`, `HERDR_PANE_ID` and `HERDR_WORKSPACE_ID`, never the whole env. Without `HERDR_ENV=1` it returns an empty tool list and refuses a call. With it, it offers `spike_echo(text)`, which returns the text and the marker `mcp-echo-7316`. The tool has no annotations (no `readOnlyHint`).
+  - The live cases used the real HOME, so the CLIs used their own sign-in (the owner brief: no auth files go into a scratch home). The user's own settings and plugins stayed active. The server went in only through the no-write routes below. Scratch homes were used only for the register and remove commands, which need no model call.
+- **Server route with no config write.**
+  - Claude: `claude --mcp-config <file> --strict-mcp-config` (`e17s2/claude-run.sh`). The file holds `{"mcpServers":{"spike":{"type":"stdio","command":...,"args":[...]}}}`. `--strict-mcp-config` keeps the user's own MCP servers out.
+  - Codex: `-c 'mcp_servers.spike.command="..."'` and `-c 'mcp_servers.spike.args=[...]'` (`e17s2/codex-run.sh`), with folder trust `-c 'projects={...}'` and `-c check_for_update_on_startup=false`. At "Hooks need review" (3 user hooks) the answer was "Continue without trusting".
+- **Outside herdr** (item 15): the CLI was started in the test pane with `env -u HERDR_ENV -u HERDR_SOCKET_PATH -u HERDR_PANE_ID -u HERDR_WORKSPACE_ID`.
+
+### Cases
+
+One CLI process per case. The prompt asked for one `spike_echo` call; in the asking modes a second prompt asked for a second call, to check "each call".
+
+| Case | CLI, mode, route | Server env (`HERDR_ENV`, `_SOCKET_PATH`, `_PANE_ID`, `_WORKSPACE_ID`) | `tools/list` | Tool calls | Prompt for the call |
+|---|---|---|---|---|---|
+| C1 | Claude, `--permission-mode manual` | `1`, test session socket, `w1:p1`, `w1` | 1 tool | 2 (`C1`, `C1b`) | yes, at both calls |
+| C2 | Claude, `--permission-mode auto` | `1`, test session socket, `w1:p1`, `w1` | 1 tool | 1 (`C2`) | none |
+| C3 | Claude, `manual`, four names removed | none set | 0 tools | 0: Claude said "NO TOOL" and listed no MCP tool | — |
+| X1 | Codex, default ("Approve for me") | **none set** | 0 tools | 0: Codex said "NO TOOL" | — |
+| X2 | Codex, default, plus `mcp_servers.spike.env_vars` = the four names | `1`, test session socket, `w2:p1`, `w2` | 1 tool | 1 (`X2`) | none |
+| X3 | Codex, `-s read-only -a on-request -c approvals_reviewer="user"` ("Ask for approval"), plus `env_vars` | `1`, test session socket, `w2:p1`, `w2` | 1 tool | 2 (`X3`, `X3b`) | yes, at both calls |
+| X4 | Codex, default, `env_vars`, four names removed | none set | 0 tools | not asked (start only) | — |
+
+Each call that ran returned `spike echo: <text> (mcp-echo-7316)` in the reply, and the server logged it (`tools_call`, `in_herdr` true). The server parent was `claude` for C1-C3 and the Codex binary for X1-X4.
+
+### Results
+
+- **Item 7, Claude Code 2.1.288: TRUE.** The stdio server inherits all four values of the pane (C1, C2).
+- **Item 7, codex-cli 0.154.0: FALSE by default.** Codex does not pass the `HERDR_*` names to a stdio MCP server (X1), so the HLD gateway would see "outside herdr" in every Codex pane. **TRUE with `env_vars`:** `mcp_servers.<name>.env_vars = ["HERDR_ENV", "HERDR_SOCKET_PATH", "HERDR_PANE_ID", "HERDR_WORKSPACE_ID"]` passes the pane values (X2, X3). A name that is not set is skipped with no error (X4 started normally).
+- **Item 15: TRUE for both CLIs.** With the four names removed, the server saw no `HERDR_ENV` and returned 0 tools (C3, X4). For Codex with no `env_vars` the same holds even inside herdr (X1).
+- **Item 17: it depends on the mode.**
+
+| CLI | Mode | Prompt for each MCP call |
+|---|---|---|
+| Claude 2.1.288 | `manual` (the old "default" mode; `--permission-mode` lists `acceptEdits`, `auto`, `bypassPermissions`, `manual`, `dontAsk`, `plan`) | TRUE: "Do you want to proceed?" with 1 Yes, 2 "Yes, and don't ask again for spike — Spike Echo commands in <folder>", 3 No. It asked again at the second call after "1 Yes". |
+| Claude 2.1.288 | `auto` | FALSE: "Called spike", no prompt. The user's `permissions.allow` has no `mcp` rule (only the `permissions` keys of `~/.claude/settings.json` and `settings.local.json` were read, filtered to `mcp`). |
+| Codex 0.154.0 | default ("Approve for me") | FALSE: "Called spike.spike_echo(...)", no prompt to the user. |
+| Codex 0.154.0 | "Ask for approval" (`-a on-request`, `approvals_reviewer="user"`) | TRUE: "Allow the spike MCP server to run tool "spike_echo"?" with the arguments and 1 Allow, 2 Allow for this session, 3 Always allow, 4 Cancel. It asked again at the second call after "1 Allow". |
+
+- So in the modes with no prompt, an agent can call a gateway tool with no user step. This supports the §10.2 rule that `run_tool` runs only tools with a reviewed read-only restriction.
+
+### Register and remove commands (scratch homes, no model call)
+
+Claude, with `HOME=/private/tmp/e17s2/reg-claude/home` and no `CLAUDE_CONFIG_DIR` (`e17s2/reg-claude.sh`, `data/reg-claude.txt`):
+
+| Command | File changed |
+|---|---|
+| `claude mcp add -s user <name> -- <cmd> [args...]` | `~/.claude.json`, top-level `mcpServers.<name>` = `{type: "stdio", command, args, env: {}}`. A backup `~/.claude/backups/.claude.json.backup.<ms>` was written at the first change. |
+| `claude mcp add -s local <name> -- ...` (the default scope) | `~/.claude.json`, `projects["<cwd>"].mcpServers.<name>` |
+| `claude mcp add -s project <name> -- ...` | `<cwd>/.mcp.json`, `mcpServers.<name>`. `claude mcp list` then shows it as "Pending approval (run `claude` to approve)". |
+| `claude mcp add ... -e KEY=value` | the same entry with `env: {KEY: value}` (a fixed value) |
+| `claude mcp remove -s <scope> <name>` (no `-s`: from the scope that has it) | deletes the entry. `mcpServers` stays as `{}`; `.mcp.json` stays as `{"mcpServers": {}}`. |
+| `claude mcp list`, `claude mcp get <name>` | no file; `list` starts each server for a health check ("Connected"). Claude also wrote MCP logs under `<scratch HOME>/Library/Caches/claude-cli-nodejs/<project>/mcp-logs-<name>/`. |
+
+Codex, with `HOME` and `CODEX_HOME` under `/private/tmp/e17s2/reg-codex` (`e17s2/reg-codex.sh`, `data/reg-codex.txt`):
+
+| Command | File changed |
+|---|---|
+| `codex mcp add <name> -- <cmd> [args...]` | `$CODEX_HOME/config.toml`, `[mcp_servers.<name>]` with `command` and `args` ("Added global MCP server"). No scope option: global only. |
+| `codex mcp add <name> --env KEY=VALUE -- ...` | adds `[mcp_servers.<name>.env]` with `KEY = "VALUE"` (a fixed value) |
+| `codex mcp remove <name>` | deletes the table; the file stays (empty here) |
+| `codex mcp list`, `codex mcp get <name>` | no file; `list` masks env values (`HERDR_X=*****`) |
+
+- `codex mcp add` has no flag for `env_vars` (`codex mcp add --help`: `--env`, `--url`, `--bearer-token-env-var`, OAuth options). So the official command alone registers a gateway that gets no `HERDR_*` values (item 7).
+
+### Other observations
+
+- Claude 2.1.288 sent `server/discover` before `initialize`. The server answered "method not found" (-32601), and Claude went on with `initialize` (protocol `2025-11-25`). Codex sent `initialize` with protocol `2025-06-18`. The gateway (E17-S7) must answer an unknown method with an error, not drop it.
+- Neither CLI closed the server's stdin before it ended the server: no `exit` line is in the log for any case. No `mcpspike` process was left after the runs (`pgrep`).
+- "Yes, and don't ask again" (Claude) and "Always allow" (Codex) were not chosen: they save a rule.
+
+### Decisions for the owner (not changed here)
+
+- **HLD §10.2 "Setup" and E17-S7 (Codex):** the gateway needs `env_vars` in the Codex server entry, and `codex mcp add` cannot write it. Options: Brain runs `codex mcp add` and then adds the `env_vars` line to `~/.codex/config.toml` itself; or `brain setup` shows the line for the user to add; or Codex stays a gateway gap. Without it, Codex panes get an empty tool list.
+- **HLD §10.2 "Permissions":** the per-mode result is now known (item 17). The `run_tool` read-only rule can stay as it is.
+
+### Limits
+
+- One run per case, one model per CLI, one machine. One harmless tool with no annotations; whether a `readOnlyHint` or a destructive tool changes the prompt (for example the Claude `auto` classifier or the Codex default reviewer) is **unknown**.
+- Claude `acceptEdits`, `dontAsk` and `plan`, and Codex `-a never`, were not run. Bypass modes were not run (owner rule).
+- Codex project-level MCP config (`.codex/config.toml` in a trusted folder) was not tested.
+
+### Side effects and cleanup
+
+- **Real config files, stat only** (`e17s2/snapshot.sh`): `~/.codex/config.toml` (10715 bytes, same mtime), `~/.claude/settings.json` and `~/.claude/settings.local.json` are the same before and after. No `~/.mcp.json` exists. So the AC holds for these files. **`~/.claude.json` is not proven:** its size and mtime changed (next point), and the spike may not read it. The routes used (`--mcp-config`, `-c`) have no register step, and no `mcp add` ran against the real HOME.
+- `~/.claude.json` changed size and mtime. Claude writes its own state there at each run, and the thread's own Claude session also runs on this machine, so the cause cannot be split. The file was not read. No trust dialog came, so no new folder-trust entry came from this spike.
+- Codex keeps its own session state in `~/.codex`, as in normal use. It was not read or edited.
+- Cleanup done: the test session `brain-spike-e17s2` is stopped and deleted. `/private/tmp/e17s2` (with both scratch homes), `/private/tmp/e11s1/agent/e17s2` and `~/.claude/projects/-private-tmp-e11s1-agent-e17s2/` (3 test transcripts and a `memory/` folder) are removed. The real `default` session, the main server and the session `brain-spike-e17s1` were not touched.
 
 ## Cleanup done
 
