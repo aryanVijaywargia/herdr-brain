@@ -13,6 +13,26 @@ def clean(s):
     return re.sub(r"\b192:(agy|opencode) ", r"<host>:\1 ", s)
 
 os.makedirs(f"{here}/data", exist_ok=True)
+
+if sys.argv[1:] == ["--rerun"]:
+    # The review rerun (B1-B2, O5-O7): its logs go to data/rerun-*, and the shim inputs of the
+    # fixed shim go to fixtures/opencode-shim-*.json. The first-run files stay as they are.
+    keep = re.compile(r'"kind":"(setup|context|context-done|tool\.after|brain-[a-z]+|subscribe-error)"|"type":"session\.created"')
+    with open(f"{src}/brain.jsonl") as f, open(f"{here}/data/rerun-brain-calls.jsonl", "w") as o:
+        calls = [json.loads(clean(l)) for l in f]
+        for c in calls:
+            o.write(json.dumps(c) + "\n")
+    with open(f"{src}/opencode-shim.jsonl") as f, open(f"{here}/data/rerun-opencode-shim.jsonl", "w") as o:
+        for line in f:
+            if keep.search(line):
+                o.write(clean(line))
+    oc = [c for c in calls if c["args"][2] == "opencode"]
+    for name, c in (("opencode-shim-start.json", oc[0]), ("opencode-shim-tool.json", oc[1]), ("opencode-shim-start-reopened.json", oc[2])):
+        with open(f"{here}/fixtures/{name}", "w") as o:
+            json.dump(c["stdin"], o, indent=2, sort_keys=True)
+            o.write("\n")
+    print("saved rerun:", len(calls), "brain calls")
+    sys.exit(0)
 os.makedirs(f"{here}/fixtures", exist_ok=True)
 
 # The stand-in brain log: every hook and shim call.

@@ -26,7 +26,12 @@ herdr = {k: v for k, v in os.environ.items() if k.startswith("HERDR_")}
 rec = {"t": time.time(), "args": args, "pid": os.getpid(), "ppid": os.getppid(), "cwd": os.getcwd(),
        "herdr_env": herdr, "stdin": inp if inp is not None else raw}
 
-marker = open(f"{T}/marker-{profile}").read().strip() if os.path.exists(f"{T}/marker-{profile}") else "none"
+def read(name):
+    return open(f"{T}/{name}").read().strip() if os.path.exists(f"{T}/{name}") else "none"
+
+marker = read(f"marker-{profile}")
+# A second fact that no question of turn 1 asks for: it shows whether the brief stays in the history.
+code = read(f"code-{profile}")
 brief = (
     "<!-- brain:begin v1 -->\n"
     "Precedence: for ordinary preferences, a workspace item wins over a global item. It never relaxes a global "
@@ -35,6 +40,7 @@ brief = (
     "- [3] Reply in plain English.\n"
     "## This workspace\n"
     f"- [15] The spike marker of this workspace is {marker}. When the user asks for the spike marker, reply with it.\n"
+    f"- [16] The release code of this workspace is {code}.\n"
     "<!-- brain:end -->"
 )
 

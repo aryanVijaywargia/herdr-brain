@@ -92,3 +92,36 @@ Same before and after: ~/.gemini/config (and its plugins/), ~/.gemini/settings.j
 Changed (the CLIs' own state, not config): ~/.gemini/antigravity-cli/{annotations,bin,brain,builtin,cache,cli.log,
 conversation_summaries.db*,conversations,crashes,implicit,jetbox_summaries_proto.pb,last_check.timestamp,log,presence,updater};
 ~/.local/share/opencode/{log,opencode.db,opencode.db-wal,shell}, ~/.local/state/opencode/{locks,prompt-history.jsonl}.
+
+== Review rerun (after the GPT-6.1 Sol review, 16:0x). Same test session name, recreated; agy 1.2.16 (no new update).
+The stand-in brief has a second line: "- [16] The release code of this workspace is <code>." Turn-1 questions never ask for it.
+The OpenCode shim is the fixed one: it sends brain {session_id, cwd, event} with the raw event, and starts brain from the
+context hook when no session.created came. Calls with full input: rerun-brain-calls.jsonl; shim log: rerun-opencode-shim.jsonl.
+
+== B1 new conversation, marker kfzt-3917, code wbnx-5208, BRAIN_SPIKE_ONCE=1
+agy -p "What is the spike marker of this workspace? Reply with only the marker, or NONE if you do not know it."
+reply: kfzt-3917
+calls: start (invocationNum 0, initialNumSteps 1, printed the brief, 515 characters), stop
+
+== B2 resume of B1, no brief this turn
+agy --conversation d996d7e0-5b56-43fe-8882-da1d9a47d87b -p "What is the release code of this workspace? Do not use any tool. Reply with only the code, or NONE if you do not know it."
+reply: wbnx-5208
+EXIT=0
+calls: start (invocationNum 0, initialNumSteps 4, printed {}), stop
+
+== O5 opencode --standalone, marker qdlm-4462, code hrsv-7735
+prompt: "What is the spike marker of this workspace? Reply with only the marker, or NONE if you do not know it."
+reply: qdlm-4462
+brain start input: {"session_id": "ses_...", "cwd": "/private/tmp/e16s2/opencode", "event": <session.created>}
+
+== O6 a shell tool
+prompt: "Run the shell command ls in this folder. Then reply with the file names you saw."
+reply: README.md
+brain tool input: {"session_id": "ses_...", "cwd": "/private/tmp/e16s2/opencode", "event": <execute.after, input.command "ls">}
+
+== O7 OpenCode exited (ctrl+c twice), then reopened: opencode --standalone -s ses_efeb95889ffeT4IzpamDDU4gBL
+prompt: "What is the release code of this workspace? Do not use any tool. Reply with only the code, or NONE if you do not know it."
+reply: hrsv-7735
+shim: no session.created; context hook with had_created false started brain with {"session_id", "cwd", "event": {"type": "context", ...}}
+
+== Real config folders after the rerun: the same as before it (snapshot.sh). The session and /private/tmp/e16s2 are removed again.

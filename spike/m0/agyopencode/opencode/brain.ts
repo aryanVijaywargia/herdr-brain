@@ -6,6 +6,7 @@
 //   printed brief to `event.system` of each model call of that session.
 // - ctx.tool.hook("execute.after") is the V2 form of `tool.execute.after`: it logs the payload and
 //   passes it to `brain hook --event tool`.
+// Each call sends brain one shape: {session_id, cwd, event}, with the raw OpenCode event in `event`.
 // The shim adds nothing when brain fails or prints nothing, and stops waiting after 5 s (E8-S2).
 // Spike only: it logs to /private/tmp/e16s2/logs/opencode-shim.jsonl.
 import { appendFileSync } from "node:fs"
@@ -74,6 +75,11 @@ export default {
   async setup(ctx: any) {
     log({ kind: "setup", version: ctx.app?.version, location: safe(ctx.location), pid: process.pid, ppid: process.ppid, herdr_env: herdrEnv() })
     const briefs = new Map<string, Promise<string>>()
+    const input = (sessionID: string, cwd: string | undefined, event: unknown) => ({
+      session_id: sessionID,
+      cwd: cwd ?? ctx.location?.directory,
+      event,
+    })
     const controller = new AbortController()
     ;(async () => {
       for await (const ev of ctx.event.subscribe({ signal: controller.signal })) {
@@ -84,7 +90,7 @@ export default {
         }
         if (ev?.type === "session.created") {
           const sessionID = ev.data?.sessionID ?? ev.sessionID
-          if (typeof sessionID === "string") briefs.set(sessionID, runBrain("start", ev))
+          if (typeof sessionID === "string") briefs.set(sessionID, runBrain("start", input(sessionID, ev.data?.location?.directory, ev)))
         }
       }
     })().catch((e) => log({ kind: "subscribe-error", error: String(e) }))
@@ -93,7 +99,8 @@ export default {
       let pending = briefs.get(ev.sessionID)
       log({ kind: "context", sessionID: ev.sessionID, agent: ev.agent, model: safe(ev.model), system_parts: ev.system?.length, had_created: !!pending })
       if (!pending) {
-        pending = runBrain("start", { type: "context", sessionID: ev.sessionID })
+        // No session.created in this server (a reopened session): start from the context hook.
+        pending = runBrain("start", input(ev.sessionID, undefined, { type: "context", sessionID: ev.sessionID }))
         briefs.set(ev.sessionID, pending)
       }
       const brief = (await pending).trim()
@@ -103,7 +110,7 @@ export default {
 
     await ctx.tool.hook("execute.after", async (ev: any) => {
       log({ kind: "tool.after", event: safe(ev) })
-      await runBrain("tool", safe(ev))
+      await runBrain("tool", input(ev.sessionID, undefined, ev))
     })
 
     return () => controller.abort()

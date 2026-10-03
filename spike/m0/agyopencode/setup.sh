@@ -3,7 +3,7 @@
 #   bin/brain                              the stand-in brain (logs stdin, prints a fixed brief)
 #   agy/.agents/hooks.json                 agy workspace hooks (customization root of the workspace)
 #   opencode/.opencode/plugins/brain.ts    OpenCode V2 project plugin (the shim prototype)
-#   marker-agy, marker-opencode            fresh markers in the brief
+#   marker-*, code-*                       fresh markers in the brief (the run sets them per case)
 #   logs/                                  hook and shim logs
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)

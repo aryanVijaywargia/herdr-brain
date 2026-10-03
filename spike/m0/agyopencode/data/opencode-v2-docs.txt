@@ -1,0 +1,20 @@
+OpenCode V2 plugin docs, read on 2026-10-03 with a web fetch tool. The fetch tool returns a summary with short quotes,
+so the lines in quotes are verbatim and the rest is its summary. Check the pages for the full text.
+
+== https://opencode.ai/v2/docs/build/plugins/migrate-v1
+- "V1 plugin implementations do not run in V2. Moving a file or renaming its config entry is not enough."
+- "V2 discovers local plugins from both `.opencode/plugin/` and `.opencode/plugins/`; use `.opencode/plugins/` for V2 files."
+- "Every V2 plugin needs a stable `id`."
+- Hook map (summary): `event` -> `ctx.event.subscribe()`; `tool.execute.after` -> `ctx.tool.hook("execute.after", ...)`;
+  `experimental.chat.system.transform` -> `ctx.session.hook("context", ...)` and edit `event.system`.
+- Search result text for this page: "opencode 2.x only accepts Plugin.define({ id, setup }) / { id, effect } as a plugin's
+  default export and rejects the v1 async-function shape with PluginModule.LoadError."
+
+== https://opencode.ai/v2/docs/build/plugins
+- Project plugins in `.opencode/plugins/` "are loaded automatically". No global folder is named on this page.
+- "V2 reads the default export's `id` and `setup()` (or `effect()` for Effect plugins)."
+- session.hook("context") changes apply "only the outgoing model call, not persisted history or configuration."
+- Hook names that the page marks experimental: `experimental.ws.handshake`, `experimental.ws.send`, `experimental.ws.receive`.
+
+== https://opencode.ai/docs/plugins/ (V1 docs)
+- Global plugin folder: `~/.config/opencode/plugins/`; project: `.opencode/plugins/`.
