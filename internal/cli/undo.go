@@ -69,8 +69,15 @@ func (cl caller) undo(ctx context.Context, id int64) error {
 			return err
 		}
 		next.Revision = it.CurrentRevision + 1
-		_, err = store.WriteRevision(ctx, tx, it.CurrentRevision, next)
-		return err
+		if _, err := store.WriteRevision(ctx, tx, it.CurrentRevision, next); err != nil {
+			return err
+		}
+		// Undo of the disputed revision ends the dispute: keep and retire of a dispute need a
+		// disputed item, so its pending dispute would stay in the queue for ever.
+		if it.State == store.StateDisputed && next.State != store.StateDisputed {
+			return store.SupersedeDisputes(ctx, tx, it.ID, cl.Now())
+		}
+		return nil
 	})
 	if err != nil {
 		return err

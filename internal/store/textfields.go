@@ -50,6 +50,7 @@ func noItemTextFields() []Field {
 		{"items", "workspace_key"},
 		{"items", "state"},
 		{"items", "created"},
+		{"items", "kept_at"}, // The keep time of an archive candidate (E16-S7).
 		{"proposals", "scope"},
 		{"proposals", "trigger_prompts"}, // Prompt hashes (§11).
 		{"proposals", "conflicts_with"},  // Item ids (§11).

@@ -71,13 +71,19 @@ func newStatusFixture(t *testing.T) *statusFixture {
 // status runs brain status from pane w14:p1 at testNow + 3 h.
 func (f *statusFixture) status(t *testing.T, socket string) (string, error) {
 	t.Helper()
+	return f.statusAt(t, socket, testNow.Add(3*time.Hour))
+}
+
+// statusAt runs brain status from pane w14:p1 at now.
+func (f *statusFixture) statusAt(t *testing.T, socket string, now time.Time) (string, error) {
+	t.Helper()
 	var out bytes.Buffer
 	e := f.env(socket, "w14:p1", "w14", &out)
 	e.Data = f.data
 	e.Adapters = harness.Files{Install: filepath.Join(f.data, "install.json"),
 		Conformance: filepath.Join(f.data, "conformance.json"), Retest: filepath.Join(f.data, retestDir)}
 	e.StatusHerdr = func(herdr.Target) (StatusHerdr, error) { return f.herdr, nil }
-	e.Now = func() time.Time { return testNow.Add(3 * time.Hour) }
+	e.Now = func() time.Time { return now }
 	err := Status(context.Background(), e, nil)
 	return out.String(), err
 }

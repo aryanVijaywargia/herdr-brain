@@ -153,6 +153,9 @@ func (s *statusCall) run(ctx context.Context) {
 		if err := s.extraction(ctx, tx); err != nil {
 			return err
 		}
+		if err := s.archive(ctx, tx); err != nil {
+			return err
+		}
 		pending, err := store.ForgetPending(ctx, tx)
 		if err != nil {
 			return err
@@ -426,6 +429,51 @@ func (s *statusCall) queue(ctx context.Context, tx *sql.Tx) error {
 		return nil
 	}
 	s.w.printf("\nreview queue: %d pending, the oldest %s old\n", n, age(s.Now().Sub(oldest)))
+	return nil
+}
+
+// archiveShown is how many of the oldest archive candidates brain status names. [NEW] 3.
+const archiveShown = 3
+
+// archive prints the count of the archive candidates that the caller sees and the ids and idle
+// times of the oldest ones, then one count line for each closed workspace with live items
+// (§9.2, §9.4). It shows no item text and asks nothing (D7). The items of a closed workspace
+// are in no pane's view: you act on them after a link.
+func (s *statusCall) archive(ctx context.Context, tx *sql.Tx) error {
+	all, err := store.ArchiveCandidates(ctx, tx, s.Now().Add(-store.ArchiveAge))
+	if err != nil {
+		return err
+	}
+	var oldest []string
+	n := 0
+	byKey := map[string]int{}
+	for _, c := range all {
+		if c.Closed {
+			byKey[*c.WorkspaceKey]++
+			continue
+		}
+		if !s.sees(c.WorkspaceKey) {
+			continue
+		}
+		if n < archiveShown {
+			oldest = append(oldest, fmt.Sprintf("item %d (idle %s)", c.ItemID, age(s.Now().Sub(c.Since))))
+		}
+		n++
+	}
+	if n == 0 {
+		s.w.printf("\narchive: no candidates\n")
+	} else {
+		s.w.printf("\narchive: %d candidates with no relevant session for 90 days, the oldest %s; list them: brain archive\n",
+			n, strings.Join(oldest, ", "))
+	}
+	closed, err := store.ClosedWorkspaces(ctx, tx)
+	if err != nil {
+		return err
+	}
+	for _, w := range closed {
+		s.w.printf("  closed workspace %s (%s): %d items, %d archive candidates; act on them after a relink\n",
+			w.Key, w.Label, w.Items, byKey[w.Key])
+	}
 	return nil
 }
 
