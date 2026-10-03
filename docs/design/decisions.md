@@ -362,7 +362,7 @@ Result (fill in): **not run yet.**
 
 **Not part of this run** (owner, 2026-10-03): pi and OpenCode. pi comes later with E16-S15 #217 and E16-S16 #218. OpenCode stays a gap, and E16-S13 #164 is deferred. They do not block the M3 exit.
 
-**Scenarios** (HLD §14). Each test names its scenario id in its name or its comment. The tests use temp stores, test HOME folders, the fake herdr, fake CLIs and the fake extractor: no live herdr, no CLI and no model call. Four tests are new for this run (marked "new").
+**Scenarios** (HLD §14). Each test names its scenario id in its name or its comment. The tests use temp stores, test HOME folders, the fake herdr, fake CLIs and the fake extractor: no live herdr, no CLI and no model call. Five tests are new for this run (marked "new").
 
 | # | Expected (§14, short) | Tests | Result |
 |---|---|---|---|
@@ -377,7 +377,7 @@ Result (fill in): **not run yet.**
 | S60 | agy sessions get the brief with no new Go code | `internal/adapter` `TestProfileCases/agy` (golden hook cases: the brief in agy's output form); `internal/install` `TestProfileRoundTrip/agy`. PR #222 adds `adapters/agy.toml` and test data only, no `.go` file. PR #221 added the eval field `eval.dir` for the runner (owner, 2026-10-03), not for delivery. The live agy check is checklist C. | PASS |
 | S61 (skill part) | No brief and no skill in `~/.claude/skills`; Brain has no effect | `internal/cli` `TestSkillFilesStayInStore` (test HOME: no file in `~/.claude/skills`, `~/.codex` or the repo after build, approve, retire and forget); `internal/hook` `TestOutsideHerdr` (outside herdr: no output, no file read, no herdr call) | PASS |
 | S72 | The brief shows the item with a disputed mark until you decide | `internal/output` `TestDisputedSkill`; `internal/brief` `TestGolden/disputed`; `internal/cli` `TestDisputeKeep` (the mark goes after keep) | PASS |
-| S83 (relink part) | `w1` gets a new key and no old items; the old items are listed for relink | `internal/workspace` `TestOtherProjectWithheldAndRemap`, `TestRelinks`; `internal/cli` `TestStatusRelink`, `TestWorkspaceLinkReplaced` | PASS |
+| S83 (relink part) | `w1` gets a new key and no old items; the old items are listed for relink | `internal/cli` `TestReplacedNoOldItemsS83` (new: the items of the replaced key stay there, the brief of the new key does not hold them, and status lists the old key for relink); `internal/workspace` `TestOtherProjectWithheldAndRemap` (the remap gives a new key), `TestRelinks`; `internal/cli` `TestStatusRelink`, `TestWorkspaceLinkReplaced` | PASS |
 
 **§13 M3 exit sentences**
 
@@ -430,7 +430,7 @@ Result (fill in): **not run yet.**
 **Checklist C: agy delivery stage** (E10 delivery stage; owner, 2026-10-03; moved from #163)
 1. Do the common preparation. Run `brain setup` and accept the agy hook: Brain writes its entry in the real `~/.gemini/config/hooks.json`. Check `brain status`: agy is `configured` (or `retest`, step 2).
 2. Record the version: `agy --version`. The profile's tested version is 1.2.16; the target is 1.2.16 or later (owner, 2026-10-03). On a later version, `brain status` shows agy `retest` before the run; a pass on that version makes it `verified` (§8.5).
-3. Trust the fixed eval folder once, by hand. The profile's `eval.dir` is `/tmp/brain-eval-agy`. On macOS `/tmp` is `/private/tmp`, and agy trusts the exact real path. `mkdir -p /private/tmp/brain-eval-agy && cd /private/tmp/brain-eval-agy && agy`. Accept the trust question, then exit agy. This is the one trust write in agy's own settings. Do no other config change.
+3. Trust the fixed eval folder once, by hand. The profile's `eval.dir` is `/tmp/brain-eval-agy`. On macOS `/tmp` is `/private/tmp`, and agy trusts the exact real path. `mkdir -p /private/tmp/brain-eval-agy && (cd /private/tmp/brain-eval-agy && agy)`. Accept the trust question, then exit agy. The subshell keeps your shell in the Brain repo root for step 4. This is the one trust write in agy's own settings. Do no other config change.
 4. Run: `/tmp/brain-eval --probes evals/probes/delivery.toml --stage delivery --harness agy`. The case `delivery-agy` approves a workspace item with a fresh marker in the test store and asks agy for it, in the fixed folder.
 5. Read the result: the printed line `delivery-agy agy: <status>, <label>`, `<evalstore>/eval-report.md`, and the conformance record: `jq '[.results[] | select(.harness == "agy")] | last' ~/.local/share/brain/conformance.json`. `brain status` shows agy `verified` after a pass.
 

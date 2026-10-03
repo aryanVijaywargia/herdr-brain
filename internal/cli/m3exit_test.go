@@ -191,3 +191,22 @@ func TestPinnedSkillS29(t *testing.T) {
 		t.Errorf("idle skill after archive --all: %s, want retired", it.State)
 	}
 }
+
+// AC S83, relink part (M3 exit, #165): a remap replaced key ws_a8 with ws_a14. The old items
+// stay in ws_a8: the ws_a14 brief does not hold them, and brain status lists ws_a8 for a
+// relink. The link on request is TestWorkspaceLinkReplaced.
+func TestReplacedNoOldItemsS83(t *testing.T) {
+	f := newStatusFixture(t)
+	f.addEntry(t, "ws_a8", "default", "w8", false, "ws_a14")
+	id := f.oldItem(t, "ws_a8", store.KindFact, "c-old", "old fact marker-old")
+	out := f.mustStatus(t)
+	if !strings.Contains(out, "ws_a8 (w8 old w8): replaced by ws_a14 (w14 shop)") {
+		t.Errorf("Status() = %q, want ws_a8 listed for relink", out)
+	}
+	if k := f.rows(t).keyOf(t, id); k != "ws_a8" {
+		t.Errorf("old item key = %q, want ws_a8: no automatic link", k)
+	}
+	if b := f.brief(t); strings.Contains(b, "marker-old") {
+		t.Errorf("ws_a14 brief = %q, want no old item", b)
+	}
+}
