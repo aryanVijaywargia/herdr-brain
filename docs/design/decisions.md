@@ -353,3 +353,94 @@ Result (fill in): **not run yet.**
 - Verdict: PASS or FAIL, with the reason.
 
 **Review prompt** (§13 "stop or rethink", a note, not a gate): "Comebacks do not fall in the examples, or suggestions feel like noise." Look at it with the M2 rows of `brain status` (comebacks per revision, live suggestion counts) after some weeks of real use. Brain makes no automatic decision from it.
+
+## E16-S14: M3 exit run (#165)
+
+### D10. M3 exit record
+
+**Status:** the exit stays open, for three reasons. The kept-skill check (A), the skill choice stage on real agents (B) and the agy delivery stage (C) are checks that a person runs, and they are not run yet. So the sentences "One skill that you keep, and agents use it" and "Skill choice passes with real agents" have no passing record, and the agy delivery AC has none. All listed scenarios pass as Go tests (2026-10-03, branch of #165, main 716c14f).
+
+**Not part of this run** (owner, 2026-10-03): pi and OpenCode. pi comes later with E16-S15 #217 and E16-S16 #218. OpenCode stays a gap, and E16-S13 #164 is deferred. They do not block the M3 exit.
+
+**Scenarios** (HLD §14). Each test names its scenario id in its name or its comment. The tests use temp stores, test HOME folders, the fake herdr, fake CLIs and the fake extractor: no live herdr, no CLI and no model call. Five tests are new for this run (marked "new").
+
+| # | Expected (§14, short) | Tests | Result |
+|---|---|---|---|
+| S8 | Workspace skill draft; after approval the "shop" hook lists it; other workspaces do not see it | `internal/cli` `TestSkillDraftS8` (the "shop" brief lists it, the "blog" brief on the same checkout does not); `internal/extract` `TestSkillDraft` | PASS |
+| S9 | Item becomes disputed; the queue shows the anchor diff | `internal/cli` `TestDisputeKeep`; `internal/brained` `TestStale` | PASS |
+| S11 (skill part) | Hash mismatch: Brain reports a conflict and asks before it overwrites or removes the file | `internal/output` `TestSkillHandEdit`; `internal/cli` `TestSkillConflictRepair` (status and `brain repair` show it; only `--confirm` writes it again), `TestForgetSkillPendingOnConflict` (forget stays pending and keeps the file) | PASS |
+| S19 | Items stay linked; the block file does not move | `internal/cli` `TestRenameS19` (new: after a rename of "shop", its item, its skill and a new item keep key `ws_a14`; the brief holds all three; the block files keep their names); `internal/workspace` `TestRootPaneCloseAndRenameKeepKey` | PASS |
+| S20 | No automatic link and no question; `brain status` notes the old workspace; relink on request | `internal/cli` `TestClosedSameRootS20` (new: after a brain call the closed key keeps its items, the new brief does not hold them, and status lists the old key with the link command), `TestWorkspaceLink` (the link on request); `internal/workspace` `TestRelinks` | PASS |
+| S27 | Each workspace on one checkout gets only its own items and skills | `internal/cli` `TestSameCheckoutS27` (new: one item and one skill in each of two workspaces on one checkout); `internal/output` `TestSkillList` | PASS |
+| S29 | A pinned procedure stays active; no archive candidate | `internal/cli` `TestPinnedSkillS29` (new: a pinned skill after 183 days is no candidate and stays active after `brain archive --all`; the unpinned skill is retired), `TestArchiveList`; `internal/store` `TestArchiveCandidatesPinned` | PASS |
+| S46 | Undo of a new item retires it; undo of a promotion moves it back | `internal/cli` `TestUndoCreationAndRetirement`, `TestPromoteSkillAndUndo` | PASS |
+| S60 | agy sessions get the brief with no new Go code | `internal/adapter` `TestProfileCases/agy` (golden hook cases: the brief in agy's output form); `internal/install` `TestProfileRoundTrip/agy`. PR #222 adds `adapters/agy.toml` and test data only, no `.go` file. PR #221 added the eval field `eval.dir` for the runner (owner, 2026-10-03), not for delivery. The live agy check is checklist C. | PASS |
+| S61 (skill part) | No brief and no skill in `~/.claude/skills`; Brain has no effect | `internal/cli` `TestSkillFilesStayInStore` (test HOME: no file in `~/.claude/skills`, `~/.codex` or the repo after build, approve, retire and forget); `internal/hook` `TestOutsideHerdr` (outside herdr: no output, no file read, no herdr call) | PASS |
+| S72 | The brief shows the item with a disputed mark until you decide | `internal/output` `TestDisputedSkill`; `internal/brief` `TestGolden/disputed`; `internal/cli` `TestDisputeKeep` (the mark goes after keep) | PASS |
+| S83 (relink part) | `w1` gets a new key and no old items; the old items are listed for relink | `internal/cli` `TestReplacedNoOldItemsS83` (new: the items of the replaced key stay there, the brief of the new key does not hold them, and status lists the old key for relink); `internal/workspace` `TestOtherProjectWithheldAndRemap` (the remap gives a new key), `TestRelinks`; `internal/cli` `TestStatusRelink`, `TestWorkspaceLinkReplaced` | PASS |
+
+**§13 M3 exit sentences**
+
+| Sentence | Proof | Result |
+|---|---|---|
+| One skill that you keep, and agents use it | Checklist A below | NOT RUN YET (exit open) |
+| A new profile works with no new Go code (S60) | E16-S12 #163: PR #221 and PR #222; S60 above | PASS (Go tests). The live agy delivery is checklist C: NOT RUN YET. |
+| Disputed items show their mark (S72) | E16-S6 #157; S72 above | PASS |
+| Skill choice passes with real agents (§12.1) | The E16-S5 #156 stage: `cmd/brain-eval` `TestSkillChoiceStage`, `TestSkillChoiceStealFails`, `TestSkillProbes` pass with fake CLIs; the live run is checklist B | NOT RUN YET (exit open) |
+
+**Common preparation for A, B and C.** A person runs these checks, not the eval runner and not an agent. They use the official, unmodified `claude`, `codex` and `agy` binaries. Brain is installed as the herdr plugin, so `brain` is on the PATH of herdr panes. The data home is `~/.local/share/brain`; the main store is `~/.local/share/brain/main`. Every `sqlite3` call below is read-only. B and C never touch the main herdr session or the main store; A uses the main store on purpose.
+1. Check the setup: `brain doctor` and `brain status`. Write down the herdr version and the state of each CLI profile.
+2. For B and C, build the eval runner from the Brain repo at the main commit: `go build -o /tmp/brain-eval ./cmd/brain-eval`. It needs the install record with the Brain hook of each CLI it runs (`brain setup`), and a test binding of the `brain-eval` session. Make a new test store folder that did not exist before, for example `~/brain-m3-eval-20261005` (below, `<evalstore>`):
+   - `test ! -e <evalstore> && mkdir -p <evalstore>`
+   - `herdr --session brain-eval server` (in its own terminal; it stops when the run is done)
+   - `brain setup --session brain-eval --test <evalstore>`
+3. Run `brain-eval` from the Brain repo root, so the probe paths below resolve. It writes `<evalstore>/eval-results.json` and `<evalstore>/eval-report.md`.
+
+**Checklist A: one skill that you keep, and agents use it** (§13; as E10-S5)
+1. **Draft.** In a real herdr workspace (below, `<ws>`), with learning and extraction on (`brain learn on`, `brain extract on`), explain one real procedure of your work in three sessions, as S8 does. Then wait for a pass of the extractor (`brain status` shows the backlog).
+2. **Approve.** `brain review` lists `skill <name>: <description>`. Read the whole file with `brain review <proposal id>`. Approve it, with an edit if needed: `brain review <proposal id> --approve` or `brain review <proposal id> --approve --edit "<skill text>"`. Write down the item id that it prints.
+3. **Keep.** `brain pin <item id>`, so the skill never ages. The skill stays active through the run.
+4. **Check the brief.** In a shell pane of `<ws>`: `sqlite3 -readonly ~/.local/share/brain/main/brain.db "SELECT i.id, i.kind, i.scope, i.workspace_key, i.state, i.pinned, i.current_revision FROM items i WHERE i.id = <item id>;"` Write down the current revision `<rev>`. The skill file is `~/.local/share/brain/main/skills/<item id>/r<rev>/SKILL.md`.
+5. **Claude.** In `<ws>`, start a fresh `claude` session. Give it a task that matches the skill's example, without the skill name. Watch the pane: Claude reads the SKILL.md (a read of the path from step 4) and follows its steps. Write down the line that shows the read, and which steps it followed. Exit Claude.
+6. **Codex.** In `<ws>`, start a fresh `codex` session. Give it the same kind of task. Watch the pane for the read of the SKILL.md (for example a `cat` or `sed` of the path) and the steps. Write down the line. Exit Codex.
+7. **Receipts.** `sqlite3 -readonly ~/.local/share/brain/main/brain.db "SELECT id, profile, pane_id, agent_session_id, workspace_key, result, brief_hash, output_generation, cli_version, item_revisions, at FROM deliveries ORDER BY id DESC LIMIT 5;"` The receipts of the two sessions are `emitted`, and their `item_revisions` hold `{"item": <item id>, "revision": <rev>}`.
+8. **Shell records (optional).** When the tool hook records are on, a shell read of the file is also a command record: `sqlite3 -readonly ~/.local/share/brain/main/brain.db "SELECT observation_id, argv, cwd FROM command_records WHERE argv LIKE '%SKILL.md%';"` A Claude `Read` is no shell command, so the screen is the proof there. An automatic count of skill reads stays an open point of #165.
+
+Pass rule: both sessions read the SKILL.md of the item and follow its steps, and both receipts name the item at revision `<rev>`. Anything else is a FAIL, with the reason written here. A skipped or blocked run is not a pass.
+
+Result (fill in): **not run yet.**
+- Run: date, herdr version, workspace, Claude and Codex versions and profile states.
+- Skill: name, item id, revision `<rev>`, pinned.
+- Claude: session id, task text, how the read was seen (the screen line), steps followed, receipt row.
+- Codex: session id, task text, how the read was seen, steps followed, receipt row.
+- Verdict: PASS or FAIL, with the reason.
+
+**Checklist B: skill choice stage on real agents** (§12.1 "Skill choice", E16-S5)
+1. Do the common preparation.
+2. Run: `/tmp/brain-eval --probes evals/probes/skills.toml --stage skill-choice --harness claude --harness codex`. Each example prompt and each negative prompt runs in a fresh CLI session with the three fixture skills (release-notes and the near pair pg-migration and sqlite-migration) in the brief, and again as a control with no skill.
+3. Read the result: the run prints `skill choice claude: <verdict>` and `skill choice codex: <verdict>`. `<evalstore>/eval-report.md` has the "Skill choice" section; `<evalstore>/eval-results.json` holds each result with its reply text, rule, run status, CLI version and profile hash.
+4. Resolve each UNSURE result by hand to PASS or to a failure, with the reply text (§12.1).
+
+Pass rule (E16-S5 [NEW], from the E16-S1 data): the stage passes for a CLI when every result of the stage passes, the controls too. The example of each skill uses that skill's marker; other prompts and every control use no marker. A fail or a skip fails the stage. An unresolved UNSURE is not a pass.
+
+Result (fill in): **not run yet.**
+- Run: date, `<evalstore>`, herdr version, Claude and Codex versions.
+- Verdict per CLI, with each non-PASS result and its reply text.
+
+**Checklist C: agy delivery stage** (E10 delivery stage; owner, 2026-10-03; moved from #163)
+1. Do the common preparation. Run `brain setup` and accept the agy hook: Brain writes its entry in the real `~/.gemini/config/hooks.json`. Check `brain status`: agy is `configured` (or `retest`, step 2).
+2. Record the version: `agy --version`. The profile's tested version is 1.2.16; the target is 1.2.16 or later (owner, 2026-10-03). On a later version, `brain status` shows agy `retest` before the run; a pass on that version makes it `verified` (§8.5).
+3. Trust the fixed eval folder once, by hand. The profile's `eval.dir` is `/tmp/brain-eval-agy`. On macOS `/tmp` is `/private/tmp`, and agy trusts the exact real path. `mkdir -p /private/tmp/brain-eval-agy && (cd /private/tmp/brain-eval-agy && agy)`. Accept the trust question, then exit agy. The subshell keeps your shell in the Brain repo root for step 4. This is the one trust write in agy's own settings. Do no other config change.
+4. Run: `/tmp/brain-eval --probes evals/probes/delivery.toml --stage delivery --harness agy`. The case `delivery-agy` approves a workspace item with a fresh marker in the test store and asks agy for it, in the fixed folder.
+5. Read the result: the printed line `delivery-agy agy: <status>, <label>`, `<evalstore>/eval-report.md`, and the conformance record: `jq '[.results[] | select(.harness == "agy")] | last' ~/.local/share/brain/conformance.json`. `brain status` shows agy `verified` after a pass.
+
+Pass rule: the reply holds the exact marker, the run status is `delivered`, the control has no marker, and the conformance record of agy is `pass` on the recorded version, so `brain status` shows agy `verified`. Anything else is a FAIL, with the reason written here.
+
+After the runs of B and C: stop the test session (`herdr session stop brain-eval`, never the main server). Keep `<evalstore>` until the results are written.
+
+Result (fill in): **not run yet.**
+- Run: date, `<evalstore>`, herdr version, `agy --version`.
+- Reply text, run status, label, and the conformance record (result, cli_version, run_id).
+- Verdict: PASS or FAIL, with the reason.
+
+**Review prompt** (§13 "stop or rethink", a note, not a gate): "No procedure repeats in 6 weeks." Look at it after some weeks of real use, with the skill drafts in `brain review` and the repeat counts of `brain status`. Brain makes no automatic decision from it.
