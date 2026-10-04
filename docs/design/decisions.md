@@ -451,7 +451,7 @@ Result (fill in): **not run yet.**
 
 **Status:** the exit stays open, for two reasons. The two-harness check (checklist A) is a check that a person runs, and it is not run yet, so the sentence "Two harnesses reuse one checked tool" has no passing record. The gateway part of S63 is deferred with the MCP gateway E17-S7 #172 (owner, 2026-10-03), so the sentence "The gateway part of S63 passes" has no record; deferred is not a pass. All listed scenarios and the learned automation pipeline test pass as Go tests (2026-10-05, branch of #177, main fc98de0).
 
-**Not part of this run:** the MCP gateway E17-S7 #172 (owner, 2026-10-03: "the mcp server does not look much useful rn, we can do that later") and the hook and allow-rule suggestions E17-S9 #174 (owner, 2026-10-05, D12 answer B). Both stay open, with revisit points in #151. They do not block the M4 exit.
+**Not part of this run:** the MCP gateway E17-S7 #172 (owner, 2026-10-03: "the mcp server does not look much useful rn, we can do that later") and the hook and allow-rule suggestions E17-S9 #174 (owner, 2026-10-05, D12 answer B). Both stay open, with revisit points in #151. #177 does not depend on them. The S63 gateway sentence stays open until #172 runs.
 
 **Scenarios** (HLD §14). Each test names its scenario id in its name or its comment. The tests use temp stores, the fake herdr, fake CLIs and the fake extractor: no live herdr, no CLI and no model call. Two tests are new for this run (marked "new").
 
