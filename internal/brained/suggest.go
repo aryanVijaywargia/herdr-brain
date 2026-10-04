@@ -89,18 +89,24 @@ func Reserve(ctx context.Context, tx *sql.Tx, o store.Observation, full string, 
 // shell: the hook keeps its cap, and brained keeps no child to reap. The new process has its
 // own session, so the end of the agent's terminal does not stop it.
 func Start(ctx context.Context, environ []string, d Dispatch) error {
+	if err := detach(ctx, environ, d.Args()); err != nil {
+		return fmt.Errorf("start brain suggest: %w", err)
+	}
+	return nil
+}
+
+// detach starts the brain binary with args and environ in the background, and does not wait
+// for it.
+func detach(ctx context.Context, environ, args []string) error {
 	exe, err := paths.BinaryPath()
 	if err != nil {
 		return err
 	}
 	// "$0" and "$@" pass the binary and the arguments as words: the shell parses none of them.
-	cmd := exec.CommandContext(ctx, "/bin/sh", append([]string{"-c", `"$0" "$@" </dev/null >/dev/null 2>&1 &`, exe}, d.Args()...)...)
+	cmd := exec.CommandContext(ctx, "/bin/sh", append([]string{"-c", `"$0" "$@" </dev/null >/dev/null 2>&1 &`, exe}, args...)...)
 	cmd.Env = environ
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("start brain suggest: %w", err)
-	}
-	return nil
+	return cmd.Run()
 }
 
 // paneEnv returns environ with the herdr variables of pane paneID in workspace workspaceID of
