@@ -104,8 +104,9 @@ func TestScriptRejected(t *testing.T) {
 		f.commandSession(fmt.Sprintf("s%d", i), turn{"check the code", checkChain})
 	}
 	f.mustRun()
+	id := f.commandCandidate()
 	f.write(func(ctx context.Context, tx *sql.Tx) error {
-		c, err := store.CandidateByID(ctx, tx, f.commandCandidate())
+		c, err := store.CandidateByID(ctx, tx, id)
 		if err != nil {
 			return err
 		}
@@ -153,7 +154,7 @@ func TestScriptForgotten(t *testing.T) {
 		f.commandSession(fmt.Sprintf("s%d", i), turn{"check the code", checkChain})
 	}
 	f.mustRun()
-	tool := f.toolProposals()[0]
+	tool, script := f.toolProposals()[0], f.scriptProposals()[0]
 	f.write(func(ctx context.Context, tx *sql.Tx) error {
 		if err := store.EraseItem(ctx, tx, *tool.ItemID, f.now); err != nil {
 			return err
@@ -164,8 +165,10 @@ func TestScriptForgotten(t *testing.T) {
 		}
 		return err
 	})
-	ps := f.scriptProposals()
-	if len(ps) != 1 || ps[0].Text != "" || ps[0].Diff != "" || ps[0].Status != store.ProposalSuperseded {
-		t.Errorf("script proposals = %+v, want one erased and superseded", ps)
+	// The target goes too, so the row is no script any more.
+	for _, p := range f.proposals() {
+		if p.ID == script.ID && (p.Text != "" || p.Diff != "" || p.Target != "" || p.Status != store.ProposalSuperseded) {
+			t.Errorf("script proposal = %+v, want it erased and superseded", p)
+		}
 	}
 }

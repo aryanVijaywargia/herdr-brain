@@ -412,20 +412,7 @@ func (cl caller) show(ctx context.Context, id int64) error {
 		return err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "proposal %d (%s)\n", p.ID, p.Status)
-	if p.Script() {
-		b.WriteString(scriptLines(p, claim))
-	} else {
-		b.WriteString(itemText(p, it))
-		b.WriteString(binding)
-	}
-	if it.ClaimID != "" {
-		fmt.Fprintf(&b, "claim:    %s\n", it.ClaimID)
-	}
-	fmt.Fprintf(&b, "scope:    %s\ntarget:   %s\n", p.Scope, p.Target)
-	if !p.Script() {
-		fmt.Fprintf(&b, "revision: item %d revision %d, from revision %d (now %d)\n", it.ID, *p.BaseRevision+1, *p.BaseRevision, it.CurrentRevision)
-	}
+	showHead(&b, p, it, binding, claim)
 	fmt.Fprintf(&b, "diff:\n  %s\n", strings.ReplaceAll(p.Diff, "\n", "\n  "))
 	if len(p.Dispute) > 0 {
 		b.WriteString(disputeLine)
@@ -455,6 +442,26 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	}
 	_, err = io.WriteString(cl.Stdout, b.String())
 	return err
+}
+
+// showHead writes the first lines of p in show: the status, the text, the claim, the scope,
+// the target and the revision. A script proposal has no item: claim is its claim, and it has no
+// revision (E17-S8). binding holds the lines of an automation.
+func showHead(b *strings.Builder, p store.Proposal, it store.Item, binding, claim string) {
+	fmt.Fprintf(b, "proposal %d (%s)\n", p.ID, p.Status)
+	if p.Script() {
+		b.WriteString(scriptLines(p, claim))
+	} else {
+		b.WriteString(itemText(p, it))
+		b.WriteString(binding)
+	}
+	if it.ClaimID != "" {
+		fmt.Fprintf(b, "claim:    %s\n", it.ClaimID)
+	}
+	fmt.Fprintf(b, "scope:    %s\ntarget:   %s\n", p.Scope, p.Target)
+	if !p.Script() {
+		fmt.Fprintf(b, "revision: item %d revision %d, from revision %d (now %d)\n", it.ID, *p.BaseRevision+1, *p.BaseRevision, it.CurrentRevision)
+	}
 }
 
 // skillLine is the line of a skill proposal in show. The review pane finds a skill by it: its

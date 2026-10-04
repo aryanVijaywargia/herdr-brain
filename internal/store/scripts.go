@@ -16,8 +16,10 @@ func (p Proposal) Script() bool { return p.ItemID == nil && p.Target == ScriptTa
 
 // scriptsOfItem is the WHERE clause of the proposals of item ?1 and of the script proposals of
 // its claim in its scope (E17-S8): a script proposal comes with the tool draft of the same
-// command chain, so forget of that item erases the script text too (§6.7).
-const scriptsOfItem = `(item_id = ?1 OR item_id IS NULL AND target = '` + ScriptTarget + `' AND candidate_id IN (
+// command chain, so forget of that item erases the script text too (§6.7). It does not test the
+// target, as forget erases the target first: a script is the only proposal of a candidate with
+// no item.
+const scriptsOfItem = `(item_id = ?1 OR item_id IS NULL AND candidate_id IN (
 	SELECT c.id FROM candidates c JOIN items i ON i.id = ?1
 	WHERE c.claim_id = i.claim_id AND COALESCE(c.workspace_key, '') = COALESCE(i.workspace_key, '')))`
 
