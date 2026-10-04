@@ -44,27 +44,30 @@ commands:
   brained   the herdr listener of one herdr session (herdr starts it; D7)
   suggest   the live suggestion of one prompt (the hook or brained starts it)
   run       <tool> [--<input> <value>]...: run an approved tool in this workspace; exits with its exit code
+  automation add <tool> --folder <dir> --cli <cli> | list | pause <item> | resume <item> | remove <item>:
+            run an approved tool after each stop of the agent (brain automation --help)
 `
 
 // commands are the store commands of internal/cli, by name.
 var commands = map[string]func(context.Context, cli.Env, []string) error{
-	"remember":  cli.Remember,
-	"review":    cli.Review,
-	"pin":       cli.Pin,
-	"archive":   cli.Archive,
-	"promote":   cli.Promote,
-	"undo":      cli.Undo,
-	"workspace": cli.Workspace,
-	"forget":    cli.Forget,
-	"repair":    cli.Repair,
-	"pane":      cli.Pane,
-	"uninstall": cli.Uninstall,
-	"status":    cli.Status,
-	"doctor":    cli.Doctor,
-	"learn":     cli.Learn,
-	"extract":   cli.Extract,
-	"suggest":   cli.Suggest,
-	"run":       cli.Run,
+	"remember":   cli.Remember,
+	"review":     cli.Review,
+	"pin":        cli.Pin,
+	"archive":    cli.Archive,
+	"promote":    cli.Promote,
+	"undo":       cli.Undo,
+	"workspace":  cli.Workspace,
+	"forget":     cli.Forget,
+	"repair":     cli.Repair,
+	"pane":       cli.Pane,
+	"uninstall":  cli.Uninstall,
+	"status":     cli.Status,
+	"doctor":     cli.Doctor,
+	"learn":      cli.Learn,
+	"extract":    cli.Extract,
+	"suggest":    cli.Suggest,
+	"run":        cli.Run,
+	"automation": cli.Automation,
 }
 
 func main() {
@@ -89,7 +92,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "setup":
 		err = setup(context.Background(), osSetupDeps(os.Environ()), args[1:], in, stdout)
 	case "status", "doctor", "remember", "review", "pin", "archive", "promote", "undo", "workspace", "forget", "repair", "pane", "uninstall", "learn", "extract",
-		"suggest", "run":
+		"suggest", "run", "automation":
 		err = command(commands[args[0]], args[1:], in, stdout, stderr)
 	case "event":
 		err = event.Main(context.Background(), args[1:], os.Environ())
