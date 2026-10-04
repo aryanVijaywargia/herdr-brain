@@ -158,7 +158,7 @@ func (st state) render(dir string) (parts []part, files []revFile, err error) {
 		}
 		p, err := renderPart(workspaceName(k), byKey[k], revision, skillsByKey[k],
 			func(items []brief.Item, skills ...brief.Skill) (string, error) {
-				return brief.Workspace(items, catalog, skills...)
+				return brief.WorkspaceCatalog(items, catalog, skills...)
 			})
 		if err != nil {
 			return nil, nil, fmt.Errorf("workspace %s: %w", k, err)
@@ -178,7 +178,7 @@ func sees(t store.Tool, key string) bool {
 }
 
 // catalog lists the ready tools that the panes of workspace key see, in approval order, with
-// the names of their inputs in name order (§10.1). brief.Workspace keeps the first 10.
+// the names of their inputs in name order (§10.1). brief.WorkspaceCatalog keeps the first 10.
 func (rs toolRows) catalog(key string) ([]brief.Tool, error) {
 	var ts []brief.Tool
 	for _, t := range rs {

@@ -139,10 +139,16 @@ func Global(items []Item, skills ...Skill) (string, error) {
 	return part("global", globalLabel, len(frame), globalBudget, items, skills, nil)
 }
 
-// Workspace renders the workspace part from the active items and skills of one workspace, and
-// the catalog of the tools that its panes can run: the first catalogSize of tools, in the
-// order given (§10.1). The catalog counts in the part budget (§8.1).
-func Workspace(items []Item, tools []Tool, skills ...Skill) (string, error) {
+// Workspace renders the workspace part from the active items and skills of one workspace, with
+// no tool catalog.
+func Workspace(items []Item, skills ...Skill) (string, error) {
+	return WorkspaceCatalog(items, nil, skills...)
+}
+
+// WorkspaceCatalog is Workspace with the catalog of the tools that the workspace's panes can
+// run: the first catalogSize of tools, in the order given (§10.1). The catalog counts in the
+// part budget (§8.1).
+func WorkspaceCatalog(items []Item, tools []Tool, skills ...Skill) (string, error) {
 	return part("workspace", workspaceLabel, 0, workspaceBudget, items, skills, tools[:min(len(tools), catalogSize)])
 }
 

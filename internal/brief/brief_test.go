@@ -21,7 +21,7 @@ func render(global, workspace []Item, tools []Tool, skills ...[]Skill) string {
 		gs, ws = skills[0], skills[1]
 	}
 	g, gErr := Global(global, gs...)
-	w, wErr := Workspace(workspace, tools, ws...)
+	w, wErr := WorkspaceCatalog(workspace, tools, ws...)
 	if err := errors.Join(gErr, wErr); err != nil {
 		return "error: " + err.Error() + "\n"
 	}
@@ -135,7 +135,7 @@ func TestLargestBrief(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Global(full) error = %v, want nil", err)
 	}
-	w, err := Workspace(workspace, nil)
+	w, err := Workspace(workspace)
 	if err != nil {
 		t.Fatalf("Workspace(full) error = %v, want nil", err)
 	}
@@ -169,8 +169,7 @@ func TestBudgetError(t *testing.T) {
 		part  string
 	}{
 		{name: "global", build: Global, used: len(frame) + len(globalLabel), limit: globalBudget, part: "global"},
-		{name: "workspace", build: func(items []Item, sk ...Skill) (string, error) { return Workspace(items, nil, sk...) },
-			used: len(workspaceLabel), limit: workspaceBudget, part: "workspace"},
+		{name: "workspace", build: Workspace, used: len(workspaceLabel), limit: workspaceBudget, part: "workspace"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -193,7 +192,7 @@ func TestItemLines(t *testing.T) {
 	if _, err := Global([]Item{{ID: 4, Text: "one\ntwo\nthree\n"}}); err != nil {
 		t.Errorf("Global(3 lines) error = %v, want nil", err)
 	}
-	_, err := Workspace([]Item{{ID: 4, Text: "one\ntwo\nthree\nfour"}}, nil)
+	_, err := Workspace([]Item{{ID: 4, Text: "one\ntwo\nthree\nfour"}})
 	if want := "item 4 has 4 lines, over the brief limit of 3"; err == nil || err.Error() != want {
 		t.Errorf("Workspace(4 lines) error = %v, want %q", err, want)
 	}
@@ -205,7 +204,7 @@ func TestSkillBudget(t *testing.T) {
 	sk := Skill{Name: "deploy", Description: "Deploy the site.", Path: "/s/skills/7/r1/SKILL.md"}
 	list := len(skillsLabel + skillsHint + "- deploy: Deploy the site. File: /s/skills/7/r1/SKILL.md\n")
 	items := fill(t, len(workspaceLabel)+list, workspaceBudget)
-	w, err := Workspace(items, nil, sk)
+	w, err := Workspace(items, sk)
 	if err != nil {
 		t.Fatalf("Workspace(full with skill) error = %v, want nil", err)
 	}
@@ -214,7 +213,7 @@ func TestSkillBudget(t *testing.T) {
 	}
 	items[len(items)-1].Text += "x"
 	var be *BudgetError
-	if _, err := Workspace(items, nil, sk); !errors.As(err, &be) {
+	if _, err := Workspace(items, sk); !errors.As(err, &be) {
 		t.Errorf("Workspace(one byte over with skill) error = %v, want *BudgetError", err)
 	}
 }
@@ -227,13 +226,13 @@ func TestDisputeBudget(t *testing.T) {
 	room := len(" (disputed: a.go, b.go changed on 2026-10-03)")
 	items := fill(t, len(workspaceLabel)+room, workspaceBudget)
 	items[0].Anchors = anchors
-	w, err := Workspace(items, nil)
+	w, err := Workspace(items)
 	if err != nil {
 		t.Fatalf("Workspace(full with room) error = %v, want nil", err)
 	}
 	size, _ := WorkspaceSize(w)
 	items[0].Dispute = Dispute{Anchors: []string{"a.go"}, At: time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC)}
-	if w, err = Workspace(items, nil); err != nil {
+	if w, err = Workspace(items); err != nil {
 		t.Fatalf("Workspace(full, disputed) error = %v, want nil", err)
 	}
 	if !strings.Contains(w, " (disputed: a.go changed on 2026-10-03)\n") {
@@ -243,13 +242,13 @@ func TestDisputeBudget(t *testing.T) {
 		t.Errorf("size after the dispute = %d, want more than %d and within %d", got, size, workspaceBudget)
 	}
 	items[0].Dispute = Dispute{Anchors: anchors, At: items[0].Dispute.At}
-	if w, err = Workspace(items, nil); err != nil || len(w) != workspaceBudget {
+	if w, err = Workspace(items); err != nil || len(w) != workspaceBudget {
 		t.Errorf("Workspace(full, both anchors disputed) = %d bytes, %v, want exactly the budget", len(w), err)
 	}
 	items[0].Dispute = Dispute{}
 	items[1].Anchors = []string{"c.go"}
 	var be *BudgetError
-	if _, err := Workspace(items, nil); !errors.As(err, &be) {
+	if _, err := Workspace(items); !errors.As(err, &be) {
 		t.Errorf("Workspace(an anchor with no room) error = %v, want *BudgetError", err)
 	}
 }
@@ -275,7 +274,7 @@ func TestSizes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := Workspace(fill(t, len(workspaceLabel), workspaceBudget), nil)
+	w, err := Workspace(fill(t, len(workspaceLabel), workspaceBudget))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +291,7 @@ func TestSizes(t *testing.T) {
 func TestLastSession(t *testing.T) {
 	at := time.Date(2026, 10, 2, 14, 5, 59, 0, time.FixedZone("IST", 5*3600+1800))
 	line := "Last session in this workspace: claude, 2026-10-02 14:05, transcript /t/s.jsonl\n"
-	part, err := Workspace([]Item{{ID: 4, Text: "use make"}}, nil)
+	part, err := Workspace([]Item{{ID: 4, Text: "use make"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,17 +329,17 @@ func TestCatalogBudget(t *testing.T) {
 	sk := Skill{Name: "deploy", Description: "Deploy the site.", Path: "/s/skills/7/r1/SKILL.md", Tools: []string{"tag-release"}}
 	list := len(skillsLabel + skillsHint + "- deploy: Deploy the site. File: /s/skills/7/r1/SKILL.md\n")
 	items := fill(t, len(workspaceLabel)+catalog.Len()+list+len(toolNote(sk.Tools)), workspaceBudget)
-	w, err := Workspace(items, tools, sk)
+	w, err := WorkspaceCatalog(items, tools, sk)
 	if err != nil || len(w)+len(toolNote(sk.Tools)) != workspaceBudget {
-		t.Fatalf("Workspace(full with catalog) = %d bytes, %v, want %d with the note room", len(w), err, workspaceBudget)
+		t.Fatalf("WorkspaceCatalog(full) = %d bytes, %v, want %d with the note room", len(w), err, workspaceBudget)
 	}
 	sk.Stopped = []string{"tag-release"}
-	if w, err = Workspace(items, tools, sk); err != nil || len(w) != workspaceBudget {
-		t.Errorf("Workspace(full, tool stopped) = %d bytes, %v, want exactly the budget", len(w), err)
+	if w, err = WorkspaceCatalog(items, tools, sk); err != nil || len(w) != workspaceBudget {
+		t.Errorf("WorkspaceCatalog(full, tool stopped) = %d bytes, %v, want exactly the budget", len(w), err)
 	}
 	items[len(items)-1].Text += "x"
 	var be *BudgetError
-	if _, err := Workspace(items, tools, sk); !errors.As(err, &be) {
-		t.Errorf("Workspace(one byte over with catalog) error = %v, want *BudgetError", err)
+	if _, err := WorkspaceCatalog(items, tools, sk); !errors.As(err, &be) {
+		t.Errorf("WorkspaceCatalog(one byte over) error = %v, want *BudgetError", err)
 	}
 }
