@@ -53,6 +53,9 @@ type Env struct {
 	RunHerdr func(t herdr.Target) (RunHerdr, error)
 	// Kill stops the process pid of an automation run (brain automation cancel); tests replace it.
 	Kill func(pid int) error
+	// Command returns the command line of process pid, or "" when there is no such process
+	// (brain automation cancel checks it before Kill); tests replace it.
+	Command func(ctx context.Context, pid int) (string, error)
 	// Config is the Brain config file (paths.ConfigFile).
 	Config string
 	// Data is the data home; Adapters are its files that the adapter states come from.
@@ -113,6 +116,7 @@ func NewEnv(environ []string, stdout, stderr io.Writer) (Env, error) {
 			return c, nil
 		},
 		Kill:     func(pid int) error { return syscall.Kill(pid, syscall.SIGTERM) },
+		Command:  processCommand,
 		Config:   config,
 		Data:     data,
 		Adapters: adapters,

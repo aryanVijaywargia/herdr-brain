@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -294,6 +295,7 @@ func TestLaunchCancel(t *testing.T) {
 		t.Fatal("the run did not start")
 	}
 	var killed []int
+	e.Command = launchCommand(run)
 	e.Kill = func(pid int) error {
 		killed = append(killed, pid)
 		cancel() // the SIGTERM that the launch process gets
@@ -490,5 +492,83 @@ func TestLaunchOtherWorkspace(t *testing.T) {
 	}
 	if f.ran(t) {
 		t.Error("the tool of A ran, want the tool of B only")
+	}
+}
+
+// launchCommand is a Command seam whose every process is the launch process of run.
+func launchCommand(run int64) func(context.Context, int) (string, error) {
+	return func(context.Context, int) (string, error) {
+		return fmt.Sprintf("/p/bin/brain automation launch --run %d --binding default --store /s", run), nil
+	}
+}
+
+// Cancel signals only the launch process of the run. A pid that the OS gave to another
+// process, a gone process and a pid of 0 get no signal (kill(0) would signal the caller's
+// process group), and the run is cancelled still.
+func TestCancelProcess(t *testing.T) {
+	tests := []struct {
+		name    string
+		pid     int
+		command func(run int64) func(context.Context, int) (string, error)
+		killed  bool
+	}{
+		{"the launch process", 4242, launchCommand, true},
+		{"another command", 4242, func(int64) func(context.Context, int) (string, error) {
+			return func(context.Context, int) (string, error) { return "/usr/bin/vim notes.txt", nil }
+		}, false},
+		{"the launch process of another run", 4242, func(run int64) func(context.Context, int) (string, error) {
+			return launchCommand(run + 10)
+		}, false},
+		{"a gone process", 4242, func(int64) func(context.Context, int) (string, error) {
+			return func(context.Context, int) (string, error) { return "", nil }
+		}, false},
+		{"pid 0", 0, launchCommand, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newAutomationFixture(t)
+			_, id := f.bound(t)
+			run := f.claimRun(t, id, "k")
+			s := openStore(t, f.store)
+			write(t, s, func(tx *sql.Tx) error { return store.StartRun(context.Background(), tx, run, tt.pid, testNow) })
+			closeStore(t, s)
+			var out bytes.Buffer
+			e := f.env(f.sock, "w14:p1", "w14", &out)
+			e.Command = tt.command(run)
+			var killed []int
+			e.Kill = func(pid int) error {
+				killed = append(killed, pid)
+				return nil
+			}
+			if err := Automation(context.Background(), e, []string{"cancel", fmt.Sprint(run)}); err != nil {
+				t.Fatalf("cancel = %v", err)
+			}
+			if got := len(killed) == 1 && killed[0] == tt.pid; got != tt.killed || len(killed) > 1 {
+				t.Errorf("killed = %v, want a signal %v", killed, tt.killed)
+			}
+			if r := f.run(t, run); r.Result != store.RunCancelled {
+				t.Errorf("run = %+v, want cancelled", r)
+			}
+			if !strings.Contains(out.String(), fmt.Sprintf("run %d of automation %d cancelled", run, id)) {
+				t.Errorf("cancel output = %q", out.String())
+			}
+		})
+	}
+}
+
+// processCommand reads a real command line with ps, and "" for a pid with no process.
+func TestProcessCommand(t *testing.T) {
+	got, err := processCommand(context.Background(), os.Getpid())
+	if err != nil || !strings.Contains(got, filepath.Base(os.Args[0])) {
+		t.Errorf("processCommand(self) = %q, %v, want the test binary", got, err)
+	}
+	// The pid of a child that ended and was reaped has no process.
+	done := exec.Command("/usr/bin/true")
+	if err := done.Run(); err != nil {
+		t.Fatal(err)
+	}
+	pid := done.Process.Pid
+	if got, err := processCommand(context.Background(), pid); err != nil || got != "" {
+		t.Errorf("processCommand(%d) = %q, %v, want \"\"", pid, got, err)
 	}
 }

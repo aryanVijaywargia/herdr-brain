@@ -1,13 +1,17 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"io"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
@@ -219,6 +223,37 @@ func (ln launcher) label(ctx context.Context, b bindings.Binding, id, name strin
 	return h.SetPaneToken(ctx, id, labelSource, labelToken, value)
 }
 
+// launchProcess reports whether process r.PID is still the `brain automation launch` process
+// of run r: its command line holds the arguments that brained.Launch.Args writes. A pid of 0 or
+// less is never one: kill(0) would signal the caller's own process group.
+func (cl caller) launchProcess(ctx context.Context, r store.AutomationRun) (bool, error) {
+	if r.PID <= 0 {
+		return false, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, herdrDeadline)
+	defer cancel()
+	cmd, err := cl.Command(ctx, r.PID)
+	if err != nil {
+		return false, err
+	}
+	want := strings.Join(brained.Launch{Run: r.ID}.Args()[:4], " ")
+	return strings.Contains(cmd+" ", " "+want+" "), nil
+}
+
+// processCommand returns the command line of process pid from ps, or "" when there is none.
+// ps on macOS and Linux exits 1 with no output for a pid that does not exist.
+func processCommand(ctx context.Context, pid int) (string, error) {
+	out, err := exec.CommandContext(ctx, "ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 && len(bytes.TrimSpace(out)) == 0 {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("ps: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // cancelRun records cancelled for active run id of an automation of the caller's workspace,
 // then stops its process (§10.4 "Cancel"). The record comes first, so the end that the run
 // writes after the stop keeps cancelled. Effects that happened stay.
@@ -245,9 +280,16 @@ func (cl caller) cancelRun(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	// A process that is gone ended with a crash: the run is cancelled, and nothing runs.
-	if err := cl.Kill(r.PID); err != nil && !errors.Is(err, syscall.ESRCH) {
-		return fmt.Errorf("stop process %d of run %d: %w", r.PID, id, err)
+	ours, err := cl.launchProcess(ctx, r)
+	if err != nil {
+		return fmt.Errorf("check process %d of run %d: %w", r.PID, id, err)
+	}
+	// A process that is gone, or whose pid the OS gave to another process, ended with a crash:
+	// the run is cancelled, and Brain signals nothing outside it.
+	if ours {
+		if err := cl.Kill(r.PID); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return fmt.Errorf("stop process %d of run %d: %w", r.PID, id, err)
+		}
 	}
 	_, err = fmt.Fprintf(cl.Stdout, "run %d of automation %d cancelled; effects that already happened stay\n", id, r.AutomationID)
 	return err
