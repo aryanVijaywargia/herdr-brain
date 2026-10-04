@@ -202,5 +202,10 @@ func noItemTextFields() []Field {
 		{"tools", "contract_hash"},
 		{"tools", "approved_hash"},
 		{"tools", "approved"},
+		// A tool call holds ids, a hash and fixed words only (E17-S4, §11).
+		{"tool_calls", "contract_hash"},
+		{"tool_calls", "origin"},
+		{"tool_calls", "result"},
+		{"tool_calls", "at"},
 	}
 }

@@ -108,3 +108,21 @@ func ToolByID(ctx context.Context, tx *sql.Tx, id int64) (Tool, error) {
 	}
 	return t, nil
 }
+
+// ToolByName finds the tool name that a pane of workspace workspaceKey can call: a tool of
+// that workspace first, else a global tool ("" finds only a global one). Of the tools with the
+// name in one scope, the approved one comes first, then the newest. A retired tool is not
+// found. It returns sql.ErrNoRows when there is none; a tool of another workspace is never
+// found (§10.1). [NEW] the order.
+func ToolByName(ctx context.Context, tx *sql.Tx, name, workspaceKey string) (Tool, error) {
+	var id int64
+	err := tx.QueryRowContext(ctx, `SELECT t.id FROM tools t JOIN items i ON i.id = t.id
+		WHERE t.name = ?1 AND i.state != 'retired'
+		AND (t.scope = 'global' OR (?2 != '' AND t.workspace_key = ?2))
+		ORDER BY t.scope = 'workspace' DESC, t.approved_hash IS NOT NULL DESC, t.id DESC LIMIT 1`,
+		name, workspaceKey).Scan(&id)
+	if err != nil {
+		return Tool{}, fmt.Errorf("find tool %q: %w", name, err)
+	}
+	return ToolByID(ctx, tx, id)
+}

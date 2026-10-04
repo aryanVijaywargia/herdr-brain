@@ -43,6 +43,7 @@ commands:
   hook      --profile <name> --event start|prompt|tool|stop: the agent hooks (start prints the brief or nothing)
   brained   the herdr listener of one herdr session (herdr starts it; D7)
   suggest   the live suggestion of one prompt (the hook or brained starts it)
+  run       <tool> [--<input> <value>]...: run an approved tool in this workspace; exits with its exit code
 `
 
 // commands are the store commands of internal/cli, by name.
@@ -63,6 +64,7 @@ var commands = map[string]func(context.Context, cli.Env, []string) error{
 	"learn":     cli.Learn,
 	"extract":   cli.Extract,
 	"suggest":   cli.Suggest,
+	"run":       cli.Run,
 }
 
 func main() {
@@ -87,7 +89,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "setup":
 		err = setup(context.Background(), osSetupDeps(os.Environ()), args[1:], in, stdout)
 	case "status", "doctor", "remember", "review", "pin", "archive", "promote", "undo", "workspace", "forget", "repair", "pane", "uninstall", "learn", "extract",
-		"suggest":
+		"suggest", "run":
 		err = command(commands[args[0]], args[1:], in, stdout, stderr)
 	case "event":
 		err = event.Main(context.Background(), args[1:], os.Environ())
@@ -107,6 +109,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "brain %s: %v\n", args[0], err)
 		code = 1
+		// brain run exits with the exit code of the tool (E17-S4).
+		var x *cli.ExitError
+		if errors.As(err, &x) {
+			code = x.Code
+		}
 	}
 	// A popup pane closes when its command exits, so wait until the user has read the output.
 	if args[0] == "setup" && os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID") != "" {

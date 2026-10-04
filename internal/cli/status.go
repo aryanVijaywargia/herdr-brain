@@ -168,8 +168,43 @@ func (s *statusCall) run(ctx context.Context) {
 		s.w.printf("\n%s\n", line)
 		return s.measurement(ctx, tx)
 	}))
+	s.tools(ctx)
 	s.relinks()
 	s.w.printf("\n%s\n", evalLine(s.Bindings, s.Now()))
+}
+
+// tools shows the count of active tools, and each one that may not run, with the reason: a
+// contract or a tool file that changed after your approval stops the tool (§10.1, E17-S4).
+func (s *statusCall) tools(ctx context.Context) {
+	var ts []store.Tool
+	s.fail(s.Store.Write(ctx, func(tx *sql.Tx) error {
+		revs, err := store.ActiveTools(ctx, tx)
+		if err != nil {
+			return err
+		}
+		for _, r := range revs {
+			t, err := store.ToolByID(ctx, tx, r.ItemID)
+			if err != nil {
+				return err
+			}
+			ts = append(ts, t)
+		}
+		return nil
+	}))
+	var stopped []string
+	for _, t := range ts {
+		if _, err := output.MayRun(ctx, s.Store, filepath.Join(s.Binding.Store, outDir), t.ID); err != nil {
+			stopped = append(stopped, fmt.Sprintf("  stopped: tool %s (item %d): %v", t.Name, t.ID, err))
+		}
+	}
+	if len(stopped) == 0 {
+		s.w.printf("\ntools: %d active, none stopped\n", len(ts))
+		return
+	}
+	s.w.printf("\ntools: %d active, %d stopped; brain run refuses them\n", len(ts), len(stopped))
+	for _, l := range stopped {
+		s.w.printf("%s\n", l)
+	}
 }
 
 // evalSession is the herdr session of the eval runner, whose test store holds the results of
