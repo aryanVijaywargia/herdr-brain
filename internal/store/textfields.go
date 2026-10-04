@@ -35,6 +35,8 @@ func ItemTextFields() []Field {
 		{"tools", "contract"},
 		{"tools", "cwd"},
 		{"tools", "effects"},
+		// The pinned folder of an automation binding (§10.4, E17-S10).
+		{"automations", "folder"},
 	}
 }
 
@@ -207,5 +209,13 @@ func noItemTextFields() []Field {
 		{"tool_calls", "origin"},
 		{"tool_calls", "result"},
 		{"tool_calls", "at"},
+		// An automation row holds a key, fixed words, a hash and times besides its folder (E17-S10).
+		{"automations", "workspace_key"},
+		{"automations", "trigger_condition"},
+		{"automations", "cli_kind"},
+		{"automations", "contract_hash"},
+		{"automations", "approved"},
+		{"automations", "last_result"},
+		{"automations", "last_run"},
 	}
 }
