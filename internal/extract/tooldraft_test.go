@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
 )
@@ -30,8 +31,9 @@ type turn struct {
 }
 
 // commandSession stores an ended session of agent id in ws-A with turns: each prompt is a pane
-// read of you, and each command a hook record of the tool with its command record. It returns
-// the session id.
+// read of you, and each command a hook record of the tool with its command record, that a pane
+// read of the same call enriches, as brained.Match does. The excerpt is cut at 500 characters,
+// as the hook does. It returns the session id.
 func (f *fixture) commandSession(id string, turns ...turn) int64 {
 	f.t.Helper()
 	key := store.SessionKey{HerdrSession: "default", Harness: "claude", Kind: store.KeyAgent, ID: id}
@@ -59,13 +61,22 @@ func (f *fixture) commandSession(id string, turns ...turn) int64 {
 				return err
 			}
 			for _, c := range tn.cmds {
-				o, err := add(store.Observation{Source: store.SourceHook, Event: "tool", Excerpt: c.Argv,
+				excerpt := c.Argv[:min(len(c.Argv), 500)]
+				o, err := add(store.Observation{Source: store.SourceHook, Event: "tool", Excerpt: excerpt,
 					Sender: store.SenderTool})
 				if err != nil {
 					return err
 				}
 				c.ObservationID = o
 				if err := store.AddCommandRecord(ctx, tx, c); err != nil {
+					return err
+				}
+				pane, err := add(store.Observation{Source: store.SourceHerdr, Event: "working", Excerpt: excerpt,
+					Sender: store.SenderAssistant})
+				if err != nil {
+					return err
+				}
+				if err := store.Enrich(ctx, tx, pane, o); err != nil {
 					return err
 				}
 			}
@@ -229,13 +240,14 @@ func TestToolHeldBack(t *testing.T) {
 }
 
 // AC: offline tests with a fake CLI: a chain with a judgment step gives a skill draft, not a
-// tool draft. The step that changes each time is the judgment: the model says skill.
+// tool draft. The same commands repeat in 3 sessions, but the model says skill: the restart
+// needs a judgment. So the exact repeat gives no tool draft either.
 func TestJudgmentChainIsSkill(t *testing.T) {
 	f := newFixture(t)
 	f.cli.reply = skillReply(nil)
-	for i, fix := range []string{"go fix ./api", "gofmt -w api", "go mod tidy"} {
-		f.commandSession(fmt.Sprintf("s%d", i), turn{"make the build green", []store.CommandRecord{
-			command("go build ./..."), command(fix), command("go test ./...")}})
+	for i := range 3 {
+		f.commandSession(fmt.Sprintf("s%d", i), turn{"check the service and restart it when it is down", []store.CommandRecord{
+			command("systemctl status shop"), command("systemctl restart shop")}})
 	}
 	f.mustRun()
 	if ps := f.toolProposals(); len(ps) != 0 {
@@ -358,21 +370,20 @@ func TestMakeToolRefused(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
-			exit := 1 // a failure ref: the model can name it
-			cmd.ExitStatus = &exit
-			f.cli.reply = func(_ context.Context, prompt string) ([]byte, error) {
-				return claudeReply(map[string]any{"claims": []any{replyOf(map[string]any{"kind": "procedure",
-					"situation": "testing", "rule": "run the tests", "evidence_refs": promptRefs(prompt)})}})
-			}
 			f.commandSession("s1", turn{"run the api tests", []store.CommandRecord{cmd}})
-			f.mustRun()
 			var id int64
 			f.write(func(ctx context.Context, tx *sql.Tx) error {
-				_, err := tx.ExecContext(ctx, `UPDATE candidates SET kind = 'command_chain'`)
+				var obs int64
+				if err := tx.QueryRowContext(ctx, `SELECT observation_id FROM command_records`).Scan(&obs); err != nil {
+					return err
+				}
+				claim, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: "testing", Rule: "run the tests"}, t0)
 				if err != nil {
 					return err
 				}
-				return tx.QueryRowContext(ctx, `SELECT id FROM candidates`).Scan(&id)
+				id, err = store.Attach(ctx, tx, store.Candidate{ClaimID: claim, Scope: store.ScopeWorkspace, WorkspaceKey: "ws-A",
+					Kind: store.CandidateCommandChain}, obs, store.DefaultGates(), signal.Supports)
+				return err
 			})
 			if _, err := f.makeTool(id); err == nil {
 				t.Error("MakeTool() = nil, want a refusal")
@@ -414,8 +425,123 @@ func TestDraftName(t *testing.T) {
 		{[]string{"make", "check-all-the-things-in-this-very-long-target-name"}, "make-check-all-the-things-in-this-very"},
 		{[]string{"make", strings.Repeat("a", 50)}, "make"},
 	} {
-		if got := draftName(c.argv); got != c.want {
-			t.Errorf("draftName(%q) = %q, want %q", c.argv, got, c.want)
-		}
+		t.Run(c.want, func(t *testing.T) {
+			if got := draftName(c.argv); got != c.want {
+				t.Errorf("draftName(%q) = %q, want %q", c.argv, got, c.want)
+			}
+		})
+	}
+}
+
+// A forget stops the exact repeat: the tombstone of a source stops its chain, though the claim
+// key text is gone (§6.7).
+func TestExactRepeatForgotten(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = noClaims
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		return store.InsertTombstone(ctx, tx, store.Tombstone{ClaimID: "cl_old", SourceKeys: []string{"s0-2"}, ForgottenAt: t0})
+	})
+	for i := range 3 {
+		f.commandSession(fmt.Sprintf("s%d", i), turn{"run the tests", []store.CommandRecord{command("go test ./...")}})
+	}
+	f.mustRun()
+	if ps := f.toolProposals(); len(ps) != 0 {
+		t.Errorf("tool drafts = %+v, want none: one source is forgotten", ps)
+	}
+}
+
+// The exact repeat keeps the case and the folder of the commands: make Foo and make foo, or
+// one command in two folders, are not the same repeat.
+func TestExactRepeatKey(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = noClaims
+	other := command("make Foo")
+	other.CWD = "/src/blog"
+	for i, c := range []store.CommandRecord{command("make Foo"), command("make foo"), other, command("make Foo")} {
+		f.commandSession(fmt.Sprintf("s%d", i), turn{"build it", []store.CommandRecord{c}})
+	}
+	f.mustRun()
+	if ps := f.toolProposals(); len(ps) != 0 {
+		t.Fatalf("tool drafts = %+v, want none: only 2 sessions ran make Foo in %s", ps, shop)
+	}
+	f.commandSession("s4", turn{"build it", []store.CommandRecord{command("make Foo")}})
+	f.mustRun()
+	if ps := f.toolProposals(); len(ps) != 1 {
+		t.Errorf("tool drafts = %+v, want one after 3 sessions", ps)
+	}
+}
+
+// "Make this a tool" takes one chain: the same command in two turns of one session is one
+// command, not two steps.
+func TestMakeToolOneChain(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = noClaims
+	run := turn{"run the api tests", []store.CommandRecord{command("pnpm test --filter api")}}
+	f.commandSession("s1", run, run)
+	f.mustRun()
+	if _, err := f.makeTool(f.commandCandidate()); err != nil {
+		t.Fatal(err)
+	}
+	ps := f.toolProposals()
+	if len(ps) != 1 {
+		t.Fatalf("tool drafts = %+v, want one", ps)
+	}
+	if c, err := tool.Parse(ps[0].Text); err != nil || c.Argv == nil || c.Steps != nil {
+		t.Errorf("Parse(draft) = %+v, %v, want one argv", c, err)
+	}
+}
+
+// The model copies the whole command: the prompt holds the command record, not the excerpt
+// that the hook cut at 500 characters.
+func TestToolPromptWholeCommand(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = noClaims
+	long := "pnpm test --filter api " + strings.Repeat("--reporter-option=x ", 30)
+	f.commandSession("s1", turn{"run the api tests", []store.CommandRecord{command(strings.TrimSpace(long))}})
+	f.mustRun()
+	if p := f.cli.prompts[0]; !strings.Contains(p, strings.TrimSpace(long)) {
+		t.Errorf("prompt lacks the whole command:\n%s", p)
+	}
+}
+
+// The secret filter runs on the input fields of a model tool before Brain stores them.
+func TestToolInputSecret(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = toolReply(map[string]any{"inputs": []any{map[string]any{"name": "package", "type": "string",
+		"pattern": "^(api|sk-ant-abcdefghijklmnopqrstuvwxyz)$"}}})
+	for i, pkg := range []string{"api", "web", "ui"} {
+		f.commandSession(fmt.Sprintf("s%d", i), turn{"run the tests", []store.CommandRecord{command("pnpm test --filter " + pkg)}})
+	}
+	f.mustRun()
+	ps := f.toolProposals()
+	if len(ps) != 1 || strings.Contains(ps[0].Text+ps[0].Diff, "sk-ant") || !strings.Contains(ps[0].Text, "[secret]") {
+		t.Errorf("tool drafts = %+v, want one with the secret replaced", ps)
+	}
+}
+
+// A model tool runs in one folder: commands that ran in two folders give none, and the newest
+// folder in which all of them ran wins.
+func TestToolFolder(t *testing.T) {
+	cmdRef := func(obs int64, argv, cwd string) ref {
+		return ref{obs: obs, cmd: &store.CommandRecord{Argv: argv, CWD: cwd}}
+	}
+	steps := [][]string{{"pnpm", "test", "--filter", "{package}"}, {"pnpm", "lint"}}
+	for _, c := range []struct {
+		name string
+		refs []ref
+		want string
+	}{
+		{"two folders", []ref{cmdRef(1, "pnpm test --filter api", "/src/api"), cmdRef(2, "pnpm lint", "/src/web")}, ""},
+		{"one folder", []ref{cmdRef(1, "pnpm test --filter api", "/a"), cmdRef(2, "pnpm lint", "/a")}, "/a"},
+		{"newest", []ref{cmdRef(1, "pnpm test --filter api", "/a"), cmdRef(2, "pnpm lint", "/a"),
+			cmdRef(3, "pnpm test --filter web", "/b"), cmdRef(4, "pnpm lint", "/b")}, "/b"},
+		{"held back", []ref{cmdRef(1, "pnpm test --filter api", "/a"), {obs: 2, cmd: &store.CommandRecord{Argv: "pnpm lint",
+			CWD: "/a", Truncated: true}}}, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := toolFolder(steps, c.refs); got != c.want {
+				t.Errorf("toolFolder() = %q, want %q", got, c.want)
+			}
+		})
 	}
 }

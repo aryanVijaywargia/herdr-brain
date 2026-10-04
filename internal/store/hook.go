@@ -67,6 +67,19 @@ func CommandRecordOf(ctx context.Context, tx *sql.Tx, obs int64) (*CommandRecord
 	return &cs[0], nil
 }
 
+// SkillEvidence reports whether observation obs is evidence of a candidate whose claim has a
+// skill item that is not retired: the extractor made a skill of it (E16-S4).
+func SkillEvidence(ctx context.Context, tx *sql.Tx, obs int64) (bool, error) {
+	var skill bool
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM evidence_links l
+		JOIN candidates c ON c.id = l.candidate_id JOIN items i ON i.claim_id = c.claim_id
+		WHERE l.observation_id = ? AND i.kind = ? AND i.state != ?)`, obs, KindSkill, StateRetired).Scan(&skill)
+	if err != nil {
+		return false, fmt.Errorf("read skill evidence of observation %d: %w", obs, err)
+	}
+	return skill, nil
+}
+
 // CandidateCommand is one command record in the evidence of a candidate, with its session.
 type CandidateCommand struct {
 	CommandRecord

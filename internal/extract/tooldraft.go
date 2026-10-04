@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -50,15 +52,21 @@ func toolWords(argv string) ([]string, bool) {
 // secret in it, or it was cut (§6.7).
 func heldBack(c store.CommandRecord) bool { return c.SecretFound || c.Truncated }
 
-// toolKey is the claim key of a tool draft with steps [NEW]: Brain makes it from the commands,
-// with each input as {name}, so the same commands in another session, from Brain or from the
-// extractor, give the same claim.
-func toolKey(steps [][]string) store.ClaimKey {
+// toolKey is the claim key of a tool draft with steps in folder cwd [NEW]: Brain makes it from
+// the folder and the commands, with each input as {name}, so the same commands in another
+// session, from Brain or from the extractor, give the same claim. It keeps the case and quotes
+// each word, so two other commands never share a key.
+func toolKey(cwd string, steps [][]string) store.ClaimKey {
 	runs := make([]string, len(steps))
 	for i, s := range steps {
-		runs[i] = strings.Join(s, " ")
+		words := make([]string, len(s))
+		for j, w := range s {
+			words[j] = strconv.Quote(w)
+		}
+		runs[i] = strings.Join(words, " ")
 	}
-	return store.ClaimKey{Situation: normal("the agent runs " + strings.Join(runs, " then ")), Rule: draftRule}
+	return store.ClaimKey{Situation: "the agent runs in " + strconv.Quote(cwd) + ": " + strings.Join(runs, " then "),
+		Rule: draftRule}
 }
 
 // draftToml is the tool.toml of a draft, in the field order of §10.1.
@@ -152,13 +160,23 @@ type gatedTool struct {
 }
 
 // exactTools runs the exact repeats of command chains (§10.1 detection: exact repeats come
-// first, model placeholders after). It makes no model call. Each chain of sigs (E12-S1) that
+// first, model placeholders after). It makes no model call. Each command chain (E12-S1) that
 // ran with no failure, whose commands Brain may draft a tool from, is evidence of the claim of
 // its exact commands (toolKey), a command chain candidate in its workspace: the gate is 3
 // sessions (§7.2). A failed chain and the chain of one session stay as evidence. At the gate
 // the candidate gets one tool draft (exactDraft), after the queue checks of proposeBinding: the
-// daily proposal cap, in round robin order of the workspaces (§7.3).
-func (p Pass) exactTools(ctx context.Context, tx *sql.Tx, sigs []signal.Signal, byID map[int64]store.SignalInput) error {
+// daily proposal cap, in round robin order of the workspaces (§7.3). A chain that the extractor
+// made a skill of needs judgment (§10.3): it gives no tool draft.
+func (p Pass) exactTools(ctx context.Context, tx *sql.Tx) error {
+	ins, err := store.SignalInputs(ctx, tx)
+	if err != nil {
+		return err
+	}
+	byID := map[int64]store.SignalInput{}
+	for _, in := range ins {
+		byID[in.ID] = in
+	}
+	sigs := signal.Find(ins)
 	sessions, err := store.Sessions(ctx, tx)
 	if err != nil {
 		return err
@@ -227,7 +245,18 @@ func (p Pass) exactChain(ctx context.Context, tx *sql.Tx, s signal.Signal, byID 
 	if err != nil || !on {
 		return gatedTool{}, err
 	}
-	claim, err := store.ClaimID(ctx, tx, toolKey(steps), p.Now())
+	for _, id := range s.Observations {
+		// A forget erases the claim key: the tombstone of the source stops the same evidence (§6.7).
+		stopped, err := store.Tombstoned(ctx, tx, byID[id].CaptureIdentity)
+		if err != nil || stopped {
+			return gatedTool{}, err
+		}
+		skill, err := store.SkillEvidence(ctx, tx, id)
+		if err != nil || skill {
+			return gatedTool{}, err
+		}
+	}
+	claim, err := store.ClaimID(ctx, tx, toolKey(cmds[0].CWD, steps), p.Now())
 	if err != nil {
 		return gatedTool{}, err
 	}
@@ -348,12 +377,9 @@ func MakeTool(ctx context.Context, tx *sql.Tx, id int64, now time.Time) (int64, 
 	if len(cmds) == 0 {
 		return 0, fmt.Errorf("candidate %d has no command in its evidence", id)
 	}
-	newest := cmds[len(cmds)-1].SessionID
-	var example []store.CommandRecord
-	for _, c := range cmds {
-		if c.SessionID == newest {
-			example = append(example, c.CommandRecord)
-		}
+	example, err := chainOf(ctx, tx, cmds[len(cmds)-1])
+	if err != nil {
+		return 0, err
 	}
 	text, err := exactDraft(example)
 	if err != nil {
@@ -366,14 +392,40 @@ func MakeTool(ctx context.Context, tx *sql.Tx, id int64, now time.Time) (int64, 
 // tool draft is a workspace tool (its cwd is a folder of the workspace), and its claim key comes
 // from its commands (toolKey), not from the model words.
 func toolClaim(c Claim, r rawClaim) (Claim, error) {
-	text, steps, err := checkTool(r, c.Refs)
+	text, cwd, steps, err := checkTool(r, c.Refs)
 	if err != nil {
 		return Claim{}, err
 	}
-	key := toolKey(steps)
+	key := toolKey(cwd, steps)
 	c.Tool, c.Scope, c.Situation, c.Rule = text, store.ScopeWorkspace, key.Situation, key.Rule
 	c.TouchesPermission = c.TouchesPermission || store.TouchesPermission(text)
 	return c, nil
+}
+
+// chainOf returns the command chain of c (E12-S1): the commands of its turn, in run order.
+// A command with no chain (a held-back command of the turn stops the chain) is its own example,
+// so exactDraft says why it gives no draft.
+func chainOf(ctx context.Context, tx *sql.Tx, c store.CandidateCommand) ([]store.CommandRecord, error) {
+	ins, err := store.SignalInputs(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	ins = slices.DeleteFunc(ins, func(in store.SignalInput) bool { return in.SessionID != c.SessionID })
+	byID := map[int64]store.SignalInput{}
+	for _, in := range ins {
+		byID[in.ID] = in
+	}
+	for _, s := range signal.Find(ins) {
+		if s.Kind != signal.CommandChain || !slices.Contains(s.Observations, c.ObservationID) {
+			continue
+		}
+		cmds := make([]store.CommandRecord, len(s.Observations))
+		for i, id := range s.Observations {
+			cmds[i] = *byID[id].Command
+		}
+		return cmds, nil
+	}
+	return []store.CommandRecord{c.CommandRecord}, nil
 }
 
 // rawInput is one input of a claim of kind tool, as the model returns it.
@@ -383,13 +435,14 @@ type rawInput struct {
 	Pattern string `json:"pattern"`
 }
 
-// checkTool returns the tool text of claim r of kind tool, with refs its evidence. The secret
-// filter runs on the model fields first (Redact). Each command must be a command of the
-// evidence that Brain may draft a tool from, with an input only in place of a whole word:
-// Brain never writes new program logic (§10.1, §10.3). The folder is the one where the newest
-// such command ran; the model does not give it. Then tool.Parse checks the contract with the
-// E17-S3 rules. No error holds model text.
-func checkTool(r rawClaim, refs []ref) (string, [][]string, error) {
+// checkTool returns the tool text of claim r of kind tool, with refs its evidence, and its
+// folder and commands. The secret filter runs on the model fields first (Redact). Each command
+// must be a command of the evidence that Brain may draft a tool from, with an input only in
+// place of a whole word: Brain never writes new program logic (§10.1, §10.3). All the commands
+// must have run in one folder, the folder of the tool; the newest folder that fits wins. The
+// model does not give it. Then tool.Parse checks the contract with the E17-S3 rules. No error
+// holds model text.
+func checkTool(r rawClaim, refs []ref) (text, cwd string, steps [][]string, err error) {
 	field := func(f *string) string {
 		if f == nil {
 			return ""
@@ -397,44 +450,56 @@ func checkTool(r rawClaim, refs []ref) (string, [][]string, error) {
 		return Redact(strings.Join(strings.Fields(*f), " "))
 	}
 	if r.Commands == nil || len(*r.Commands) == 0 || r.TimeoutS == nil || r.ReadOnly == nil {
-		return "", nil, errors.New("the tool has no commands, timeout_s or read_only")
+		return "", "", nil, errors.New("the tool has no commands, timeout_s or read_only")
 	}
 	d := draftToml{Name: field(r.Name), Description: field(r.Description), TimeoutS: *r.TimeoutS, Effects: field(r.Effects),
 		ReadOnly: *r.ReadOnly}
 	if r.Inputs != nil {
 		d.Inputs = map[string]tool.Input{}
 		for _, in := range *r.Inputs {
-			if _, dup := d.Inputs[in.Name]; dup {
-				return "", nil, errors.New("the tool has an input twice")
+			name := Redact(in.Name)
+			if _, dup := d.Inputs[name]; dup {
+				return "", "", nil, errors.New("the tool has an input twice")
 			}
-			d.Inputs[in.Name] = tool.Input{Type: in.Type, Pattern: in.Pattern}
+			d.Inputs[name] = tool.Input{Type: Redact(in.Type), Pattern: Redact(in.Pattern)}
 		}
 	}
-	steps := make([][]string, len(*r.Commands))
-	newest := int64(-1)
+	steps = make([][]string, len(*r.Commands))
 	for i, argv := range *r.Commands {
 		steps[i] = make([]string, len(argv))
 		for j, el := range argv {
 			steps[i][j] = Redact(el)
 		}
-		found := false
-		for _, rf := range refs {
-			if rf.cmd == nil || heldBack(*rf.cmd) {
-				continue
-			}
-			if ws, ok := toolWords(rf.cmd.Argv); ok && fits(steps[i], ws) {
-				found = true
-				if rf.obs > newest && rf.cmd.CWD != "" {
-					newest, d.Cwd = rf.obs, rf.cmd.CWD
-				}
-			}
+	}
+	if d.Cwd = toolFolder(steps, refs); d.Cwd == "" {
+		return "", "", nil, errors.New("the tool commands are not commands of the evidence in one folder")
+	}
+	text, err = d.text(steps)
+	return text, d.Cwd, steps, err
+}
+
+// toolFolder returns the newest folder of refs in which each of steps fits a command of refs
+// that Brain may draft a tool from, or "" for none.
+func toolFolder(steps [][]string, refs []ref) string {
+	byCwd := map[string][][]string{}
+	var newest []string // the folders, the folder of the newest command last
+	for _, rf := range slices.SortedFunc(slices.Values(refs), func(a, b ref) int { return int(a.obs - b.obs) }) {
+		if rf.cmd == nil || heldBack(*rf.cmd) || rf.cmd.CWD == "" {
+			continue
 		}
-		if !found {
-			return "", nil, fmt.Errorf("tool command %d is not a command of the evidence", i+1)
+		if ws, ok := toolWords(rf.cmd.Argv); ok {
+			byCwd[rf.cmd.CWD] = append(byCwd[rf.cmd.CWD], ws)
+			newest = append(slices.DeleteFunc(newest, func(c string) bool { return c == rf.cmd.CWD }), rf.cmd.CWD)
 		}
 	}
-	text, err := d.text(steps)
-	return text, steps, err
+	for _, cwd := range slices.Backward(newest) {
+		if !slices.ContainsFunc(steps, func(step []string) bool {
+			return !slices.ContainsFunc(byCwd[cwd], func(ws []string) bool { return fits(step, ws) })
+		}) {
+			return cwd
+		}
+	}
+	return ""
 }
 
 // fits reports whether step, a command of a tool draft, is command ws of the evidence, with an

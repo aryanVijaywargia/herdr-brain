@@ -99,6 +99,9 @@ func (p Pass) Run(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
+	// The exact repeats of command chains need no model call (E17-S6). They run after the
+	// batches, so a skill that the extractor made of the same chain stops a tool draft (§10.3).
+	errs = append(errs, p.Store.Write(ctx, func(tx *sql.Tx) error { return p.exactTools(ctx, tx) }))
 	return errors.Join(errs...)
 }
 
@@ -119,10 +122,6 @@ func (p Pass) plan(ctx context.Context, tx *sql.Tx) ([]job, error) {
 	now := p.Now()
 	runs, sigs, byID, err := p.finished(ctx, tx)
 	if err != nil {
-		return nil, err
-	}
-	// Exact repeats come first, with no model call; the batches below can give placeholders.
-	if err := p.exactTools(ctx, tx, sigs, byID); err != nil {
 		return nil, err
 	}
 	var jobs []job
@@ -289,6 +288,11 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 	var rs []ref
 	for id, k := range kinds {
 		o := byID[id]
+		// The model copies the command of a tool draft whole: the excerpt is cut at 500
+		// characters, the command record at 4 KB (§6.7).
+		if o.Command != nil && !heldBack(*o.Command) {
+			o.Excerpt = o.Command.Argv
+		}
 		rs = append(rs, ref{id: fmt.Sprintf("e%d", id), obs: id, identity: o.CaptureIdentity, workspace: o.WorkspaceKey,
 			sender: o.Sender, excerpt: o.Excerpt, kind: k, cmd: o.Command})
 	}
@@ -449,7 +453,11 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 		return nil
 	}
 	c = redactClaim(c)
-	claim, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: normal(c.Situation), Rule: normal(c.Rule)}, now)
+	ck := store.ClaimKey{Situation: normal(c.Situation), Rule: normal(c.Rule)}
+	if c.Tool != "" {
+		ck = store.ClaimKey{Situation: c.Situation, Rule: c.Rule} // toolKey keeps the case of the commands
+	}
+	claim, err := store.ClaimID(ctx, tx, ck, now)
 	if err != nil {
 		return err
 	}

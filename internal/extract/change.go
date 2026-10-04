@@ -216,13 +216,16 @@ func (p Pass) allowedEvidence(ctx context.Context, tx *sql.Tx, cand store.Candid
 			off = off || !stopped
 			continue
 		}
-		if size += len(e.Excerpt); size > p.caps().InputBytes && len(refs) > 0 {
-			break
-		}
-		// A redraft of a tool needs the commands of the evidence (checkTool).
+		// A redraft of a tool needs the commands of the evidence (checkTool), whole.
 		cmd, err := store.CommandRecordOf(ctx, tx, e.ObservationID)
 		if err != nil {
 			return nil, false, err
+		}
+		if cmd != nil && !heldBack(*cmd) {
+			e.Excerpt = cmd.Argv
+		}
+		if size += len(e.Excerpt); size > p.caps().InputBytes && len(refs) > 0 {
+			break
 		}
 		refs = append(refs, ref{id: fmt.Sprintf("e%d", e.ObservationID), obs: e.ObservationID, identity: e.CaptureIdentity,
 			workspace: cand.WorkspaceKey, sender: e.Sender, excerpt: e.Excerpt, kind: signal.Kind(cand.Kind), cmd: cmd})
