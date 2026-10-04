@@ -29,6 +29,8 @@ const reviewUsage = `usage:
                                                  (edit it: brain review <id> --approve --edit "<text>")
   brain review --retired                         list the retired items
   brain review --all                             list the candidates too, below the gate as well
+  brain review --tool <candidate>                make this a tool: a tool draft from one example of a
+                                                 command candidate
   brain review --rejected                        list the rejections, with the new evidence since each
   brain review --reopen <rejection>              end a rejection: its claim can get proposals again
   brain review --reset <rejection>               keep a rejection, and count its new evidence from now
@@ -52,6 +54,7 @@ type review struct {
 	pin, confirm           bool
 	retired                bool
 	all                    bool  // list the candidates (E12-S2)
+	makeTool               int64 // the command candidate to make a tool draft of (E17-S6)
 	rejected               bool  // list the rejections (E12-S3)
 	reopen, reset          int64 // the rejection to reopen or reset
 	restore                int64 // the item to restore
@@ -99,6 +102,8 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 		return cl.listRetired(ctx)
 	case r.all:
 		return cl.listCandidates(ctx)
+	case r.makeTool != 0:
+		return cl.makeTool(ctx, r.makeTool)
 	case r.rejected:
 		return cl.listRejections(ctx)
 	case r.reopen != 0:
@@ -149,6 +154,7 @@ func parseReview(args []string) (review, error) {
 	fs.BoolVar(&r.confirm, "confirm", false, "")
 	fs.BoolVar(&r.retired, "retired", false, "")
 	fs.BoolVar(&r.all, "all", false, "")
+	fs.Int64Var(&r.makeTool, "tool", 0, "")
 	fs.BoolVar(&r.rejected, "rejected", false, "")
 	fs.Int64Var(&r.reopen, "reopen", 0, "")
 	fs.Int64Var(&r.reset, "reset", 0, "")
@@ -204,7 +210,7 @@ func (r review) secrets() error {
 func (r review) check() error {
 	actions := 0
 	for _, on := range []bool{r.approve, r.reject, r.later, r.change != nil, r.keep, r.retire && r.item == 0, r.retired, r.all,
-		r.rejected, r.reopen != 0, r.reset != 0, r.restore != 0, r.item != 0} {
+		r.rejected, r.reopen != 0, r.reset != 0, r.restore != 0, r.item != 0, r.makeTool != 0} {
 		if on {
 			actions++
 		}
@@ -245,8 +251,8 @@ func (r review) check() error {
 		return errors.New("--edit, --scope, --pin, --confirm, --replace, --exception and --keep-both go with --approve")
 	case (r.reject || r.later) && r.id == 0:
 		return errors.New("--reject and --later need a proposal id")
-	case (r.retired || r.all || r.rejected || r.reopen != 0 || r.reset != 0 || r.restore != 0) && r.id != 0:
-		return errors.New("--retired, --all, --rejected, --reopen, --reset and --restore take no proposal id")
+	case (r.retired || r.all || r.rejected || r.reopen != 0 || r.reset != 0 || r.restore != 0 || r.makeTool != 0) && r.id != 0:
+		return errors.New("--retired, --all, --rejected, --reopen, --reset, --restore and --tool take no proposal id")
 	}
 	return nil
 }
@@ -974,6 +980,11 @@ func (cl caller) listCandidates(ctx context.Context) error {
 				return err
 			}
 			lines = append(lines, ps...)
+			hint, err := makeToolHint(ctx, tx, c, len(ps))
+			if err != nil {
+				return err
+			}
+			lines = append(lines, hint...)
 		}
 		return nil
 	})
@@ -1008,6 +1019,43 @@ func (cl caller) candidateProposals(ctx context.Context, tx *sql.Tx, id int64) (
 		lines = append(lines, fmt.Sprintf("  proposal %d: %s%s (brain review %d --approve)", p.ID, summary(p, it), warningMark(p), p.ID))
 	}
 	return lines, nil
+}
+
+// makeToolHint is the line of the review action "make this a tool" (§10.1) for candidate c with
+// n pending proposals that the caller sees: only for an open command candidate with commands in
+// its evidence, so not for the learned automation case (E17-S10), whose evidence is stops.
+func makeToolHint(ctx context.Context, tx *sql.Tx, c store.Candidate, n int) ([]string, error) {
+	if c.Kind != store.CandidateCommandChain || c.Status != store.CandidateOpen || n > 0 {
+		return nil, nil
+	}
+	cmds, err := store.CandidateCommands(ctx, tx, c.ID)
+	if err != nil || len(cmds) == 0 {
+		return nil, err
+	}
+	return []string{fmt.Sprintf("  make this a tool: brain review --tool %d", c.ID)}, nil
+}
+
+// makeTool runs the review action "make this a tool" on command candidate id that the caller
+// sees (extract.MakeTool): a tool draft from one example, for your review.
+func (cl caller) makeTool(ctx context.Context, id int64) error {
+	var pid int64
+	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
+		c, err := store.CandidateByID(ctx, tx, id)
+		switch {
+		case errors.Is(err, sql.ErrNoRows) || err == nil && !cl.sees(scopeKey(c.Scope, c.WorkspaceKey)):
+			return fmt.Errorf("candidate %d: %w", id, errNotFound)
+		case err != nil:
+			return err
+		}
+		pid, err = extract.MakeTool(ctx, tx, id, cl.Now())
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("%w; nothing was written", err)
+	}
+	_, err = fmt.Fprintf(cl.Stdout, "proposal %d: a tool draft from candidate %d, waiting for your review (brain review %d)\n"+
+		"for an input in place of a word, ask for a new draft: brain review %d --change \"<text>\"\n", pid, id, pid, pid)
+	return err
 }
 
 // claimText is the one-line claim key text of claim id.
