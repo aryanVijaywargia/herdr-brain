@@ -300,9 +300,9 @@ func TestParseAdd(t *testing.T) {
 }
 
 // stopSession records one session of the learned case in workspace w14: the claude agent in
-// pane w14:p1 works, its Stop hook records the stop, and then brain run runs tool name from the
-// pane, through the fake herdr. The session ends after the call.
-func (f *automationFixture) stopSession(t *testing.T, id, name string) {
+// pane w14:p1 works, its Stop hook records the stop, and then brain run runs tool touch-ran from
+// the pane, through the fake herdr. The session ends after the call.
+func (f *automationFixture) stopSession(t *testing.T, id string) {
 	t.Helper()
 	key := store.SessionKey{HerdrSession: "default", Harness: "claude", Kind: store.KeyAgent, ID: id}
 	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
@@ -327,8 +327,8 @@ func (f *automationFixture) stopSession(t *testing.T, id, name string) {
 		return nil
 	})
 	rf := &runFixture{fixture: f.fixture, dir: f.dir}
-	if _, err := rf.run(t, "w14:p1", "w14", name); err != nil {
-		t.Fatalf("Run(%s) = %v", name, err)
+	if _, err := rf.run(t, "w14:p1", "w14", "touch-ran"); err != nil {
+		t.Fatalf("Run(touch-ran) = %v", err)
 	}
 	if err := os.Remove(filepath.Join(f.dir, "ran")); err != nil {
 		t.Fatal(err)
@@ -371,13 +371,13 @@ func TestLearnedAutomation(t *testing.T) {
 	f := newAutomationFixture(t)
 	toolID := f.approvedTool(t, bindTool(f.dir))
 	for i, id := range []string{"s1", "s2"} {
-		f.stopSession(t, id, "touch-ran")
+		f.stopSession(t, id)
 		if calls := f.pass(t); calls != 0 || len(f.automationProposals(t)) != 0 {
 			t.Fatalf("after session %d: %d extractor calls, proposals %+v; want none below the gate", i+1, calls,
 				f.automationProposals(t))
 		}
 	}
-	f.stopSession(t, "s3", "touch-ran")
+	f.stopSession(t, "s3")
 	calls := f.pass(t)
 	f.pass(t) // a second pass adds nothing
 	ps := f.automationProposals(t)
@@ -412,7 +412,7 @@ func TestLearnedAutomation(t *testing.T) {
 	}
 
 	f.mustReview(t, fmt.Sprint(p.ID), "--reject")
-	f.stopSession(t, "s4", "touch-ran")
+	f.stopSession(t, "s4")
 	f.pass(t)
 	if ps := f.automationProposals(t); len(ps) != 0 {
 		t.Errorf("proposals after the rejection = %+v, want none in that scope", ps)
@@ -425,7 +425,7 @@ func TestLearnedAutomationOldContract(t *testing.T) {
 	f := newAutomationFixture(t)
 	toolID := f.approvedTool(t, bindTool(f.dir))
 	for _, id := range []string{"s1", "s2", "s3"} {
-		f.stopSession(t, id, "touch-ran")
+		f.stopSession(t, id)
 	}
 	f.mustReview(t, "--item", fmt.Sprint(toolID), "--edit", strings.Replace(bindTool(f.dir), "timeout_s = 10", "timeout_s = 20", 1))
 	r := f.rows(t)
