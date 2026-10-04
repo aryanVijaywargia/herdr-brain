@@ -48,7 +48,7 @@ func TestSetPaneToken(t *testing.T) {
 	ok := `{"id":"cli:pane:report-metadata","result":{"type":"ok"}}`
 	c, dir := fakeClient(t, map[string]reply{
 		"pane report-metadata w1:p1 --source brain --token brain-automation=lint failed": {Stdout: ok},
-		"pane report-metadata w1:p1 --source brain --clear-token brain-automation":      {Stdout: ok},
+		"pane report-metadata w1:p1 --source brain --clear-token brain-automation":       {Stdout: ok},
 	})
 	if err := c.SetPaneToken(deadline(t), "w1:p1", "brain", "brain-automation", "lint failed"); err != nil {
 		t.Errorf("SetPaneToken(lint failed) = %v", err)
