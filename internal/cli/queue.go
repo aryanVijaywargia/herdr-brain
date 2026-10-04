@@ -63,15 +63,18 @@ func (cl caller) item(ctx context.Context, tx *sql.Tx, id int64) (store.Item, st
 }
 
 // proposal reads proposal id, its item and the item's current revision, when the caller sees
-// the item. An M1 proposal always has an item and a base revision; one without them is not
-// in the queue.
+// the item. A proposal has an item and a base revision, but a script proposal (E17-S8): it has
+// none, and the caller sees it when it sees its candidate. Any other proposal without them is
+// not in the queue.
 func (cl caller) proposal(ctx context.Context, tx *sql.Tx, id int64) (store.Proposal, store.Item, store.ItemRevision, error) {
 	notFound := fmt.Errorf("proposal %d: %w", id, errNotFound)
 	p, err := store.ProposalByID(ctx, tx, id)
-	if errors.Is(err, sql.ErrNoRows) || err == nil && (p.ItemID == nil || p.BaseRevision == nil) {
+	switch {
+	case err == nil && p.Script():
+		return cl.script(ctx, tx, p, notFound)
+	case errors.Is(err, sql.ErrNoRows) || err == nil && (p.ItemID == nil || p.BaseRevision == nil):
 		return store.Proposal{}, store.Item{}, store.ItemRevision{}, notFound
-	}
-	if err != nil {
+	case err != nil:
 		return store.Proposal{}, store.Item{}, store.ItemRevision{}, err
 	}
 	it, rev, err := cl.item(ctx, tx, *p.ItemID)
@@ -79,6 +82,19 @@ func (cl caller) proposal(ctx context.Context, tx *sql.Tx, id int64) (store.Prop
 		return store.Proposal{}, store.Item{}, store.ItemRevision{}, notFound
 	}
 	return p, it, rev, err
+}
+
+// script returns script proposal p, with no item, when the caller sees its candidate, and
+// notFound when it does not, or when a forget took the candidate.
+func (cl caller) script(ctx context.Context, tx *sql.Tx, p store.Proposal, notFound error) (store.Proposal, store.Item, store.ItemRevision, error) {
+	c, err := cl.candidate(ctx, tx, p)
+	switch {
+	case errors.Is(err, errNotFound) || err == nil && c == nil:
+		return store.Proposal{}, store.Item{}, store.ItemRevision{}, notFound
+	case err != nil:
+		return store.Proposal{}, store.Item{}, store.ItemRevision{}, err
+	}
+	return p, store.Item{}, store.ItemRevision{}, nil
 }
 
 // pending reads proposal id as proposal does, and fails with a conflict when you decided it

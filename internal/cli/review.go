@@ -325,6 +325,9 @@ func summary(p store.Proposal, it store.Item) string {
 	if len(p.Dispute) > 0 {
 		return fmt.Sprintf("item %d disputed: %s changed: %s", it.ID, strings.Join(p.Dispute, ", "), oneLine(p.Text))
 	}
+	if p.Script() {
+		return scriptSummary(p)
+	}
 	if p.Text == "" {
 		return fmt.Sprintf("retire item %d", it.ID)
 	}
@@ -370,6 +373,8 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	var changeable bool
 	var others int // the workspaces of the "also seen" hint of a promotion; -1 for none
 	var binding string
+	var claim string          // the claim of a script proposal
+	var sibs []store.Proposal // the proposals that you pick between with p
 	// The review pane shows a pending proposal only: it closes on one that another surface
 	// decided (E5-S1).
 	read := cl.proposal
@@ -389,6 +394,17 @@ func (cl caller) show(ctx context.Context, id int64) error {
 		if binding, err = cl.bindingLines(ctx, tx, p, it); err != nil {
 			return err
 		}
+		if sibs, err = siblings(ctx, tx, p); err != nil {
+			return err
+		}
+		if p.Script() {
+			// cl.proposal read the candidate of a script proposal: it is there.
+			c, err := cl.candidate(ctx, tx, p)
+			if err != nil {
+				return err
+			}
+			claim = c.ClaimID
+		}
 		conflicts, err = cl.conflicts(ctx, tx, p)
 		return err
 	})
@@ -396,14 +412,7 @@ func (cl caller) show(ctx context.Context, id int64) error {
 		return err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "proposal %d (%s)\n", p.ID, p.Status)
-	b.WriteString(itemText(p, it))
-	b.WriteString(binding)
-	if it.ClaimID != "" {
-		fmt.Fprintf(&b, "claim:    %s\n", it.ClaimID)
-	}
-	fmt.Fprintf(&b, "scope:    %s\ntarget:   %s\n", p.Scope, p.Target)
-	fmt.Fprintf(&b, "revision: item %d revision %d, from revision %d (now %d)\n", it.ID, *p.BaseRevision+1, *p.BaseRevision, it.CurrentRevision)
+	showHead(&b, p, it, binding, claim)
 	fmt.Fprintf(&b, "diff:\n  %s\n", strings.ReplaceAll(p.Diff, "\n", "\n  "))
 	if len(p.Dispute) > 0 {
 		b.WriteString(disputeLine)
@@ -422,6 +431,9 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	if p.ChangeRequest != nil {
 		fmt.Fprintf(&b, "change:   %s\n", oneLine(*p.ChangeRequest))
 	}
+	if p.Status == store.ProposalPending {
+		b.WriteString(pickLines(sibs))
+	}
 	if warns(p) {
 		b.WriteString("warning:  this may change a permission, an allow rule or a safety rule; approve needs --confirm\n")
 	}
@@ -430,6 +442,26 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	}
 	_, err = io.WriteString(cl.Stdout, b.String())
 	return err
+}
+
+// showHead writes the first lines of p in show: the status, the text, the claim, the scope,
+// the target and the revision. A script proposal has no item: claim is its claim, and it has no
+// revision (E17-S8). binding holds the lines of an automation.
+func showHead(b *strings.Builder, p store.Proposal, it store.Item, binding, claim string) {
+	fmt.Fprintf(b, "proposal %d (%s)\n", p.ID, p.Status)
+	if p.Script() {
+		b.WriteString(scriptLines(p, claim))
+	} else {
+		b.WriteString(itemText(p, it))
+		b.WriteString(binding)
+	}
+	if it.ClaimID != "" {
+		fmt.Fprintf(b, "claim:    %s\n", it.ClaimID)
+	}
+	fmt.Fprintf(b, "scope:    %s\ntarget:   %s\n", p.Scope, p.Target)
+	if !p.Script() {
+		fmt.Fprintf(b, "revision: item %d revision %d, from revision %d (now %d)\n", it.ID, *p.BaseRevision+1, *p.BaseRevision, it.CurrentRevision)
+	}
 }
 
 // skillLine is the line of a skill proposal in show. The review pane finds a skill by it: its
@@ -556,6 +588,8 @@ func patch(p store.Proposal, it store.Item) bool {
 // source says where proposal p of item it, at revision cur, comes from.
 func source(p store.Proposal, it store.Item, cur store.ItemRevision) string {
 	switch {
+	case p.Script():
+		return "the exact repeats of a command chain, sender unconfirmed"
 	case len(p.Dispute) > 0:
 		return fmt.Sprintf("the anchor check of item %d: %s changed", it.ID, strings.Join(p.Dispute, ", "))
 	case it.State != store.StateDraft:
@@ -571,8 +605,12 @@ const disputeLine = "dispute:  the item stays in the brief with a mark until you
 // actions writes the action lines of pending proposal p to b: the change request for a
 // proposal with evidence (changeable), and the conflict choices when p has an open conflict.
 func actions(b *strings.Builder, p store.Proposal, changeable, conflict bool) {
-	if len(p.Dispute) > 0 {
+	switch {
+	case len(p.Dispute) > 0:
 		fmt.Fprintf(b, "actions:  brain review %d --keep | --approve --edit \"<text>\" | --retire | --later\n", p.ID)
+		return
+	case p.Script():
+		fmt.Fprintf(b, "actions:  brain review %d --approve | --reject | --later\n", p.ID)
 		return
 	}
 	fmt.Fprintf(b, "actions:  brain review %d --approve [--edit \"<text>\"] [--scope global|workspace] [--pin] | --reject | --later", p.ID)
@@ -666,8 +704,18 @@ func (cl caller) decide(ctx context.Context, r review) error {
 func (cl caller) approve(ctx context.Context, r review) error {
 	var next store.ItemRevision
 	var retired []store.ItemRevision
+	var script bool
+	var superseded []int64 // the siblings of the proposal: you picked it (E17-S8)
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		p, it, cur, err := cl.pending(ctx, tx, r.id)
+		if err != nil {
+			return err
+		}
+		if script = p.Script(); script {
+			superseded, err = cl.approveScript(ctx, tx, r, p)
+			return err
+		}
+		sibs, err := siblings(ctx, tx, p)
 		if err != nil {
 			return err
 		}
@@ -688,6 +736,9 @@ func (cl caller) approve(ctx context.Context, r review) error {
 			return err
 		}
 		if err := store.DecideSuggestions(ctx, tx, p.ID, store.SuggestionApproved); err != nil {
+			return err
+		}
+		if superseded, err = cl.supersede(ctx, tx, sibs); err != nil {
 			return err
 		}
 		// The replaced items retire first, so a skill that replaces one with its name passes
@@ -720,8 +771,18 @@ func (cl caller) approve(ctx context.Context, r review) error {
 	if err != nil {
 		return skillError(err)
 	}
+	if script {
+		if _, err := fmt.Fprintf(cl.Stdout, "proposal %d approved: Brain wrote no file; install the script yourself (brain review %d shows it)\n",
+			r.id, r.id); err != nil {
+			return err
+		}
+		return cl.superseded(ctx, superseded)
+	}
 	_, err = fmt.Fprintf(cl.Stdout, "proposal %d approved: item %d is %s at revision %d (%s)\n",
 		r.id, next.ItemID, next.State, next.Revision, cl.target(next.Scope))
+	if err == nil {
+		err = cl.superseded(ctx, superseded)
+	}
 	for _, rt := range retired {
 		if err == nil {
 			_, err = fmt.Fprintf(cl.Stdout, "item %d retired at revision %d: the new item replaces it\n", rt.ItemID, rt.Revision)
@@ -1316,6 +1377,9 @@ func (cl caller) askChange(ctx context.Context, id int64, text string) error {
 		p, _, _, err := cl.pending(ctx, tx, id)
 		if err != nil {
 			return err
+		}
+		if p.Script() {
+			return fmt.Errorf("proposal %d is a script: approve it and edit it when you install it, or reject it; nothing was written", id)
 		}
 		c, err := cl.candidate(ctx, tx, p)
 		if err != nil {

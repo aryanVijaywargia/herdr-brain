@@ -100,6 +100,7 @@ type reviewPane struct {
 	msg      string // the result of the last key
 	dispute  bool   // the proposal is a dispute (§9.1): the pane offers keep, edit and retire
 	skill    bool   // the proposal is a skill: its file does not fit the one-line edit
+	script   bool   // the proposal is a script (E17-S8): approve takes it as it is
 }
 
 // run shows the proposal and reads keys until a decision, q or the end of input. It reads
@@ -112,6 +113,7 @@ func (p *reviewPane) run(ctx context.Context) error {
 			return p.close(ctx, err)
 		}
 		p.view, p.dispute, p.skill = view, strings.Contains(view, "\n"+disputeLine), strings.Contains(view, "\n"+skillLine)
+		p.script = strings.Contains(view, "\n"+scriptLine)
 		p.draw("")
 		k, _, err := p.keys.ReadRune()
 		if errors.Is(err, io.EOF) {
@@ -130,8 +132,11 @@ func (p *reviewPane) run(ctx context.Context) error {
 // key runs the action of key k. done is true when the proposal is decided, or stays in the
 // queue with later. Any other error is on the screen, and the pane goes on.
 func (p *reviewPane) key(ctx context.Context, k rune) (done bool, err error) {
-	if p.dispute {
+	switch {
+	case p.dispute:
 		return p.disputeKey(ctx, k)
+	case p.script && !strings.ContainsRune("arl", k):
+		return false, nil // a script takes no edit, change, scope, pin or conflict choice
 	}
 	switch k {
 	case 'a':
@@ -304,10 +309,14 @@ func (p *reviewPane) draw(prompt string) {
 	pin := map[bool]string{true: "yes", false: "no"}[p.pin]
 	conflict := cmp.Or(p.conflict, conflictKeep)
 	var b strings.Builder
-	if p.dispute {
+	switch {
+	case p.dispute:
 		fmt.Fprintf(&b, "%s%s\n", clearScreen, p.view)
 		b.WriteString("k keep  e edit  t retire  l later  q close\n")
-	} else {
+	case p.script:
+		fmt.Fprintf(&b, "%s%s\n", clearScreen, p.view)
+		b.WriteString("a approve  r reject  l later  q close\n")
+	default:
 		fmt.Fprintf(&b, "%s%s\napprove with scope: %s, pin: %s, on a conflict: %s\n\n", clearScreen, p.view, scope, pin, conflict)
 		b.WriteString("a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  q close\n")
 	}

@@ -285,8 +285,11 @@ func Attach(ctx context.Context, tx *sql.Tx, c Candidate, obs int64, gates Gates
 }
 
 // recount sets the harnesses, counts, times and priority of candidate id from its evidence
-// links. It deletes a candidate that has no evidence left.
+// links. It deletes a candidate that has no evidence left, after dropScripts.
 func recount(ctx context.Context, tx *sql.Tx, id int64, gates Gates) error {
+	if err := dropScripts(ctx, tx, id); err != nil {
+		return err
+	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM candidates WHERE id = ?1
 		AND NOT EXISTS (SELECT 1 FROM evidence_links WHERE candidate_id = ?1)`, id)
 	if err != nil {
