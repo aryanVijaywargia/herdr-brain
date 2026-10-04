@@ -363,3 +363,28 @@ func TestParseLaunch(t *testing.T) {
 		}
 	}
 }
+
+// The run of an automation is pinned to the tool and the contract hash of its binding:
+// another tool of the name, or another contract, is refused and runs nothing.
+func TestRunToolPinned(t *testing.T) {
+	f := newAutomationFixture(t)
+	toolID, _ := f.bound(t)
+	hash := f.mustMayRun(t, toolID).ContractHash
+	e := f.launchEnv(&fakeRunHerdr{})
+	for _, r := range []ToolRun{
+		{ToolID: toolID + 100, ContractHash: hash},
+		{ToolID: toolID, ContractHash: "other"},
+	} {
+		r.PaneID, r.WorkspaceID, r.Origin, r.Tool = "w14:p1", "w14", store.OriginAutomation, "touch-ran"
+		if _, err := RunTool(context.Background(), e, r); !errors.Is(err, ErrRefused) {
+			t.Errorf("RunTool(%d, %s) = %v, want a refusal", r.ToolID, r.ContractHash, err)
+		}
+	}
+	if f.ran(t) {
+		t.Error("the tool ran, want no run")
+	}
+	if _, err := RunTool(context.Background(), e, ToolRun{PaneID: "w14:p1", WorkspaceID: "w14", Origin: store.OriginAutomation,
+		Tool: "touch-ran", ToolID: toolID, ContractHash: hash}); err != nil || !f.ran(t) {
+		t.Errorf("RunTool(pinned) = %v, want a run", err)
+	}
+}
