@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/extract"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
@@ -19,7 +21,7 @@ import (
 // file "ran" there, so a test sees whether it ran.
 func bindTool(name, dir string) string {
 	return "name = \"" + name + "\"\ndescription = \"Write a file\"\ncwd = \"" + dir + "\"\ntimeout_s = 10\n" +
-		"effects = \"writes the file ran in a temp folder\"\nread_only = false\nargv = [\"touch\", \"ran\"]\n"
+		"effects = \"writes the file ran in a temp folder\"\nread_only = false\nargv = [\"/usr/bin/touch\", \"ran\"]\n"
 }
 
 // automationFixture is a status fixture with a temp folder that its tools run in.
@@ -100,7 +102,7 @@ func TestAutomationApprove(t *testing.T) {
 	for _, want := range []string{
 		"kind:     automation\n",
 		fmt.Sprintf("  tool:     touch-ran (item %d), contract hash ", toolID),
-		"    step 1:    \"touch\" \"ran\"\n",
+		"    step 1:    \"/usr/bin/touch\" \"ran\"\n",
 		"  trigger:  working → idle or working → done of a claude agent in this workspace\n",
 		"  folder:   " + f.dir + "\n",
 		"is the permission",
@@ -295,4 +297,130 @@ func TestParseAdd(t *testing.T) {
 			t.Errorf("parseAdd(%q) = %+v, %v, want %+v, ok %t", tc.args, got, err, tc.want, tc.ok)
 		}
 	}
+}
+
+// stopSession records one session of the learned case in workspace w14: the claude agent in
+// pane w14:p1 works, its Stop hook records the stop, and then brain run runs tool name from the
+// pane, through the fake herdr. The session ends after the call.
+func (f *automationFixture) stopSession(t *testing.T, id, name string) {
+	t.Helper()
+	key := store.SessionKey{HerdrSession: "default", Harness: "claude", Kind: store.KeyAgent, ID: id}
+	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
+		sid, err := store.OpenSession(ctx, tx, key, "w14:p1", "ws_a14", testNow.Add(-time.Hour))
+		if err != nil {
+			return err
+		}
+		seg, err := store.StartSegment(ctx, tx, sid, "w14:p1", "ws_a14", "recent_unwrapped", testNow.Add(-time.Hour))
+		if err != nil {
+			return err
+		}
+		for i, o := range []store.Observation{
+			{Source: store.SourceHerdr, Event: "working", Excerpt: "Editing main.go", Sender: store.SenderAssistant},
+			{Source: store.SourceHook, Event: "stop", Excerpt: "Done.", Sender: store.SenderAssistant},
+		} {
+			o.CaptureIdentity, o.SegmentID, o.Status, o.Counts = fmt.Sprintf("%s-%d", id, i), seg, store.ObservationComplete, true
+			o.At = testNow.Add(time.Duration(i-2) * time.Minute)
+			if _, err := store.AddObservation(ctx, tx, o); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	rf := &runFixture{fixture: f.fixture, dir: f.dir}
+	if _, err := rf.run(t, "w14:p1", "w14", name); err != nil {
+		t.Fatalf("Run(%s) = %v", name, err)
+	}
+	if err := os.Remove(filepath.Join(f.dir, "ran")); err != nil {
+		t.Fatal(err)
+	}
+	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error { return store.EndSession(ctx, tx, key, testNow) })
+}
+
+// pass runs one extraction pass with a fake extractor CLI, and returns its calls.
+func (f *automationFixture) pass(t *testing.T) int {
+	t.Helper()
+	s := openStore(t, f.store)
+	defer closeStore(t, s)
+	cli := &skillCLI{}
+	err := extract.Pass{Store: s, Runner: cli, HerdrSession: "default", DefaultOn: true,
+		Now: func() time.Time { return testNow.Add(time.Hour) }}.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run() = %v", err)
+	}
+	return cli.calls
+}
+
+// automationProposals returns the pending proposals of automation items.
+func (f *automationFixture) automationProposals(t *testing.T) []store.Proposal {
+	t.Helper()
+	r := f.rows(t)
+	var ps []store.Proposal
+	for _, p := range r.proposals {
+		if it, _ := r.item(t, *p.ItemID); it.Kind == store.KindAutomation && p.Status == store.ProposalPending {
+			ps = append(ps, p)
+		}
+	}
+	return ps
+}
+
+// AC: offline, with the fake herdr and a fake extractor: the recorded learned case (the same
+// approved tool runs in its folder after a stop of the claude agent, in 3 sessions) gives one
+// scoped automation proposal, with no model call. Nothing runs before the approval. A
+// rejection stops a new proposal in that scope.
+func TestLearnedAutomation(t *testing.T) {
+	f := newAutomationFixture(t)
+	toolID := f.approvedTool(t, bindTool("touch-ran", f.dir))
+	for i, id := range []string{"s1", "s2"} {
+		f.stopSession(t, id, "touch-ran")
+		if calls := f.pass(t); calls != 0 || len(f.automationProposals(t)) != 0 {
+			t.Fatalf("after session %d: %d extractor calls, proposals %+v; want none below the gate", i+1, calls,
+				f.automationProposals(t))
+		}
+	}
+	f.stopSession(t, "s3", "touch-ran")
+	calls := f.pass(t)
+	f.pass(t) // a second pass adds nothing
+	ps := f.automationProposals(t)
+	if calls != 0 || len(ps) != 1 {
+		t.Fatalf("%d extractor calls, proposals %+v; want one proposal and no call", calls, ps)
+	}
+	p := ps[0]
+	if p.Scope != store.ScopeWorkspace || p.CandidateID == nil {
+		t.Errorf("proposal = %+v, want a workspace proposal of a candidate", p)
+	}
+	it, _ := f.rows(t).item(t, *p.ItemID)
+	if it.WorkspaceKey == nil || *it.WorkspaceKey != "ws_a14" {
+		t.Errorf("item workspace = %v, want ws_a14", it.WorkspaceKey)
+	}
+	b, err := store.ParseBinding(p.Text)
+	if err != nil || b.ToolID != toolID || b.Folder != f.dir || b.CLI != "claude" || b.Trigger != "working → idle or working → done" {
+		t.Errorf("binding = %+v, %v; want tool %d in %s on the claude stop", b, err, toolID, f.dir)
+	}
+	if !strings.Contains(f.mustReview(t, fmt.Sprint(p.ID)), "  folder:   "+f.dir+"\n") {
+		t.Error("review show has no folder line")
+	}
+	if err := f.mayRun(t, it.ID); !errors.Is(err, output.ErrMayNotRun) {
+		t.Errorf("AutomationMayRun() before approval = %v, want a refusal", err)
+	}
+	if f.ran(t) {
+		t.Error("the tool ran before the approval")
+	}
+	for _, c := range f.calls(t) {
+		if c.Origin != store.OriginAgent {
+			t.Errorf("tool call %+v, want only the recorded agent calls", c)
+		}
+	}
+
+	f.mustReview(t, fmt.Sprint(p.ID), "--reject")
+	f.stopSession(t, "s4", "touch-ran")
+	f.pass(t)
+	if ps := f.automationProposals(t); len(ps) != 0 {
+		t.Errorf("proposals after the rejection = %+v, want none in that scope", ps)
+	}
+}
+
+// calls returns the tool calls of the store.
+func (f *automationFixture) calls(t *testing.T) []store.ToolCall {
+	t.Helper()
+	return (&runFixture{fixture: f.fixture}).calls(t)
 }
