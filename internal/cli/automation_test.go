@@ -419,6 +419,22 @@ func TestLearnedAutomation(t *testing.T) {
 	}
 }
 
+// A call of an older contract of the tool is no evidence: the tool got a new contract after
+// the 3 sessions, so its cwd may be another folder, and no proposal comes.
+func TestLearnedAutomationOldContract(t *testing.T) {
+	f := newAutomationFixture(t)
+	toolID := f.approvedTool(t, bindTool(f.dir))
+	for _, id := range []string{"s1", "s2", "s3"} {
+		f.stopSession(t, id, "touch-ran")
+	}
+	f.mustReview(t, "--item", fmt.Sprint(toolID), "--edit", strings.Replace(bindTool(f.dir), "timeout_s = 10", "timeout_s = 20", 1))
+	r := f.rows(t)
+	f.mustReview(t, fmt.Sprint(r.proposals[len(r.proposals)-1].ID), "--approve")
+	if calls := f.pass(t); calls != 0 || len(f.automationProposals(t)) != 0 {
+		t.Errorf("%d calls, proposals %+v; want none from calls of an older contract", calls, f.automationProposals(t))
+	}
+}
+
 // calls returns the tool calls of the store.
 func (f *automationFixture) calls(t *testing.T) []store.ToolCall {
 	t.Helper()

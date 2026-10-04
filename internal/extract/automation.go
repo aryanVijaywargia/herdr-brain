@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
@@ -17,41 +18,95 @@ import (
 // runs in its folder after a stop of the agent (store.StopCalls). Each occurrence is evidence of
 // one claim in the workspace of the stop: this tool, this folder and the stop of this CLI. The
 // claim is a command chain candidate, so its gate is 3 sessions (§7.2, E12-S2). At the gate it
-// gives one automation proposal through the queue checks: learning on, the daily proposal cap,
-// no pending proposal, no item and no rejection of the claim in its scope. It makes no model
-// call. It is no general automation detector.
+// gives one automation proposal through the queue checks: learning on, the daily proposal cap
+// in the round robin order of the workspaces (§7.3), no pending proposal, no item and no
+// rejection of the claim in its scope. It makes no model call. It is no general automation
+// detector.
 func (p Pass) automations(ctx context.Context, tx *sql.Tx) error {
 	calls, err := store.StopCalls(ctx, tx, p.HerdrSession)
 	if err != nil {
 		return err
 	}
+	var gated []bindingCandidate
+	seen := map[int64]bool{}
 	for _, c := range calls {
-		if err := p.stopCall(ctx, tx, c); err != nil {
+		bc, err := p.stopCall(ctx, tx, c)
+		if err != nil {
+			return err
+		}
+		if bc.id != 0 && !seen[bc.id] {
+			seen[bc.id] = true
+			gated = append(gated, bc)
+		}
+	}
+	last, err := store.LastCalls(ctx, tx)
+	if err != nil {
+		return err
+	}
+	for _, bc := range roundRobin(gated, last) {
+		if err := p.proposeBinding(ctx, tx, bc.id, bc.b); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// stopCall attaches occurrence c to the candidate of its claim, and proposes the binding when
-// the candidate reaches its gate. A tool that a binding cannot take (it has a required input,
-// or it is not approved now), or a CLI with no tested stop condition, gives nothing.
-func (p Pass) stopCall(ctx context.Context, tx *sql.Tx, c store.StopCall) error {
+// bindingCandidate is a candidate of the learned case and the binding that it proposes.
+type bindingCandidate struct {
+	id  int64
+	key string // the workspace key
+	b   store.Binding
+}
+
+// roundRobin orders bcs as order orders the extraction jobs (§7.3 queue): the first of each
+// workspace key, then the second, and so on; the key whose last extractor call is oldest
+// first. So under the daily proposal cap each workspace gets its turn.
+func roundRobin(bcs []bindingCandidate, last map[string]time.Time) []bindingCandidate {
+	byKey := map[string][]bindingCandidate{}
+	var keys []string
+	for _, bc := range bcs {
+		if _, ok := byKey[bc.key]; !ok {
+			keys = append(keys, bc.key)
+		}
+		byKey[bc.key] = append(byKey[bc.key], bc)
+	}
+	slices.SortStableFunc(keys, func(a, b string) int { return last[a].Compare(last[b]) })
+	out := make([]bindingCandidate, 0, len(bcs))
+	for i := 0; len(out) < len(bcs); i++ {
+		for _, k := range keys {
+			if i < len(byKey[k]) {
+				out = append(out, byKey[k][i])
+			}
+		}
+	}
+	return out
+}
+
+// stopCall attaches occurrence c to the candidate of its claim, and returns the candidate with
+// its binding when the candidate reached its gate. Only a call that ran the current approved
+// contract of the tool counts: its cwd is the folder of the binding, so a call of an older
+// contract (another cwd, maybe) is no evidence. A tool that a binding cannot take (it has a
+// required input, or it is not approved now), or a CLI with no tested stop condition, gives
+// nothing.
+func (p Pass) stopCall(ctx context.Context, tx *sql.Tx, c store.StopCall) (bindingCandidate, error) {
 	trigger, ok := store.StopTrigger(c.Harness)
 	if !ok || c.WorkspaceKey == "" {
-		return nil
+		return bindingCandidate{}, nil
 	}
 	on, err := store.LearningOn(ctx, tx, p.DefaultOn, p.HerdrSession, c.WorkspaceKey, c.PaneID)
 	if err != nil || !on {
-		return err
+		return bindingCandidate{}, err
 	}
 	t, err := store.ToolByID(ctx, tx, c.ToolID)
 	if err != nil {
-		return err
+		return bindingCandidate{}, err
+	}
+	if t.ApprovedHash == nil || *t.ApprovedHash != t.ContractHash || c.ContractHash != t.ContractHash {
+		return bindingCandidate{}, nil
 	}
 	ct, err := tool.Parse(t.Contract)
-	if err != nil || len(ct.Inputs) > 0 || t.ApprovedHash == nil || *t.ApprovedHash != t.ContractHash {
-		return nil //nolint:nilerr // a forgotten or refused contract is no tool that a binding can take
+	if err != nil || len(ct.Inputs) > 0 {
+		return bindingCandidate{}, nil //nolint:nilerr // a forgotten or refused contract is no tool that a binding can take
 	}
 	b := store.Binding{Tool: t.Name, ToolID: t.ID, ContractHash: t.ContractHash, Folder: filepath.Clean(ct.Cwd),
 		CLI: c.Harness, Trigger: trigger}
@@ -60,32 +115,36 @@ func (p Pass) stopCall(ctx context.Context, tx *sql.Tx, c store.StopCall) error 
 		Rule: normal("run brain tool " + b.Tool)}
 	claim, err := store.ClaimID(ctx, tx, key, p.Now())
 	if err != nil {
-		return err
+		return bindingCandidate{}, err
 	}
 	if ts, err := store.TombstonesByClaim(ctx, tx, claim); err != nil || len(ts) > 0 {
-		return err
+		return bindingCandidate{}, err
 	}
-	cand, err := store.Attach(ctx, tx, store.Candidate{ClaimID: claim, Scope: store.ScopeWorkspace,
+	id, err := store.Attach(ctx, tx, store.Candidate{ClaimID: claim, Scope: store.ScopeWorkspace,
 		WorkspaceKey: c.WorkspaceKey, Kind: store.CandidateCommandChain}, c.Stop, p.gates(), stopSupports)
 	switch {
 	case errors.Is(err, store.ErrEvidenceRefused):
-		return nil
+		return bindingCandidate{}, nil
 	case err != nil:
-		return err
+		return bindingCandidate{}, err
 	}
-	return p.proposeBinding(ctx, tx, cand, b)
+	cand, err := store.CandidateByID(ctx, tx, id)
+	if err != nil || !p.gates().Reached(cand) {
+		return bindingCandidate{}, err
+	}
+	return bindingCandidate{id: id, key: c.WorkspaceKey, b: b}, nil
 }
 
 // stopSupports says that any sender of a stop observation supports the learned case: the tool
 // call is the act, and the stop only times it.
 func stopSupports(store.CandidateKind, store.Sender) bool { return true }
 
-// proposeBinding makes the automation proposal of candidate id with binding b, when the
-// candidate reached its gate and the checks of propose pass, and no active binding of the same
-// tool, folder and CLI is in the workspace. The daily cap of new proposals holds it back too.
+// proposeBinding makes the automation proposal of candidate id with binding b, when the checks
+// of propose pass, and no active binding of the same tool, folder and CLI is in the workspace.
+// The daily cap of new proposals holds it back too.
 func (p Pass) proposeBinding(ctx context.Context, tx *sql.Tx, id int64, b store.Binding) error {
 	cand, err := store.CandidateByID(ctx, tx, id)
-	if err != nil || !p.gates().Reached(cand) {
+	if err != nil {
 		return err
 	}
 	if pending, err := store.PendingCandidateProposalIDs(ctx, tx, id); err != nil || len(pending) > 0 {

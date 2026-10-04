@@ -28,20 +28,17 @@ type Binding struct {
 	Trigger string `toml:"trigger"`
 }
 
-// stopTriggers holds the tested "agent stopped working" condition of each CLI (§10.4, M0
-// E17-S1 "Stop condition per CLI"). Focus decides which of the two changes comes. A CLI with
-// no tested condition (agy now) cannot get a binding.
-var stopTriggers = map[string]string{
-	"claude": stopTrigger,
-	"codex":  stopTrigger,
-}
-
 const stopTrigger = "working → idle or working → done"
 
-// StopTrigger returns the tested stop condition of CLI kind cli, and false when it has none.
+// StopTrigger returns the tested "agent stopped working" condition of CLI kind cli, and false
+// when it has none (§10.4, M0 E17-S1 "Stop condition per CLI"). Focus decides which of the two
+// changes comes. A CLI with no tested condition (agy now) cannot get a binding.
 func StopTrigger(cli string) (string, bool) {
-	t, ok := stopTriggers[cli]
-	return t, ok
+	switch cli {
+	case "claude", "codex":
+		return stopTrigger, true
+	}
+	return "", false
 }
 
 // ParseBinding reads the binding text of an automation item.
@@ -217,10 +214,12 @@ func SetAutomationEnabled(ctx context.Context, tx *sql.Tx, id int64, on bool) er
 // StopCall is one occurrence of the minimal learned automation case (§10.4, E17-S10) [NEW]: a
 // ran tool call from the agent's pane (origin agent: a Brain-origin run never counts), whose
 // newest observation of its capture session at the call is a stop of the agent. A stop is a
-// hook stop record, or a pane read whose agent status is idle or done (M0 E17-S1: the agent
-// stopped working and no new turn began).
+// hook stop record, or a pane read whose agent status is idle or done right after a pane read
+// whose status is working: the tested working → idle or working → done (M0 E17-S1). A denied
+// approval (blocked → idle) is no stop.
 type StopCall struct {
 	ToolID       int64
+	ContractHash string // the hash of the checked contract that the call ran
 	Stop         int64  // the stop observation: the evidence of the occurrence
 	Harness      string // the CLI kind of the session
 	WorkspaceKey string // the workspace of the stop's segment; "" when it has no Brain key
@@ -230,17 +229,20 @@ type StopCall struct {
 // StopCalls returns the occurrences of the learned automation case in the sessions of herdr
 // session herdrSession, in call order.
 func StopCalls(ctx context.Context, tx *sql.Tx, herdrSession string) ([]StopCall, error) {
-	return query(ctx, tx, `SELECT c.tool_id, o.id, s.harness, COALESCE(g.workspace_key, ''), s.pane_id
+	return query(ctx, tx, `SELECT c.tool_id, c.contract_hash, o.id, s.harness, COALESCE(g.workspace_key, ''), s.pane_id
 		FROM tool_calls c JOIN sessions s ON s.id = c.session_id
 		JOIN observations o ON o.id = (SELECT o2.id FROM observations o2 JOIN segments g2 ON g2.id = o2.segment_id
 			WHERE g2.session_id = s.id AND o2.at <= c.at ORDER BY o2.at DESC, o2.id DESC LIMIT 1)
 		JOIN segments g ON g.id = o.segment_id
-		WHERE c.result = ? AND c.origin = ? AND s.herdr_session = ? AND o.status != ? AND o.brain_origin = 0
-		AND ((o.source = ? AND o.event = ?) OR (o.source = ? AND o.event IN ('idle', 'done')))
+		WHERE c.result = ?1 AND c.origin = ?2 AND s.herdr_session = ?3 AND o.status != ?4 AND o.brain_origin = 0
+		AND ((o.source = ?5 AND o.event = 'stop') OR (o.source = ?6 AND o.event IN ('idle', 'done')
+			AND (SELECT o3.source || ' ' || o3.event FROM observations o3 JOIN segments g3 ON g3.id = o3.segment_id
+				WHERE g3.session_id = s.id AND (o3.at < o.at OR o3.at = o.at AND o3.id < o.id)
+				ORDER BY o3.at DESC, o3.id DESC LIMIT 1) = ?6 || ' working'))
 		ORDER BY c.id`,
 		func(rows *sql.Rows) (StopCall, error) {
 			var c StopCall
-			err := rows.Scan(&c.ToolID, &c.Stop, &c.Harness, &c.WorkspaceKey, &c.PaneID)
+			err := rows.Scan(&c.ToolID, &c.ContractHash, &c.Stop, &c.Harness, &c.WorkspaceKey, &c.PaneID)
 			return c, err
-		}, CallRan, OriginAgent, herdrSession, ObservationGap, SourceHook, "stop", SourceHerdr)
+		}, CallRan, OriginAgent, herdrSession, ObservationGap, SourceHook, SourceHerdr)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -179,27 +180,31 @@ func TestCheckBinding(t *testing.T) {
 	}
 }
 
-// StopCalls finds a ran agent call whose newest observation of its session is a hook stop or
-// an idle or done pane read; not a call during work, a refused call or an automation call.
+// StopCalls finds a ran agent call whose newest observation of its session is a hook stop, or
+// an idle or done pane read right after a working one (M0 E17-S1); not a lone idle read, a
+// denied approval (blocked → idle), a call during work, a refused call or an automation call.
 func TestStopCalls(t *testing.T) {
 	s, tl, _ := bindingStore(t)
 	ctx := context.Background()
 	at := time.Date(2026, 10, 4, 11, 0, 0, 0, time.UTC)
+	type obs struct{ source, event string }
 	var want []int64
 	write(t, s, func(tx *sql.Tx) error {
 		for i, tc := range []struct {
-			source, event string
-			origin        CallOrigin
-			result        CallResult
-			found         bool
+			obs    []obs
+			origin CallOrigin
+			result CallResult
+			found  bool
 		}{
-			{SourceHook, "stop", OriginAgent, CallRan, true},
-			{SourceHerdr, "idle", OriginAgent, CallRan, true},
-			{SourceHerdr, "done", OriginAgent, CallRan, true},
-			{SourceHerdr, "working", OriginAgent, CallRan, false},
-			{SourceHook, "tool", OriginAgent, CallRan, false},
-			{SourceHook, "stop", OriginAutomation, CallRan, false},
-			{SourceHook, "stop", OriginAgent, CallRefused, false},
+			{[]obs{{SourceHook, "stop"}}, OriginAgent, CallRan, true},
+			{[]obs{{SourceHerdr, "working"}, {SourceHerdr, "idle"}}, OriginAgent, CallRan, true},
+			{[]obs{{SourceHerdr, "working"}, {SourceHerdr, "done"}}, OriginAgent, CallRan, true},
+			{[]obs{{SourceHerdr, "idle"}}, OriginAgent, CallRan, false},
+			{[]obs{{SourceHerdr, "working"}, {SourceHerdr, "blocked"}, {SourceHerdr, "idle"}}, OriginAgent, CallRan, false},
+			{[]obs{{SourceHerdr, "working"}}, OriginAgent, CallRan, false},
+			{[]obs{{SourceHook, "tool"}}, OriginAgent, CallRan, false},
+			{[]obs{{SourceHook, "stop"}}, OriginAutomation, CallRan, false},
+			{[]obs{{SourceHook, "stop"}}, OriginAgent, CallRefused, false},
 		} {
 			key := SessionKey{HerdrSession: "default", Harness: "claude", Kind: KeyAgent, ID: string(rune('a' + i))}
 			sid, err := OpenSession(ctx, tx, key, "w1:p1", "k1", at)
@@ -210,16 +215,19 @@ func TestStopCalls(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			obs, err := AddObservation(ctx, tx, Observation{CaptureIdentity: key.ID, Source: tc.source, SegmentID: seg,
-				Event: tc.event, Excerpt: "x", Status: ObservationComplete, Sender: SenderAssistant, Counts: true, At: at})
-			if err != nil {
-				return err
+			var last int64
+			for j, o := range tc.obs {
+				if last, err = AddObservation(ctx, tx, Observation{CaptureIdentity: fmt.Sprintf("%s-%d", key.ID, j),
+					Source: o.source, SegmentID: seg, Event: o.event, Excerpt: "x", Status: ObservationComplete,
+					Sender: SenderAssistant, Counts: true, At: at.Add(time.Duration(j) * time.Second)}); err != nil {
+					return err
+				}
 			}
 			if tc.found {
-				want = append(want, obs)
+				want = append(want, last)
 			}
-			if _, err := AddToolCall(ctx, tx, ToolCall{ToolID: tl.ID, SessionID: sid, Origin: tc.origin, Result: tc.result,
-				At: at.Add(time.Minute)}); err != nil {
+			if _, err := AddToolCall(ctx, tx, ToolCall{ToolID: tl.ID, ContractHash: "h", SessionID: sid, Origin: tc.origin,
+				Result: tc.result, At: at.Add(time.Minute)}); err != nil {
 				return err
 			}
 			if err := EndSession(ctx, tx, key, at.Add(time.Minute)); err != nil {
@@ -232,7 +240,7 @@ func TestStopCalls(t *testing.T) {
 		}
 		var got []int64
 		for _, c := range calls {
-			if c.ToolID != tl.ID || c.Harness != "claude" || c.WorkspaceKey != "k1" || c.PaneID != "w1:p1" {
+			if c.ToolID != tl.ID || c.ContractHash != "h" || c.Harness != "claude" || c.WorkspaceKey != "k1" || c.PaneID != "w1:p1" {
 				t.Errorf("StopCall = %+v", c)
 			}
 			got = append(got, c.Stop)
