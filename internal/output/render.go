@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/brief"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -33,11 +34,13 @@ type part struct {
 }
 
 // state is what one store read gives the renderer: the newest generation, the active item
-// revisions, the active skills, tools and automations, the dispute marks and the workspace keys.
+// revisions, the active skills, tools and automations, every tools row, the dispute marks and
+// the workspace keys.
 type state struct {
 	gen                 int64
 	revs, skills, tools []store.ItemRevision
 	automations         []store.Automation
+	rows                toolRows
 	keys                []string
 	m                   marks
 }
@@ -57,6 +60,9 @@ func read(ctx context.Context, tx *sql.Tx) (st state, err error) {
 		return state{}, err
 	}
 	if st.automations, err = store.ActiveAutomations(ctx, tx); err != nil {
+		return state{}, err
+	}
+	if st.rows, err = store.Tools(ctx, tx); err != nil {
 		return state{}, err
 	}
 	if st.m.disputes, err = store.Disputes(ctx, tx); err != nil {
@@ -120,8 +126,8 @@ func CheckGlobal(ctx context.Context, tx *sql.Tx, out string) error {
 }
 
 // render renders the parts of st, with the skill files in the skills folder dir. A tool is
-// not a brief item: its text is its contract, and the catalog lists it (E17-S5). An automation
-// is not one either: its text is its binding (§10.4).
+// not a brief item: its text is its contract, and the catalog of each workspace part lists it
+// (§10.1, E17-S5). An automation is not one either: its text is its binding (§10.4).
 func (st state) render(dir string) (parts []part, files []revFile, err error) {
 	own := make(map[int64]bool, len(st.skills)+len(st.tools)+len(st.automations))
 	for _, r := range slices.Concat(st.skills, st.tools) {
@@ -136,7 +142,7 @@ func (st state) render(dir string) (parts []part, files []revFile, err error) {
 	for _, r := range revs {
 		revision[r.ItemID] = r.Revision
 	}
-	globalSkills, skillsByKey, files, err := splitSkills(st.skills, st.m, dir)
+	globalSkills, skillsByKey, files, err := splitSkills(st.skills, st.m, st.rows, dir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -146,13 +152,70 @@ func (st state) render(dir string) (parts []part, files []revFile, err error) {
 	}
 	parts = append(parts, p)
 	for _, k := range st.keys {
-		p, err := renderPart(workspaceName(k), byKey[k], revision, skillsByKey[k], brief.Workspace)
+		catalog, err := st.rows.catalog(k)
+		if err != nil {
+			return nil, nil, fmt.Errorf("workspace %s: %w", k, err)
+		}
+		p, err := renderPart(workspaceName(k), byKey[k], revision, skillsByKey[k],
+			func(items []brief.Item, skills ...brief.Skill) (string, error) {
+				return brief.Workspace(items, catalog, skills...)
+			})
 		if err != nil {
 			return nil, nil, fmt.Errorf("workspace %s: %w", k, err)
 		}
 		parts = append(parts, p)
 	}
 	return parts, files, nil
+}
+
+// toolRows are the tools rows, in approval order (store.Tools).
+type toolRows []store.Tool
+
+// sees says whether a pane of workspace key sees tool t: a global tool, or a tool of key. ""
+// sees the global tools only.
+func sees(t store.Tool, key string) bool {
+	return t.Scope == store.ScopeGlobal || (key != "" && t.WorkspaceKey != nil && *t.WorkspaceKey == key)
+}
+
+// catalog lists the ready tools that the panes of workspace key see, in approval order, with
+// the names of their inputs in name order (§10.1). brief.Workspace keeps the first 10.
+func (rs toolRows) catalog(key string) ([]brief.Tool, error) {
+	var ts []brief.Tool
+	for _, t := range rs {
+		if !t.Ready() || !sees(t, key) {
+			continue
+		}
+		c, err := tool.Parse(t.Contract)
+		if err != nil {
+			return nil, fmt.Errorf("tool item %d: %w", t.ID, err)
+		}
+		ts = append(ts, brief.Tool{Name: t.Name, Description: c.Description, Inputs: slices.Sorted(maps.Keys(c.Inputs))})
+	}
+	return ts, nil
+}
+
+// required finds the Brain tools among the required tools of a skill (a list joined by
+// commas, or "none") that a pane of workspace key sees, and of them the ones with no ready
+// tool of the name: not approved, or stopped (§8.2). A name that no tools row has is not a
+// Brain tool, such as gh. The build does not read the tool files: brain run and brain status
+// find a tool file that changed (E17-S4).
+func (rs toolRows) required(list, key string) (brain, stopped []string) {
+	for _, name := range strings.Split(list, ",") {
+		name = strings.TrimSpace(name)
+		found, ready := false, false
+		for _, t := range rs {
+			if t.Name == name && sees(t, key) {
+				found, ready = true, ready || t.Ready()
+			}
+		}
+		if found {
+			brain = append(brain, name)
+		}
+		if found && !ready {
+			stopped = append(stopped, name)
+		}
+	}
+	return brain, stopped
 }
 
 // skillEntry is one skill of a part: its brief entry and its file.
@@ -162,10 +225,10 @@ type skillEntry struct {
 }
 
 // splitSkills sorts the active skills into the global skills and the skills of each
-// workspace, with the mark of each disputed one, and lists the file of each one in the skills
-// folder dir.
-func splitSkills(skills []store.ItemRevision, m marks, dir string) (global []skillEntry, byKey map[string][]skillEntry,
-	files []revFile, err error) {
+// workspace, with the mark of each disputed one and the note on its required Brain tools in
+// rows, and lists the file of each one in the skills folder dir.
+func splitSkills(skills []store.ItemRevision, m marks, rows toolRows, dir string) (global []skillEntry,
+	byKey map[string][]skillEntry, files []revFile, err error) {
 	byKey = make(map[string][]skillEntry)
 	for _, r := range skills {
 		sk, err := store.ParseSkill(r.Text)
@@ -174,8 +237,10 @@ func splitSkills(skills []store.ItemRevision, m marks, dir string) (global []ski
 		}
 		f := revFile{path: skillPath(dir, r.ItemID, r.Revision), text: r.Text,
 			ref: store.RevisionRef{Item: r.ItemID, Revision: r.Revision}}
+		brain, stopped := rows.required(sk.RequiredTools, ptrString(r.WorkspaceKey))
 		e := skillEntry{entry: brief.Skill{Name: sk.Name, Description: sk.Description, Path: f.path,
-			NotAvailable: sk.NotAvailable, Dispute: m.dispute(r.ItemID), Anchors: m.anchors[r.ItemID]}, file: f}
+			NotAvailable: sk.NotAvailable, Dispute: m.dispute(r.ItemID), Anchors: m.anchors[r.ItemID],
+			Tools: brain, Stopped: stopped}, file: f}
 		files = append(files, f)
 		if r.Scope == store.ScopeWorkspace {
 			byKey[*r.WorkspaceKey] = append(byKey[*r.WorkspaceKey], e)
