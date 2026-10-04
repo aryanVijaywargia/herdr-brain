@@ -131,14 +131,16 @@ func (r Run) step(ctx context.Context, argv []string) (int, error) {
 	if prog == ScriptName {
 		prog, args = "/bin/sh", append([]string{filepath.Join(r.ScriptDir, ScriptName)}, args...)
 	}
-	cmd := exec.CommandContext(ctx, prog, args...)
+	cmd := exec.Command(prog, args...)
 	cmd.Dir, cmd.Env = r.Dir, r.Env
 	cmd.Stdout, cmd.Stderr = r.Stdout, r.Stderr
 	// A process group of its own, so the timeout stops the step's children too.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = waitDelay
-	err := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return ExitNotStart, fmt.Errorf("%s did not start: %w", argv[0], err)
+	}
+	err := waitGroup(ctx, cmd)
 	var exit *exec.ExitError
 	switch {
 	case err == nil:
@@ -148,8 +150,6 @@ func (r Run) step(ctx context.Context, argv []string) (int, error) {
 			return exitSignal + int(ws.Signal()), fmt.Errorf("%s: %w", argv[0], err)
 		}
 		return exit.ExitCode(), fmt.Errorf("%s: %w", argv[0], err)
-	case cmd.Process == nil:
-		return ExitNotStart, fmt.Errorf("%s did not start: %w", argv[0], err)
 	case errors.Is(err, exec.ErrWaitDelay):
 		// The step ended well; a child kept its output open after it.
 		return 0, nil
@@ -157,4 +157,23 @@ func (r Run) step(ctx context.Context, argv []string) (int, error) {
 		// The step started, but its output could not be copied. [NEW] exit code 1.
 		return 1, fmt.Errorf("%s: %w", argv[0], err)
 	}
+}
+
+// waitGroup waits for the started cmd and its output. When ctx ends first, it kills the
+// process group of cmd, also after the leader has ended while a child still holds the output
+// open: exec.CommandContext stops its watch when the leader ends.
+func waitGroup(ctx context.Context, cmd *exec.Cmd) error {
+	done, stopped := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(stopped)
+		select {
+		case <-ctx.Done():
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // ESRCH: the group has ended already
+		case <-done:
+		}
+	}()
+	err := cmd.Wait()
+	close(done)
+	<-stopped
+	return err
 }

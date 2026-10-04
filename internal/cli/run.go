@@ -58,16 +58,16 @@ type ToolResult struct {
 // writes the tool's output to its own and exits with the tool's exit code. brain run is not
 // a sandbox: it checks the call and runs the reviewed command.
 func Run(ctx context.Context, e Env, args []string) error {
-	name, inputs, err := parseRun(args)
-	if err != nil {
-		return err
+	name, inputs, inputErr := parseRun(args)
+	if name == "" {
+		return inputErr
 	}
 	// Ctrl-C or a stop of the agent's shell stops the tool's process group too.
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	res, err := RunTool(ctx, e, ToolRun{PaneID: lookupEnv(e.Environ, "HERDR_PANE_ID"),
+	res, err := runChecked(ctx, e, ToolRun{PaneID: lookupEnv(e.Environ, "HERDR_PANE_ID"),
 		WorkspaceID: lookupEnv(e.Environ, "HERDR_WORKSPACE_ID"), Origin: store.OriginAgent, Tool: name,
-		Inputs: inputs, Stdout: e.Stdout, Stderr: e.Stderr})
+		Inputs: inputs, Stdout: e.Stdout, Stderr: e.Stderr}, inputErr)
 	if err != nil && res.CallID != 0 {
 		return &ExitError{Code: res.ExitCode, Err: err}
 	}
@@ -75,7 +75,8 @@ func Run(ctx context.Context, e Env, args []string) error {
 }
 
 // parseRun reads the tool name and the inputs: --<input> <value> or --<input>=<value>, each
-// input once. [NEW] the flag forms.
+// input once. [NEW] the flag forms. On a bad input argument it still returns the name, so the
+// call of a known tool is logged as refused; the name is "" when there is none.
 func parseRun(args []string) (string, map[string]string, error) {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return "", nil, fmt.Errorf("want a tool name first\n%s", runUsage)
@@ -84,18 +85,18 @@ func parseRun(args []string) (string, map[string]string, error) {
 	for rest := args[1:]; len(rest) > 0; {
 		flag, ok := strings.CutPrefix(rest[0], "--")
 		if !ok || flag == "" {
-			return "", nil, fmt.Errorf("unexpected argument %q\n%s", rest[0], runUsage)
+			return name, nil, fmt.Errorf("unexpected argument %q\n%s", rest[0], runUsage)
 		}
 		in, v, ok := strings.Cut(flag, "=")
 		rest = rest[1:]
 		if !ok {
 			if len(rest) == 0 {
-				return "", nil, fmt.Errorf("--%s has no value\n%s", in, runUsage)
+				return name, nil, fmt.Errorf("--%s has no value\n%s", in, runUsage)
 			}
 			v, rest = rest[0], rest[1:]
 		}
 		if _, dup := inputs[in]; dup {
-			return "", nil, fmt.Errorf("--%s is given twice", in)
+			return name, nil, fmt.Errorf("--%s is given twice", in)
 		}
 		inputs[in] = v
 	}
@@ -112,7 +113,13 @@ func parseRun(args []string) (string, map[string]string, error) {
 // confirm runs nothing and writes nothing. Any other call of a known tool writes one tool_calls
 // row: refused when a check fails, else ran with the exit code. A ToolResult with a CallID
 // comes with each row; the error is the refusal, or the failure of the run.
-func RunTool(ctx context.Context, e Env, r ToolRun) (_ ToolResult, err error) {
+func RunTool(ctx context.Context, e Env, r ToolRun) (ToolResult, error) {
+	return runChecked(ctx, e, r, nil)
+}
+
+// runChecked is RunTool. inputErr is a bad input argument of brain run: once the tool is found,
+// the call is refused with it.
+func runChecked(ctx context.Context, e Env, r ToolRun, inputErr error) (_ ToolResult, err error) {
 	e.Environ = withPane(e.Environ, r.PaneID, r.WorkspaceID)
 	c, err := e.Open(ctx)
 	if err != nil {
@@ -129,18 +136,19 @@ func RunTool(ctx context.Context, e Env, r ToolRun) (_ ToolResult, err error) {
 		if found.ApprovedHash != nil {
 			call.ContractHash = *found.ApprovedHash
 		}
-		id, err := addCall(ctx, c.Store, call)
+		id, err := addCall(context.WithoutCancel(ctx), c.Store, call)
 		if err != nil {
 			return ToolResult{}, errors.Join(why, err)
 		}
 		return ToolResult{CallID: id, ExitCode: 1}, fmt.Errorf("tool %s: %w: %w", r.Tool, why, ErrRefused)
 	}
-	t, dir, err := output.Runnable(ctx, c.Store, filepath.Join(c.Binding.Store, outDir), found.ID)
-	if errors.Is(err, output.ErrMayNotRun) {
-		return refuse(err)
+	if inputErr != nil {
+		return refuse(inputErr)
 	}
+	// Any failed check of a known tool is a refusal, also a tool file that cannot be read.
+	t, dir, err := output.Runnable(ctx, c.Store, filepath.Join(c.Binding.Store, outDir), found.ID)
 	if err != nil {
-		return ToolResult{}, err
+		return refuse(err)
 	}
 	contract, err := tool.Parse(t.Contract)
 	if err != nil {
@@ -183,7 +191,8 @@ func execTool(ctx context.Context, s *store.Store, run tool.Run, call store.Tool
 	start := time.Now()
 	code, runErr := run.Exec(ctx)
 	call.Result, call.ExitCode, call.Duration = store.CallRan, &code, time.Since(start)
-	id, err := addCall(ctx, s, call)
+	// A Ctrl-C ends ctx and stops the run, but the call ran: log it still.
+	id, err := addCall(context.WithoutCancel(ctx), s, call)
 	if err != nil {
 		return ToolResult{}, errors.Join(runErr, err)
 	}

@@ -118,3 +118,20 @@ func TestExecTimeout(t *testing.T) {
 		t.Errorf("Exec() took %s, want the step and its child stopped at the timeout", d)
 	}
 }
+
+// A leader that ends at once leaves a child that holds the output open: the timeout still
+// stops it, and Exec does not wait waitDelay for it.
+func TestExecTimeoutLeaderGone(t *testing.T) {
+	sd := script(t, "sleep 30 &\n")
+	var out bytes.Buffer
+	r := Run{Commands: [][]string{{"run.sh"}}, Dir: t.TempDir(), ScriptDir: sd, Timeout: 300 * time.Millisecond,
+		Stdout: &out, Stderr: &out}
+	start := time.Now()
+	code, err := r.Exec(context.Background())
+	if code != ExitTimeout || !errors.Is(err, ErrTimeout) {
+		t.Errorf("Exec() = %d, %v, want the timeout", code, err)
+	}
+	if d := time.Since(start); d >= waitDelay/2 {
+		t.Errorf("Exec() took %s, want the child stopped at the timeout", d)
+	}
+}

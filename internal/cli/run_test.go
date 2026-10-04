@@ -282,6 +282,7 @@ func TestRunRefused(t *testing.T) {
 		{"write-word"},
 		{"write-word", "--word", "hello", "--other", "x"},
 		{"write-word", "--word", "UPPER"},
+		{"write-word", "--word"},
 	} {
 		if _, err := f.run(t, "w14:p1", "w14", args...); !errors.Is(err, ErrRefused) {
 			t.Errorf("Run(%q) = %v, want a refusal", args, err)
@@ -291,8 +292,8 @@ func TestRunRefused(t *testing.T) {
 		t.Errorf("ran = %q, want no run", got)
 	}
 	cs := f.calls(t)
-	if len(cs) != 3 {
-		t.Fatalf("tool_calls = %+v, want 3 rows", cs)
+	if len(cs) != 4 {
+		t.Fatalf("tool_calls = %+v, want 4 rows", cs)
 	}
 	for _, c := range cs {
 		if c.Result != store.CallRefused || c.ExitCode != nil || c.ContractHash == "" {
@@ -365,6 +366,39 @@ func TestRunToolPane(t *testing.T) {
 		Origin: store.OriginAutomation, Tool: "write-word", Inputs: map[string]string{"word": "auto"},
 		Stdout: &out, Stderr: &out}); err == nil {
 		t.Errorf("RunTool(w15:p1) = nil, want no tool")
+	}
+}
+
+// A tool file that cannot be read is a refused call too.
+func TestRunUnreadableFile(t *testing.T) {
+	f := newRunFixture(t)
+	id := f.approvedTool(t, runTool("write-word", f.dir, "10", writeWord))
+	path := f.toolFile(id, 2)
+	if err := os.Chmod(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) }) // TempDir removes the file either way
+	if _, err := f.run(t, "w14:p1", "w14", "write-word", "--word", "hello"); !errors.Is(err, ErrRefused) {
+		t.Errorf("Run() = %v, want a refusal", err)
+	}
+	if cs := f.calls(t); len(cs) != 1 || cs[0].Result != store.CallRefused {
+		t.Errorf("tool_calls = %+v, want one refused row", cs)
+	}
+}
+
+// A run that its caller stops (Ctrl-C, or the end of ctx) still logs a ran row.
+func TestRunCancelledLogged(t *testing.T) {
+	f := newRunFixture(t)
+	f.approvedTool(t, runTool("slow", f.dir, "10", "sleep 30\n"))
+	e := f.env(f.sock, "w14:p1", "w14", &bytes.Buffer{})
+	e.Environ = append(e.Environ, "HOME="+f.dir)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	if err := Run(ctx, e, []string{"slow", "--word", "hello"}); err == nil {
+		t.Errorf("Run() = nil, want the stop")
+	}
+	if cs := f.calls(t); len(cs) != 1 || cs[0].Result != store.CallRan || cs[0].ExitCode == nil {
+		t.Errorf("tool_calls = %+v, want one ran row", cs)
 	}
 }
 
