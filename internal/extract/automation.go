@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
@@ -43,7 +42,7 @@ func (p Pass) automations(ctx context.Context, tx *sql.Tx) error {
 	if err != nil {
 		return err
 	}
-	for _, bc := range roundRobin(gated, last) {
+	for _, bc := range roundRobin(gated, func(bc bindingCandidate) string { return bc.key }, last) {
 		if err := p.proposeBinding(ctx, tx, bc.id, bc.b); err != nil {
 			return err
 		}
@@ -56,30 +55,6 @@ type bindingCandidate struct {
 	id  int64
 	key string // the workspace key
 	b   store.Binding
-}
-
-// roundRobin orders bcs as order orders the extraction jobs (§7.3 queue): the first of each
-// workspace key, then the second, and so on; the key whose last extractor call is oldest
-// first. So under the daily proposal cap each workspace gets its turn.
-func roundRobin(bcs []bindingCandidate, last map[string]time.Time) []bindingCandidate {
-	byKey := map[string][]bindingCandidate{}
-	var keys []string
-	for _, bc := range bcs {
-		if _, ok := byKey[bc.key]; !ok {
-			keys = append(keys, bc.key)
-		}
-		byKey[bc.key] = append(byKey[bc.key], bc)
-	}
-	slices.SortStableFunc(keys, func(a, b string) int { return last[a].Compare(last[b]) })
-	out := make([]bindingCandidate, 0, len(bcs))
-	for i := 0; len(out) < len(bcs); i++ {
-		for _, k := range keys {
-			if i < len(byKey[k]) {
-				out = append(out, byKey[k][i])
-			}
-		}
-	}
-	return out
 }
 
 // stopCall attaches occurrence c to the candidate of its claim, and returns the candidate with

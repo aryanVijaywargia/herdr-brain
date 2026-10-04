@@ -1,0 +1,441 @@
+package extract
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"path"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/BurntSushi/toml"
+
+	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
+	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
+)
+
+// kindTool is the claim kind of a tool draft (§10.1 detection, E17-S6).
+const kindTool = "tool"
+
+// The fields of a tool draft that Brain writes itself, for an exact repeat and for "make this a
+// tool" (§10.1). [NEW] the values: the timeout of the §10.1 example; no read-only guess, so the
+// restriction is yours to set; an effects line that asks for your words.
+const (
+	draftTimeout = 600
+	draftEffects = "runs the recorded commands as the agent ran them; edit this line to say what they change"
+	// draftRule is the rule of the claim key of a tool draft [NEW].
+	draftRule = "make it a brain tool"
+)
+
+// shellChars are the characters of shell syntax [NEW]: a command with one of them needs a
+// shell, so it does not fit one argv list (§10.1 "argv, not shell").
+const shellChars = "|&;<>()$`\\\"'*?[]{}~#\n"
+
+// toolWords returns the argv list of command text argv, its words. It returns false when the
+// command does not fit an argv list: it needs a shell (shellChars, or a first word that sets a
+// variable), or it runs Brain itself, as brain run does: a tool of a tool is no new tool. [NEW]
+// both rules.
+func toolWords(argv string) ([]string, bool) {
+	ws := strings.Fields(argv)
+	if len(ws) == 0 || strings.ContainsAny(argv, shellChars) || strings.Contains(ws[0], "=") || path.Base(ws[0]) == "brain" {
+		return nil, false
+	}
+	return ws, true
+}
+
+// heldBack reports whether Brain never drafts a tool from command c: the secret filter found a
+// secret in it, or it was cut (§6.7).
+func heldBack(c store.CommandRecord) bool { return c.SecretFound || c.Truncated }
+
+// toolKey is the claim key of a tool draft with steps [NEW]: Brain makes it from the commands,
+// with each input as {name}, so the same commands in another session, from Brain or from the
+// extractor, give the same claim.
+func toolKey(steps [][]string) store.ClaimKey {
+	runs := make([]string, len(steps))
+	for i, s := range steps {
+		runs[i] = strings.Join(s, " ")
+	}
+	return store.ClaimKey{Situation: normal("the agent runs " + strings.Join(runs, " then ")), Rule: draftRule}
+}
+
+// draftToml is the tool.toml of a draft, in the field order of §10.1.
+type draftToml struct {
+	Name        string                `toml:"name"`
+	Description string                `toml:"description"`
+	Cwd         string                `toml:"cwd"`
+	TimeoutS    int64                 `toml:"timeout_s"`
+	Effects     string                `toml:"effects"`
+	ReadOnly    bool                  `toml:"read_only"`
+	Argv        []string              `toml:"argv,omitempty"`
+	Steps       [][]string            `toml:"steps,omitempty"`
+	Inputs      map[string]tool.Input `toml:"inputs,omitempty"`
+}
+
+// text returns the tool text of d, after the E17-S3 contract check (tool.Parse): a draft that
+// breaks a §10.1 rule is no draft. One command is argv; more are steps.
+func (d draftToml) text(steps [][]string) (string, error) {
+	if len(steps) == 1 {
+		d.Argv = steps[0]
+	} else {
+		d.Steps = steps
+	}
+	var b strings.Builder
+	if err := toml.NewEncoder(&b).Encode(d); err != nil {
+		return "", fmt.Errorf("write the tool draft: %w", err)
+	}
+	if _, err := tool.Parse(b.String()); err != nil {
+		return "", err
+	}
+	return b.String(), nil
+}
+
+// nameChars are the runs of characters that a tool name cannot hold.
+var nameChars = regexp.MustCompile(`[^a-z0-9]+`)
+
+// maxDraftName is the longest name of a tool draft in characters [NEW], as for a skill.
+const maxDraftName = 40
+
+// draftName is the name of a draft that runs argv [NEW]: its words, with the folder of the
+// program cut, in lower case with hyphens, cut to maxDraftName at a hyphen.
+func draftName(argv []string) string {
+	words := append([]string{path.Base(argv[0])}, argv[1:]...)
+	n := strings.Trim(nameChars.ReplaceAllString(strings.ToLower(strings.Join(words, " ")), "-"), "-")
+	for len(n) > maxDraftName {
+		i := strings.LastIndex(n[:maxDraftName+1], "-")
+		if i <= 0 {
+			n = n[:maxDraftName]
+			break
+		}
+		n = n[:i]
+	}
+	return strings.Trim(n, "-")
+}
+
+// exactDraft is the tool text of an exact repeat of cmds, one example in run order [NEW form]:
+// the commands as they ran, in the folder where they ran. It refuses a command that held a
+// secret, that was cut (§6.7), or that does not fit an argv list, and commands of more than
+// one folder.
+func exactDraft(cmds []store.CommandRecord) (string, error) {
+	steps := make([][]string, 0, len(cmds))
+	runs := make([]string, 0, len(cmds))
+	for _, c := range cmds {
+		switch {
+		case c.SecretFound:
+			return "", errors.New("a command of the example held a secret: Brain never drafts a tool from it")
+		case c.Truncated:
+			return "", errors.New("a command of the example was cut: Brain never drafts a tool from it")
+		case c.CWD == "" || c.CWD != cmds[0].CWD:
+			return "", errors.New("the commands of the example ran in no folder or in more than one folder")
+		}
+		ws, ok := toolWords(c.Argv)
+		if !ok {
+			return "", fmt.Errorf("command %q needs a shell or runs brain: a tool runs one argv list", c.Argv)
+		}
+		steps, runs = append(steps, ws), append(runs, strings.Join(ws, " "))
+	}
+	if len(steps) == 0 {
+		return "", errors.New("the example has no command")
+	}
+	d := draftToml{Name: draftName(steps[0]), Description: "Run " + strings.Join(runs, ", then "), Cwd: cmds[0].CWD,
+		TimeoutS: draftTimeout, Effects: draftEffects}
+	return d.text(steps)
+}
+
+// gatedTool is a candidate of an exact repeat at its gate, with the tool text of its example.
+type gatedTool struct {
+	id   int64
+	key  string // the workspace key
+	text string
+}
+
+// exactTools runs the exact repeats of command chains (§10.1 detection: exact repeats come
+// first, model placeholders after). It makes no model call. Each chain of sigs (E12-S1) that
+// ran with no failure, whose commands Brain may draft a tool from, is evidence of the claim of
+// its exact commands (toolKey), a command chain candidate in its workspace: the gate is 3
+// sessions (§7.2). A failed chain and the chain of one session stay as evidence. At the gate
+// the candidate gets one tool draft (exactDraft), after the queue checks of proposeBinding: the
+// daily proposal cap, in round robin order of the workspaces (§7.3).
+func (p Pass) exactTools(ctx context.Context, tx *sql.Tx, sigs []signal.Signal, byID map[int64]store.SignalInput) error {
+	sessions, err := store.Sessions(ctx, tx)
+	if err != nil {
+		return err
+	}
+	byKey := map[int64]store.Session{}
+	for _, s := range sessions {
+		byKey[s.ID] = s
+	}
+	var gated []gatedTool
+	seen := map[int64]bool{}
+	for _, s := range sigs {
+		if s.Kind != signal.CommandChain {
+			continue
+		}
+		g, err := p.exactChain(ctx, tx, s, byID, byKey)
+		if err != nil {
+			return err
+		}
+		if g.id != 0 && !seen[g.id] {
+			seen[g.id] = true
+			gated = append(gated, g)
+		}
+	}
+	last, err := store.LastCalls(ctx, tx)
+	if err != nil {
+		return err
+	}
+	for _, g := range roundRobin(gated, func(g gatedTool) string { return g.key }, last) {
+		if d, err := p.Day(ctx, tx); err != nil || d.Proposals >= d.Caps.Proposals {
+			return err
+		}
+		if _, err := proposeTool(ctx, tx, g.id, g.text, "runs these commands with one reviewed contract", p.Now()); err != nil &&
+			!errors.Is(err, errNoDraft) {
+			return err
+		}
+	}
+	return nil
+}
+
+// exactChain attaches chain s to the candidate of its exact commands, and returns the
+// candidate with the commands of s when it reached its gate. A chain of another herdr session,
+// with no workspace key, with learning off, with a failed command, or with a command that Brain
+// never drafts a tool from gives nothing.
+func (p Pass) exactChain(ctx context.Context, tx *sql.Tx, s signal.Signal, byID map[int64]store.SignalInput,
+	sessions map[int64]store.Session) (gatedTool, error) {
+	first := byID[s.Observations[0]]
+	sess := sessions[first.SessionID]
+	if sess.Key.HerdrSession != p.HerdrSession || first.WorkspaceKey == "" {
+		return gatedTool{}, nil
+	}
+	cmds := make([]store.CommandRecord, 0, len(s.Observations))
+	steps := make([][]string, 0, len(s.Observations))
+	for _, id := range s.Observations {
+		in := byID[id]
+		if in.WorkspaceKey != first.WorkspaceKey || in.Command.ExitStatus != nil && *in.Command.ExitStatus != 0 {
+			return gatedTool{}, nil
+		}
+		ws, _ := toolWords(in.Command.Argv) // exactDraft refuses a command that does not fit
+		cmds, steps = append(cmds, *in.Command), append(steps, ws)
+	}
+	text, err := exactDraft(cmds)
+	if err != nil {
+		return gatedTool{}, nil //nolint:nilerr // a chain with no draft stays evidence
+	}
+	on, err := store.LearningOn(ctx, tx, p.DefaultOn, p.HerdrSession, first.WorkspaceKey, sess.PaneID)
+	if err != nil || !on {
+		return gatedTool{}, err
+	}
+	claim, err := store.ClaimID(ctx, tx, toolKey(steps), p.Now())
+	if err != nil {
+		return gatedTool{}, err
+	}
+	if ts, err := store.TombstonesByClaim(ctx, tx, claim); err != nil || len(ts) > 0 {
+		return gatedTool{}, err
+	}
+	var id int64
+	for _, obs := range s.Observations {
+		cid, err := store.Attach(ctx, tx, store.Candidate{ClaimID: claim, Scope: store.ScopeWorkspace,
+			WorkspaceKey: first.WorkspaceKey, Kind: store.CandidateCommandChain}, obs, p.gates(), signal.Supports)
+		switch {
+		case errors.Is(err, store.ErrEvidenceRefused):
+			continue
+		case err != nil:
+			return gatedTool{}, err
+		}
+		id = cid
+	}
+	if id == 0 {
+		return gatedTool{}, nil
+	}
+	cand, err := store.CandidateByID(ctx, tx, id)
+	if err != nil || !p.gates().Reached(cand) {
+		return gatedTool{}, err
+	}
+	return gatedTool{id: id, key: first.WorkspaceKey, text: text}, nil
+}
+
+// errNoDraft says why a candidate gets no draft now; the message is for "make this a tool".
+var errNoDraft = errors.New("no tool draft")
+
+// proposeTool makes the tool draft with text of candidate id: a draft tool item in the scope of
+// the candidate, its pending proposal through store.ProposeCandidate, and its first revision.
+// It wraps errNoDraft when the candidate has a pending proposal, when its claim has an item or
+// a rejection in its scope, or when its workspace has no row yet. It returns the proposal id.
+func proposeTool(ctx context.Context, tx *sql.Tx, id int64, text, benefit string, now time.Time) (int64, error) {
+	cand, err := store.CandidateByID(ctx, tx, id)
+	if err != nil {
+		return 0, err
+	}
+	pending, err := store.PendingCandidateProposalIDs(ctx, tx, id)
+	if err != nil {
+		return 0, err
+	}
+	has, err := store.ClaimHasItem(ctx, tx, cand.ClaimID, cand.WorkspaceKey)
+	if err != nil {
+		return 0, err
+	}
+	held, err := store.Rejected(ctx, tx, cand.ClaimID, cand.WorkspaceKey)
+	switch {
+	case err != nil:
+		return 0, err
+	case len(pending) > 0:
+		return 0, fmt.Errorf("candidate %d has a pending proposal already (brain review %d): %w", id, pending[0], errNoDraft)
+	case has:
+		return 0, fmt.Errorf("the claim of candidate %d has an item already: %w", id, errNoDraft)
+	case held:
+		return 0, fmt.Errorf("the claim of candidate %d is rejected (brain review --rejected): %w", id, errNoDraft)
+	}
+	target, err := target(ctx, tx, cand)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return 0, fmt.Errorf("the workspace of candidate %d has no row yet: %w", id, errNoDraft)
+	case err != nil:
+		return 0, err
+	}
+	var key *string
+	if cand.Scope == store.ScopeWorkspace {
+		key = &cand.WorkspaceKey
+	}
+	item, err := store.InsertItem(ctx, tx, store.Item{ClaimID: cand.ClaimID, CurrentRevision: 1, Kind: store.KindTool,
+		Scope: cand.Scope, WorkspaceKey: key, State: store.StateDraft, Created: now})
+	if err != nil {
+		return 0, err
+	}
+	base := int64(1)
+	pid, err := store.ProposeCandidate(ctx, tx, id, store.Proposal{ItemID: &item, BaseRevision: &base, Text: text,
+		Scope: cand.Scope, Target: target, Diff: store.SkillDiff("", text), ExpectedBenefit: benefit,
+		PermissionWarning: store.TouchesPermission(text), Status: store.ProposalPending, Created: now})
+	if err != nil {
+		return 0, err
+	}
+	if err := store.InsertItemRevision(ctx, tx, store.ItemRevision{ItemID: item, Revision: 1, Text: text,
+		Scope: cand.Scope, WorkspaceKey: key, State: store.StateDraft, Author: store.AuthorBrain,
+		Origin: store.OriginExtractor, ProposalID: &pid, Created: now}); err != nil {
+		return 0, err
+	}
+	return pid, store.MarkProposed(ctx, tx, id)
+}
+
+// MakeTool is the review action "make this a tool" (§10.1) on command candidate id [NEW form]:
+// it makes a tool draft from one example, the commands of the newest session in the evidence
+// of the candidate, as they ran (exactDraft). It needs no model call and adds no evidence: the
+// batch of the example is committed, its watermark stays, and the support count does not
+// change. For an input in place of a word, ask for a change of the draft (brain review <id>
+// --change): the E13-S5 request route drafts it again with the extractor. The draft goes
+// through the normal review; nothing runs before your approval. It returns the proposal id.
+func MakeTool(ctx context.Context, tx *sql.Tx, id int64, now time.Time) (int64, error) {
+	cand, err := store.CandidateByID(ctx, tx, id)
+	if err != nil {
+		return 0, err
+	}
+	if cand.Kind != store.CandidateCommandChain {
+		return 0, fmt.Errorf("candidate %d is a %s candidate: only a command candidate becomes a tool", id, cand.Kind)
+	}
+	ts, err := store.TombstonesByClaim(ctx, tx, cand.ClaimID)
+	if err != nil {
+		return 0, err
+	}
+	if len(ts) > 0 {
+		return 0, fmt.Errorf("the claim of candidate %d is forgotten", id)
+	}
+	cmds, err := store.CandidateCommands(ctx, tx, id)
+	if err != nil {
+		return 0, err
+	}
+	// The evidence of the learned automation case is stop observations, not commands (E17-S10).
+	if len(cmds) == 0 {
+		return 0, fmt.Errorf("candidate %d has no command in its evidence", id)
+	}
+	newest := cmds[len(cmds)-1].SessionID
+	var example []store.CommandRecord
+	for _, c := range cmds {
+		if c.SessionID == newest {
+			example = append(example, c.CommandRecord)
+		}
+	}
+	text, err := exactDraft(example)
+	if err != nil {
+		return 0, fmt.Errorf("candidate %d: %w", id, err)
+	}
+	return proposeTool(ctx, tx, id, text, "runs these commands with one reviewed contract", now)
+}
+
+// rawInput is one input of a claim of kind tool, as the model returns it.
+type rawInput struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Pattern string `json:"pattern"`
+}
+
+// checkTool returns the tool text of claim r of kind tool, with refs its evidence. The secret
+// filter runs on the model fields first (Redact). Each command must be a command of the
+// evidence that Brain may draft a tool from, with an input only in place of a whole word:
+// Brain never writes new program logic (§10.1, §10.3). The folder is the one where the newest
+// such command ran; the model does not give it. Then tool.Parse checks the contract with the
+// E17-S3 rules. No error holds model text.
+func checkTool(r rawClaim, refs []ref) (string, [][]string, error) {
+	field := func(f *string) string {
+		if f == nil {
+			return ""
+		}
+		return Redact(strings.Join(strings.Fields(*f), " "))
+	}
+	if r.Commands == nil || len(*r.Commands) == 0 || r.TimeoutS == nil || r.ReadOnly == nil {
+		return "", nil, errors.New("the tool has no commands, timeout_s or read_only")
+	}
+	d := draftToml{Name: field(r.Name), Description: field(r.Description), TimeoutS: *r.TimeoutS, Effects: field(r.Effects),
+		ReadOnly: *r.ReadOnly}
+	if r.Inputs != nil {
+		d.Inputs = map[string]tool.Input{}
+		for _, in := range *r.Inputs {
+			if _, dup := d.Inputs[in.Name]; dup {
+				return "", nil, errors.New("the tool has an input twice")
+			}
+			d.Inputs[in.Name] = tool.Input{Type: in.Type, Pattern: in.Pattern}
+		}
+	}
+	steps := make([][]string, len(*r.Commands))
+	newest := int64(-1)
+	for i, argv := range *r.Commands {
+		steps[i] = make([]string, len(argv))
+		for j, el := range argv {
+			steps[i][j] = Redact(el)
+		}
+		found := false
+		for _, rf := range refs {
+			if rf.cmd == nil || heldBack(*rf.cmd) {
+				continue
+			}
+			if ws, ok := toolWords(rf.cmd.Argv); ok && fits(steps[i], ws) {
+				found = true
+				if rf.obs > newest && rf.cmd.CWD != "" {
+					newest, d.Cwd = rf.obs, rf.cmd.CWD
+				}
+			}
+		}
+		if !found {
+			return "", nil, fmt.Errorf("tool command %d is not a command of the evidence", i+1)
+		}
+	}
+	text, err := d.text(steps)
+	return text, steps, err
+}
+
+// fits reports whether step, a command of a tool draft, is command ws of the evidence, with an
+// input ({name}) in place of any whole word but the program.
+func fits(step, ws []string) bool {
+	if len(step) != len(ws) || len(ws) == 0 || step[0] != ws[0] {
+		return false
+	}
+	for i := range ws {
+		if step[i] != ws[i] && !wholeInput.MatchString(step[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// wholeInput is a word that is one whole input, as tool.Parse wants it.
+var wholeInput = regexp.MustCompile(`^\{[a-z][a-z0-9_]*\}$`)
