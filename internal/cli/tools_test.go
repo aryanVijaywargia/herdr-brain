@@ -3,12 +3,14 @@ package cli
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -247,4 +249,167 @@ func TestForgetTool(t *testing.T) {
 	if _, err := f.mayRun(t, id); !errors.Is(err, output.ErrMayNotRun) {
 		t.Errorf("MayRun() after forget = %v, want ErrMayNotRun", err)
 	}
+}
+
+// namedTool is toolText(name) with the description "Tool <name>".
+func namedTool(name string) string {
+	return strings.Replace(toolText(name), "Run the tests of one package", "Tool "+name, 1)
+}
+
+// addTool commits an active tool item text in workspace key (nil: global) at testNow, with no
+// build.
+func (f *fixture) addTool(t *testing.T, key *string, text string) int64 {
+	t.Helper()
+	s := openStore(t, f.store)
+	defer closeStore(t, s)
+	r := store.ItemRevision{Text: text, Scope: store.ScopeGlobal, WorkspaceKey: key, State: store.StateActive,
+		Author: store.AuthorYou, Origin: store.OriginReview, Created: testNow}
+	if key != nil {
+		r.Scope = store.ScopeWorkspace
+	}
+	var id int64
+	write(t, s, func(tx *sql.Tx) (err error) {
+		id, _, err = store.CreateItem(context.Background(), tx, store.Item{ClaimID: text, Kind: store.KindTool, Created: testNow}, r)
+		return err
+	})
+	return id
+}
+
+// addCalls adds n calls of tool id with result at at.
+func (f *fixture) addCalls(t *testing.T, id int64, result store.CallResult, at time.Time, n int) {
+	t.Helper()
+	s := openStore(t, f.store)
+	defer closeStore(t, s)
+	write(t, s, func(tx *sql.Tx) error {
+		for range n {
+			code := 0
+			c := store.ToolCall{ToolID: id, Origin: store.OriginAgent, Result: result, At: at}
+			if result == store.CallRan {
+				c.ExitCode = &code
+			}
+			if _, err := store.AddToolCall(context.Background(), tx, c); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// tools runs brain tools from pane w14:p1.
+func (f *fixture) tools(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	var out bytes.Buffer
+	err := Tools(context.Background(), f.env(f.sock, "w14:p1", "w14", &out), args)
+	return out.String(), err
+}
+
+// AC E17-S5: with 12 approved tools, the brief shows 10 and brain tools shows 12. brain tools
+// shows only the tools in the caller's scope, with their input schemas: not a tool of another
+// workspace, a draft or a retired tool.
+func TestToolsList(t *testing.T) {
+	f := newFixture(t)
+	if out, err := f.tools(t); err != nil || out != "no approved tools\n" {
+		t.Errorf("Tools() = %q, %v, want no approved tools", out, err)
+	}
+	for i := range 10 {
+		f.addTool(t, ptr("ws_a14"), namedTool(fmt.Sprintf("tool-%d", i+1)))
+	}
+	f.addTool(t, nil, namedTool("global-tool"))
+	f.addTool(t, ptr("ws_a15"), namedTool("blog-tool"))
+	f.toolDraft(t, namedTool("draft-tool"))
+	last := f.approvedTool(t, toolText("test-package"))
+
+	out, err := f.tools(t)
+	if err != nil {
+		t.Fatalf("Tools() = %v", err)
+	}
+	if n := strings.Count(out, "\n  brain run "); n != 12 {
+		t.Errorf("Tools() lists %d tools, want 12:\n%s", n, out)
+	}
+	want := fmt.Sprintf("test-package (item %d, workspace w14 (shop)): Run the tests of one package\n"+
+		"  brain run test-package --package <value>\n  --package: string, pattern ^[a-z0-9@/._-]{1,64}$\n", last)
+	if !strings.HasPrefix(out, "tool-1 (item ") || !strings.Contains(out, "global-tool (item ") ||
+		!strings.Contains(out, "\nglobal-tool (item 12, global): Tool global-tool\n") || !strings.HasSuffix(out, want) {
+		t.Errorf("Tools() =\n%s\nwant tool-1 first, global-tool, and test-package last:\n%s", out, want)
+	}
+	if strings.Contains(out, "blog-tool") || strings.Contains(out, "draft-tool") {
+		t.Errorf("Tools() =\n%s\nwant no tool of another workspace and no draft", out)
+	}
+	_, catalog, _ := strings.Cut(f.brief(t), "### Tools\n")
+	if n := strings.Count(catalog, "\n- "); n != 10 || !strings.Contains(catalog, "- tool-1: Tool tool-1 Inputs: package\n") ||
+		strings.Contains(catalog, "test-package") {
+		t.Errorf("catalog = %q, want the first 10 tools by approval time", catalog)
+	}
+	if _, err := f.tools(t, "extra"); err == nil || !strings.Contains(err.Error(), toolsUsage) {
+		t.Errorf("Tools(extra) = %v, want the usage", err)
+	}
+}
+
+// AC E17-S5: a tool with no ran call for 91 days is an archive candidate, and so is a tool
+// with only refused calls; a pinned tool is not, and a ran call keeps a tool.
+func TestToolsArchive(t *testing.T) {
+	f := newFixture(t)
+	idle := f.addTool(t, ptr("ws_a14"), namedTool("idle"))
+	refused := f.addTool(t, ptr("ws_a14"), namedTool("refused"))
+	ran := f.addTool(t, ptr("ws_a14"), namedTool("ran"))
+	pinned := f.addTool(t, ptr("ws_a14"), namedTool("pinned"))
+	if _, err := f.pin(t, fmt.Sprint(pinned)); err != nil {
+		t.Fatal(err)
+	}
+	f.addCalls(t, refused, store.CallRefused, days(89), 4)
+	f.addCalls(t, ran, store.CallRan, days(89), 1)
+	out := f.mustArchive(t, 91)
+	for _, id := range []int64{idle, refused} {
+		if !strings.Contains(out, fmt.Sprintf("\nitem %d  workspace w14 (shop)  idle 91d  ", id)) {
+			t.Errorf("Archive() at day 91 =\n%s\nwant tool item %d", out, id)
+		}
+	}
+	for _, id := range []int64{ran, pinned} {
+		if strings.Contains(out, fmt.Sprintf("\nitem %d ", id)) {
+			t.Errorf("Archive() at day 91 =\n%s\nwant no tool item %d", out, id)
+		}
+	}
+}
+
+// brain status shows the ran calls of the last 4 weeks and the active tools with none, for the
+// M4 review prompt "Tools get no calls in 4 weeks" (§13). Refused calls and older calls do
+// not count.
+func TestStatusToolCalls(t *testing.T) {
+	f := newStatusFixture(t)
+	used := f.addTool(t, ptr("ws_a14"), namedTool("used"))
+	idle := f.addTool(t, nil, namedTool("idle"))
+	now := testNow.Add(3 * time.Hour)
+	f.addCalls(t, used, store.CallRan, now.Add(-27*24*time.Hour), 2)
+	f.addCalls(t, used, store.CallRan, now.Add(-29*24*time.Hour), 1)
+	f.addCalls(t, idle, store.CallRefused, now.Add(-time.Hour), 3)
+	out := f.mustStatus(t)
+	if !strings.Contains(out, "\n  calls in the last 4 weeks: 2 ran; no ran call: idle\n") {
+		t.Errorf("Status() =\n%s\nwant 2 ran calls and idle with none", out)
+	}
+
+	// The calls of a tool that is no longer active still count (Sol review, PR #233).
+	for _, id := range []int64{used, idle} {
+		f.retireTool(t, id)
+	}
+	out = f.mustStatus(t)
+	if !strings.Contains(out, "\ntools: 0 active, none stopped\n  calls in the last 4 weeks: 2 ran\n") {
+		t.Errorf("Status() =\n%s\nwant 2 ran calls with no active tool", out)
+	}
+}
+
+// retireTool writes a retired revision of tool item id, at revision 1.
+func (f *fixture) retireTool(t *testing.T, id int64) {
+	t.Helper()
+	s := openStore(t, f.store)
+	defer closeStore(t, s)
+	ctx := context.Background()
+	write(t, s, func(tx *sql.Tx) error {
+		r, err := store.ItemRevisionByKey(ctx, tx, id, 1)
+		if err != nil {
+			return err
+		}
+		r.State = store.StateRetired
+		_, err = store.WriteRevision(ctx, tx, 1, r)
+		return err
+	})
 }

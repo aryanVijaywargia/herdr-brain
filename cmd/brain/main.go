@@ -44,6 +44,7 @@ commands:
   brained   the herdr listener of one herdr session (herdr starts it; D7)
   suggest   the live suggestion of one prompt (the hook or brained starts it)
   run       <tool> [--<input> <value>]...: run an approved tool in this workspace; exits with its exit code
+  tools     list the approved tools that this workspace can run, with their inputs
   automation add <tool> --folder <dir> --cli <cli> | list | pause <item> | resume <item> | remove <item>:
             run an approved tool after each stop of the agent (brain automation --help)
 `
@@ -67,6 +68,7 @@ var commands = map[string]func(context.Context, cli.Env, []string) error{
 	"extract":    cli.Extract,
 	"suggest":    cli.Suggest,
 	"run":        cli.Run,
+	"tools":      cli.Tools,
 	"automation": cli.Automation,
 }
 
@@ -92,7 +94,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "setup":
 		err = setup(context.Background(), osSetupDeps(os.Environ()), args[1:], in, stdout)
 	case "status", "doctor", "remember", "review", "pin", "archive", "promote", "undo", "workspace", "forget", "repair", "pane", "uninstall", "learn", "extract",
-		"suggest", "run", "automation":
+		"suggest", "run", "tools", "automation":
 		err = command(commands[args[0]], args[1:], in, stdout, stderr)
 	case "event":
 		err = event.Main(context.Background(), args[1:], os.Environ())

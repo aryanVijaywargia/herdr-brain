@@ -174,10 +174,18 @@ func (s *statusCall) run(ctx context.Context) {
 	s.w.printf("\n%s\n", evalLine(s.Bindings, s.Now()))
 }
 
+// callWindow is the window of the tool calls that brain status counts: the M4 review prompt
+// "Tools get no calls in 4 weeks" (§13).
+const callWindow = 28 * 24 * time.Hour
+
 // tools shows the count of active tools, and each one that may not run, with the reason: a
 // contract or a tool file that changed after your approval stops the tool (§10.1, E17-S4).
+// Then it shows the ran calls of the last 4 weeks, of any tool, and the active tools with none
+// (§13, E17-S5).
+// [NEW] the calls line form.
 func (s *statusCall) tools(ctx context.Context) {
 	var ts []store.Tool
+	var calls map[int64]int
 	s.fail(s.Store.Write(ctx, func(tx *sql.Tx) error {
 		revs, err := store.ActiveTools(ctx, tx)
 		if err != nil {
@@ -190,22 +198,39 @@ func (s *statusCall) tools(ctx context.Context) {
 			}
 			ts = append(ts, t)
 		}
-		return nil
+		calls, err = store.RanCalls(ctx, tx, s.Now().Add(-callWindow))
+		return err
 	}))
-	var stopped []string
+	var stopped, idle []string
+	total := 0
 	for _, t := range ts {
 		if _, err := output.MayRun(ctx, s.Store, filepath.Join(s.Binding.Store, outDir), t.ID); err != nil {
 			stopped = append(stopped, fmt.Sprintf("  stopped: tool %s (item %d): %v", t.Name, t.ID, err))
 		}
+		if calls[t.ID] == 0 {
+			idle = append(idle, t.Name)
+		}
+	}
+	// A tool that ran and then stopped or retired keeps its calls in the count.
+	for _, n := range calls {
+		total += n
 	}
 	if len(stopped) == 0 {
 		s.w.printf("\ntools: %d active, none stopped\n", len(ts))
-		return
+	} else {
+		s.w.printf("\ntools: %d active, %d stopped; brain run refuses them\n", len(ts), len(stopped))
 	}
-	s.w.printf("\ntools: %d active, %d stopped; brain run refuses them\n", len(ts), len(stopped))
 	for _, l := range stopped {
 		s.w.printf("%s\n", l)
 	}
+	if len(ts) == 0 && total == 0 {
+		return
+	}
+	s.w.printf("  calls in the last 4 weeks: %d ran", total)
+	if len(idle) > 0 {
+		s.w.printf("; no ran call: %s", strings.Join(idle, ", "))
+	}
+	s.w.printf("\n")
 }
 
 // automations shows the count of active automations, the paused ones, and each one that may

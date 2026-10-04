@@ -27,6 +27,15 @@ type Tool struct {
 	// ApprovedHash is the contract hash that you approved, nil while the revision is not active.
 	ApprovedHash *string
 	Approved     time.Time
+	// State is the state of the tool item.
+	State State
+}
+
+// Ready says whether the tools row lets t run: an active tool whose contract hash is the one
+// that you approved. The brief catalog and brain tools list only such tools (E17-S5). brain run
+// checks the tool files too (output.MayRun).
+func (t Tool) Ready() bool {
+	return t.State == StateActive && t.ApprovedHash != nil && *t.ApprovedHash == t.ContractHash
 }
 
 // ErrToolName means that another active tool in the same scope has the name already (§10.1).
@@ -96,17 +105,36 @@ func syncTool(ctx context.Context, tx *sql.Tx, item int64) error {
 	return nil
 }
 
+// toolColumns are the columns of a Tool, for scanTool.
+const toolColumns = `t.id, t.name, t.scope, t.workspace_key, t.contract, t.contract_hash, t.cwd, t.timeout_s, t.effects,
+	t.read_only, t.approved_hash, t.approved, i.state FROM tools t JOIN items i ON i.id = t.id`
+
+// scanTool scans one row of toolColumns.
+func scanTool(row interface{ Scan(...any) error }) (Tool, error) {
+	var t Tool
+	err := row.Scan(&t.ID, &t.Name, &t.Scope, &t.WorkspaceKey, &t.Contract, &t.ContractHash, &t.Cwd, &t.TimeoutS,
+		&t.Effects, &t.ReadOnly, &t.ApprovedHash, timeDest{&t.Approved}, &t.State)
+	return t, err
+}
+
 // ToolByID reads the tools row of tool item id. It returns sql.ErrNoRows when there is none.
 func ToolByID(ctx context.Context, tx *sql.Tx, id int64) (Tool, error) {
-	var t Tool
-	err := tx.QueryRowContext(ctx, `SELECT id, name, scope, workspace_key, contract, contract_hash, cwd,
-		timeout_s, effects, read_only, approved_hash, approved FROM tools WHERE id = ?`, id).Scan(
-		&t.ID, &t.Name, &t.Scope, &t.WorkspaceKey, &t.Contract, &t.ContractHash, &t.Cwd, &t.TimeoutS,
-		&t.Effects, &t.ReadOnly, &t.ApprovedHash, timeDest{&t.Approved})
+	t, err := scanTool(tx.QueryRowContext(ctx, `SELECT `+toolColumns+` WHERE t.id = ?`, id))
 	if err != nil {
 		return Tool{}, fmt.Errorf("read tool %d: %w", id, err)
 	}
 	return t, nil
+}
+
+// Tools reads every tools row, in approval order, then item id order; a tool with no approval
+// comes last (E17-S5). [NEW] the order: by approval time, so the catalog stays stable.
+func Tools(ctx context.Context, tx *sql.Tx) ([]Tool, error) {
+	ts, err := query(ctx, tx, `SELECT `+toolColumns+` ORDER BY t.approved IS NULL, t.approved, t.id`,
+		func(rows *sql.Rows) (Tool, error) { return scanTool(rows) })
+	if err != nil {
+		return nil, fmt.Errorf("read tools: %w", err)
+	}
+	return ts, nil
 }
 
 // ToolByName finds the tool name that a pane of workspace workspaceKey can call: a tool of

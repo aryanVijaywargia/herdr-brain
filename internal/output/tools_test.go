@@ -4,11 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
@@ -29,9 +32,17 @@ func toolText(marker string) string {
 // addTool commits a new active tool item in workspace k1.
 func addTool(t *testing.T, s *store.Store, text string) int64 {
 	t.Helper()
-	key := "k1"
-	r := store.ItemRevision{Text: text, Scope: store.ScopeWorkspace, WorkspaceKey: &key, State: store.StateActive,
+	return addToolIn(t, s, "k1", store.StateActive, text)
+}
+
+// addToolIn commits a new tool item in state in workspace key; "" makes a global tool.
+func addToolIn(t *testing.T, s *store.Store, key string, state store.State, text string) int64 {
+	t.Helper()
+	r := store.ItemRevision{Text: text, Scope: store.ScopeGlobal, State: state,
 		Author: store.AuthorYou, Origin: store.OriginReview, Created: testNow}
+	if key != "" {
+		r.Scope, r.WorkspaceKey = store.ScopeWorkspace, &key
+	}
 	var id int64
 	write(t, s, func(tx *sql.Tx) (err error) {
 		id, _, err = store.CreateItem(context.Background(), tx,
@@ -59,8 +70,8 @@ func wantMayNotRun(t *testing.T, s *store.Store, out string, id int64, want stri
 }
 
 // The build writes each tool revision as its files before the generation, and the manifest
-// lists each file with its path, hash and pair. A tool is no brief item. The approved tool
-// may run.
+// lists each file with its path, hash and pair. A tool is no brief item: only the catalog
+// line names it (E17-S5). The approved tool may run.
 func TestToolFiles(t *testing.T) {
 	s, out := newStore(t)
 	id := addTool(t, s, toolText("m1"))
@@ -80,8 +91,9 @@ func TestToolFiles(t *testing.T) {
 	if m := mustManifest(t, out, gen); !reflect.DeepEqual(m.Tools, want) {
 		t.Errorf("manifest tools = %+v, want %+v", m.Tools, want)
 	}
-	if b := mustRead(t, out, "k1"); strings.Contains(b.Workspace, "test-package") || len(b.Revisions) != 0 {
-		t.Errorf("brief = %q, %v, want no tool in it", b.Workspace, b.Revisions)
+	if b := mustRead(t, out, "k1"); !strings.HasSuffix(b.Workspace, "\n- test-package: Run the tests m1 Inputs: package\n") ||
+		len(b.Revisions) != 0 {
+		t.Errorf("brief = %q, %v, want the catalog line and no tool revision", b.Workspace, b.Revisions)
 	}
 	tl := mustMayRun(t, s, out, id)
 	if tl.ContractHash != tool.Hash(toolText("m1"), "workspace", "k1") || *tl.ApprovedHash != tl.ContractHash {
@@ -230,5 +242,100 @@ func TestToolRetireCleanup(t *testing.T) {
 	mustRepair(t, s, out, later)
 	if exists(t, dir) || mustHolds(t, out, id) {
 		t.Errorf("tool files after one hook cap: exists %v, holds %v, want neither", exists(t, dir), mustHolds(t, out, id))
+	}
+}
+
+// namedTool is toolText(name) with the tool name name.
+func namedTool(name string) string {
+	return strings.Replace(toolText(name), `name = "test-package"`, `name = "`+name+`"`, 1)
+}
+
+// AC E17-S5: with 12 approved tools that workspace k1 sees, its catalog lists 10, one line
+// each, by approval time. A tool of another workspace, a draft and a stopped tool are not in it.
+func TestCatalog(t *testing.T) {
+	s, out := newStore(t)
+	addWorkspace(t, s, "k2")
+	var ids []int64
+	for i := range 11 {
+		ids = append(ids, addTool(t, s, namedTool(fmt.Sprintf("tool-%d", i+1))))
+	}
+	ids = append(ids, addToolIn(t, s, "", store.StateActive, namedTool("global-tool")))
+	addToolIn(t, s, "k2", store.StateActive, namedTool("other-workspace"))
+	addToolIn(t, s, "k1", store.StateDraft, namedTool("draft-tool"))
+	stopped := addTool(t, s, namedTool("stopped-tool"))
+	ctx := context.Background()
+	write(t, s, func(tx *sql.Tx) error {
+		// A new approval of tool-1 moves it to the end of the approval order.
+		_, err := store.WriteRevision(ctx, tx, 1, store.ItemRevision{ItemID: ids[0], Text: namedTool("tool-1"),
+			Scope: store.ScopeWorkspace, WorkspaceKey: ptr("k1"), State: store.StateActive, Author: store.AuthorYou,
+			Origin: store.OriginReview, Created: testNow.Add(time.Hour)})
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE tools SET approved_hash = 'other' WHERE id = ?`, stopped)
+		return err
+	})
+	mustBuild(t, s, out)
+	_, catalog, _ := strings.Cut(mustRead(t, out, "k1").Workspace, "### Tools\n")
+	lines := strings.Split(strings.TrimSuffix(catalog, "\n"), "\n")[1:]
+	var want []string
+	for i := 2; i <= 11; i++ {
+		want = append(want, fmt.Sprintf("- tool-%d: Run the tests tool-%d Inputs: package", i, i))
+	}
+	if !slices.Equal(lines, want) {
+		t.Errorf("catalog of k1 =\n%s\nwant\n%s", strings.Join(lines, "\n"), strings.Join(want, "\n"))
+	}
+	if w := mustRead(t, out, "k2").Workspace; !strings.Contains(w, "- global-tool:") || !strings.Contains(w, "- other-workspace:") ||
+		strings.Contains(w, "tool-1") {
+		t.Errorf("k2 workspace part = %q, want only global-tool and other-workspace", w)
+	}
+}
+
+// AC E17-S5: a skill entry says so when a Brain tool that it requires is not approved or is
+// stopped (§8.2). A required tool that is no Brain tool (gh) gets no note.
+func TestSkillStoppedTool(t *testing.T) {
+	s, out := newStore(t)
+	run := addTool(t, s, namedTool("test-package"))
+	addToolIn(t, s, "k1", store.StateDraft, namedTool("lint"))
+	addSkill(t, s, "k1", "---\nname: release\ndescription: Cut a release.\nrequired-tools: test-package, gh, lint\n"+
+		"example: \"Cut it.\"\n---\n\n1. Run the tests.\n")
+	mustBuild(t, s, out)
+	if w := mustRead(t, out, "k1").Workspace; !strings.Contains(w, "SKILL.md (Brain tool not approved or stopped: lint)\n") {
+		t.Errorf("workspace part = %q, want the note on lint", w)
+	}
+	// A contract change that you did not approve yet stops test-package (S21).
+	ctx := context.Background()
+	write(t, s, func(tx *sql.Tx) error {
+		r, err := store.ItemRevisionByKey(ctx, tx, run, 1)
+		if err != nil {
+			return err
+		}
+		r.Text, r.State = strings.Replace(r.Text, "timeout_s = 600", "timeout_s = 900", 1), store.StateDraft
+		_, err = store.WriteRevision(ctx, tx, 1, r)
+		return err
+	})
+	mustBuild(t, s, out)
+	if w := mustRead(t, out, "k1").Workspace; !strings.Contains(w, "SKILL.md (Brain tool not approved or stopped: test-package, lint)\n") {
+		t.Errorf("workspace part = %q, want the note on test-package and lint", w)
+	}
+}
+
+// A skill's required tool resolves as brain run finds it: a stopped workspace tool hides an
+// approved global tool of the same name, so the entry has the note (Sol review, PR #233).
+func TestSkillRequiredToolPrecedence(t *testing.T) {
+	s, out := newStore(t)
+	addToolIn(t, s, "", store.StateActive, namedTool("lint"))
+	addToolIn(t, s, "k1", store.StateDraft, namedTool("lint"))
+	addSkill(t, s, "k1", "---\nname: check\ndescription: Check the code.\nrequired-tools: lint\n"+
+		"example: \"Check it.\"\n---\n\n1. Run lint.\n")
+	addSkill(t, s, "", "---\nname: check-all\ndescription: Check all code.\nrequired-tools: lint\n"+
+		"example: \"Check it.\"\n---\n\n1. Run lint.\n")
+	mustBuild(t, s, out)
+	b := mustRead(t, out, "k1")
+	if !strings.Contains(b.Workspace, "SKILL.md (Brain tool not approved or stopped: lint)\n") {
+		t.Errorf("workspace part = %q, want the note on lint", b.Workspace)
+	}
+	if strings.Contains(b.Global, "not approved or stopped") {
+		t.Errorf("global part = %q, want no note: the global lint is approved", b.Global)
 	}
 }

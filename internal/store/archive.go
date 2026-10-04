@@ -27,7 +27,9 @@ type ArchiveCandidate struct {
 // oldest first, of every workspace (§9.2). A candidate is a live item: active, or disputed,
 // which the brief still delivers (§9.1). A relevant session is an emitted receipt that holds
 // a revision of the item [NEW rule], in the item's workspace, or in any workspace for a global
-// item. A pinned item never ages (S29), so it is no candidate. An item begins to age at the
+// item. A tool ages by its real calls instead: a ran row in tool_calls (§9.2, §10.2); a
+// refused call does not count, and the brief catalog is no relevant session. A pinned item
+// never ages (S29), so it is no candidate. An item begins to age at the
 // revision that made it a live, unpinned item: an approval, a restore or an unpin. The caller
 // checks the scope of each candidate (E4).
 func ArchiveCandidates(ctx context.Context, tx *sql.Tx, before time.Time) ([]ArchiveCandidate, error) {
@@ -40,7 +42,8 @@ func ArchiveCandidates(ctx context.Context, tx *sql.Tx, before time.Time) ([]Arc
 					AND p.revision = r.revision - 1 AND p.state IN (?2, ?3) AND p.pinned = 0)),
 			COALESCE(i.kept_at, ''),
 			COALESCE((SELECT max(s.at) FROM seen s WHERE s.item_id = i.id
-				AND (i.workspace_key IS NULL OR s.key = i.workspace_key)), '')) AS since
+				AND (i.workspace_key IS NULL OR s.key = i.workspace_key)), ''),
+			COALESCE((SELECT max(c.at) FROM tool_calls c WHERE c.tool_id = i.id AND c.result = ?6), '')) AS since
 			FROM items i WHERE i.state IN (?2, ?3) AND i.pinned = 0)
 		SELECT d.id, d.workspace_key, COALESCE(w.status = ?4, 0), d.since FROM idle d
 			LEFT JOIN workspaces w ON w.key = d.workspace_key WHERE d.since < ?5 ORDER BY d.since, d.id`,
@@ -51,7 +54,7 @@ func ArchiveCandidates(ctx context.Context, tx *sql.Tx, before time.Time) ([]Arc
 			}
 			cs = append(cs, c)
 			return nil
-		}, ResultEmitted, StateActive, StateDisputed, WorkspaceClosed, timeArg(before))
+		}, ResultEmitted, StateActive, StateDisputed, WorkspaceClosed, timeArg(before), CallRan)
 	if err != nil {
 		return nil, fmt.Errorf("read archive candidates: %w", err)
 	}

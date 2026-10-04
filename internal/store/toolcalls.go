@@ -80,6 +80,26 @@ func ToolCalls(ctx context.Context, tx *sql.Tx) ([]ToolCall, error) {
 		})
 }
 
+// RanCalls counts the ran calls of each tool since since, by tool id (§13 M4 review prompt).
+// A refused call is no real call (§10.2), so it does not count.
+func RanCalls(ctx context.Context, tx *sql.Tx, since time.Time) (map[int64]int, error) {
+	n := make(map[int64]int)
+	err := eachRow(ctx, tx, `SELECT tool_id, count(*) FROM tool_calls WHERE result = ? AND at >= ? GROUP BY tool_id`,
+		func(rows *sql.Rows) error {
+			var id int64
+			var c int
+			if err := rows.Scan(&id, &c); err != nil {
+				return err
+			}
+			n[id] = c
+			return nil
+		}, CallRan, timeArg(since))
+	if err != nil {
+		return nil, fmt.Errorf("count tool calls: %w", err)
+	}
+	return n, nil
+}
+
 // PaneSession returns the id of the newest open capture session of pane paneID in binding
 // herdrSession, or 0 when capture has none. A tool call takes its session key from it.
 func PaneSession(ctx context.Context, tx *sql.Tx, herdrSession, paneID string) (int64, error) {
