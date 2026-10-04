@@ -40,6 +40,7 @@ type fakeHerdr struct {
 	calls    []string           // the methods and read sources, in order
 	plugins  string             // the JSON array of plugin.list
 	failList bool               // pane.list gets an error
+	gets     chan string        // the pane of each agent.get, when not nil
 	conns    []net.Conn
 	wg       sync.WaitGroup
 }
@@ -49,6 +50,26 @@ type fakePane struct {
 	ws      string
 	agent   string // "" for no agent
 	session string // the agent session id; "" for none
+	// The agent.get state: the status ("" is working), the folder, the terminal and the seq.
+	status, cwd, terminal string
+	seq                   uint64
+}
+
+// agentJSON is the agent.get state of pane id.
+func (p *fakePane) agentJSON(id string) string {
+	status, terminal := p.status, p.terminal
+	if status == "" {
+		status = "working"
+	}
+	if terminal == "" {
+		terminal = "term_1"
+	}
+	as := ""
+	if p.session != "" {
+		as = fmt.Sprintf(`,"agent_session":{"agent":%q,"kind":"id","source":"herdr:%s","value":%q}`, p.agent, p.agent, p.session)
+	}
+	return fmt.Sprintf(`{"pane_id":%q,"workspace_id":%q,"tab_id":"%s:t1","agent":%q,"agent_status":%q,"cwd":%q,"terminal_id":%q,"state_change_seq":%d,"focused":false,"revision":1%s}`,
+		id, p.ws, p.ws, p.agent, status, p.cwd, terminal, p.seq, as)
 }
 
 func (p *fakePane) json(id string) string {
@@ -145,6 +166,7 @@ func (f *fakeHerdr) answer(conn net.Conn) {
 		Params struct {
 			Subscriptions []herdr.Subscription `json:"subscriptions"`
 			PaneID        string               `json:"pane_id"`
+			Target        string               `json:"target"`
 			Source        string               `json:"source"`
 			Lines         int                  `json:"lines"`
 		} `json:"params"`
@@ -154,7 +176,11 @@ func (f *fakeHerdr) answer(conn net.Conn) {
 		return
 	}
 	f.mu.Lock()
-	reply := f.reply(req.Method, req.Params.PaneID, req.Params.Source, req.Params.Lines, req.Params.Subscriptions)
+	pane := req.Params.PaneID
+	if req.Method == "agent.get" {
+		pane = req.Params.Target
+	}
+	reply := f.reply(req.Method, pane, req.Params.Source, req.Params.Lines, req.Params.Subscriptions)
 	f.mu.Unlock()
 	if reply == "" {
 		_, _ = io.WriteString(conn, `{"id":"brain","error":{"code":"pane_not_found","message":"no pane"}}`+"\n")
@@ -195,6 +221,13 @@ func (f *fakeHerdr) reply(method, paneID, source string, lines int, subs []herdr
 		}
 	case "pane.read":
 		reply = f.read(paneID, source, lines)
+	case "agent.get":
+		if f.gets != nil {
+			f.gets <- paneID
+		}
+		if p, ok := f.panes[paneID]; ok && p.agent != "" {
+			reply = `{"type":"agent_info","agent":` + p.agentJSON(paneID) + `}`
+		}
 	case "plugin.list":
 		reply = `{"type":"plugin_list","plugins":` + f.plugins + `}`
 	case "events.subscribe":

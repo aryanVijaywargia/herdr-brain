@@ -417,20 +417,20 @@ func (l *loop) reconcile(ctx context.Context, gap Gap) error {
 		}
 		p.workspaceID, p.agent = lp.WorkspaceID, lp.Agent != nil
 	}
+	var open []string
 	for id, p := range l.panes {
 		if !seen[id] {
 			l.drop(ctx, id, p, nil)
+		} else if p.stream != nil {
+			open = append(open, id)
 		}
 	}
-	err = l.syncPanes(ctx, ids, gap, true, nil)
-	// Events may be lost before a reconcile, so the agent state of each followed pane is a new
-	// baseline (§10.4 step 1).
-	for _, id := range ids {
-		if p := l.panes[id]; p.stream != nil {
-			l.baselineAgent(ctx, id, p)
-		}
+	// Events may be lost before a reconcile, so the agent state of each pane that keeps its
+	// stream is a new baseline (§10.4 step 1); a new stream gets its baseline in follow.
+	for _, id := range open {
+		l.baselineAgent(ctx, id, l.panes[id])
 	}
-	return err
+	return l.syncPanes(ctx, ids, gap, true, nil)
 }
 
 // sync applies the learning state of every pane that brained follows.
@@ -454,7 +454,7 @@ func (l *loop) syncPanes(ctx context.Context, ids []string, gap Gap, force bool,
 	var errs []error
 	for _, id := range ids {
 		p := l.panes[id]
-		was, wasAuto := p.learning, p.auto
+		was, wasAuto, had := p.learning, p.auto, p.stream != nil
 		p.learning, p.auto = states[id], autos[id]
 		switch {
 		case !p.learning.On:
@@ -480,8 +480,9 @@ func (l *loop) syncPanes(ctx context.Context, ids []string, gap Gap, force bool,
 				l.step(ctx, Step{Kind: Baseline, Gap: g}, id, p, ev)
 			}
 		}
-		if p.auto != wasAuto {
-			// No stop counts across a time with no automation (no backfill).
+		if had && p.auto != wasAuto {
+			// No stop counts across a time with no automation (no backfill). A new stream got
+			// its baseline in follow.
 			l.baselineAgent(ctx, id, p)
 		}
 	}
