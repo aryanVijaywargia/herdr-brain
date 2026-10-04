@@ -453,11 +453,7 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 		return nil
 	}
 	c = redactClaim(c)
-	ck := store.ClaimKey{Situation: normal(c.Situation), Rule: normal(c.Rule)}
-	if c.Tool != "" {
-		ck = store.ClaimKey{Situation: c.Situation, Rule: c.Rule} // toolKey keeps the case of the commands
-	}
-	claim, err := store.ClaimID(ctx, tx, ck, now)
+	claim, err := store.ClaimID(ctx, tx, claimKey(c), now)
 	if err != nil {
 		return err
 	}
@@ -683,6 +679,15 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 		return err
 	}
 	return store.MarkProposed(ctx, tx, id)
+}
+
+// claimKey is the claim key of claim c, in normal form. A tool keeps its key (toolKey), so the
+// case of its commands stays.
+func claimKey(c Claim) store.ClaimKey {
+	if c.Tool != "" {
+		return store.ClaimKey{Situation: c.Situation, Rule: c.Rule}
+	}
+	return store.ClaimKey{Situation: normal(c.Situation), Rule: normal(c.Rule)}
 }
 
 // claimText is the item text of claim c [NEW]: "situation: rule".

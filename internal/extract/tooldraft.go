@@ -245,16 +245,8 @@ func (p Pass) exactChain(ctx context.Context, tx *sql.Tx, s signal.Signal, byID 
 	if err != nil || !on {
 		return gatedTool{}, err
 	}
-	for _, id := range s.Observations {
-		// A forget erases the claim key: the tombstone of the source stops the same evidence (§6.7).
-		stopped, err := store.Tombstoned(ctx, tx, byID[id].CaptureIdentity)
-		if err != nil || stopped {
-			return gatedTool{}, err
-		}
-		skill, err := store.SkillEvidence(ctx, tx, id)
-		if err != nil || skill {
-			return gatedTool{}, err
-		}
+	if held, err := heldChain(ctx, tx, s, byID); err != nil || held {
+		return gatedTool{}, err
 	}
 	claim, err := store.ClaimID(ctx, tx, toolKey(cmds[0].CWD, steps), p.Now())
 	if err != nil {
@@ -263,26 +255,50 @@ func (p Pass) exactChain(ctx context.Context, tx *sql.Tx, s signal.Signal, byID 
 	if ts, err := store.TombstonesByClaim(ctx, tx, claim); err != nil || len(ts) > 0 {
 		return gatedTool{}, err
 	}
-	var id int64
-	for _, obs := range s.Observations {
-		cid, err := store.Attach(ctx, tx, store.Candidate{ClaimID: claim, Scope: store.ScopeWorkspace,
-			WorkspaceKey: first.WorkspaceKey, Kind: store.CandidateCommandChain}, obs, p.gates(), signal.Supports)
-		switch {
-		case errors.Is(err, store.ErrEvidenceRefused):
-			continue
-		case err != nil:
-			return gatedTool{}, err
-		}
-		id = cid
-	}
-	if id == 0 {
-		return gatedTool{}, nil
+	id, err := p.attachChain(ctx, tx, claim, first.WorkspaceKey, s.Observations)
+	if err != nil || id == 0 {
+		return gatedTool{}, err
 	}
 	cand, err := store.CandidateByID(ctx, tx, id)
 	if err != nil || !p.gates().Reached(cand) {
 		return gatedTool{}, err
 	}
 	return gatedTool{id: id, key: first.WorkspaceKey, text: text}, nil
+}
+
+// heldChain reports whether chain s gives no exact draft: a forget erased the claim key, and the
+// tombstone of a source stops the same evidence (§6.7); or the extractor made a skill of it, as
+// it needs judgment (§10.3).
+func heldChain(ctx context.Context, tx *sql.Tx, s signal.Signal, byID map[int64]store.SignalInput) (bool, error) {
+	for _, id := range s.Observations {
+		stopped, err := store.Tombstoned(ctx, tx, byID[id].CaptureIdentity)
+		if err != nil || stopped {
+			return stopped, err
+		}
+		skill, err := store.SkillEvidence(ctx, tx, id)
+		if err != nil || skill {
+			return skill, err
+		}
+	}
+	return false, nil
+}
+
+// attachChain attaches the observations obs of a chain to the command candidate of claim in
+// workspace key, and returns the candidate id, or 0 when none attached.
+func (p Pass) attachChain(ctx context.Context, tx *sql.Tx, claim, key string, obs []int64) (int64, error) {
+	var id int64
+	for _, o := range obs {
+		cid, err := store.Attach(ctx, tx, store.Candidate{ClaimID: claim, Scope: store.ScopeWorkspace,
+			WorkspaceKey: key, Kind: store.CandidateCommandChain}, o, p.gates(), signal.Supports)
+		switch {
+		case errors.Is(err, store.ErrEvidenceRefused):
+			continue
+		case err != nil:
+			return 0, err
+		}
+		id = cid
+	}
+	return id, nil
 }
 
 // errNoDraft says why a candidate gets no draft now; the message is for "make this a tool".

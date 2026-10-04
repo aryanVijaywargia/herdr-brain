@@ -251,7 +251,7 @@ func Attach(ctx context.Context, tx *sql.Tx, c Candidate, obs int64, gates Gates
 		return 0, fmt.Errorf("observation %d is from workspace %q, not %q: %w", obs, l.workspace, c.WorkspaceKey, ErrEvidenceRefused)
 	case !supports(c.Kind, l.sender):
 		return 0, fmt.Errorf("observation %d: sender %s cannot support a %s: %w", obs, l.sender, c.Kind, ErrEvidenceRefused)
-	case !l.counts && !(l.command && c.Kind == CandidateCommandChain):
+	case !l.counts && (!l.command || c.Kind != CandidateCommandChain):
 		return 0, fmt.Errorf("observation %d does not count: %w", obs, ErrEvidenceRefused)
 	}
 	var id int64
