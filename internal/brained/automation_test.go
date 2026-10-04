@@ -35,6 +35,13 @@ type autoHarness struct {
 
 func newAutoHarness(t *testing.T, kind bindings.Kind) *autoHarness {
 	t.Helper()
+	return newAutoHarnessWith(t, kind, `argv = ["/usr/bin/true"]`, true)
+}
+
+// newAutoHarnessWith is newAutoHarness with argv line argv in the tool contracts, and with the
+// automations only when automate is true.
+func newAutoHarnessWith(t *testing.T, kind bindings.Kind, argv string, automate bool) *autoHarness {
+	t.Helper()
 	h := &autoHarness{harness: newHarness(t, kind), folder: map[string]string{}, auto: map[string]int64{},
 		launches: make(chan launched, 16)}
 	h.d.now = time.Now
@@ -62,7 +69,7 @@ func newAutoHarness(t *testing.T, kind bindings.Kind) *autoHarness {
 				return err
 			}
 			contract := fmt.Sprintf("name = \"lint\"\ndescription = \"Lint\"\ncwd = %q\ntimeout_s = 10\neffects = \"none\"\n"+
-				"read_only = true\nargv = [\"/usr/bin/true\"]\n", h.folder[key])
+				"read_only = true\n%s\n", h.folder[key], argv)
 			tool, _, err := store.CreateItem(ctx, tx, store.Item{ClaimID: "t" + ws, Kind: store.KindTool, Created: now},
 				store.ItemRevision{Text: contract, Scope: store.ScopeWorkspace, WorkspaceKey: &key, State: store.StateActive,
 					Author: store.AuthorYou, Origin: store.OriginReview, Created: now})
@@ -72,6 +79,9 @@ func newAutoHarness(t *testing.T, kind bindings.Kind) *autoHarness {
 			tl, err := store.ToolByID(ctx, tx, tool)
 			if err != nil {
 				return err
+			}
+			if !automate {
+				continue
 			}
 			b := store.Binding{Tool: "lint", ToolID: tool, ContractHash: tl.ContractHash, Folder: h.folder[key], CLI: "claude",
 				Trigger: "working → idle or working → done"}
