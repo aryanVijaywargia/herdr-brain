@@ -126,8 +126,9 @@ func TestAutomationApprove(t *testing.T) {
 	if out := f.mustAutomation(t, "list"); !strings.Contains(out, fmt.Sprintf("automation %d: on\n", id)) {
 		t.Errorf("list = %q, want the binding on", out)
 	}
-	if b := f.brief(t); strings.Contains(b, "touch-ran") {
-		t.Errorf("brief = %q, want no automation in it", b)
+	// The catalog names the tool (E17-S5); the binding text is in no part.
+	if b := f.brief(t); strings.Contains(b, "contract_hash") || !strings.Contains(b, "\n- touch-ran: ") {
+		t.Errorf("brief = %q, want no automation in it, and the tool in the catalog", b)
 	}
 	if out := f.mustStatus(t); !strings.Contains(out, "\nautomations: 1 active, 0 paused, 0 stopped\n") {
 		t.Errorf("Status() = %q, want one active automation", out)
