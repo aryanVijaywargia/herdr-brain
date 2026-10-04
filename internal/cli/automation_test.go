@@ -17,10 +17,10 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// bindTool is a tool contract named name with no input that runs in folder dir: it writes the
-// file "ran" there, so a test sees whether it ran.
-func bindTool(name, dir string) string {
-	return "name = \"" + name + "\"\ndescription = \"Write a file\"\ncwd = \"" + dir + "\"\ntimeout_s = 10\n" +
+// bindTool is a tool contract named touch-ran with no input that runs in folder dir: it writes
+// the file "ran" there, so a test sees whether it ran.
+func bindTool(dir string) string {
+	return "name = \"touch-ran\"\ndescription = \"Write a file\"\ncwd = \"" + dir + "\"\ntimeout_s = 10\n" +
 		"effects = \"writes the file ran in a temp folder\"\nread_only = false\nargv = [\"/usr/bin/touch\", \"ran\"]\n"
 }
 
@@ -52,11 +52,11 @@ func (f *automationFixture) mustAutomation(t *testing.T, args ...string) string 
 	return out
 }
 
-// add proposes a binding of tool name in the fixture's folder for claude, and returns the
+// add proposes a binding of tool touch-ran in the fixture's folder for claude, and returns the
 // proposal id.
-func (f *automationFixture) add(t *testing.T, name string) int64 {
+func (f *automationFixture) add(t *testing.T) int64 {
 	t.Helper()
-	f.mustAutomation(t, "add", name, "--folder", f.dir, "--cli", "claude")
+	f.mustAutomation(t, "add", "touch-ran", "--folder", f.dir, "--cli", "claude")
 	r := f.rows(t)
 	return r.proposals[len(r.proposals)-1].ID
 }
@@ -64,8 +64,8 @@ func (f *automationFixture) add(t *testing.T, name string) int64 {
 // bound approves a tool and a binding of it; it returns the tool and the automation item ids.
 func (f *automationFixture) bound(t *testing.T) (toolID, id int64) {
 	t.Helper()
-	toolID = f.approvedTool(t, bindTool("touch-ran", f.dir))
-	p := f.add(t, "touch-ran")
+	toolID = f.approvedTool(t, bindTool(f.dir))
+	p := f.add(t)
 	f.mustReview(t, fmt.Sprint(p), "--approve")
 	return toolID, *f.rows(t).proposal(t, p).ItemID
 }
@@ -96,8 +96,8 @@ func (f *automationFixture) ran(t *testing.T) bool {
 // Approve makes the binding runnable, and nothing runs at the approval.
 func TestAutomationApprove(t *testing.T) {
 	f := newAutomationFixture(t)
-	toolID := f.approvedTool(t, bindTool("touch-ran", f.dir))
-	p := f.add(t, "touch-ran")
+	toolID := f.approvedTool(t, bindTool(f.dir))
+	p := f.add(t)
 	show := f.mustReview(t, fmt.Sprint(p))
 	for _, want := range []string{
 		"kind:     automation\n",
@@ -183,10 +183,10 @@ func TestAutomationUndo(t *testing.T) {
 	f := newAutomationFixture(t)
 	toolID, id := f.bound(t)
 	// A changed tool, and the binding approved again with the new hash: revision 3.
-	f.mustReview(t, "--item", fmt.Sprint(toolID), "--edit", strings.Replace(bindTool("touch-ran", f.dir), "timeout_s = 10", "timeout_s = 20", 1))
+	f.mustReview(t, "--item", fmt.Sprint(toolID), "--edit", strings.Replace(bindTool(f.dir), "timeout_s = 10", "timeout_s = 20", 1))
 	r := f.rows(t)
 	f.mustReview(t, fmt.Sprint(r.proposals[len(r.proposals)-1].ID), "--approve")
-	p := f.add(t, "touch-ran")
+	p := f.add(t)
 	f.mustReview(t, fmt.Sprint(p), "--approve")
 	if it, _ := f.rows(t).item(t, id); it.CurrentRevision != 3 {
 		t.Fatalf("revision = %d, want 3", it.CurrentRevision)
@@ -209,7 +209,7 @@ func TestAutomationUndo(t *testing.T) {
 func TestAutomationContractChange(t *testing.T) {
 	f := newAutomationFixture(t)
 	toolID, id := f.bound(t)
-	f.mustReview(t, "--item", fmt.Sprint(toolID), "--edit", strings.Replace(bindTool("touch-ran", f.dir), "timeout_s = 10", "timeout_s = 20", 1))
+	f.mustReview(t, "--item", fmt.Sprint(toolID), "--edit", strings.Replace(bindTool(f.dir), "timeout_s = 10", "timeout_s = 20", 1))
 	r := f.rows(t)
 	f.mustReview(t, fmt.Sprint(r.proposals[len(r.proposals)-1].ID), "--approve")
 	err := f.mayRun(t, id)
@@ -222,7 +222,7 @@ func TestAutomationContractChange(t *testing.T) {
 		!strings.Contains(out, "the contract of tool touch-ran changed after your approval of the binding") {
 		t.Errorf("Status() = %q, want the stopped automation and why", out)
 	}
-	p := f.add(t, "touch-ran")
+	p := f.add(t)
 	if got := *f.rows(t).proposal(t, p).ItemID; got != id {
 		t.Errorf("proposal item = %d, want the binding %d", got, id)
 	}
@@ -243,7 +243,7 @@ func TestAutomationRefused(t *testing.T) {
 		!strings.Contains(err.Error(), "required input") {
 		t.Errorf("add of a tool with an input = %v, want the refusal", err)
 	}
-	toolID := f.approvedTool(t, bindTool("touch-ran", f.dir))
+	toolID := f.approvedTool(t, bindTool(f.dir))
 	if _, err := f.automation(t, "add", "touch-ran", "--folder", t.TempDir(), "--cli", "claude"); !errors.Is(err, store.ErrBindingRefused) ||
 		!strings.Contains(err.Error(), "not the pinned folder") {
 		t.Errorf("add in another folder = %v, want the refusal", err)
@@ -256,10 +256,10 @@ func TestAutomationRefused(t *testing.T) {
 		name, text, want string
 	}{
 		{"input", strings.Replace(withInput, "write-word", "touch-ran", 1), "required input"},
-		{"cwd", bindTool("touch-ran", t.TempDir()), "not the pinned folder"},
+		{"cwd", bindTool(t.TempDir()), "not the pinned folder"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := f.add(t, "touch-ran")
+			p := f.add(t)
 			f.mustReview(t, "--item", fmt.Sprint(toolID), "--edit", tc.text)
 			r := f.rows(t)
 			f.mustReview(t, fmt.Sprint(r.proposals[len(r.proposals)-1].ID), "--approve")
@@ -271,7 +271,7 @@ func TestAutomationRefused(t *testing.T) {
 				t.Errorf("proposal status = %s, want pending: nothing written", got)
 			}
 			// The tool goes back to the contract that a binding can take.
-			f.mustReview(t, "--item", fmt.Sprint(toolID), "--edit", bindTool("touch-ran", f.dir))
+			f.mustReview(t, "--item", fmt.Sprint(toolID), "--edit", bindTool(f.dir))
 			r = f.rows(t)
 			f.mustReview(t, fmt.Sprint(r.proposals[len(r.proposals)-1].ID), "--approve")
 			f.mustReview(t, fmt.Sprint(p), "--reject")
@@ -369,7 +369,7 @@ func (f *automationFixture) automationProposals(t *testing.T) []store.Proposal {
 // rejection stops a new proposal in that scope.
 func TestLearnedAutomation(t *testing.T) {
 	f := newAutomationFixture(t)
-	toolID := f.approvedTool(t, bindTool("touch-ran", f.dir))
+	toolID := f.approvedTool(t, bindTool(f.dir))
 	for i, id := range []string{"s1", "s2"} {
 		f.stopSession(t, id, "touch-ran")
 		if calls := f.pass(t); calls != 0 || len(f.automationProposals(t)) != 0 {
