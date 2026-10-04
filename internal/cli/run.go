@@ -42,9 +42,14 @@ type ToolRun struct {
 	WorkspaceID string
 	Origin      store.CallOrigin
 	Tool        string
-	Inputs      map[string]string
-	Stdout      io.Writer
-	Stderr      io.Writer
+	// ToolID and ContractHash pin the call of an automation to the tool and the contract of
+	// its binding: another tool of the name, or another contract, is refused. 0 and "" pin
+	// nothing.
+	ToolID       int64
+	ContractHash string
+	Inputs       map[string]string
+	Stdout       io.Writer
+	Stderr       io.Writer
 }
 
 // ToolResult is the result of a tool run that passed the checks.
@@ -65,8 +70,13 @@ func Run(ctx context.Context, e Env, args []string) error {
 	// Ctrl-C or a stop of the agent's shell stops the tool's process group too.
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// A brain run in a tool of an automation run is Brain-origin too (§10.4 "No chains").
+	origin := store.OriginAgent
+	if lookupEnv(e.Environ, originEnv) == string(store.OriginAutomation) {
+		origin = store.OriginAutomation
+	}
 	res, err := runChecked(ctx, e, ToolRun{PaneID: lookupEnv(e.Environ, "HERDR_PANE_ID"),
-		WorkspaceID: lookupEnv(e.Environ, "HERDR_WORKSPACE_ID"), Origin: store.OriginAgent, Tool: name,
+		WorkspaceID: lookupEnv(e.Environ, "HERDR_WORKSPACE_ID"), Origin: origin, Tool: name,
 		Inputs: inputs, Stdout: e.Stdout, Stderr: e.Stderr}, inputErr)
 	if err != nil && res.CallID != 0 {
 		return &ExitError{Code: res.ExitCode, Err: err}
@@ -145,10 +155,16 @@ func runChecked(ctx context.Context, e Env, r ToolRun, inputErr error) (_ ToolRe
 	if inputErr != nil {
 		return refuse(inputErr)
 	}
+	if r.ToolID != 0 && found.ID != r.ToolID {
+		return refuse(fmt.Errorf("the tool of the name is item %d, not item %d of the binding", found.ID, r.ToolID))
+	}
 	// Any failed check of a known tool is a refusal, also a tool file that cannot be read.
 	t, dir, err := output.Runnable(ctx, c.Store, filepath.Join(c.Binding.Store, outDir), found.ID)
 	if err != nil {
 		return refuse(err)
+	}
+	if r.ContractHash != "" && t.ContractHash != r.ContractHash {
+		return refuse(fmt.Errorf("the contract hash is %s, not %s of the binding", t.ContractHash, r.ContractHash))
 	}
 	contract, err := tool.Parse(t.Contract)
 	if err != nil {

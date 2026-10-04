@@ -12,6 +12,7 @@ import (
 	"io"
 	"io/fs"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
@@ -48,6 +49,13 @@ type Env struct {
 	Herdr func(t herdr.Target) (PaneHerdr, error)
 	// StatusHerdr returns the herdr calls of brain status in session t; tests replace it.
 	StatusHerdr func(t herdr.Target) (StatusHerdr, error)
+	// RunHerdr returns the herdr calls of an automation run in session t; tests replace it.
+	RunHerdr func(t herdr.Target) (RunHerdr, error)
+	// Kill stops the process pid of an automation run (brain automation cancel); tests replace it.
+	Kill func(pid int) error
+	// Command returns the command line of process pid, or "" when there is no such process
+	// (brain automation cancel checks it before Kill); tests replace it.
+	Command func(ctx context.Context, pid int) (string, error)
 	// Config is the Brain config file (paths.ConfigFile).
 	Config string
 	// Data is the data home; Adapters are its files that the adapter states come from.
@@ -100,6 +108,15 @@ func NewEnv(environ []string, stdout, stderr io.Writer) (Env, error) {
 			}
 			return c, nil
 		},
+		RunHerdr: func(t herdr.Target) (RunHerdr, error) {
+			c, err := herdr.New(environ, t)
+			if err != nil {
+				return nil, err
+			}
+			return c, nil
+		},
+		Kill:     func(pid int) error { return syscall.Kill(pid, syscall.SIGTERM) },
+		Command:  processCommand,
 		Config:   config,
 		Data:     data,
 		Adapters: adapters,

@@ -33,6 +33,9 @@ type daemon struct {
 	tries        int
 	pause        time.Duration
 	queue        int
+	environ      []string                                                    // the brained environment; a launch process gets it with the pane's herdr variables
+	launch       func(ctx context.Context, environ []string, l Launch) error // starts the launch process of a claimed run (StartLaunch)
+	now          func() time.Time
 	onBehind     func()                                  // tests only: called after a reader drops an event
 	extract      func(ctx context.Context, g Gate) error // one extraction pass of the store of g; nil for none
 	stale        func(ctx context.Context, g Gate) error // the stale check of every workspace of the store of g; nil for none
@@ -50,7 +53,9 @@ type pane struct {
 	workspaceID string
 	agent       bool          // herdr detected an agent in the pane
 	learning    Learning      // the state of the pane's last step
-	stream      *herdr.Stream // the status stream; nil while learning is off
+	auto        bool          // the workspace of the pane has an enabled automation
+	joined      string        // the last agent status that joined agent.get; "" for none (§10.4 step 1)
+	stream      *herdr.Stream // the status stream; nil while learning is off and auto is false
 }
 
 // loop is the state of one run. Only the run goroutine uses it; the readers use only items,
@@ -287,7 +292,12 @@ func (l *loop) item(ctx context.Context, it item) error {
 			l.step(ctx, Step{Kind: Baseline, Gap: GapNone}, ev.PaneID, p, &ev)
 		}
 	case herdr.PaneStatusChanged:
-		if p != nil && p.stream == it.src && p.learning.On {
+		if p == nil || p.stream != it.src {
+			return nil
+		}
+		// agent.get comes first: the join needs the state of the event, and a read takes time.
+		l.automate(ctx, ev.PaneID, p, ev)
+		if p.learning.On {
 			l.step(ctx, Step{Kind: Change}, ev.PaneID, p, &ev)
 		}
 	case herdr.PaneExited, herdr.PaneClosed:
@@ -407,10 +417,18 @@ func (l *loop) reconcile(ctx context.Context, gap Gap) error {
 		}
 		p.workspaceID, p.agent = lp.WorkspaceID, lp.Agent != nil
 	}
+	var open []string
 	for id, p := range l.panes {
 		if !seen[id] {
 			l.drop(ctx, id, p, nil)
+		} else if p.stream != nil {
+			open = append(open, id)
 		}
+	}
+	// Events may be lost before a reconcile, so the agent state of each pane that keeps its
+	// stream is a new baseline (§10.4 step 1); a new stream gets its baseline in follow.
+	for _, id := range open {
+		l.baselineAgent(ctx, id, l.panes[id])
 	}
 	return l.syncPanes(ctx, ids, gap, true, nil)
 }
@@ -425,22 +443,26 @@ func (l *loop) sync(ctx context.Context, gap Gap, force bool) error {
 }
 
 // syncPanes reads the learning state of panes ids and applies it. A pane whose learning
-// turned off ends and loses its status stream. A pane whose learning turned on, or was
+// turned off ends, and loses its status stream unless its workspace has an enabled automation. A pane whose learning turned on, or was
 // switched since its last step, gets its stream and a baseline with GapLearning. With force,
 // every pane with learning on gets a baseline with gap. ev is the event of the call, if any.
 func (l *loop) syncPanes(ctx context.Context, ids []string, gap Gap, force bool, ev *herdr.Event) error {
-	states, err := l.learning(ctx, ids)
+	states, autos, err := l.learning(ctx, ids)
 	if err != nil {
 		return err
 	}
 	var errs []error
 	for _, id := range ids {
 		p := l.panes[id]
-		was := p.learning
-		p.learning = states[id]
+		was, wasAuto, had := p.learning, p.auto, p.stream != nil
+		p.learning, p.auto = states[id], autos[id]
 		switch {
 		case !p.learning.On:
-			l.closeStream(p)
+			if !p.auto {
+				l.closeStream(p)
+			} else if err := l.follow(ctx, id, p); err != nil {
+				errs = append(errs, err)
+			}
 			if was.On && p.agent {
 				l.step(ctx, Step{Kind: End, Reason: ReasonLearningOff}, id, p, ev)
 			}
@@ -458,35 +480,54 @@ func (l *loop) syncPanes(ctx context.Context, ids []string, gap Gap, force bool,
 				l.step(ctx, Step{Kind: Baseline, Gap: g}, id, p, ev)
 			}
 		}
+		if had && p.auto != wasAuto {
+			// No stop counts across a time with no automation (no backfill). A new stream got
+			// its baseline in follow.
+			l.baselineAgent(ctx, id, p)
+		}
 	}
 	return errors.Join(errs...)
 }
 
-// learning reads the learning state of panes ids in one store transaction. Without a
-// binding, learning is off for every pane.
-func (l *loop) learning(ctx context.Context, ids []string) (_ map[string]Learning, err error) {
+// learning reads the learning state of panes ids in one store transaction, and whether the
+// workspace of each has an enabled automation. Without a binding, learning is off and there
+// is no automation for every pane.
+func (l *loop) learning(ctx context.Context, ids []string) (_ map[string]Learning, _ map[string]bool, err error) {
 	states := make(map[string]Learning, len(ids))
+	autos := make(map[string]bool, len(ids))
 	if l.gate == nil || len(ids) == 0 {
-		return states, nil
+		return states, autos, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	st, err := store.Open(ctx, l.gate.Binding.Store, busyTimeout)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer func() { err = errors.Join(err, st.Close()) }()
 	err = st.Write(ctx, func(tx *sql.Tx) error {
+		keys, err := automated(ctx, tx)
+		if err != nil {
+			return err
+		}
 		for _, id := range ids {
-			s, err := l.gate.Learning(ctx, tx, id, l.panes[id].workspaceID)
+			ws := l.panes[id].workspaceID
+			s, err := l.gate.Learning(ctx, tx, id, ws)
 			if err != nil {
 				return err
 			}
 			states[id] = s
+			if len(keys) > 0 {
+				key, err := l.gate.workspaceKey(ws)
+				if err != nil {
+					return err
+				}
+				autos[id] = key != "" && keys[key]
+			}
 		}
 		return nil
 	})
-	return states, err
+	return states, autos, err
 }
 
 // follow opens the status stream of pane id, unless it is open.
@@ -500,6 +541,7 @@ func (l *loop) follow(ctx context.Context, id string, p *pane) error {
 	}
 	p.stream = st
 	l.read(ctx, st)
+	l.baselineAgent(ctx, id, p)
 	return nil
 }
 

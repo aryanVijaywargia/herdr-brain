@@ -246,3 +246,23 @@ func StopCalls(ctx context.Context, tx *sql.Tx, herdrSession string) ([]StopCall
 			return c, err
 		}, CallRan, OriginAgent, herdrSession, ObservationGap, SourceHook, SourceHerdr)
 }
+
+// In reports whether cwd, the folder of an agent, is the pinned folder of a. home is the home
+// folder that a leading ~ names. herdr gives the real path of a folder, and the binding can
+// name it through a link (/tmp on macOS), so the links are resolved when the clean paths
+// differ. [NEW] the exact folder: a subfolder is another folder.
+func (a Automation) In(cwd, home string) bool {
+	if cwd == "" {
+		return false
+	}
+	folder := filepath.Clean(tool.Dir(a.Folder, home))
+	if filepath.Clean(cwd) == folder {
+		return true
+	}
+	c, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return false // a folder that cannot be read is not the pinned folder
+	}
+	f, err := filepath.EvalSymlinks(folder)
+	return err == nil && c == f
+}

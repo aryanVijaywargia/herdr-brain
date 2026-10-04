@@ -1077,7 +1077,7 @@ Rules:
 
 | Field | Content |
 |---|---|
-| Trigger | One tested "agent stopped working" condition for the CLI of the bound agent: `working → done` or `working → idle`. The M0 records set which one for each CLI. |
+| Trigger | One tested "agent stopped working" condition for the CLI of the bound agent: `working → done` or `working → idle`. The M0 records set which one for each CLI. The two are one condition for Claude and Codex; focus decides which one comes (M0 E17-S1). A user stop also matches. |
 | Folder | One pinned folder in the bound workspace |
 | Tool | One approved tool, pinned to its contract hash. The tool has no required input, and its approved cwd is the pinned folder. The approval refuses any other tool (owner decision 2026-09-29) [ASTRA8]. Fixed input values are a later owner choice (#151). |
 | Scope | One workspace key |
@@ -1086,7 +1086,7 @@ Rules:
 | Last result | ok, failed, skipped, cancelled or unknown, with the time |
 
 **Claim before run** (from Prime [PRIME] `cron-jobs.ts:718-742`, `:1749-1795`; order changed by owner decision 2026-09-29 [ASTRA8]):
-1. The event arrives. Brain builds an event key from (pane, agent session id, `state_change_seq` from `agent get`) [NEW]. herdr events have no id and no time. Brain finds the source agent with the binding and the capture identity (§6.2). It skips an event that it cannot join to a stop of that agent. After a restart or a reconnect of `brained`, the current agent state is a baseline, not a stop.
+1. The event arrives. Brain calls `agent get` for the pane at once. The event joins only when `agent get` gives the event status; Brain skips an event that does not join, and it does not change Brain's state for the pane. Brain keeps the last joined status of each followed pane in memory. A stop is a joined `idle` or `done` event after a joined `working`. Brain builds the event key from (pane, `terminal_id`, agent session id, `state_change_seq`), all from that `agent get` answer [NEW]. `state_change_seq` is one counter for the whole herdr server and starts again after a server restart, and herdr then resumes the same agent session in the same pane, so the key needs `terminal_id`, which changes at a restart (M0 E17-S1). herdr events have no id and no time. Brain finds the source agent with the binding and the agent session id from `agent get` (§6.2). It skips a stop with no herdr agent session id. After a restart or a reconnect of `brained`, the current agent state from `agent get` is a baseline, not a stop.
 2. **Claim:** one SQLite transaction checks that the binding still exists and is enabled, and that its tool is approved at the pinned contract hash. Then it inserts one row (automation id, event key) in `automation_runs`. The pair is unique. If the row exists or a check fails, Brain does nothing. So a paused binding claims nothing. This prevents duplicate runs. It is not exactly-once.
 3. **Caller context:** Brain builds the caller context from the triggering pane and binding, and resolves it again with the resolver (§8.3). The resolved workspace key must be the key of the automation. Brain never uses the pane that `brained` started in.
 4. If an agent in the workspace is `working` in the pinned folder, Brain skips the run and records **skipped**.
@@ -1097,6 +1097,7 @@ Rules:
 Rules:
 - **No backfill.** Events that arrive while `brained` is down do not run later.
 - **No chains.** Brain-origin runs are marked. Brain excludes them from learning and never triggers on them.
+- **User stop:** a user stop (Esc) runs the automation, as a normal end does: herdr gives the same change for both (owner decision 2026-10-05; revisit point in #151).
 - **Pause** stops new launches at once. A paused binding claims nothing. After a pause completes, a claimed run with no launch mark does not start (step 5). **Cancel** is separate: `brain automation cancel <run>` stops an active run and records **cancelled**.
 - **Removal** stops all future runs. After a removal completes, a claimed run with no launch mark does not start.
 - **Undo** disables future runs. After an undo completes, a claimed run with no launch mark does not start. Undo cannot reverse effects that already happened. The review screen says this.

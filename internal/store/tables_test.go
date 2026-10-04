@@ -121,10 +121,10 @@ func columns(t *testing.T, s *Store, table string) []column {
 // coordinator's brief says the 9 of the issue's table list (adapters and file_snapshots move
 // to install.json, E8). E9-S4 adds learning_settings; E11-S3 and E11-S4 add the capture tables; E11-S5 adds command_records;
 // E11-S6 adds forgotten_captures; E12-S2 adds claims, candidates and evidence_links; E12-S3 adds rejections;
-// E13-S2 adds extraction_batches, extraction_watermarks and extractor_settings; E13-S4 adds extraction_calls; E13-S5 adds change_requests; E14-S1 adds prompt_index; E14-S3 adds suggestions; E15-S1 adds outcomes; E17-S3 adds tools; E17-S4 adds tool_calls; E17-S10 adds automations.
+// E13-S2 adds extraction_batches, extraction_watermarks and extractor_settings; E13-S4 adds extraction_calls; E13-S5 adds change_requests; E14-S1 adds prompt_index; E14-S3 adds suggestions; E15-S1 adds outcomes; E17-S3 adds tools; E17-S4 adds tool_calls; E17-S10 adds automations; E17-S11 adds automation_runs.
 func TestM1Tables(t *testing.T) {
 	s := openM1(t)
-	want := []string{"applied_edits", "automations", "candidates", "change_requests", "claims", "command_records", "cursors", "deliveries", "evidence_links",
+	want := []string{"applied_edits", "automation_runs", "automations", "candidates", "change_requests", "claims", "command_records", "cursors", "deliveries", "evidence_links",
 		"extraction_batches", "extraction_calls", "extraction_watermarks", "extractor_settings", "forgotten_captures", "item_revisions", "items", "learning_settings",
 		"observations", "outcomes", "outputs", "prompt_index", "proposals", "rejections", "review_panes", "segments", "sessions", "suggestions", "tombstones", "tool_calls", "tools", "workspaces"}
 	if got := tableNames(t, s); !slices.Equal(got, want) {
