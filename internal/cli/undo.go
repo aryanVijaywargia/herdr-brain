@@ -50,11 +50,13 @@ func onItem(ctx context.Context, e Env, name, usage string, args []string,
 func (cl caller) undo(ctx context.Context, id int64) error {
 	var next store.ItemRevision
 	var undone int64
+	var automation bool
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		it, cur, err := cl.item(ctx, tx, id)
 		if err != nil {
 			return err
 		}
+		automation = it.Kind == store.KindAutomation
 		if forgotten(cur) {
 			return fmt.Errorf("item %d is forgotten: undo has no text to restore", id)
 		}
@@ -65,7 +67,7 @@ func (cl caller) undo(ctx context.Context, id int64) error {
 			undone = *cur.UndoesRevision
 			return nil
 		}
-		if next, err = cl.undone(ctx, tx, cur); err != nil {
+		if next, err = cl.undone(ctx, tx, it, cur); err != nil {
 			return err
 		}
 		next.Revision = it.CurrentRevision + 1
@@ -100,17 +102,22 @@ func (cl caller) undo(ctx context.Context, id int64) error {
 	}
 	_, err = fmt.Fprintf(cl.Stdout, "item %d: revision %d undone; the item is %s at revision %d (%s)\n",
 		id, *next.UndoesRevision, next.State, next.Revision, target)
+	if err == nil && automation {
+		_, err = fmt.Fprintln(cl.Stdout, "the automation starts no run again; undo cannot reverse effects that already happened")
+	}
 	// The build runs even when the message fails: the commit is done, and the next hook must
 	// print it (E4 post-commit build).
 	return errors.Join(err, cl.deliver(ctx, nil))
 }
 
-// undone is the revision that undoes cur. It copies the fields of the revision before cur:
-// text, scope, workspace key, state, pin and links. When there is none, or it is a draft,
-// cur created the item, and the undo retires it.
-func (cl caller) undone(ctx context.Context, tx *sql.Tx, cur store.ItemRevision) (store.ItemRevision, error) {
+// undone is the revision that undoes cur, the current revision of item it. It copies the fields
+// of the revision before cur: text, scope, workspace key, state, pin and links. When there is
+// none, or it is a draft, cur created the item, and the undo retires it. Undo of an automation
+// always retires it: it disables future runs, and an older binding never runs again by an undo
+// (§7.5, §10.4).
+func (cl caller) undone(ctx context.Context, tx *sql.Tx, it store.Item, cur store.ItemRevision) (store.ItemRevision, error) {
 	prev := store.ItemRevision{State: store.StateDraft}
-	if cur.Revision > 1 {
+	if cur.Revision > 1 && it.Kind != store.KindAutomation {
 		var err error
 		if prev, err = store.ItemRevisionByKey(ctx, tx, cur.ItemID, cur.Revision-1); err != nil {
 			return store.ItemRevision{}, err

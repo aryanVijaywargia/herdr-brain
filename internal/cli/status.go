@@ -169,6 +169,7 @@ func (s *statusCall) run(ctx context.Context) {
 		return s.measurement(ctx, tx)
 	}))
 	s.tools(ctx)
+	s.automations(ctx)
 	s.relinks()
 	s.w.printf("\n%s\n", evalLine(s.Bindings, s.Now()))
 }
@@ -202,6 +203,39 @@ func (s *statusCall) tools(ctx context.Context) {
 		return
 	}
 	s.w.printf("\ntools: %d active, %d stopped; brain run refuses them\n", len(ts), len(stopped))
+	for _, l := range stopped {
+		s.w.printf("%s\n", l)
+	}
+}
+
+// automations shows the count of active automations, the paused ones, and each one that may
+// not run, with the reason: for example a tool contract that changed after your approval of
+// the binding stops it until you approve it again (§10.4, E17-S10).
+func (s *statusCall) automations(ctx context.Context) {
+	var n, paused int
+	var stopped []string
+	out := filepath.Join(s.Binding.Store, outDir)
+	s.fail(s.Store.Write(ctx, func(tx *sql.Tx) error {
+		as, err := store.ActiveAutomations(ctx, tx)
+		if err != nil {
+			return err
+		}
+		n = len(as)
+		for _, a := range as {
+			if !a.Enabled {
+				paused++
+				continue
+			}
+			switch _, err := output.AutomationMayRun(ctx, tx, out, a.ID); {
+			case errors.Is(err, output.ErrMayNotRun):
+				stopped = append(stopped, fmt.Sprintf("  stopped: automation %d (%s): %v", a.ID, a.Folder, err))
+			case err != nil:
+				return err
+			}
+		}
+		return nil
+	}))
+	s.w.printf("\nautomations: %d active, %d paused, %d stopped\n", n, paused, len(stopped))
 	for _, l := range stopped {
 		s.w.printf("%s\n", l)
 	}

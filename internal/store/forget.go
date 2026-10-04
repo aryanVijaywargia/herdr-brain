@@ -23,7 +23,7 @@ func ForgetPending(ctx context.Context, tx *sql.Tx) (bool, error) {
 // itemRows is the WHERE clause of the rows of item ?1 in each table of ItemTextFields: the
 // item, its revisions, its proposals, the applied edits whose file held it at any revision
 // (AppliedEditsWithItem), its claim, the rejections of its claim in its scope, and the prompt
-// index rows that link a proposal of the item, and its tools row. Forget finds them by id, never by a text search (§6.7).
+// index rows that link a proposal of the item, and its tools and automations rows. Forget finds them by id, never by a text search (§6.7).
 // The claim key is shared by the scopes: while another item, or a candidate in another scope,
 // uses the claim, that scope keeps its copy of the claim and its key text (§6.7, §7.2).
 var itemRows = map[string]string{
@@ -39,6 +39,7 @@ var itemRows = map[string]string{
 		AND COALESCE(workspace_key, '') = (SELECT COALESCE(workspace_key, '') FROM items WHERE id = ?1)`,
 	"prompt_index": promptRowsOfItem,
 	"tools":        `id = ?1`,
+	"automations":  `id = ?1`,
 }
 
 // promptRowsOfItem is the WHERE clause of the prompt index rows that link a proposal of item ?1.

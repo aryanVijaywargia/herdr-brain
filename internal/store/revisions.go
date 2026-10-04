@@ -17,7 +17,8 @@ var ErrConflict = errors.New("revision conflict")
 // expected revision returns ErrConflict before it writes anything. An active skill whose text
 // does not parse, or whose name another active skill of its scope has, returns an error
 // (CheckSkill; ErrSkillName for the name). A tool writes its tools row; a contract that breaks
-// a §10.1 rule, or an active tool name that its scope has, returns an error (syncTool). Run it inside Store.Write, so all of it is one
+// a §10.1 rule, or an active tool name that its scope has, returns an error (syncTool). An
+// automation writes its automations row (syncAutomation). Run it inside Store.Write, so all of it is one
 // transaction and an error writes nothing.
 func WriteRevision(ctx context.Context, tx *sql.Tx, expected int64, r ItemRevision) (int64, error) {
 	r.Revision = expected + 1
@@ -44,12 +45,16 @@ func WriteRevision(ctx context.Context, tx *sql.Tx, expected int64, r ItemRevisi
 	if err := CheckSkill(ctx, tx, r.ItemID); err != nil {
 		return 0, err
 	}
-	return gen, syncTool(ctx, tx, r.ItemID)
+	if err := syncTool(ctx, tx, r.ItemID); err != nil {
+		return 0, err
+	}
+	return gen, syncAutomation(ctx, tx, r.ItemID)
 }
 
 // CreateItem adds it with r as its first revision, and records a new output generation. The
 // item's current revision and the fields that it shares with r come from r. It returns the
-// new item id and the generation. A tool writes its tools row, with the checks of syncTool.
+// new item id and the generation. A tool writes its tools row, with the checks of syncTool,
+// and an automation its automations row.
 // it.ID and r.ItemID are ignored.
 func CreateItem(ctx context.Context, tx *sql.Tx, it Item, r ItemRevision) (id, generation int64, err error) {
 	r.Revision = 1
@@ -61,7 +66,10 @@ func CreateItem(ctx context.Context, tx *sql.Tx, it Item, r ItemRevision) (id, g
 	if generation, err = commitRevision(ctx, tx, r); err != nil {
 		return 0, 0, err
 	}
-	return r.ItemID, generation, syncTool(ctx, tx, r.ItemID)
+	if err := syncTool(ctx, tx, r.ItemID); err != nil {
+		return 0, 0, err
+	}
+	return r.ItemID, generation, syncAutomation(ctx, tx, r.ItemID)
 }
 
 // commitRevision inserts r and records the next output generation.

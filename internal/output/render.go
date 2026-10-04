@@ -33,10 +33,11 @@ type part struct {
 }
 
 // state is what one store read gives the renderer: the newest generation, the active item
-// revisions, the active skills and tools, the dispute marks and the workspace keys.
+// revisions, the active skills, tools and automations, the dispute marks and the workspace keys.
 type state struct {
 	gen                 int64
 	revs, skills, tools []store.ItemRevision
+	automations         []store.Automation
 	keys                []string
 	m                   marks
 }
@@ -53,6 +54,9 @@ func read(ctx context.Context, tx *sql.Tx) (st state, err error) {
 		return state{}, err
 	}
 	if st.tools, err = store.ActiveTools(ctx, tx); err != nil {
+		return state{}, err
+	}
+	if st.automations, err = store.ActiveAutomations(ctx, tx); err != nil {
 		return state{}, err
 	}
 	if st.m.disputes, err = store.Disputes(ctx, tx); err != nil {
@@ -116,11 +120,15 @@ func CheckGlobal(ctx context.Context, tx *sql.Tx, out string) error {
 }
 
 // render renders the parts of st, with the skill files in the skills folder dir. A tool is
-// not a brief item: its text is its contract, and the catalog lists it (E17-S5).
+// not a brief item: its text is its contract, and the catalog lists it (E17-S5). An automation
+// is not one either: its text is its binding (§10.4).
 func (st state) render(dir string) (parts []part, files []revFile, err error) {
-	own := make(map[int64]bool, len(st.skills)+len(st.tools))
+	own := make(map[int64]bool, len(st.skills)+len(st.tools)+len(st.automations))
 	for _, r := range slices.Concat(st.skills, st.tools) {
 		own[r.ItemID] = true
+	}
+	for _, a := range st.automations {
+		own[a.ID] = true
 	}
 	revs := slices.DeleteFunc(st.revs, func(r store.ItemRevision) bool { return own[r.ItemID] })
 	global, byKey := split(revs, st.m)

@@ -321,6 +321,9 @@ func summary(p store.Proposal, it store.Item) string {
 	if promotion(p, it) {
 		return fmt.Sprintf("promote item %d to %s: %s", it.ID, p.Scope, oneLine(p.Text))
 	}
+	if b, err := store.ParseBinding(p.Text); err == nil && it.Kind == store.KindAutomation {
+		return fmt.Sprintf("automation: run tool %s in %s after each stop of a %s agent", b.Tool, b.Folder, b.CLI)
+	}
 	if c, err := tool.Parse(p.Text); err == nil && it.Kind == store.KindTool {
 		return fmt.Sprintf("tool %s: %s", c.Name, oneLine(c.Description))
 	}
@@ -356,6 +359,7 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	var excerpts, conflicts []string
 	var changeable bool
 	var others int // the workspaces of the "also seen" hint of a promotion; -1 for none
+	var binding string
 	// The review pane shows a pending proposal only: it closes on one that another surface
 	// decided (E5-S1).
 	read := cl.proposal
@@ -372,6 +376,9 @@ func (cl caller) show(ctx context.Context, id int64) error {
 		if others, err = hint(ctx, tx, p, it); err != nil {
 			return err
 		}
+		if binding, err = cl.bindingLines(ctx, tx, p, it); err != nil {
+			return err
+		}
 		conflicts, err = cl.conflicts(ctx, tx, p)
 		return err
 	})
@@ -381,6 +388,7 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "proposal %d (%s)\n", p.ID, p.Status)
 	b.WriteString(itemText(p, it))
+	b.WriteString(binding)
 	if it.ClaimID != "" {
 		fmt.Fprintf(&b, "claim:    %s\n", it.ClaimID)
 	}
@@ -426,6 +434,8 @@ func itemText(p store.Proposal, it store.Item) string {
 		b.WriteString(skillLine)
 	case store.KindTool:
 		b.WriteString(toolLine)
+	case store.KindAutomation:
+		b.WriteString(automationLine)
 	}
 	b.WriteString(proposalText(p, it))
 	if it.Kind == store.KindTool && p.Text != "" {
@@ -437,6 +447,46 @@ func itemText(p store.Proposal, it store.Item) string {
 // toolLine is the line of a tool proposal in show.
 const toolLine = "kind:     tool\n"
 
+// automationLine is the line of an automation proposal in show.
+const automationLine = "kind:     automation\n"
+
+// bindingLines are the lines of the binding of automation proposal p of item it in show
+// (§10.4): the exact tool with its contract, the trigger and the folder, what your approval
+// permits, and what undo cannot do. A binding that the approval refuses shows why.
+func (cl caller) bindingLines(ctx context.Context, tx *sql.Tx, p store.Proposal, it store.Item) (string, error) {
+	if it.Kind != store.KindAutomation || p.Text == "" {
+		return "", nil
+	}
+	b, err := store.ParseBinding(p.Text)
+	if err != nil {
+		return fmt.Sprintf("binding:  refused: %v\n", err), nil
+	}
+	t, err := store.ToolByID(ctx, tx, b.ToolID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return fmt.Sprintf("binding:  refused: tool %d does not exist\n", b.ToolID), nil
+	case err != nil:
+		return "", err
+	}
+	var s strings.Builder
+	fmt.Fprintf(&s, "binding:\n  tool:     %s (item %d), contract hash %s\n", t.Name, t.ID, b.ContractHash)
+	s.WriteString("  " + strings.ReplaceAll(strings.TrimSuffix(contractLines(t.Contract), "\n"), "\n", "\n  ") + "\n")
+	fmt.Fprintf(&s, "  trigger:  %s of a %s agent in this workspace\n  folder:   %s\n", b.Trigger, b.CLI, b.Folder)
+	s.WriteString("  approval: your approval of this exact tool, trigger and folder is the permission: the tool runs after each stop, with no prompt\n")
+	s.WriteString("  undo:     pause, removal and undo stop future runs; they cannot reverse effects that already happened\n")
+	key := ""
+	if it.WorkspaceKey != nil {
+		key = *it.WorkspaceKey
+	}
+	switch err := store.CheckBinding(ctx, tx, b, key, lookupEnv(cl.Environ, "HOME")); {
+	case errors.Is(err, store.ErrBindingRefused):
+		fmt.Fprintf(&s, "  refused:  %v; approve refuses it\n", err)
+	case err != nil:
+		return "", err
+	}
+	return s.String(), nil
+}
+
 // proposalText is the text line of p in show. A skill draft shows the whole file (S8). A
 // skill patch shows no text: its diff holds the changed lines, and approve writes the whole
 // new file (§9.2). A tool shows its whole contract text, a change too: your approval covers
@@ -447,7 +497,7 @@ func proposalText(p store.Proposal, it store.Item) string {
 		return "text:     (none: this proposal retires the item)\n"
 	case patch(p, it):
 		return "text:     (a skill patch: the diff shows the changed lines)\n"
-	case it.Kind == store.KindSkill || it.Kind == store.KindTool:
+	case it.Kind == store.KindSkill || it.Kind == store.KindTool || it.Kind == store.KindAutomation:
 		return "text:\n  " + strings.ReplaceAll(strings.TrimSuffix(p.Text, "\n"), "\n", "\n  ") + "\n"
 	}
 	return fmt.Sprintf("text:     %s\n", p.Text)
@@ -618,6 +668,9 @@ func (cl caller) approve(ctx context.Context, r review) error {
 		if next, err = cl.approved(r, p, it, cur); err != nil {
 			return err
 		}
+		if err := cl.checkBinding(ctx, tx, it, next); err != nil {
+			return err
+		}
 		if retired, err = cl.resolve(ctx, tx, r, p, &next); err != nil {
 			return err
 		}
@@ -717,8 +770,26 @@ func skillError(err error) error {
 		return fmt.Errorf("%w: give this skill a new name (approve with --edit and a new name: line); nothing was written", err)
 	case errors.Is(err, store.ErrToolName):
 		return fmt.Errorf("%w: give this tool a new name (approve with --edit and a new name = line); nothing was written", err)
+	case errors.Is(err, store.ErrBindingRefused):
+		return fmt.Errorf("%w; nothing was written", err)
 	}
 	return err
+}
+
+// checkBinding refuses next, the revision that makes automation it active, when its binding
+// breaks a rule of §10.4 (store.CheckBinding): your approval covers this exact binding only.
+func (cl caller) checkBinding(ctx context.Context, tx *sql.Tx, it store.Item, next store.ItemRevision) error {
+	if it.Kind != store.KindAutomation || next.State != store.StateActive {
+		return nil
+	}
+	b, err := store.ParseBinding(next.Text)
+	if err != nil {
+		return fmt.Errorf("%w: %w", store.ErrBindingRefused, err)
+	}
+	if next.Scope != store.ScopeWorkspace || next.WorkspaceKey == nil {
+		return fmt.Errorf("an automation is a workspace item: %w", store.ErrBindingRefused)
+	}
+	return store.CheckBinding(ctx, tx, b, *next.WorkspaceKey, lookupEnv(cl.Environ, "HOME"))
 }
 
 // errConfirm: approve needs --confirm.
@@ -1043,6 +1114,9 @@ func (cl caller) restore(ctx context.Context, id int64) error {
 		}
 		next := nextRevision(cur, cl.Now())
 		next.State = store.StateActive
+		if err := cl.checkBinding(ctx, tx, it, next); err != nil {
+			return err
+		}
 		rev = it.CurrentRevision + 1
 		if _, err := store.WriteRevision(ctx, tx, it.CurrentRevision, next); err != nil {
 			return err

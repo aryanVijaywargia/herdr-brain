@@ -79,14 +79,17 @@ func (in Input) value(n, v string) error {
 }
 
 // Dir is the folder that the tool runs in: its cwd, with a leading ~ as home.
-func (c Contract) Dir(home string) string {
-	if c.Cwd == "~" {
+func (c Contract) Dir(home string) string { return Dir(c.Cwd, home) }
+
+// Dir is folder with a leading ~ as home, as a tool cwd or a pinned automation folder names it.
+func Dir(folder, home string) string {
+	if folder == "~" {
 		return home
 	}
-	if rest, ok := strings.CutPrefix(c.Cwd, "~/"); ok {
+	if rest, ok := strings.CutPrefix(folder, "~/"); ok {
 		return filepath.Join(home, rest)
 	}
-	return c.Cwd
+	return folder
 }
 
 // Run is one run of the filled commands of a contract.
