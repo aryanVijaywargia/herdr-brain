@@ -217,5 +217,14 @@ func noItemTextFields() []Field {
 		{"automations", "approved"},
 		{"automations", "last_result"},
 		{"automations", "last_run"},
+		// An automation run holds herdr ids, the event key of herdr ids and a counter, fixed
+		// words and times (E17-S11).
+		{"automation_runs", "event_key"},
+		{"automation_runs", "pane_id"},
+		{"automation_runs", "workspace_id"},
+		{"automation_runs", "claimed_at"},
+		{"automation_runs", "started_at"},
+		{"automation_runs", "finished_at"},
+		{"automation_runs", "result"},
 	}
 }
