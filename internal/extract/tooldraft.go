@@ -152,11 +152,13 @@ func exactDraft(cmds []store.CommandRecord) (string, error) {
 	return d.text(steps)
 }
 
-// gatedTool is a candidate of an exact repeat at its gate, with the tool text of its example.
+// gatedTool is a candidate of an exact repeat at its gate, with the tool text and the script
+// text of its example.
 type gatedTool struct {
-	id   int64
-	key  string // the workspace key
-	text string
+	id     int64
+	key    string // the workspace key
+	text   string
+	script string // "" for a chain that is too short for a script
 }
 
 // exactTools runs the exact repeats of command chains (§10.1 detection: exact repeats come
@@ -165,7 +167,8 @@ type gatedTool struct {
 // its exact commands (toolKey), a command chain candidate in its workspace: the gate is 3
 // sessions (§7.2). A failed chain and the chain of one session stay as evidence. At the gate
 // the candidate gets one tool draft (exactDraft), after the queue checks of proposeBinding: the
-// daily proposal cap, in round robin order of the workspaces (§7.3). A chain that the extractor
+// daily proposal cap, in round robin order of the workspaces (§7.3). A chain of minScript or more
+// commands gets a script proposal too (proposeScript): the review offers both, and you pick one. A chain that the extractor
 // made a skill of needs judgment (§10.3): it gives no tool draft.
 func (p Pass) exactTools(ctx context.Context, tx *sql.Tx) error {
 	ins, err := store.SignalInputs(ctx, tx)
@@ -212,12 +215,21 @@ func (p Pass) exactTools(ctx context.Context, tx *sql.Tx) error {
 			!errors.Is(err, errNoDraft) {
 			return err
 		}
+		if g.script == "" {
+			continue
+		}
+		if d, err := p.Day(ctx, tx); err != nil || d.Proposals >= d.Caps.Proposals {
+			return err
+		}
+		if err := proposeScript(ctx, tx, g.id, g.script, p.Now()); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 // exactChain attaches chain s to the candidate of its exact commands, and returns the
-// candidate with the commands of s when it reached its gate. A chain of another herdr session,
+// candidate with the tool text and the script text of s when it reached its gate. A chain of another herdr session,
 // with no workspace key, with learning off, with a failed command, or with a command that Brain
 // never drafts a tool from gives nothing.
 func (p Pass) exactChain(ctx context.Context, tx *sql.Tx, s signal.Signal, byID map[int64]store.SignalInput,
@@ -263,7 +275,7 @@ func (p Pass) exactChain(ctx context.Context, tx *sql.Tx, s signal.Signal, byID 
 	if err != nil || !p.gates().Reached(cand) {
 		return gatedTool{}, err
 	}
-	return gatedTool{id: id, key: first.WorkspaceKey, text: text}, nil
+	return gatedTool{id: id, key: first.WorkspaceKey, text: text, script: scriptText(cmds)}, nil
 }
 
 // heldChain reports whether chain s gives no exact draft: a forget erased the claim key, and the

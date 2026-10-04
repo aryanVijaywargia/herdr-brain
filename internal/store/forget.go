@@ -21,7 +21,7 @@ func ForgetPending(ctx context.Context, tx *sql.Tx) (bool, error) {
 }
 
 // itemRows is the WHERE clause of the rows of item ?1 in each table of ItemTextFields: the
-// item, its revisions, its proposals, the applied edits whose file held it at any revision
+// item, its revisions, its proposals and the script proposals of its claim (scriptsOfItem), the applied edits whose file held it at any revision
 // (AppliedEditsWithItem), its claim, the rejections of its claim in its scope, and the prompt
 // index rows that link a proposal of the item, and its tools and automations rows. Forget finds them by id, never by a text search (§6.7).
 // The claim key is shared by the scopes: while another item, or a candidate in another scope,
@@ -29,7 +29,7 @@ func ForgetPending(ctx context.Context, tx *sql.Tx) (bool, error) {
 var itemRows = map[string]string{
 	"items":          `id = ?1`,
 	"item_revisions": `item_id = ?1`,
-	"proposals":      `item_id = ?1`,
+	"proposals":      scriptsOfItem,
 	"applied_edits":  appliedEditsWithItem,
 	"claims": `id = (SELECT claim_id FROM items WHERE id = ?1)
 		AND NOT EXISTS (SELECT 1 FROM items o WHERE o.claim_id = claims.id AND o.id != ?1)
@@ -97,7 +97,7 @@ func EraseItem(ctx context.Context, tx *sql.Tx, item int64, now time.Time) error
 			WHERE id IN (SELECT session_id FROM prompt_index WHERE ` + promptRowsOfItem + `)`,
 		`DELETE FROM prompt_index WHERE ` + promptRowsOfItem,
 		// A suggestion of a proposal of the item holds a prompt hash (E14-S3).
-		`DELETE FROM suggestions WHERE proposal_id IN (SELECT id FROM proposals WHERE item_id = ?1)`,
+		`DELETE FROM suggestions WHERE proposal_id IN (SELECT id FROM proposals WHERE ` + scriptsOfItem + `)`,
 		// The outcomes of the item hold ids only, but they name the item (E15-S1).
 		`DELETE FROM outcomes WHERE item_id = ?1`,
 	} {
@@ -112,8 +112,8 @@ func EraseItem(ctx context.Context, tx *sql.Tx, item int64, now time.Time) error
 			return fmt.Errorf("erase %s.%s of item %d: %w", f.Table, f.Column, item, err)
 		}
 	}
-	_, err := tx.ExecContext(ctx, `UPDATE proposals SET status = ?, decided = ? WHERE item_id = ? AND status = ?`,
-		ProposalSuperseded, timeArg(now), item, ProposalPending)
+	_, err := tx.ExecContext(ctx, `UPDATE proposals SET status = ?2, decided = ?3 WHERE `+scriptsOfItem+` AND status = ?4`,
+		item, ProposalSuperseded, timeArg(now), ProposalPending)
 	if err != nil {
 		return fmt.Errorf("supersede proposals of item %d: %w", item, err)
 	}

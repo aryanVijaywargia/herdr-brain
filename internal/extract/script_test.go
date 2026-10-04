@@ -1,0 +1,171 @@
+package extract
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+)
+
+// scriptProposals returns the script proposals.
+func (f *fixture) scriptProposals() []store.Proposal {
+	f.t.Helper()
+	var ps []store.Proposal
+	for _, p := range f.proposals() {
+		if p.Script() {
+			ps = append(ps, p)
+		}
+	}
+	return ps
+}
+
+// checkChain is the chain of the script tests: the agent checks the code.
+var checkChain = []store.CommandRecord{command("go vet ./..."), command("go test ./...")}
+
+// AC: a chain in 3 sessions gives one script proposal, beside the tool draft of the same chain:
+// a proposal with no item, the script text and its diff from no file.
+func TestScriptProposal(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = noClaims
+	for i := range 2 {
+		f.commandSession(fmt.Sprintf("s%d", i), turn{"check the code", checkChain})
+	}
+	f.mustRun()
+	if ps := f.scriptProposals(); len(ps) != 0 {
+		t.Fatalf("script proposals = %+v, want none below the gate", ps)
+	}
+	f.commandSession("s2", turn{"check the code", checkChain})
+	f.mustRun()
+	f.mustRun() // a second pass adds nothing
+	ps := f.scriptProposals()
+	if len(ps) != 1 {
+		t.Fatalf("script proposals = %+v, want one", ps)
+	}
+	want := "#!/bin/sh\n# go-vet: run go vet ./..., then go test ./...\n" +
+		"# Brain does not install this script: save it where you want it and make it executable.\n" +
+		"set -e\ncd '/src/shop'\ngo vet ./...\ngo test ./...\n"
+	p := ps[0]
+	if p.Text != want || p.Diff != store.SkillDiff("", want) || p.Status != store.ProposalPending ||
+		p.Scope != store.ScopeWorkspace || p.BaseRevision != nil || p.PermissionWarning {
+		t.Errorf("script proposal = %+v, want the pending workspace script\n%s", p, want)
+	}
+	tools := f.toolProposals()
+	if len(tools) != 1 || p.CandidateID == nil || tools[0].CandidateID == nil || *tools[0].CandidateID != *p.CandidateID {
+		t.Errorf("tool drafts = %+v, want one of the candidate of the script", tools)
+	}
+	if n := f.count(`SELECT COUNT(*) FROM items`); n != 1 {
+		t.Errorf("items = %d, want the tool draft only: a script has no item", n)
+	}
+}
+
+// A chain of one command is no chain: it gives a tool draft, and no script.
+func TestScriptOneCommand(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = noClaims
+	for i := range 3 {
+		f.commandSession(fmt.Sprintf("s%d", i), turn{"run the tests", []store.CommandRecord{command("go test ./...")}})
+	}
+	f.mustRun()
+	if ps := f.scriptProposals(); len(ps) != 0 || len(f.toolProposals()) != 1 {
+		t.Errorf("script proposals = %+v, tool drafts = %d, want no script and one tool draft", ps, len(f.toolProposals()))
+	}
+}
+
+// AC: a chain with a secret or a truncated command gives no proposal.
+func TestScriptHeldBack(t *testing.T) {
+	for name, set := range map[string]func(*store.CommandRecord){
+		"secret found": func(c *store.CommandRecord) { c.SecretFound, c.Argv = true, "" },
+		"truncated":    func(c *store.CommandRecord) { c.Truncated = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.cli.reply = noClaims
+			held := command("go test ./...")
+			set(&held)
+			for i := range 3 {
+				f.commandSession(fmt.Sprintf("s%d", i), turn{"check the code", []store.CommandRecord{command("go vet ./..."), held}})
+			}
+			f.mustRun()
+			if n := f.count(`SELECT COUNT(*) FROM proposals`); n != 0 {
+				t.Errorf("proposals = %d, want none", n)
+			}
+		})
+	}
+}
+
+// A rejection of the claim in its scope stops a new script proposal (E12-S3).
+func TestScriptRejected(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = noClaims
+	for i := range 2 {
+		f.commandSession(fmt.Sprintf("s%d", i), turn{"check the code", checkChain})
+	}
+	f.mustRun()
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		c, err := store.CandidateByID(ctx, tx, f.commandCandidate())
+		if err != nil {
+			return err
+		}
+		_, err = store.Reject(ctx, tx, c, "I run them by hand", f.now)
+		return err
+	})
+	f.commandSession("s2", turn{"check the code", checkChain})
+	f.mustRun()
+	if n := f.count(`SELECT COUNT(*) FROM proposals`); n != 0 {
+		t.Errorf("proposals = %d, want none after the rejection", n)
+	}
+}
+
+// The script waits for the daily proposal cap, as each proposal does (§7.3), and comes on a
+// later day beside the tool draft that still waits.
+func TestScriptCap(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = noClaims
+	for i := range 3 {
+		f.commandSession(fmt.Sprintf("s%d", i), turn{"check the code", checkChain})
+	}
+	p := f.pass()
+	p.Caps = Caps{Calls: 10, Proposals: 1, InputBytes: 32 << 10}
+	if err := p.Run(context.Background()); err != nil {
+		t.Fatalf("Run() = %v", err)
+	}
+	if len(f.toolProposals()) != 1 || len(f.scriptProposals()) != 0 {
+		t.Fatalf("tool drafts = %d, scripts = %d, want 1 and 0 at the cap", len(f.toolProposals()), len(f.scriptProposals()))
+	}
+	f.now = f.now.Add(25 * time.Hour)
+	if err := p.Run(context.Background()); err != nil {
+		t.Fatalf("Run() = %v", err)
+	}
+	if len(f.toolProposals()) != 1 || len(f.scriptProposals()) != 1 {
+		t.Errorf("tool drafts = %d, scripts = %d, want 1 and 1 a day later", len(f.toolProposals()), len(f.scriptProposals()))
+	}
+}
+
+// Forget of the tool draft item erases the script of the same chain too, and supersedes it
+// (§6.7).
+func TestScriptForgotten(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = noClaims
+	for i := range 3 {
+		f.commandSession(fmt.Sprintf("s%d", i), turn{"check the code", checkChain})
+	}
+	f.mustRun()
+	tool := f.toolProposals()[0]
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		if err := store.EraseItem(ctx, tx, *tool.ItemID, f.now); err != nil {
+			return err
+		}
+		left, err := store.ItemTextLeft(ctx, tx, *tool.ItemID)
+		if err == nil && len(left) != 0 {
+			t.Errorf("ItemTextLeft = %v, want none", left)
+		}
+		return err
+	})
+	ps := f.scriptProposals()
+	if len(ps) != 1 || ps[0].Text != "" || ps[0].Diff != "" || ps[0].Status != store.ProposalSuperseded {
+		t.Errorf("script proposals = %+v, want one erased and superseded", ps)
+	}
+}
