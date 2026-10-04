@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -157,5 +158,60 @@ func TestForgetTool(t *testing.T) {
 	}
 	if tl := readTool(t, s, id); tl.Contract != "" || tl.Name != "" || tl.Cwd != "" || tl.Effects != "" {
 		t.Errorf("tool after forget = %+v", tl)
+	}
+}
+
+// Tools lists every tools row by approval time, then id, with the unapproved ones last. Ready
+// holds only for an active tool whose contract hash is the approved one (E17-S5).
+func TestTools(t *testing.T) {
+	s, add := toolStore(t)
+	k1 := "k1"
+	first, err := add(&k1, StateActive, toolText("first"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft, err := add(&k1, StateDraft, toolText("draft"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := add(nil, StateActive, toolText("second"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopped, err := add(nil, StateActive, toolText("stopped"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	write(t, s, func(tx *sql.Tx) error {
+		// A new approval of first, a day later, moves it to the end of the approved tools.
+		_, err := WriteRevision(ctx, tx, 1, ItemRevision{ItemID: first, Text: toolText("first"), Scope: ScopeWorkspace,
+			WorkspaceKey: &k1, State: StateActive, Author: AuthorYou, Origin: OriginReview,
+			Created: time.Date(2026, 10, 4, 10, 0, 0, 0, time.UTC)})
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE tools SET approved_hash = 'other' WHERE id = ?`, stopped)
+		return err
+	})
+	var ts []Tool
+	write(t, s, func(tx *sql.Tx) (err error) {
+		ts, err = Tools(ctx, tx)
+		return err
+	})
+	var ids []int64
+	var ready []bool
+	for _, tl := range ts {
+		ids = append(ids, tl.ID)
+		ready = append(ready, tl.Ready())
+	}
+	if want := []int64{second, stopped, first, draft}; !slices.Equal(ids, want) {
+		t.Errorf("Tools() ids = %v, want %v", ids, want)
+	}
+	if want := []bool{true, false, true, false}; !slices.Equal(ready, want) {
+		t.Errorf("Tools() ready = %v, want %v", ready, want)
+	}
+	if ts[3].State != StateDraft {
+		t.Errorf("Tools()[3].State = %s, want draft", ts[3].State)
 	}
 }

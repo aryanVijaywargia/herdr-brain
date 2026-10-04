@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"maps"
 	"testing"
 	"time"
 )
@@ -90,6 +91,44 @@ func TestToolCalls(t *testing.T) {
 		if len(cs) != 2 || cs[0].SessionID != session || *cs[0].ExitCode != 2 || cs[0].Duration != 1500*time.Millisecond ||
 			cs[1].SessionID != 0 || cs[1].ExitCode != nil || cs[1].Duration != 0 || cs[1].Result != CallRefused {
 			t.Errorf("ToolCalls() = %+v", cs)
+		}
+		return nil
+	})
+}
+
+// RanCalls counts only the ran calls since the time it gets (§13 M4 review prompt).
+func TestRanCalls(t *testing.T) {
+	s, add := toolStore(t)
+	a, err := add(nil, StateActive, toolText("a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := add(nil, StateActive, toolText("b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	since := time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)
+	code := 0
+	write(t, s, func(tx *sql.Tx) error {
+		for _, c := range []ToolCall{
+			{ToolID: a, Result: CallRan, At: since, ExitCode: &code},
+			{ToolID: a, Result: CallRan, At: since.Add(time.Hour), ExitCode: &code},
+			{ToolID: a, Result: CallRan, At: since.Add(-time.Second), ExitCode: &code},
+			{ToolID: a, Result: CallRefused, At: since.Add(time.Hour)},
+			{ToolID: b, Result: CallRefused, At: since.Add(time.Hour)},
+		} {
+			c.Origin = OriginAgent
+			if _, err := AddToolCall(ctx, tx, c); err != nil {
+				return err
+			}
+		}
+		got, err := RanCalls(ctx, tx, since)
+		if err != nil {
+			return err
+		}
+		if want := map[int64]int{a: 2}; !maps.Equal(got, want) {
+			t.Errorf("RanCalls() = %v, want %v", got, want)
 		}
 		return nil
 	})

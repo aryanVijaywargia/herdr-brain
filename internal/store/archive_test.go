@@ -198,3 +198,57 @@ func TestArchiveCandidatesDisputedClosed(t *testing.T) {
 		t.Errorf("ClosedWorkspaces() = %v, want %v", ws, want)
 	}
 }
+
+// addTool makes an active tool item name in workspace kA, pinned or not, at day 0.
+func (a archiveStore) addTool(name string, pinned bool) int64 {
+	a.t.Helper()
+	r := ItemRevision{Text: toolText(name), Scope: ScopeWorkspace, WorkspaceKey: ptr("kA"), State: StateActive,
+		Pinned: pinned, Author: AuthorYou, Origin: OriginReview, Created: a.t0}
+	var id int64
+	write(a.t, a.s, func(tx *sql.Tx) (err error) {
+		id, _, err = CreateItem(context.Background(), tx, Item{ClaimID: name, Kind: KindTool, Created: a.t0}, r)
+		return err
+	})
+	return id
+}
+
+// call adds n calls of tool with result at day d.
+func (a archiveStore) call(tool int64, result CallResult, d, n int) {
+	a.t.Helper()
+	write(a.t, a.s, func(tx *sql.Tx) error {
+		for range n {
+			code := 0
+			c := ToolCall{ToolID: tool, Origin: OriginAgent, Result: result, At: a.day(d)}
+			if result == CallRan {
+				c.ExitCode = &code
+			}
+			if _, err := AddToolCall(context.Background(), tx, c); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// AC (E17-S5): a tool ages by its ran calls only. A tool with no call for 91 days is a
+// candidate, and so is a tool with only refused calls, however many. A ran call on day 89 keeps
+// a tool, and a pinned tool never ages.
+func TestArchiveCandidatesTools(t *testing.T) {
+	a := newArchiveStore(t)
+	idle := a.addTool("idle", false)
+	ran := a.addTool("ran", false)
+	refused := a.addTool("refused", false)
+	pinned := a.addTool("pinned", true)
+	a.call(ran, CallRan, 89, 1)
+	a.call(refused, CallRefused, 89, 5)
+	a.call(refused, CallRefused, 90, 5)
+	if got := a.candidates(90); len(got) != 0 {
+		t.Errorf("candidates at day 90 = %v, want none", got)
+	}
+	if got, want := a.candidates(91), []int64{idle, refused}; !slices.Equal(got, want) {
+		t.Errorf("candidates at day 91 = %v, want %v", got, want)
+	}
+	if got, want := a.candidates(180), []int64{idle, refused, ran}; !slices.Equal(got, want) {
+		t.Errorf("candidates at day 180 = %v, want %v; pinned tool %d never ages", got, want, pinned)
+	}
+}
