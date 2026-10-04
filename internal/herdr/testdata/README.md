@@ -45,3 +45,11 @@ Recorded on 2026-10-02 from a headless scratch server (`herdr --session brain-e1
 server` with a scratch HOME, no client attached) (E14-S3):
 
 - `notification-show.json`: `herdr notification show "Brain has 1 suggestion" --body "proposal 3"`
+
+Recorded by the M0 spikes (E11-S1b, E16-S2) on herdr 0.9.1 test sessions, copied for E17-S11:
+
+- `agent-get.json`: `herdr agent get w1:p1` of a Codex agent with its agent session
+  (`spike/m0/data/e11s1b-capture.txt` line 114)
+- `agent-list.json` (made): `herdr agent list` (`agent_list` in the schema) with that agent and
+  the OpenCode agent of `spike/m0/agyopencode/data/opencode-screens.txt` line 81, which has no
+  agent session
