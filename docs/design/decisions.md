@@ -444,3 +444,95 @@ Result (fill in): **not run yet.**
 - Verdict: PASS or FAIL, with the reason.
 
 **Review prompt** (§13 "stop or rethink", a note, not a gate): "No procedure repeats in 6 weeks." Look at it after some weeks of real use, with the skill drafts in `brain review` and the repeat counts of `brain status`. Brain makes no automatic decision from it.
+
+## E17-S12: M4 exit run (#177)
+
+### D11. M4 exit record
+
+**Status:** the exit stays open, for two reasons. The two-harness check (checklist A) is a check that a person runs, and it is not run yet, so the sentence "Two harnesses reuse one checked tool" has no passing record. The gateway part of S63 is deferred with the MCP gateway E17-S7 #172 (owner, 2026-10-03), so the sentence "The gateway part of S63 passes" has no record; deferred is not a pass. All listed scenarios and the learned automation pipeline test pass as Go tests (2026-10-05, branch of #177, main fc98de0).
+
+**Not part of this run:** the MCP gateway E17-S7 #172 (owner, 2026-10-03: "the mcp server does not look much useful rn, we can do that later") and the hook and allow-rule suggestions E17-S9 #174 (owner, 2026-10-05, D12 answer B). Both stay open, with revisit points in #151. They do not block the M4 exit.
+
+**Scenarios** (HLD §14). Each test names its scenario id in its name or its comment. The tests use temp stores, the fake herdr, fake CLIs and the fake extractor: no live herdr, no CLI and no model call. Two tests are new for this run (marked "new").
+
+| # | Expected (§14, short) | Tests | Result |
+|---|---|---|---|
+| S21 | A change to the command, schema, cwd, timeout or effects stops the tool until you approve it again | `internal/tool` `TestHashCoversTheContract` (each change, and the scope, gives a new contract hash); `internal/output` `TestToolApproval` (a draft revision, another approved hash or another row contract does not run; an approved change runs with its new hash); `internal/cli` `TestToolChangeNeedsApproval` (for each of command, schema, cwd, timeout, effects and the read-only restriction, the changed contract does not run while the change waits; after the approval only the new hash runs), `TestRunChangedFile` (a `tool.toml` changed outside Brain: `brain run` refuses with a refused row, and status shows the tool as stopped), `TestAutomationContractChange` (the automation of a changed tool stops until a new approval) | PASS |
+| S58 | `; rm -rf ~` or `$(…)`: the pattern fails, or the value stays one argv element; nothing runs in a shell | `internal/cli` `TestRunInjection` (`; rm -rf ~`, `$(touch pwned)` and a backtick form fail the pattern with a refused row; with an open pattern the value reaches the program as one argv element, and no `pwned` file appears); `internal/tool` `TestFill` (the pattern check), `TestExecSteps` (`run.sh` gets `$(c)` as `"$2"`); `internal/cli` `TestToolEditRefused` (an input in a command position or in `bash -c` is refused at the review) | PASS |
+| S59 | A stop while `brained` is down does not run later; a stop while an agent works in the pinned folder is skipped and logged | `internal/brained` `TestAutomationBaseline` (at a start the current state is a baseline: the missed stop never runs), `TestAutomationReconnect` (the same after a reconnect, and a late copy of the missed stop claims nothing); `internal/cli` `TestLaunchSkip` cases "AC S59: an agent works in the folder" and "an agent starts to work while the run waits" (nothing runs, and the run row says `skipped`), `TestLaunchBusyElsewhere` (an agent in another folder or workspace does not skip) | PASS |
+| S51 duplicate | One run | `internal/brained` `TestAutomationStop` (a duplicate of the stop claims nothing), `TestS51Automation` (new); `internal/store` `TestClaimRun`, `TestClaimRunRace` (two claims of one event at the same time give one row); `internal/cli` `TestLaunchRun` (a second launch of a run refuses), `TestM4LearnedAutomation` (new) | PASS |
+| S51 pause | No run after pause | `internal/brained` `TestS51Automation` (new: a stop after the pause claims nothing; a stop after the resume claims one run), `TestAutomationSkip` "an already-paused binding"; `internal/cli` `TestLaunchSkip` "pause while the run waits" (a claimed run with no launch mark does not start), `TestAutomationPause` | PASS |
+| S51 removal | No run after removal | `internal/brained` `TestS51Automation` (new: a stop after the removal claims nothing); `internal/cli` `TestLaunchSkip` "removal while the run waits" and "undo while the run waits", `TestAutomationRemove`, `TestAutomationUndo` | PASS |
+| S51 failure | The failure shows in status | `internal/cli` `TestLaunchFailed` (the run row says `failed`, `brain status` has the `last run failed` line, and the pane label says `touch-ran failed`) | PASS |
+| S51 Brain-origin | No chain, and nothing is learned from the Brain-origin run | `internal/cli` `TestLaunchOrigin` (the tool gets `BRAIN_CALL_ORIGIN=automation`, and a `brain run` inside it logs origin `automation`), `TestM4LearnedAutomation` (new: the automation call adds no learned-case occurrence, and the next pass proposes nothing); `internal/store` `TestStopCalls` (an automation call is never a learned case). The trigger is a herdr agent status event of a bound pane; the launch process is no agent and has no pane of its own, so its run cannot be a stop. | PASS |
+| S62 | A crash during a run shows `unknown`; no retry; you review it | `internal/cli` `TestLaunchCrash` (a launch mark with no end stays `unknown`, the launch of the run refuses, the same event claims nothing, and `brain status` shows the run with the cancel hint); `internal/store` `TestRunEnd`. The crash is a written launch mark with no end; a real process kill was not tested (E17-S11). | PASS |
+| S61 (gateway part) | No Brain MCP tools outside herdr | Deferred with E17-S7 #172 (owner, 2026-10-03). The hook and skill parts passed in M1 and M3 (D10). | DEFERRED (not a pass) |
+| S63 (gateway part) | The gateway shows no tools and refuses a direct `run_tool`, `recall` or `remember` call | Deferred with E17-S7 #172 (owner, 2026-10-03). The hook part passed in M1. | DEFERRED (not a pass) |
+
+**Learned automation pipeline** (§10.4 "M4 must prove that one learned automation runs"): `internal/cli` `TestM4LearnedAutomation` (new), offline with the fake herdr and the fake extractor (0 model calls). PASS.
+- `approve`: the recorded learned case of E17-S10 (in 3 sessions the claude agent stops, then `brain run` runs the approved tool `touch-ran` in its folder) gives one workspace proposal in `ws_a14`. A stop before the approval claims nothing, and the tool does not run. After the approval, one stop event claims one run, and the launch runs the tool once: the run is `ok`, and `tool_calls` has one `ran` row of origin `automation`. A duplicate of the event claims nothing, and the tool does not run again. The Brain-origin run adds no learned-case occurrence, and the next pass proposes nothing.
+- `reject`: the same case, rejected. A stop claims nothing, and after a fourth session the next pass gives no new proposal in that scope.
+- The joined stop and its event key are brained's part, with its own fake herdr (`TestAutomationStop`, `TestS51Automation`). `brained` cannot be driven from `internal/cli`, so the test does the claim with the same store calls as brained's claim (the active automations of the workspace, CLI and folder, `output.AutomationMayRun` and `store.ClaimRun`, in one transaction). The launch is the real launch process code of E17-S11.
+
+**§13 M4 exit sentences**
+
+| Sentence | Proof | Result |
+|---|---|---|
+| Two harnesses reuse one checked tool | Checklist A below | NOT RUN YET (exit open) |
+| A changed contract needs a new review | S21 above | PASS |
+| Input injection fails (S58) | S58 above | PASS |
+| The automation tests pass (S51, S59, S62) | S51 (all five parts), S59 and S62 above; the pipeline test | PASS |
+| The gateway part of S63 passes | Deferred with E17-S7 #172 (owner, 2026-10-03) | DEFERRED (exit open for this sentence; not a pass) |
+
+**Checklist A: two harnesses reuse one checked tool** (§13; as E10-S5). A person runs it, not the eval runner and not an agent. It uses the official, unmodified `claude` and `codex` binaries. Brain is installed as the herdr plugin, so `brain` is on the PATH of herdr panes, and the Claude and Codex start hooks are in place (`brain setup` was run once). The check never touches the main herdr session or the main store. Every `sqlite3` call is read-only.
+
+Preparation:
+1. Make a new run folder that did not exist before, so the test store is empty. Use the date in its name, for example `~/brain-m4-20261006`. Below, `<run>` is the full path of that folder (no `~`):
+   `test ! -e <run> && mkdir -p <run>/store <run>/work && git -C <run>/work init`
+2. Start the separate test herdr session: `herdr --session brain-m4`. Every step below runs in a pane of this session.
+3. Open a workspace in `brain-m4` with root `<run>/work`, and a shell pane in it. Run every `brain` command below in this shell pane.
+4. Bind the session to the test store: `brain setup --session brain-m4 --test <run>/store`. When setup asks to add the hook record entries for Claude (`PostToolUse`), answer `y`: the tool draft comes from a command record.
+5. A test binding starts with learning off (§12.1). Turn it on: `brain learn on`. Run `brain status` until it shows the workspace as mapped. Write down the workspace id.
+6. Check: `brain status` and `brain doctor` name the `brain-m4` test binding and learning on. Write down the Claude and Codex profile states, `claude --version` and `codex --version`.
+
+Steps:
+1. **A command record.** In the workspace, start `claude`. Ask: "Run the shell command `/bin/ls -1` in this folder and show me the output." Allow the command. Exit Claude, so the pane ends the session.
+2. **Tool draft.** Wait for a pass of the extractor (about once a minute; `brain status` shows the backlog). Run `brain review --all`. Find the command candidate of `/bin/ls -1` and its line `make this a tool: brain review --tool <candidate>`. Run that command. Write down the proposal id that it prints. If no candidate comes after 10 minutes, write BLOCKED with the `brain status` output, and stop.
+3. **Approve one tool.** Read the draft: `brain review <proposal id>`. Approve it with this exact contract (put the real `<run>` path in `cwd`):
+   ```
+   brain review <proposal id> --approve --edit 'name = "list-work"
+   description = "List the files of the work folder"
+   cwd = "<run>/work"
+   timeout_s = 30
+   effects = "reads the folder; writes nothing"
+   read_only = true
+   argv = ["/bin/ls", "-1"]
+   '
+   ```
+   Write down the item id that it prints. Then `brain tools` lists `list-work` with `brain run list-work`.
+4. **Approved hash.** `sqlite3 -readonly <run>/store/brain.db "SELECT id, name, contract_hash, approved_hash, approved FROM tools WHERE name = 'list-work';"` Write down `approved_hash`; below it is `<hash>`. It must equal `contract_hash`.
+5. **Claude.** Start a fresh `claude` session in the workspace. Ask: "Run the shell command `brain run list-work` and show me its output." Allow the command. Write down the reply. Exit Claude.
+6. **Codex.** Start a fresh `codex` session in the workspace. Ask the same: "Run the shell command `brain run list-work` and show me its output." Allow the command. Write down the reply. Exit Codex.
+7. **The two rows.**
+   ```
+   sqlite3 -readonly <run>/store/brain.db "SELECT c.id, c.tool_id, c.origin, c.result, c.contract_hash, t.approved_hash, c.exit_code, c.at, s.harness, s.pane_id FROM tool_calls c JOIN tools t ON t.id = c.tool_id LEFT JOIN sessions s ON s.id = c.session_id WHERE t.name = 'list-work' ORDER BY c.id;"
+   ```
+   `s.harness` names the CLI when capture had an open session for the pane; it is empty when capture had none. Then the time order of steps 5 and 6 says which row is which.
+
+Pass rule: both replies show the file list of `<run>/work` and no refusal, and the query shows two rows (one from the Claude session, one from the Codex session) with `origin` `agent`, `result` `ran`, exit code 0 and `contract_hash` equal to `<hash>`. A `refused` row, a third row from these sessions or another hash is a FAIL, with the reason written here. A skipped or blocked run is not a pass.
+
+Result (fill in): **not run yet.**
+- Run: date, `<run>` folder, herdr version, store binding (`brain-m4` → `<run>/store`), Claude and Codex versions and profile states.
+- Tool: candidate id, proposal id, item id, `<hash>`.
+- Claude: reply, its `tool_calls` row.
+- Codex: reply, its `tool_calls` row.
+- Verdict: PASS or FAIL, with the reason.
+
+**Notes B: live herdr replies of E17-S11** (not a gate, no AC). E17-S11 parsed these replies from recorded spike data and tested them with a fake herdr; nothing ran against a live herdr. A person can check them in the same `brain-m4` session, after checklist A. Below, `<pane>` is the pane id of an agent pane of the workspace (`herdr --session brain-m4 pane list`).
+1. **`agent get` and `agent list`.** Start `claude` in a pane, and leave it at rest. In the shell pane: `herdr --session brain-m4 agent get <pane>` and `herdr --session brain-m4 agent list`. Check that each agent object holds `pane_id`, `workspace_id`, `agent` (`claude`), `agent_status`, `agent_session.value`, `cwd`, `terminal_id` and `state_change_seq` (`internal/herdr/agent.go`). Ask Claude one short question; while it works, run `agent get` again: `agent_status` is `working` and `state_change_seq` is higher. Result: **not run yet.**
+2. **`pane report-metadata` reply.** `herdr --session brain-m4 pane report-metadata <pane> --source brain --token brain-automation="list-work check"`, then `herdr --session brain-m4 pane report-metadata <pane> --source brain --clear-token brain-automation`. Each prints the `ok` reply that Brain reads; write the exact output. Result: **not run yet.**
+3. **How herdr shows the run label.** Look at the pane in the herdr screen after the first command of note 2, before the clear: write down where and how herdr shows `list-work check`. For a live run label (optional): `brain automation add list-work --folder <run>/work --cli claude`, approve the proposal with `brain review <proposal id> --approve`, ask the Claude agent of that folder one short question, and let it stop. `brain automation list` shows the last result, and the pane shows the label while the run is `unknown` or after it `failed` (`ok` clears it). Then `brain automation remove <item>`. Result: **not run yet.**
+
+After the run: copy the query output and the replies into the results above. Then stop the test session (`herdr session stop brain-m4`, never the main server). Keep `<run>` until the results are written.
+
+**Review prompt** (§13 "stop or rethink", a note, not a gate): "Tools get no calls in 4 weeks." Look at it after 4 weeks of real use, with the call counts of `brain tools` (only `ran` rows count, §10.2, E17-S5). Brain makes no automatic decision from it.
