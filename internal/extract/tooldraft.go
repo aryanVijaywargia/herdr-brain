@@ -203,6 +203,12 @@ func (p Pass) exactTools(ctx context.Context, tx *sql.Tx) error {
 			gated = append(gated, g)
 		}
 	}
+	return p.proposeGated(ctx, tx, gated)
+}
+
+// proposeGated makes the tool drafts and the scripts of gated, in round robin order of the
+// workspaces, while the daily proposal cap has room (§7.3).
+func (p Pass) proposeGated(ctx context.Context, tx *sql.Tx, gated []gatedTool) error {
 	last, err := store.LastCalls(ctx, tx)
 	if err != nil {
 		return err
