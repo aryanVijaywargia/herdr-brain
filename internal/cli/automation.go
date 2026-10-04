@@ -106,13 +106,17 @@ func (cl caller) addAutomation(ctx context.Context, a addArgs) error {
 	if !ok {
 		return fmt.Errorf("%s has no tested stop condition, so it cannot get an automation: %w", a.cli, store.ErrBindingRefused)
 	}
-	folder, err := filepath.Abs(a.folder)
-	if err != nil {
-		return err
+	// A leading ~ stays, as in a tool cwd; any other folder is absolute and clean.
+	folder := a.folder
+	if folder != "~" && !strings.HasPrefix(folder, "~/") {
+		var err error
+		if folder, err = filepath.Abs(folder); err != nil {
+			return err
+		}
 	}
 	var pid int64
 	var b store.Binding
-	err = cl.Store.Write(ctx, func(tx *sql.Tx) error {
+	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		t, err := store.ToolByName(ctx, tx, a.tool, cl.key)
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("tool %q: %w", a.tool, errNotFound)
@@ -151,7 +155,7 @@ func (cl caller) proposeBinding(ctx context.Context, tx *sql.Tx, b store.Binding
 	})
 	text, now := b.Text(), cl.Now()
 	p := store.Proposal{Text: text, Scope: store.ScopeWorkspace, Target: cl.target(store.ScopeWorkspace),
-		ExpectedBenefit: bindingBenefit(b), Status: store.ProposalPending, Created: now}
+		ExpectedBenefit: b.Benefit(), Status: store.ProposalPending, Created: now}
 	if i >= 0 {
 		if as[i].ContractHash == b.ContractHash {
 			return 0, fmt.Errorf("automation %d binds this tool in this folder already", as[i].ID)
@@ -181,11 +185,6 @@ func (cl caller) proposeBinding(ctx context.Context, tx *sql.Tx, b store.Binding
 	return pid, store.InsertItemRevision(ctx, tx, store.ItemRevision{ItemID: item, Revision: 1, Text: text,
 		Scope: store.ScopeWorkspace, WorkspaceKey: &cl.key, State: store.StateDraft, Author: store.AuthorBrain,
 		Origin: store.OriginRemember, ProposalID: &pid, Created: now})
-}
-
-// bindingBenefit is the expected benefit of a proposal of binding b [NEW].
-func bindingBenefit(b store.Binding) string {
-	return fmt.Sprintf("runs tool %s in %s after each stop of a %s agent, with no prompt", b.Tool, b.Folder, b.CLI)
 }
 
 // lineDiff is the diff of text before to text after: "- " and each line that after lacks,

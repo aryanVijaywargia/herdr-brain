@@ -21,9 +21,11 @@ type Binding struct {
 	Tool         string `toml:"tool"`    // the tool name, for you to read
 	ToolID       int64  `toml:"tool_id"` // the tools row
 	ContractHash string `toml:"contract_hash"`
-	Folder       string `toml:"folder"` // the pinned folder: an absolute, clean path
-	CLI          string `toml:"cli"`    // the CLI kind of the bound agent
-	Trigger      string `toml:"trigger"`
+	// Folder is the pinned folder: a clean absolute path, or one with a leading ~ for home, as a
+	// tool cwd names it.
+	Folder  string `toml:"folder"`
+	CLI     string `toml:"cli"` // the CLI kind of the bound agent
+	Trigger string `toml:"trigger"`
 }
 
 // stopTriggers holds the tested "agent stopped working" condition of each CLI (§10.4, M0
@@ -68,6 +70,11 @@ func (b Binding) Text() string {
 	return s.String()
 }
 
+// Benefit is the expected benefit of a proposal of b [NEW].
+func (b Binding) Benefit() string {
+	return fmt.Sprintf("runs tool %s in %s after each stop of a %s agent, with no prompt", b.Tool, b.Folder, b.CLI)
+}
+
 // ErrBindingRefused means that the approval refuses a binding (§10.4): its tool has a required
 // input, the approved cwd of the tool is not the pinned folder, the tool is not an approved tool
 // that the workspace can call at the pinned hash, or the CLI has no tested stop condition.
@@ -99,7 +106,7 @@ func CheckBinding(ctx context.Context, tx *sql.Tx, b Binding, workspaceKey, home
 	if len(c.Inputs) > 0 {
 		return fmt.Errorf("tool %s (item %d) has a required input: %w", t.Name, t.ID, ErrBindingRefused)
 	}
-	if dir := filepath.Clean(c.Dir(home)); dir != b.Folder {
+	if dir := filepath.Clean(c.Dir(home)); dir != filepath.Clean(tool.Dir(b.Folder, home)) {
 		return fmt.Errorf("the cwd of tool %s (item %d) is %s, not the pinned folder %s: %w", t.Name, t.ID, dir, b.Folder,
 			ErrBindingRefused)
 	}
@@ -205,4 +212,35 @@ func SetAutomationEnabled(ctx context.Context, tx *sql.Tx, id int64, on bool) er
 		return fmt.Errorf("automation %d: %w", id, sql.ErrNoRows)
 	}
 	return nil
+}
+
+// StopCall is one occurrence of the minimal learned automation case (§10.4, E17-S10) [NEW]: a
+// ran tool call from the agent's pane (origin agent: a Brain-origin run never counts), whose
+// newest observation of its capture session at the call is a stop of the agent. A stop is a
+// hook stop record, or a pane read whose agent status is idle or done (M0 E17-S1: the agent
+// stopped working and no new turn began).
+type StopCall struct {
+	ToolID       int64
+	Stop         int64  // the stop observation: the evidence of the occurrence
+	Harness      string // the CLI kind of the session
+	WorkspaceKey string // the workspace of the stop's segment; "" when it has no Brain key
+	PaneID       string
+}
+
+// StopCalls returns the occurrences of the learned automation case in the sessions of herdr
+// session herdrSession, in call order.
+func StopCalls(ctx context.Context, tx *sql.Tx, herdrSession string) ([]StopCall, error) {
+	return query(ctx, tx, `SELECT c.tool_id, o.id, s.harness, COALESCE(g.workspace_key, ''), s.pane_id
+		FROM tool_calls c JOIN sessions s ON s.id = c.session_id
+		JOIN observations o ON o.id = (SELECT o2.id FROM observations o2 JOIN segments g2 ON g2.id = o2.segment_id
+			WHERE g2.session_id = s.id AND o2.at <= c.at ORDER BY o2.at DESC, o2.id DESC LIMIT 1)
+		JOIN segments g ON g.id = o.segment_id
+		WHERE c.result = ? AND c.origin = ? AND s.herdr_session = ? AND o.status != ? AND o.brain_origin = 0
+		AND ((o.source = ? AND o.event = ?) OR (o.source = ? AND o.event IN ('idle', 'done')))
+		ORDER BY c.id`,
+		func(rows *sql.Rows) (StopCall, error) {
+			var c StopCall
+			err := rows.Scan(&c.ToolID, &c.Stop, &c.Harness, &c.WorkspaceKey, &c.PaneID)
+			return c, err
+		}, CallRan, OriginAgent, herdrSession, ObservationGap, SourceHook, "stop", SourceHerdr)
 }

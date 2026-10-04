@@ -58,13 +58,17 @@ type job struct {
 	change  *change              // a change request instead of a batch; nil for a batch
 }
 
-// Run runs the pass: it forms the batches of the finished sessions and takes the change
-// requests that wait, and extracts and commits them one after the other in round robin order across workspace keys, so a session has one
+// Run runs the pass: it runs the learned automation case, forms the batches of the finished
+// sessions and takes the change requests that wait, and extracts and commits them one after the other in round robin order across workspace keys, so a session has one
 // active batch at a time. The caps stop the calls; the rest waits for a later pass (§7.3). A
 // failed batch does not stop the others.
 func (p Pass) Run(ctx context.Context) error {
 	var jobs []job
 	err := p.Store.Write(ctx, func(tx *sql.Tx) (err error) {
+		// The learned automation case needs no model call (E17-S10).
+		if err := p.automations(ctx, tx); err != nil {
+			return err
+		}
 		if jobs, err = p.plan(ctx, tx); err != nil {
 			return err
 		}
