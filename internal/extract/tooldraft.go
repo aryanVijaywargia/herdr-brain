@@ -362,6 +362,20 @@ func MakeTool(ctx context.Context, tx *sql.Tx, id int64, now time.Time) (int64, 
 	return proposeTool(ctx, tx, id, text, "runs these commands with one reviewed contract", now)
 }
 
+// toolClaim returns claim c of kind tool, with its evidence, and the tool of r (checkTool). A
+// tool draft is a workspace tool (its cwd is a folder of the workspace), and its claim key comes
+// from its commands (toolKey), not from the model words.
+func toolClaim(c Claim, r rawClaim) (Claim, error) {
+	text, steps, err := checkTool(r, c.Refs)
+	if err != nil {
+		return Claim{}, err
+	}
+	key := toolKey(steps)
+	c.Tool, c.Scope, c.Situation, c.Rule = text, store.ScopeWorkspace, key.Situation, key.Rule
+	c.TouchesPermission = c.TouchesPermission || store.TouchesPermission(text)
+	return c, nil
+}
+
 // rawInput is one input of a claim of kind tool, as the model returns it.
 type rawInput struct {
 	Name    string `json:"name"`

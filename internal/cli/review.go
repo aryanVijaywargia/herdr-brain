@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -106,10 +107,8 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 		return cl.makeTool(ctx, r.makeTool)
 	case r.rejected:
 		return cl.listRejections(ctx)
-	case r.reopen != 0:
-		return cl.endRejection(ctx, r.reopen, true)
-	case r.reset != 0:
-		return cl.endRejection(ctx, r.reset, false)
+	case r.reopen != 0 || r.reset != 0:
+		return cl.endRejection(ctx, cmp.Or(r.reopen, r.reset), r.reopen != 0)
 	case r.restore != 0:
 		return cl.restore(ctx, r.restore)
 	case r.approve || r.reject || r.later || r.change != nil || r.keep || r.retire && r.item == 0:
@@ -140,6 +139,17 @@ func decisionFlags(fs *flag.FlagSet, r *review) {
 	}
 }
 
+// queueFlags adds the flags of the actions on the lists, candidates and rejections to fs.
+func queueFlags(fs *flag.FlagSet, r *review) {
+	fs.BoolVar(&r.retired, "retired", false, "")
+	fs.BoolVar(&r.all, "all", false, "")
+	fs.Int64Var(&r.makeTool, "tool", 0, "")
+	fs.BoolVar(&r.rejected, "rejected", false, "")
+	fs.Int64Var(&r.reopen, "reopen", 0, "")
+	fs.Int64Var(&r.reset, "reset", 0, "")
+	fs.Int64Var(&r.restore, "restore", 0, "")
+}
+
 func parseReview(args []string) (review, error) {
 	var r review
 	fs := flag.NewFlagSet("review", flag.ContinueOnError)
@@ -152,13 +162,7 @@ func parseReview(args []string) (review, error) {
 	scope := fs.String("scope", "", "")
 	fs.BoolVar(&r.pin, "pin", false, "")
 	fs.BoolVar(&r.confirm, "confirm", false, "")
-	fs.BoolVar(&r.retired, "retired", false, "")
-	fs.BoolVar(&r.all, "all", false, "")
-	fs.Int64Var(&r.makeTool, "tool", 0, "")
-	fs.BoolVar(&r.rejected, "rejected", false, "")
-	fs.Int64Var(&r.reopen, "reopen", 0, "")
-	fs.Int64Var(&r.reset, "reset", 0, "")
-	fs.Int64Var(&r.restore, "restore", 0, "")
+	queueFlags(fs, &r)
 	fs.Int64Var(&r.item, "item", 0, "")
 	fs.BoolVar(&r.retire, "retire", false, "")
 	fs.Int64Var(&r.exceptionTo, "exception-to", 0, "")

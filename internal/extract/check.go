@@ -241,18 +241,12 @@ func checkClaim(r rawClaim, j job) (Claim, error) {
 			c.Refs = append(c.Refs, j.refs[i])
 		}
 	}
+	var err error
 	if c.Kind == kindTool {
-		text, steps, err := checkTool(r, c.Refs)
-		if err != nil {
+		if c, err = toolClaim(c, r); err != nil {
 			return Claim{}, err
 		}
-		// A tool draft is a workspace tool (its cwd is a folder of the workspace), and its claim
-		// key comes from its commands (toolKey), not from the model words.
-		key := toolKey(steps)
-		c.Tool, c.Scope, c.Situation, c.Rule = text, store.ScopeWorkspace, key.Situation, key.Rule
-		c.TouchesPermission = c.TouchesPermission || store.TouchesPermission(text)
 	}
-	var err error
 	if c.SameAs, err = knownClaim(r.SameAs, j); err != nil {
 		return Claim{}, fmt.Errorf("same_as: %w", err)
 	}
