@@ -172,3 +172,55 @@ func TestScriptForgotten(t *testing.T) {
 		}
 	}
 }
+
+// A new tool draft and its script need room for both under the daily cap, so the review
+// offers both at once: a pair that does not fit waits for a later day.
+func TestScriptCapPair(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = noClaims
+	for i := range 3 {
+		f.commandSession(fmt.Sprintf("s%d", i), turn{"check the code", checkChain},
+			turn{"build it", []store.CommandRecord{command("go build ./..."), command("go install ./...")}})
+	}
+	p := f.pass()
+	p.Caps = Caps{Calls: 10, Proposals: 3, InputBytes: 32 << 10}
+	if err := p.Run(context.Background()); err != nil {
+		t.Fatalf("Run() = %v", err)
+	}
+	if tools, scripts := len(f.toolProposals()), len(f.scriptProposals()); tools != 1 || scripts != 1 {
+		t.Fatalf("tool drafts = %d, scripts = %d, want one pair at a cap of 3", tools, scripts)
+	}
+	f.now = f.now.Add(25 * time.Hour)
+	if err := p.Run(context.Background()); err != nil {
+		t.Fatalf("Run() = %v", err)
+	}
+	if tools, scripts := len(f.toolProposals()), len(f.scriptProposals()); tools != 2 || scripts != 2 {
+		t.Errorf("tool drafts = %d, scripts = %d, want two pairs a day later", tools, scripts)
+	}
+}
+
+// Forget of every session of the evidence deletes the candidate: its script loses its text and
+// its candidate, so no later forget or scope check depends on it (§6.7).
+func TestScriptSessionsForgotten(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = noClaims
+	var sids []int64
+	for i := range 3 {
+		sids = append(sids, f.commandSession(fmt.Sprintf("s%d", i), turn{"check the code", checkChain}))
+	}
+	f.mustRun()
+	script := f.scriptProposals()[0]
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		for _, sid := range sids {
+			if err := store.ForgetSession(ctx, tx, sid); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	for _, p := range f.proposals() {
+		if p.ID == script.ID && (p.Text != "" || p.Diff != "" || p.CandidateID != nil || p.Status != store.ProposalSuperseded) {
+			t.Errorf("script proposal = %+v, want it erased, with no candidate, and superseded", p)
+		}
+	}
+}

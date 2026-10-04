@@ -776,12 +776,12 @@ func (cl caller) approve(ctx context.Context, r review) error {
 			r.id, r.id); err != nil {
 			return err
 		}
-		return cl.supersededLines(superseded)
+		return cl.superseded(ctx, superseded)
 	}
 	_, err = fmt.Fprintf(cl.Stdout, "proposal %d approved: item %d is %s at revision %d (%s)\n",
 		r.id, next.ItemID, next.State, next.Revision, cl.target(next.Scope))
 	if err == nil {
-		err = cl.supersededLines(superseded)
+		err = cl.superseded(ctx, superseded)
 	}
 	for _, rt := range retired {
 		if err == nil {

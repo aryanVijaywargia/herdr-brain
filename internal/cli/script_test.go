@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"maps"
+	"slices"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -205,5 +206,44 @@ func TestScriptRejectScope(t *testing.T) {
 	}
 	if out := f.mustReview(t); strings.Contains(out, "script go-vet") {
 		t.Errorf("review in shop =\n%s\nwant no script: the shop claim is rejected", out)
+	}
+}
+
+// Approving a script closes the open review pane of its tool draft, as the tool draft is
+// superseded.
+func TestScriptClosesSiblingPane(t *testing.T) {
+	f := newFixture(t)
+	for i := range 3 {
+		f.chainSession(t, "ws_a14", fmt.Sprintf("s%d", i))
+	}
+	f.extractChains(t)
+	script, tool := scriptAndTool(t, f.rows(t))
+	f.addReviewPane(t, store.ReviewPane{HerdrSession: "default", SessionIdentity: ptr("ws_a14"), PaneID: "w14:p2",
+		BesidePaneID: "w14:p1", ProposalID: tool.ID, Opened: testNow})
+	f.herdr.procs["w14:p2"] = reviewProc(tool.ID)
+	f.mustReview(t, fmt.Sprint(script.ID), "--approve")
+	if !slices.Equal(f.herdr.closed, []string{"w14:p2"}) {
+		t.Errorf("closed %v, want [w14:p2]: the pane of the superseded tool draft", f.herdr.closed)
+	}
+}
+
+// The review pane of a script offers approve, reject and later only: the other keys do
+// nothing, so a pin toggle cannot make the approve fail.
+func TestScriptPane(t *testing.T) {
+	f := newFixture(t)
+	for i := range 3 {
+		f.chainSession(t, "ws_a14", fmt.Sprintf("s%d", i))
+	}
+	f.extractChains(t)
+	script, _ := scriptAndTool(t, f.rows(t))
+	screen, err := f.pane(t, script.ID, typed("pseca"))
+	if err != nil {
+		t.Fatalf("pane = %v\n%s", err, screen)
+	}
+	if !strings.Contains(screen, "a approve  r reject  l later  q close\n") || strings.Contains(screen, "p pin") {
+		t.Errorf("pane =\n%s\nwant the script keys only", screen)
+	}
+	if script, _ = scriptAndTool(t, f.rows(t)); script.Status != store.ProposalApproved {
+		t.Errorf("script %s, want approved", script.Status)
 	}
 }

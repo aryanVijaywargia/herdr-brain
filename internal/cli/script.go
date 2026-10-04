@@ -17,10 +17,14 @@ func scriptSummary(p store.Proposal) string {
 	return "script " + strings.TrimPrefix(line, "# ")
 }
 
+// scriptLine is the kind line of a script proposal in show. The review pane finds a script by
+// it, and then offers only approve, reject and later.
+const scriptLine = "kind:     script\n"
+
 // scriptLines are the kind line, the text and the claim of script proposal p in show (§10.4):
 // Brain installs no script, so approve records your decision only.
 func scriptLines(p store.Proposal, claim string) string {
-	return "kind:     script\n" + "text:\n  " + strings.ReplaceAll(strings.TrimSuffix(p.Text, "\n"), "\n", "\n  ") + "\n" +
+	return scriptLine + "text:\n  " + strings.ReplaceAll(strings.TrimSuffix(p.Text, "\n"), "\n", "\n  ") + "\n" +
 		"install:  Brain writes no file and changes no permission: approve records your decision, and you install the script yourself\n" +
 		fmt.Sprintf("claim:    %s\n", claim)
 }
@@ -63,11 +67,15 @@ func pickLines(sibs []store.Proposal) string {
 }
 
 // supersede ends siblings sibs of an approved proposal as superseded: you picked the other
-// one. It returns their ids.
+// one. Their shown suggestions get result rejected [NEW]: you did not take them. It returns
+// their ids.
 func (cl caller) supersede(ctx context.Context, tx *sql.Tx, sibs []store.Proposal) ([]int64, error) {
 	ids := make([]int64, 0, len(sibs))
 	for _, o := range sibs {
 		if err := store.DecideProposal(ctx, tx, o.ID, store.ProposalSuperseded, cl.surface, cl.Now()); err != nil {
+			return nil, err
+		}
+		if err := store.DecideSuggestions(ctx, tx, o.ID, store.SuggestionRejected); err != nil {
 			return nil, err
 		}
 		ids = append(ids, o.ID)
@@ -99,10 +107,14 @@ func (cl caller) approveScript(ctx context.Context, tx *sql.Tx, r review, p stor
 	return cl.supersede(ctx, tx, sibs)
 }
 
-// supersededLines prints one line for each proposal of ids that an approve superseded.
-func (cl caller) supersededLines(ids []int64) error {
+// superseded prints one line for each proposal of ids that an approve superseded, and closes
+// their review panes, as runReview does for the approved one.
+func (cl caller) superseded(ctx context.Context, ids []int64) error {
 	for _, id := range ids {
 		if _, err := fmt.Fprintf(cl.Stdout, "proposal %d of the same command chain superseded: you picked this one\n", id); err != nil {
+			return err
+		}
+		if err := cl.closeReviewPanes(ctx, id); err != nil {
 			return err
 		}
 	}

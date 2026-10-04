@@ -34,3 +34,18 @@ func ScriptOffered(ctx context.Context, tx *sql.Tx, id int64) (bool, error) {
 	}
 	return offered, nil
 }
+
+// dropScripts erases the script proposals of candidate id when it has no evidence left, as
+// recount then deletes it: their text holds the commands of that evidence (§6.7), and without
+// the candidate no forget and no scope check could find them. They lose the candidate id too,
+// so a new candidate that gets the same id never shows them. A pending one is superseded.
+func dropScripts(ctx context.Context, tx *sql.Tx, id int64) error {
+	_, err := tx.ExecContext(ctx, `UPDATE proposals SET text = '', target = '', diff = '', expected_benefit = '',
+		candidate_id = NULL, status = CASE status WHEN ?2 THEN ?3 ELSE status END
+		WHERE candidate_id = ?1 AND item_id IS NULL
+		AND NOT EXISTS (SELECT 1 FROM evidence_links WHERE candidate_id = ?1)`, id, ProposalPending, ProposalSuperseded)
+	if err != nil {
+		return fmt.Errorf("drop script proposals of candidate %d: %w", id, err)
+	}
+	return nil
+}

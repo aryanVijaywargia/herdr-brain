@@ -208,8 +208,12 @@ func (p Pass) exactTools(ctx context.Context, tx *sql.Tx) error {
 		return err
 	}
 	for _, g := range roundRobin(gated, func(g gatedTool) string { return g.key }, last) {
-		if d, err := p.Day(ctx, tx); err != nil || d.Proposals >= d.Caps.Proposals {
+		room, err := p.room(ctx, tx, g)
+		switch {
+		case err != nil:
 			return err
+		case !room:
+			continue // a chain that needs one proposal can still fit
 		}
 		if _, err := proposeTool(ctx, tx, g.id, g.text, "runs these commands with one reviewed contract", p.Now()); err != nil &&
 			!errors.Is(err, errNoDraft) {
@@ -226,6 +230,31 @@ func (p Pass) exactTools(ctx context.Context, tx *sql.Tx) error {
 		}
 	}
 	return nil
+}
+
+// room reports whether the daily proposal cap has room for the proposals of g now: a new tool
+// draft with its script needs room for both, so the review offers both at once and you pick
+// one (E17-S8). A cap of one proposal fits one: the script then comes on a later day.
+func (p Pass) room(ctx context.Context, tx *sql.Tx, g gatedTool) (bool, error) {
+	d, err := p.Day(ctx, tx)
+	if err != nil {
+		return false, err
+	}
+	need := 1
+	if g.script != "" {
+		offered, err := store.ScriptOffered(ctx, tx, g.id)
+		if err != nil {
+			return false, err
+		}
+		draft, err := toolDraftOf(ctx, tx, g.id)
+		if err != nil {
+			return false, err
+		}
+		if !offered && draft == 0 {
+			need = min(2, d.Caps.Proposals)
+		}
+	}
+	return d.Proposals+need <= d.Caps.Proposals, nil
 }
 
 // exactChain attaches chain s to the candidate of its exact commands, and returns the
