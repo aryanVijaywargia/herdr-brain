@@ -160,12 +160,12 @@ func TestRunEnd(t *testing.T) {
 // The folder of an agent is the pinned folder after ~ and links; a subfolder is not.
 func TestAutomationIn(t *testing.T) {
 	home := t.TempDir()
-	real := filepath.Join(home, "src", "shop")
-	if err := os.MkdirAll(filepath.Join(real, "sub"), 0o700); err != nil {
+	dir := filepath.Join(home, "src", "shop")
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	link := filepath.Join(home, "link")
-	if err := os.Symlink(real, link); err != nil {
+	if err := os.Symlink(dir, link); err != nil {
 		t.Fatal(err)
 	}
 	a := Automation{Folder: "~/src/shop"}
@@ -173,7 +173,7 @@ func TestAutomationIn(t *testing.T) {
 		cwd  string
 		want bool
 	}{
-		{real, true}, {real + "/", true}, {link, true}, {filepath.Join(real, "sub"), false}, {home, false}, {"", false},
+		{dir, true}, {dir + "/", true}, {link, true}, {filepath.Join(dir, "sub"), false}, {home, false}, {"", false},
 		{filepath.Join(home, "gone"), false},
 	} {
 		if got := a.In(tt.cwd, home); got != tt.want {

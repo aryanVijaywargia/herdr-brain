@@ -84,6 +84,16 @@ func (f *automationFixture) launchEnv(h *fakeRunHerdr) Env {
 	return e
 }
 
+// boundArgv approves the tool touch-ran with argv line argv in place of its own, and a binding
+// of it; it returns the automation item id.
+func (f *automationFixture) boundArgv(t *testing.T, argv string) int64 {
+	t.Helper()
+	f.approvedTool(t, strings.Replace(bindTool(f.dir), `argv = ["/usr/bin/touch", "ran"]`, argv, 1))
+	p := f.add(t)
+	f.mustReview(t, fmt.Sprint(p), "--approve")
+	return *f.rows(t).proposal(t, p).ItemID
+}
+
 // launch runs the launch process of run in the main store with e.
 func (f *automationFixture) launch(ctx context.Context, e Env, run int64, paused func()) error {
 	return launcher{Env: e, pid: 4242, paused: paused}.run(ctx, brained.Launch{Run: run, Binding: "default", Store: f.store})
@@ -153,10 +163,7 @@ func TestLaunchRun(t *testing.T) {
 // AC S51: a failure shows in status and on the pane label.
 func TestLaunchFailed(t *testing.T) {
 	f := newAutomationFixture(t)
-	f.approvedTool(t, strings.Replace(bindTool(f.dir), `argv = ["/usr/bin/touch", "ran"]`, `argv = ["/bin/sh", "-c", "exit 3"]`, 1))
-	p := f.add(t)
-	f.mustReview(t, fmt.Sprint(p), "--approve")
-	id := *f.rows(t).proposal(t, p).ItemID
+	id := f.boundArgv(t, `argv = ["/bin/sh", "-c", "exit 3"]`)
 	run := f.claimRun(t, id, "k")
 	h := &fakeRunHerdr{}
 	if err := f.launch(context.Background(), f.launchEnv(h), run, nil); err == nil {
@@ -261,17 +268,13 @@ func TestLaunchBusyElsewhere(t *testing.T) {
 // writes after the stop keeps cancelled. A run with no launch mark cannot be cancelled.
 func TestLaunchCancel(t *testing.T) {
 	f := newAutomationFixture(t)
-	f.approvedTool(t, strings.Replace(bindTool(f.dir), `argv = ["/usr/bin/touch", "ran"]`, `argv = ["/bin/sleep", "30"]`, 1))
-	p := f.add(t)
-	f.mustReview(t, fmt.Sprint(p), "--approve")
-	id := *f.rows(t).proposal(t, p).ItemID
+	id := f.boundArgv(t, `argv = ["/bin/sleep", "30"]`)
 	run := f.claimRun(t, id, "k")
-	var out bytes.Buffer
-	e := f.env(f.sock, "w14:p1", "w14", &out)
-	if err := Automation(context.Background(), e, []string{"cancel", fmt.Sprint(run)}); !errors.Is(err, store.ErrRunNotActive) {
+	if _, err := f.automation(t, "cancel", fmt.Sprint(run)); !errors.Is(err, store.ErrRunNotActive) {
 		t.Errorf("cancel of a run with no launch mark = %v, want ErrRunNotActive", err)
 	}
-
+	var out bytes.Buffer
+	e := f.env(f.sock, "w14:p1", "w14", &out)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	label := make(chan struct{}, 4)

@@ -40,14 +40,7 @@ func Automation(ctx context.Context, e Env, args []string) (err error) {
 	var run func(caller) error
 	switch sub {
 	case "launch":
-		l, err := brained.ParseLaunch(rest)
-		if err != nil {
-			return err
-		}
-		// brain automation cancel stops the run with SIGTERM: the tool's process group stops too.
-		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-		defer stop()
-		return launcher{Env: e, pid: os.Getpid()}.run(ctx, l)
+		return launch(ctx, e, rest)
 	case "add":
 		a, err := parseAdd(rest)
 		if err != nil {
@@ -85,6 +78,19 @@ func Automation(ctx context.Context, e Env, args []string) (err error) {
 	}
 	defer func() { err = errors.Join(err, c.Close()) }()
 	return run(newCaller(e, c))
+}
+
+// launch runs `brain automation launch` with args after "launch": the run of one claimed
+// stop event, that brained starts (E17-S11).
+func launch(ctx context.Context, e Env, args []string) error {
+	l, err := brained.ParseLaunch(args)
+	if err != nil {
+		return err
+	}
+	// brain automation cancel stops the run with SIGTERM: the tool's process group stops too.
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return launcher{Env: e, pid: os.Getpid()}.run(ctx, l)
 }
 
 // addArgs are the arguments of brain automation add.
