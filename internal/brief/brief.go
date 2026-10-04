@@ -81,7 +81,37 @@ type Skill struct {
 	Dispute Dispute
 	// Anchors are the paths of the skill's anchors. The part keeps room for their mark.
 	Anchors []string
+	// Tools are the Brain tools that the skill requires. The part keeps room for their note.
+	Tools []string
+	// Stopped are the required Brain tools that are not approved or are stopped (§8.2, E17-S5).
+	Stopped []string
 }
+
+// toolNote is the note of a skill entry on its required Brain tools that are not approved or
+// are stopped, or "" for none. [NEW] the note form.
+func toolNote(stopped []string) string {
+	if len(stopped) == 0 {
+		return ""
+	}
+	return " (Brain tool not approved or stopped: " + strings.Join(stopped, ", ") + ")"
+}
+
+// Tool is one approved tool as the brief catalog lists it (§10.1): its name, its one-line
+// description and the names of its inputs.
+type Tool struct {
+	Name        string
+	Description string
+	Inputs      []string
+}
+
+// The tool catalog at the end of the workspace part (§10.1, E17-S5). catalogSize is the §10.1
+// default. [NEW] the heading, the instruction line and the entry form
+// "- <name>: <description> Inputs: <input>, <input>".
+const (
+	catalogSize  = 10
+	catalogLabel = "### Tools\n"
+	catalogHint  = "Run a tool with: brain run <name> --<input> <value>. brain tools lists all tools and their inputs.\n"
+)
 
 // The skill list at the end of a part. [NEW] the heading, the instruction line and the entry
 // form "- <name>: <description> File: <path>"; E16-S1 tested them with Claude and Codex.
@@ -106,12 +136,14 @@ func (e *BudgetError) Error() string {
 // Global renders the global part from the active global items and global skills. Its size,
 // with the frame of the brief, must fit the global budget; the skill list counts in it (§8.1).
 func Global(items []Item, skills ...Skill) (string, error) {
-	return part("global", globalLabel, len(frame), globalBudget, items, skills)
+	return part("global", globalLabel, len(frame), globalBudget, items, skills, nil)
 }
 
-// Workspace renders the workspace part from the active items and skills of one workspace.
-func Workspace(items []Item, skills ...Skill) (string, error) {
-	return part("workspace", workspaceLabel, 0, workspaceBudget, items, skills)
+// Workspace renders the workspace part from the active items and skills of one workspace, and
+// the catalog of the tools that its panes can run: the first catalogSize of tools, in the
+// order given (§10.1). The catalog counts in the part budget (§8.1).
+func Workspace(items []Item, tools []Tool, skills ...Skill) (string, error) {
+	return part("workspace", workspaceLabel, 0, workspaceBudget, items, skills, tools[:min(len(tools), catalogSize)])
 }
 
 // GlobalSize returns the size of a rendered global part as its budget counts it, with the
@@ -138,11 +170,13 @@ func LastSession(workspace, harness string, at time.Time, transcript string) str
 		", transcript " + transcript + "\n"
 }
 
-// part renders a label, the items in id order and the skills in name order, so the same items
-// give the same bytes. extra is the size that counts against the budget beyond the part text.
-// The budget counts the room for the dispute mark of every anchor too, so a later dispute
-// always fits (§9.1 "inside the budget"): the build that marks an item never fails.
-func part(name, label string, extra, limit int, items []Item, skills []Skill) (string, error) {
+// part renders a label, the items in id order, the skills in name order and the tools in the
+// order given, so the same items give the same bytes. extra is the size that counts against the
+// budget beyond the part text. The budget counts the room for the dispute mark of every anchor
+// too, so a later dispute always fits (§9.1 "inside the budget"): the build that marks an item
+// never fails. In the same way it counts the room for the note on every required Brain tool of
+// a skill, so a tool that stops later does not fail the build.
+func part(name, label string, extra, limit int, items []Item, skills []Skill, tools []Tool) (string, error) {
 	items = slices.SortedFunc(slices.Values(items), func(a, b Item) int { return cmp.Compare(a.ID, b.ID) })
 	var b strings.Builder
 	b.WriteString(label)
@@ -152,11 +186,12 @@ func part(name, label string, extra, limit int, items []Item, skills []Skill) (s
 		}
 	}
 	writeSkills(&b, skills)
+	writeCatalog(&b, tools)
 	for _, it := range items {
 		extra += markRoom(it.Anchors, it.Dispute)
 	}
 	for _, sk := range skills {
-		extra += markRoom(sk.Anchors, sk.Dispute)
+		extra += markRoom(sk.Anchors, sk.Dispute) + len(toolNote(sk.Tools)) - len(toolNote(sk.Stopped))
 	}
 	if size := extra + b.Len(); size > limit {
 		return "", &BudgetError{Part: name, Size: size, Limit: limit}
@@ -181,7 +216,22 @@ func writeSkills(b *strings.Builder, skills []Skill) {
 		if sk.NotAvailable != "" {
 			b.WriteString(" (not available: " + sk.NotAvailable + ")")
 		}
-		b.WriteString(sk.Dispute.mark() + "\n")
+		b.WriteString(toolNote(sk.Stopped) + sk.Dispute.mark() + "\n")
+	}
+}
+
+// writeCatalog writes the tool catalog, one line for each tool, or nothing when there is none.
+func writeCatalog(b *strings.Builder, tools []Tool) {
+	if len(tools) == 0 {
+		return
+	}
+	b.WriteString(catalogLabel + catalogHint)
+	for _, t := range tools {
+		b.WriteString("- " + t.Name + ": " + strings.Join(strings.Fields(t.Description), " "))
+		if len(t.Inputs) > 0 {
+			b.WriteString(" Inputs: " + strings.Join(t.Inputs, ", "))
+		}
+		b.WriteString("\n")
 	}
 }
 
