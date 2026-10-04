@@ -70,8 +70,13 @@ func Run(ctx context.Context, e Env, args []string) error {
 	// Ctrl-C or a stop of the agent's shell stops the tool's process group too.
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// A brain run in a tool of an automation run is Brain-origin too (§10.4 "No chains").
+	origin := store.OriginAgent
+	if lookupEnv(e.Environ, originEnv) == string(store.OriginAutomation) {
+		origin = store.OriginAutomation
+	}
 	res, err := runChecked(ctx, e, ToolRun{PaneID: lookupEnv(e.Environ, "HERDR_PANE_ID"),
-		WorkspaceID: lookupEnv(e.Environ, "HERDR_WORKSPACE_ID"), Origin: store.OriginAgent, Tool: name,
+		WorkspaceID: lookupEnv(e.Environ, "HERDR_WORKSPACE_ID"), Origin: origin, Tool: name,
 		Inputs: inputs, Stdout: e.Stdout, Stderr: e.Stderr}, inputErr)
 	if err != nil && res.CallID != 0 {
 		return &ExitError{Code: res.ExitCode, Err: err}

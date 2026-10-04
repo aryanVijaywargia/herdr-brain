@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
+	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -347,5 +349,49 @@ func TestAutomationTestBinding(t *testing.T) {
 	got := h.launch(t)
 	if got.l.Store != h.store || got.l.Binding != "s1" || !slices.Contains(got.environ, "HERDR_SOCKET_PATH="+h.f.path) {
 		t.Errorf("launch = %+v %q, want the test store %s and its socket", got.l, got.environ, h.store)
+	}
+}
+
+// AC S59: after a reconnect of brained, the current agent state is a baseline. A stop in the
+// time between, and a duplicate of it, never run; the next live stop runs.
+func TestAutomationReconnect(t *testing.T) {
+	h := newAutoHarness(t, bindings.KindMain)
+	h.agent("w1:p1", "ws_1", "s1", "working", 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	l := newLoop(h.d)
+	defer func() {
+		cancel()
+		l.stop()
+	}()
+	if err := l.start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	h.f.sub(t) // the main stream
+	h.f.statusSubs(t, 1)
+	wantStep(t, h.step(t), Baseline, "w1:p1", GapStart, "")
+	h.set("w1:p1", "idle", 2, "") // the agent stops while the event socket is down
+	if err := l.item(ctx, item{src: l.main, err: syscall.ECONNRESET}); err != nil {
+		t.Fatalf("item = %v, want a reconnect", err)
+	}
+	h.f.sub(t)
+	wantStep(t, h.step(t), Baseline, "w1:p1", GapConnect, "")
+	p := l.panes["w1:p1"]
+	event := func(status string) {
+		t.Helper()
+		if err := l.item(ctx, item{ev: herdr.Event{Kind: herdr.PaneStatusChanged, PaneID: "w1:p1", WorkspaceID: "w1",
+			Status: status}, src: p.stream}); err != nil {
+			t.Fatal(err)
+		}
+		wantStep(t, h.step(t), Change, "w1:p1", "", "")
+	}
+	event("idle") // a late copy of the missed stop
+	h.noLaunch(t)
+	h.set("w1:p1", "working", 3, "")
+	event("working")
+	h.set("w1:p1", "idle", 4, "")
+	event("idle")
+	h.launch(t)
+	if rs := h.runs(t); len(rs) != 1 || rs[0].EventKey != "w1:p1|term_1|s1|4" {
+		t.Errorf("runs = %+v, want one claim of the live stop at seq 4", rs)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"syscall"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
@@ -21,6 +22,10 @@ type RunHerdr interface {
 	Agents(ctx context.Context) ([]herdr.Agent, error)
 	SetPaneToken(ctx context.Context, id, source, name, value string) error
 }
+
+// originEnv tells a brain run in a tool of an automation run that Brain called it, so its call
+// is Brain-origin too and teaches nothing (§10.4 "No chains"). [NEW] the name.
+const originEnv = "BRAIN_CALL_ORIGIN"
 
 // The pane label of an automation run: a herdr metadata token of the triggering pane, whose
 // value is the tool and the result of its newest run. [NEW] the source, the token name and the
@@ -45,6 +50,16 @@ type launcher struct {
 // unknown from the claim on, so a crash at any point leaves unknown. A run that has a launch
 // mark or an end already never runs again: Brain does not retry.
 func (ln launcher) run(ctx context.Context, l brained.Launch) (err error) {
+	// Only the store of a binding opens: a launch with another folder writes nowhere.
+	bs, _, err := bindings.Read(ln.Bindings)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(bs, func(b bindings.Binding) bool {
+		return b.Session == l.Binding && filepath.Clean(b.Store) == filepath.Clean(l.Store)
+	}) {
+		return fmt.Errorf("herdr session %s has no binding to the store %s; nothing was opened", l.Binding, l.Store)
+	}
 	st, err := store.Open(ctx, l.Store, busyTimeout)
 	if err != nil {
 		return err
@@ -69,16 +84,22 @@ func (ln launcher) run(ctx context.Context, l brained.Launch) (err error) {
 	if ln.paused != nil {
 		ln.paused()
 	}
+	// The busy check comes right before the launch mark (§10.4 step 4).
+	if why == nil {
+		why = ln.busy(ctx, b, r, a)
+	}
 	var name string
 	if why == nil {
 		a, name, why = ln.mark(ctx, st, l, r)
 	}
 	if why != nil {
-		_, err := ln.finish(ctx, st, r.ID, store.RunSkipped)
+		_, _, err := ln.finish(ctx, st, r.ID, store.RunSkipped)
 		return errors.Join(fmt.Errorf("run %d of automation %d skipped: %w", r.ID, r.AutomationID, why), err)
 	}
 	labelErr := ln.label(ctx, b, r.PaneID, name, store.RunUnknown)
-	_, runErr := RunTool(ctx, ln.Env, ToolRun{PaneID: r.PaneID, WorkspaceID: r.WorkspaceID, Origin: store.OriginAutomation,
+	e := ln.Env
+	e.Environ = append(e.Environ[:len(e.Environ):len(e.Environ)], originEnv+"="+string(store.OriginAutomation))
+	_, runErr := RunTool(ctx, e, ToolRun{PaneID: r.PaneID, WorkspaceID: r.WorkspaceID, Origin: store.OriginAutomation,
 		Tool: name, ToolID: a.ToolID, ContractHash: a.ContractHash, Stdout: io.Discard, Stderr: io.Discard})
 	result := store.RunOK
 	if runErr != nil {
@@ -86,8 +107,8 @@ func (ln launcher) run(ctx context.Context, l brained.Launch) (err error) {
 	}
 	// A cancel ends ctx, and the run still writes its end.
 	ctx = context.WithoutCancel(ctx)
-	final, err := ln.finish(ctx, st, r.ID, result)
-	if err == nil {
+	final, newest, err := ln.finish(ctx, st, r.ID, result)
+	if err == nil && newest {
 		labelErr = errors.Join(labelErr, ln.label(ctx, b, r.PaneID, name, final))
 	}
 	return errors.Join(runErr, err, labelErr)
@@ -96,9 +117,8 @@ func (ln launcher) run(ctx context.Context, l brained.Launch) (err error) {
 // check builds the caller context of run r from its pane and resolves it again (§10.4 step 3):
 // the pane must resolve to the binding and the store of l, with the pane and the workspace of
 // the event, and its workspace key must be the key of automation a. It never uses the pane
-// that brained started in: brained gives the pane of the event. Then no agent of the
-// workspace may work in the pinned folder (step 4). It returns the binding, or why the run is
-// skipped.
+// that brained started in: brained gives the pane of the event. It returns the binding, or
+// why the run is skipped.
 func (ln launcher) check(ctx context.Context, l brained.Launch, r store.AutomationRun, a store.Automation) (_ bindings.Binding, err error) {
 	c, err := ln.open(ctx, false)
 	if err != nil {
@@ -119,7 +139,7 @@ func (ln launcher) check(ctx context.Context, l brained.Launch, r store.Automati
 	if key != a.WorkspaceKey {
 		return bindings.Binding{}, fmt.Errorf("pane %s is in workspace %s, not in the workspace of automation %d", c.PaneID, key, a.ID)
 	}
-	return c.Binding, ln.busy(ctx, c.Binding, r, a)
+	return c.Binding, nil
 }
 
 // busy fails when an agent in the workspace of run r works in the pinned folder of a (§10.4
@@ -163,17 +183,23 @@ func (ln launcher) mark(ctx context.Context, st *store.Store, l brained.Launch, 
 }
 
 // finish writes result to run id when it has not ended, and returns the result that the row
-// holds then: a cancel that came first keeps cancelled.
-func (ln launcher) finish(ctx context.Context, st *store.Store, id int64, result store.RunResult) (final store.RunResult, err error) {
+// holds then: a cancel that came first keeps cancelled. newest says whether the run is the
+// newest launched run of its automation: an older run that ends later does not hide the
+// result of a newer one.
+func (ln launcher) finish(ctx context.Context, st *store.Store, id int64, result store.RunResult) (final store.RunResult, newest bool, err error) {
 	err = st.Write(ctx, func(tx *sql.Tx) error {
 		if _, err := store.FinishRun(ctx, tx, id, result, ln.Now().UTC()); err != nil {
 			return err
 		}
 		r, err := store.AutomationRunByID(ctx, tx, id)
-		final = r.Result
+		if err != nil {
+			return err
+		}
+		last, ok, err := store.LastRun(ctx, tx, r.AutomationID)
+		final, newest = r.Result, ok && last.ID == id
 		return err
 	})
-	return final, err
+	return final, newest, err
 }
 
 // label shows result of a run of tool name on the pane label of pane id; ok clears it. The

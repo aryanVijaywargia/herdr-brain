@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -189,7 +190,7 @@ func TestLaunchSkip(t *testing.T) {
 	tests := []struct {
 		name   string
 		before func(t *testing.T, f *automationFixture, h *fakeRunHerdr, e *Env, id int64)
-		paused func(t *testing.T, f *automationFixture, id int64)
+		paused func(t *testing.T, f *automationFixture, h *fakeRunHerdr, id int64)
 	}{
 		{"AC S59: an agent works in the folder", func(_ *testing.T, f *automationFixture, h *fakeRunHerdr, _ *Env, _ int64) {
 			h.agents = []herdr.Agent{{PaneID: "w14:p2", WorkspaceID: "w14", Agent: "codex", Status: herdr.StatusWorking, Cwd: f.dir}}
@@ -209,13 +210,18 @@ func TestLaunchSkip(t *testing.T) {
 			}
 			e.Sync = func(context.Context, workspace.Session, *store.Store) error { return nil }
 		}, nil},
-		{"pause while the run waits", nil, func(t *testing.T, f *automationFixture, id int64) {
+		{"an agent starts to work while the run waits", nil, func(_ *testing.T, f *automationFixture, h *fakeRunHerdr, _ int64) {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			h.agents = []herdr.Agent{{PaneID: "w14:p1", WorkspaceID: "w14", Agent: "claude", Status: herdr.StatusWorking, Cwd: f.dir}}
+		}},
+		{"pause while the run waits", nil, func(t *testing.T, f *automationFixture, _ *fakeRunHerdr, id int64) {
 			f.mustAutomation(t, "pause", fmt.Sprint(id))
 		}},
-		{"removal while the run waits", nil, func(t *testing.T, f *automationFixture, id int64) {
+		{"removal while the run waits", nil, func(t *testing.T, f *automationFixture, _ *fakeRunHerdr, id int64) {
 			f.mustAutomation(t, "remove", fmt.Sprint(id))
 		}},
-		{"undo while the run waits", nil, func(t *testing.T, f *automationFixture, id int64) {
+		{"undo while the run waits", nil, func(t *testing.T, f *automationFixture, _ *fakeRunHerdr, id int64) {
 			f.mustUndo(t, fmt.Sprint(id))
 		}},
 	}
@@ -231,10 +237,10 @@ func TestLaunchSkip(t *testing.T) {
 			}
 			var paused func()
 			if tt.paused != nil {
-				paused = func() { tt.paused(t, f, id) }
+				paused = func() { tt.paused(t, f, h, id) }
 			}
-			if err := f.launch(context.Background(), e, run, paused); err == nil || !strings.Contains(err.Error(), "skipped") {
-				t.Errorf("launch = %v, want a skip", err)
+			if err := f.launch(context.Background(), e, run, paused); err == nil {
+				t.Error("launch = nil, want the reason of the skip")
 			}
 			if f.ran(t) {
 				t.Error("the tool ran, want no process")
@@ -389,5 +395,100 @@ func TestRunToolPinned(t *testing.T) {
 	if _, err := RunTool(context.Background(), e, ToolRun{PaneID: "w14:p1", WorkspaceID: "w14", Origin: store.OriginAutomation,
 		Tool: "touch-ran", ToolID: toolID, ContractHash: hash}); err != nil || !f.ran(t) {
 		t.Errorf("RunTool(pinned) = %v, want a run", err)
+	}
+}
+
+// A launch whose store is not the store of its binding opens nothing, so it cannot make or
+// change a store.
+func TestLaunchUnbound(t *testing.T) {
+	f := newAutomationFixture(t)
+	other := t.TempDir()
+	err := launcher{Env: f.launchEnv(&fakeRunHerdr{}), pid: 1}.run(context.Background(),
+		brained.Launch{Run: 1, Binding: "default", Store: other})
+	if err == nil {
+		t.Fatal("launch with an unbound store = nil, want a refusal")
+	}
+	if _, err := os.Stat(filepath.Join(other, "brain.db")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("stat brain.db = %v, want no store in %s", err, other)
+	}
+}
+
+// AC S51, no chains: a brain run inside the tool of an automation run is Brain-origin too. The
+// tool gets the origin in its environment, and brain run logs that origin.
+func TestLaunchOrigin(t *testing.T) {
+	f := newAutomationFixture(t)
+	id := f.boundArgv(t, `argv = ["/bin/sh", "-c", "printf %s \"$BRAIN_CALL_ORIGIN\" > ran"]`)
+	run := f.claimRun(t, id, "k")
+	if err := f.launch(context.Background(), f.launchEnv(&fakeRunHerdr{}), run, nil); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(f.dir, "ran"))
+	if err != nil || string(b) != "automation" {
+		t.Errorf("tool environment origin = %q, %v, want automation", b, err)
+	}
+
+	rf := newRunFixture(t)
+	rf.approvedTool(t, runTool("write-word", rf.dir, "10", writeWord))
+	e := rf.env(rf.sock, "w14:p1", "w14", &bytes.Buffer{})
+	e.Environ = append(e.Environ, "HOME="+rf.dir, originEnv+"=automation")
+	if err := Run(context.Background(), e, []string{"write-word", "--word", "nested"}); err != nil {
+		t.Fatal(err)
+	}
+	if cs := rf.calls(t); len(cs) != 1 || cs[0].Origin != store.OriginAutomation {
+		t.Errorf("tool_calls = %+v, want one call of origin automation", cs)
+	}
+}
+
+// AC: an event in workspace B runs the tool of the binding of B only, also when workspace A
+// has a tool of the same name and an automation of its own.
+func TestLaunchOtherWorkspace(t *testing.T) {
+	f := newAutomationFixture(t)
+	f.bound(t) // workspace A (w14): touch-ran in f.dir
+	dirB := t.TempDir()
+	f.panes["w15:p1"] = herdr.Pane{ID: "w15:p1", WorkspaceID: "w15", TabID: "w15:t1"}
+	s := openStore(t, f.store)
+	key := "ws_a15"
+	pid, err := saveDraft(context.Background(), s, draft{text: bindTool(dirB), kind: store.KindTool, scope: store.ScopeWorkspace,
+		workspaceKey: &key, target: "workspace w15 (blog)"}, testNow)
+	closeStore(t, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inB := func(args ...string) {
+		t.Helper()
+		e := f.env(f.sock, "w15:p1", "w15", &bytes.Buffer{})
+		cmd := Review
+		if args[0] == "automation" {
+			cmd, args = Automation, args[1:]
+		}
+		if err := cmd(context.Background(), e, args); err != nil {
+			t.Fatalf("%q = %v", args, err)
+		}
+	}
+	inB(fmt.Sprint(pid), "--approve")
+	inB("automation", "add", "touch-ran", "--folder", dirB, "--cli", "claude")
+	r := f.rows(t)
+	p := r.proposals[len(r.proposals)-1].ID
+	inB(fmt.Sprint(p), "--approve")
+	idB := *f.rows(t).proposal(t, p).ItemID
+
+	sb := openStore(t, f.store)
+	var run int64
+	write(t, sb, func(tx *sql.Tx) (err error) {
+		run, err = store.ClaimRun(context.Background(), tx, store.AutomationRun{AutomationID: idB, EventKey: "k",
+			PaneID: "w15:p1", WorkspaceID: "w15", Claimed: testNow})
+		return err
+	})
+	closeStore(t, sb)
+	e := f.launchEnv(&fakeRunHerdr{})
+	e.Environ = append(e.Environ, "HERDR_PANE_ID=w15:p1", "HERDR_WORKSPACE_ID=w15") // the last entry wins
+	if err := f.launch(context.Background(), e, run, nil); err != nil {
+		t.Fatalf("launch = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dirB, "ran")); err != nil {
+		t.Errorf("the tool of B did not run: %v", err)
+	}
+	if f.ran(t) {
+		t.Error("the tool of A ran, want the tool of B only")
 	}
 }

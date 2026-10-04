@@ -72,11 +72,11 @@ func StartRun(ctx context.Context, tx *sql.Tx, id int64, pid int, now time.Time)
 		timeArg(now), pid, id); err != nil {
 		return fmt.Errorf("start run %d: %w", id, err)
 	}
-	return setLastRun(ctx, tx, r.AutomationID, RunUnknown, now)
+	return setLastRun(ctx, tx, r.AutomationID, id, RunUnknown, now)
 }
 
-// FinishRun writes result to run id, and to its automation as the last result, when the run
-// has not ended. It reports whether it wrote: a cancel that came first keeps cancelled.
+// FinishRun writes result to run id when the run has not ended, and to its automation as the
+// last result when the run has a launch mark. It reports whether it wrote: a cancel that came first keeps cancelled.
 func FinishRun(ctx context.Context, tx *sql.Tx, id int64, result RunResult, now time.Time) (bool, error) {
 	r, err := AutomationRunByID(ctx, tx, id)
 	if err != nil || !r.Finished.IsZero() {
@@ -86,7 +86,10 @@ func FinishRun(ctx context.Context, tx *sql.Tx, id int64, result RunResult, now 
 		timeArg(now), result, id); err != nil {
 		return false, fmt.Errorf("finish run %d: %w", id, err)
 	}
-	return true, setLastRun(ctx, tx, r.AutomationID, result, now)
+	if r.Started.IsZero() {
+		return true, nil // a run with no launch mark never ran: the last result stays
+	}
+	return true, setLastRun(ctx, tx, r.AutomationID, id, result, now)
 }
 
 // CancelRun records cancelled for active run id and returns the run (§10.4 "Cancel"). It
@@ -105,9 +108,12 @@ func CancelRun(ctx context.Context, tx *sql.Tx, id int64, now time.Time) (Automa
 	return r, nil
 }
 
-func setLastRun(ctx context.Context, tx *sql.Tx, automation int64, result RunResult, now time.Time) error {
-	if _, err := tx.ExecContext(ctx, `UPDATE automations SET last_result = ?, last_run = ? WHERE id = ?`,
-		result, timeArg(now), automation); err != nil {
+// setLastRun writes result as the last result of automation, unless a newer run of it has a
+// launch mark: an older run that ends later does not hide the result of a newer one.
+func setLastRun(ctx context.Context, tx *sql.Tx, automation, run int64, result RunResult, now time.Time) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE automations SET last_result = ?, last_run = ? WHERE id = ?
+		AND NOT EXISTS (SELECT 1 FROM automation_runs WHERE automation_id = ? AND id > ? AND started_at IS NOT NULL)`,
+		result, timeArg(now), automation, automation, run); err != nil {
 		return fmt.Errorf("write last run of automation %d: %w", automation, err)
 	}
 	return nil
@@ -138,10 +144,11 @@ func AutomationRuns(ctx context.Context, tx *sql.Tx) ([]AutomationRun, error) {
 		func(rows *sql.Rows) (AutomationRun, error) { return scanRun(rows) })
 }
 
-// LastRun reads the newest run of automation id, and false when it has none.
+// LastRun reads the newest run of automation id that has a launch mark, and false when it has
+// none. A skipped run never ran, so it does not hide the result of an older run.
 func LastRun(ctx context.Context, tx *sql.Tx, id int64) (AutomationRun, bool, error) {
 	r, err := scanRun(tx.QueryRowContext(ctx, `SELECT `+runColumns+` FROM automation_runs WHERE automation_id = ?
-		ORDER BY id DESC LIMIT 1`, id))
+		AND started_at IS NOT NULL ORDER BY id DESC LIMIT 1`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return AutomationRun{}, false, nil
 	}

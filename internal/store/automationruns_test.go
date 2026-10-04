@@ -140,14 +140,26 @@ func TestRunEnd(t *testing.T) {
 	if r := readRun(t, s, id); r.Result != RunCancelled || r.Active() {
 		t.Errorf("run = %+v, want cancelled", r)
 	}
-	second := claim(t, s, a, "k2")
+	// Two runs overlap, and the newer one fails first: the older ok that ends later does not hide
+	// it. A newer skipped run never ran, so it hides nothing either.
+	second, third, skipped := claim(t, s, a, "k2"), claim(t, s, a, "k3"), claim(t, s, a, "k4")
 	write(t, s, func(tx *sql.Tx) error {
-		if wrote, err := FinishRun(ctx, tx, second, RunFailed, at.Add(time.Minute)); !wrote || err != nil {
-			t.Errorf("FinishRun(failed) = %v, %v, want a write", wrote, err)
+		for _, id := range []int64{second, third} {
+			if err := StartRun(ctx, tx, id, 1, at); err != nil {
+				return err
+			}
+		}
+		for _, end := range []struct {
+			id     int64
+			result RunResult
+		}{{third, RunFailed}, {second, RunOK}, {skipped, RunSkipped}} {
+			if wrote, err := FinishRun(ctx, tx, end.id, end.result, at.Add(time.Minute)); !wrote || err != nil {
+				t.Errorf("FinishRun(%d, %s) = %v, %v, want a write", end.id, end.result, wrote, err)
+			}
 		}
 		last, ok, err := LastRun(ctx, tx, a)
-		if err != nil || !ok || last.ID != second || last.Result != RunFailed {
-			t.Errorf("LastRun() = %+v, %v, %v, want run %d failed", last, ok, err, second)
+		if err != nil || !ok || last.ID != third || last.Result != RunFailed {
+			t.Errorf("LastRun() = %+v, %v, %v, want run %d failed", last, ok, err, third)
 		}
 		got, err := AutomationByID(ctx, tx, a)
 		if err != nil || got.LastResult != string(RunFailed) {
