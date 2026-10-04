@@ -180,7 +180,8 @@ const callWindow = 28 * 24 * time.Hour
 
 // tools shows the count of active tools, and each one that may not run, with the reason: a
 // contract or a tool file that changed after your approval stops the tool (§10.1, E17-S4).
-// Then it shows the ran calls of the last 4 weeks and the active tools with none (§13, E17-S5).
+// Then it shows the ran calls of the last 4 weeks, of any tool, and the active tools with none
+// (§13, E17-S5).
 // [NEW] the calls line form.
 func (s *statusCall) tools(ctx context.Context) {
 	var ts []store.Tool
@@ -209,7 +210,10 @@ func (s *statusCall) tools(ctx context.Context) {
 		if calls[t.ID] == 0 {
 			idle = append(idle, t.Name)
 		}
-		total += calls[t.ID]
+	}
+	// A tool that ran and then stopped or retired keeps its calls in the count.
+	for _, n := range calls {
+		total += n
 	}
 	if len(stopped) == 0 {
 		s.w.printf("\ntools: %d active, none stopped\n", len(ts))
@@ -219,7 +223,7 @@ func (s *statusCall) tools(ctx context.Context) {
 	for _, l := range stopped {
 		s.w.printf("%s\n", l)
 	}
-	if len(ts) == 0 {
+	if len(ts) == 0 && total == 0 {
 		return
 	}
 	s.w.printf("  calls in the last 4 weeks: %d ran", total)

@@ -386,4 +386,30 @@ func TestStatusToolCalls(t *testing.T) {
 	if !strings.Contains(out, "\n  calls in the last 4 weeks: 2 ran; no ran call: idle\n") {
 		t.Errorf("Status() =\n%s\nwant 2 ran calls and idle with none", out)
 	}
+
+	// The calls of a tool that is no longer active still count (Sol review, PR #233).
+	for _, id := range []int64{used, idle} {
+		f.retireTool(t, id)
+	}
+	out = f.mustStatus(t)
+	if !strings.Contains(out, "\ntools: 0 active, none stopped\n  calls in the last 4 weeks: 2 ran\n") {
+		t.Errorf("Status() =\n%s\nwant 2 ran calls with no active tool", out)
+	}
+}
+
+// retireTool writes a retired revision of tool item id, at revision 1.
+func (f *fixture) retireTool(t *testing.T, id int64) {
+	t.Helper()
+	s := openStore(t, f.store)
+	defer closeStore(t, s)
+	ctx := context.Background()
+	write(t, s, func(tx *sql.Tx) error {
+		r, err := store.ItemRevisionByKey(ctx, tx, id, 1)
+		if err != nil {
+			return err
+		}
+		r.State = store.StateRetired
+		_, err = store.WriteRevision(ctx, tx, 1, r)
+		return err
+	})
 }

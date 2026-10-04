@@ -319,3 +319,23 @@ func TestSkillStoppedTool(t *testing.T) {
 		t.Errorf("workspace part = %q, want the note on test-package and lint", w)
 	}
 }
+
+// A skill's required tool resolves as brain run finds it: a stopped workspace tool hides an
+// approved global tool of the same name, so the entry has the note (Sol review, PR #233).
+func TestSkillRequiredToolPrecedence(t *testing.T) {
+	s, out := newStore(t)
+	addToolIn(t, s, "", store.StateActive, namedTool("lint"))
+	addToolIn(t, s, "k1", store.StateDraft, namedTool("lint"))
+	addSkill(t, s, "k1", "---\nname: check\ndescription: Check the code.\nrequired-tools: lint\n"+
+		"example: \"Check it.\"\n---\n\n1. Run lint.\n")
+	addSkill(t, s, "", "---\nname: check-all\ndescription: Check all code.\nrequired-tools: lint\n"+
+		"example: \"Check it.\"\n---\n\n1. Run lint.\n")
+	mustBuild(t, s, out)
+	b := mustRead(t, out, "k1")
+	if !strings.Contains(b.Workspace, "SKILL.md (Brain tool not approved or stopped: lint)\n") {
+		t.Errorf("workspace part = %q, want the note on lint", b.Workspace)
+	}
+	if strings.Contains(b.Global, "not approved or stopped") {
+		t.Errorf("global part = %q, want no note: the global lint is approved", b.Global)
+	}
+}

@@ -195,27 +195,45 @@ func (rs toolRows) catalog(key string) ([]brief.Tool, error) {
 }
 
 // required finds the Brain tools among the required tools of a skill (a list joined by
-// commas, or "none") that a pane of workspace key sees, and of them the ones with no ready
-// tool of the name: not approved, or stopped (§8.2). A name that no tools row has is not a
-// Brain tool, such as gh. The build does not read the tool files: brain run and brain status
-// find a tool file that changed (E17-S4).
+// commas, or "none") that a pane of workspace key sees, and of them the ones that brain run
+// refuses: not approved, or stopped (§8.2). Each name resolves as brain run finds it
+// (store.ToolByName): a tool of the workspace first, then a global one; the approved one, then
+// the newest. A retired tool is not found, so a name with only retired tools is not approved.
+// A name that no tools row has is not a Brain tool, such as gh. The build does not read the
+// tool files: a hand-edited tool file stops the build itself (§7.5 step 5).
 func (rs toolRows) required(list, key string) (brain, stopped []string) {
 	for _, name := range strings.Split(list, ",") {
 		name = strings.TrimSpace(name)
-		found, ready := false, false
-		for _, t := range rs {
-			if t.Name == name && sees(t, key) {
-				found, ready = true, ready || t.Ready()
+		var found, pick *store.Tool
+		for i, t := range rs {
+			if t.Name != name || !sees(t, key) {
+				continue
+			}
+			found = &rs[i]
+			if t.State != store.StateRetired && (pick == nil || before(t, *pick)) {
+				pick = &rs[i]
 			}
 		}
-		if found {
-			brain = append(brain, name)
+		if found == nil {
+			continue
 		}
-		if found && !ready {
+		brain = append(brain, name)
+		if pick == nil || !pick.Ready() {
 			stopped = append(stopped, name)
 		}
 	}
 	return brain, stopped
+}
+
+// before says whether brain run finds tool a before tool b of the same name (store.ToolByName).
+func before(a, b store.Tool) bool {
+	if a.Scope != b.Scope {
+		return a.Scope == store.ScopeWorkspace
+	}
+	if (a.ApprovedHash != nil) != (b.ApprovedHash != nil) {
+		return a.ApprovedHash != nil
+	}
+	return a.ID > b.ID
 }
 
 // skillEntry is one skill of a part: its brief entry and its file.
