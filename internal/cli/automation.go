@@ -7,11 +7,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/brained"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
@@ -22,7 +26,10 @@ const automationUsage = `usage:
                              propose to run an approved tool in a folder after each stop of the agent
   brain automation list      list the automations of this workspace
   brain automation pause <item> | resume <item>   stop new runs, or start them again
-  brain automation remove <item>                  stop all future runs`
+  brain automation remove <item>                  stop all future runs
+  brain automation cancel <run>                   stop an active run
+  brain automation launch --run <id> --binding <herdr session> --store <folder>
+                             run one claimed run (brained starts it)`
 
 // Automation runs `brain automation` with args after "automation" (§10.4, E17-S10).
 func Automation(ctx context.Context, e Env, args []string) (err error) {
@@ -32,6 +39,15 @@ func Automation(ctx context.Context, e Env, args []string) (err error) {
 	sub, rest := args[0], args[1:]
 	var run func(caller) error
 	switch sub {
+	case "launch":
+		l, err := brained.ParseLaunch(rest)
+		if err != nil {
+			return err
+		}
+		// brain automation cancel stops the run with SIGTERM: the tool's process group stops too.
+		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return launcher{Env: e, pid: os.Getpid()}.run(ctx, l)
 	case "add":
 		a, err := parseAdd(rest)
 		if err != nil {
@@ -43,17 +59,20 @@ func Automation(ctx context.Context, e Env, args []string) (err error) {
 			return fmt.Errorf("list takes no arguments\n%s", automationUsage)
 		}
 		run = func(cl caller) error { return cl.listAutomations(ctx) }
-	case "pause", "resume", "remove":
+	case "pause", "resume", "remove", "cancel":
 		if len(rest) != 1 {
-			return fmt.Errorf("want one item id, got %d\n%s", len(rest), automationUsage)
+			return fmt.Errorf("want one id, got %d\n%s", len(rest), automationUsage)
 		}
 		id, err := strconv.ParseInt(rest[0], 10, 64)
 		if err != nil || id <= 0 {
-			return fmt.Errorf("bad item id %q\n%s", rest[0], automationUsage)
+			return fmt.Errorf("bad id %q\n%s", rest[0], automationUsage)
 		}
 		run = func(cl caller) error {
-			if sub == "remove" {
+			switch sub {
+			case "remove":
 				return cl.removeAutomation(ctx, id)
+			case "cancel":
+				return cl.cancelRun(ctx, id)
 			}
 			return cl.setAutomation(ctx, id, sub == "resume")
 		}

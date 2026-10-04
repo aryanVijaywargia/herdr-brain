@@ -11,6 +11,7 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -235,10 +236,11 @@ func (s *statusCall) tools(ctx context.Context) {
 
 // automations shows the count of active automations, the paused ones, and each one that may
 // not run, with the reason: for example a tool contract that changed after your approval of
-// the binding stops it until you approve it again (§10.4, E17-S10).
+// the binding stops it until you approve it again (§10.4, E17-S10). A newest run that failed or
+// whose result is unknown shows too (§10.4 "Failure feedback", E17-S11).
 func (s *statusCall) automations(ctx context.Context) {
 	var n, paused int
-	var stopped []string
+	var stopped, runs []string
 	out := filepath.Join(s.Binding.Store, outDir)
 	s.fail(s.Store.Write(ctx, func(tx *sql.Tx) error {
 		as, err := store.ActiveAutomations(ctx, tx)
@@ -247,6 +249,13 @@ func (s *statusCall) automations(ctx context.Context) {
 		}
 		n = len(as)
 		for _, a := range as {
+			r, ok, err := store.LastRun(ctx, tx, a.ID)
+			if err != nil {
+				return err
+			}
+			if ok && (r.Result == store.RunFailed || r.Result == store.RunUnknown) {
+				runs = append(runs, runLine(a, r))
+			}
 			if !a.Enabled {
 				paused++
 				continue
@@ -261,9 +270,23 @@ func (s *statusCall) automations(ctx context.Context) {
 		return nil
 	}))
 	s.w.printf("\nautomations: %d active, %d paused, %d stopped\n", n, paused, len(stopped))
-	for _, l := range stopped {
+	for _, l := range append(stopped, runs...) {
 		s.w.printf("%s\n", l)
 	}
+}
+
+// runLine is the status line of run r of automation a whose result is failed or unknown. An
+// unknown run with a launch mark may still run, or it ended in a crash. [NEW] the line form.
+func runLine(a store.Automation, r store.AutomationRun) string {
+	l := fmt.Sprintf("  last run %s: automation %d (%s): run %d of pane %s, claimed %s", r.Result, a.ID, a.Folder, r.ID,
+		r.PaneID, r.Claimed.Format("2006-01-02 15:04"))
+	switch {
+	case r.Result == store.RunUnknown && r.Active():
+		l += "; it may still run, or it stopped early (brain automation cancel " + strconv.FormatInt(r.ID, 10) + " stops it)"
+	case r.Result == store.RunUnknown:
+		l += "; it has no launch mark, so its tool did not run"
+	}
+	return l
 }
 
 // evalSession is the herdr session of the eval runner, whose test store holds the results of
