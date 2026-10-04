@@ -47,6 +47,8 @@ measurement (raw counts, no score; a week starts on Monday 00:00 UTC):
 
 tools: 0 active, none stopped
 
+automations: 0 active, 0 paused, 0 stopped
+
 relink: old workspaces with the same root: 3
   ws_a13 (w13 w13): replaced by ws_a15 (w15 blog)
   ws_a12 (w12 w12): closed; same root as ws_a14 (w14 shop)
