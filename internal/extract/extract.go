@@ -44,7 +44,8 @@ type ref struct {
 	workspace string // the Brain workspace key of the observation
 	sender    store.Sender
 	excerpt   string
-	kind      signal.Kind // the kind of the signal of the observation
+	kind      signal.Kind          // the kind of the signal of the observation
+	cmd       *store.CommandRecord // the command record of the observation; nil for none
 }
 
 // job is one batch to extract: its stable id and start watermark, and its input. The known
@@ -98,6 +99,9 @@ func (p Pass) Run(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
+	// The exact repeats of command chains need no model call (E17-S6). They run after the
+	// batches, so a skill that the extractor made of the same chain stops a tool draft (§10.3).
+	errs = append(errs, p.Store.Write(ctx, func(tx *sql.Tx) error { return p.exactTools(ctx, tx) }))
 	return errors.Join(errs...)
 }
 
@@ -284,8 +288,13 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 	var rs []ref
 	for id, k := range kinds {
 		o := byID[id]
+		// The model copies the command of a tool draft whole: the excerpt is cut at 500
+		// characters, the command record at 4 KB (§6.7).
+		if o.Command != nil && !heldBack(*o.Command) {
+			o.Excerpt = o.Command.Argv
+		}
 		rs = append(rs, ref{id: fmt.Sprintf("e%d", id), obs: id, identity: o.CaptureIdentity, workspace: o.WorkspaceKey,
-			sender: o.Sender, excerpt: o.Excerpt, kind: k})
+			sender: o.Sender, excerpt: o.Excerpt, kind: k, cmd: o.Command})
 	}
 	slices.SortFunc(rs, func(a, b ref) int { return int(a.obs - b.obs) })
 	return rs
@@ -439,8 +448,12 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	if c.Refs = kept; err != nil || len(kept) == 0 {
 		return err
 	}
+	// No tool from a command that held a secret or was cut (§6.7): the claim adds nothing.
+	if c.Tool != "" && slices.ContainsFunc(c.Refs, func(r ref) bool { return r.cmd != nil && heldBack(*r.cmd) }) {
+		return nil
+	}
 	c = redactClaim(c)
-	claim, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: normal(c.Situation), Rule: normal(c.Rule)}, now)
+	claim, err := store.ClaimID(ctx, tx, claimKey(c), now)
 	if err != nil {
 		return err
 	}
@@ -581,10 +594,13 @@ func outcomeOf(d store.Delivery, ok bool, item int64) (store.OutcomeKind, int64,
 	return "", 0, false
 }
 
-// candidateKind is the candidate kind of claim c: the kind of the first signal of its evidence
-// that is a candidate kind. Else [NEW] a procedure claim is a procedure, and any other claim a
-// correction.
+// candidateKind is the candidate kind of claim c: a command chain for a tool, else the kind of
+// the first signal of its evidence that is a candidate kind. Else [NEW] a procedure claim is a
+// procedure, and any other claim a correction.
 func candidateKind(c Claim) store.CandidateKind {
+	if c.Tool != "" {
+		return store.CandidateCommandChain
+	}
 	for _, r := range c.Refs {
 		switch r.kind {
 		case signal.Correction, signal.Procedure, signal.Failure, signal.CommandChain:
@@ -628,14 +644,16 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 	case err != nil:
 		return err
 	}
-	// [NEW] a fact claim makes a fact, a skill claim a skill (E16-S4); every other claim kind
-	// makes a preference, the kind of a lesson. Tools and automations come from later epics.
+	// [NEW] a fact claim makes a fact, a skill claim a skill (E16-S4), a tool claim a tool
+	// (E17-S6); every other claim kind makes a preference, the kind of a lesson.
 	kind := store.KindPreference
 	switch c.Kind {
 	case "fact":
 		kind = store.KindFact
 	case kindSkill:
 		kind = store.KindSkill
+	case kindTool:
+		kind = store.KindTool
 	}
 	conflicts, err := conflictItems(ctx, tx, cand, c)
 	if err != nil {
@@ -663,22 +681,35 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 	return store.MarkProposed(ctx, tx, id)
 }
 
+// claimKey is the claim key of claim c, in normal form. A tool keeps its key (toolKey), so the
+// case of its commands stays.
+func claimKey(c Claim) store.ClaimKey {
+	if c.Tool != "" {
+		return store.ClaimKey{Situation: c.Situation, Rule: c.Rule}
+	}
+	return store.ClaimKey{Situation: normal(c.Situation), Rule: normal(c.Rule)}
+}
+
 // claimText is the item text of claim c [NEW]: "situation: rule".
 func claimText(c Claim) string { return c.Situation + ": " + c.Rule }
 
 // draft is the text and the diff of a new item of claim c: the skill text for a skill (the
-// review shows the whole file, S8), else the claim text.
+// review shows the whole file, S8), the tool text for a tool (the whole contract, E17-S3), else
+// the claim text.
 func draft(c Claim) (text, diff string) {
-	if c.Skill != nil {
+	switch {
+	case c.Skill != nil:
 		text = c.Skill.Text()
 		return text, store.SkillDiff("", text)
+	case c.Tool != "":
+		return c.Tool, store.SkillDiff("", c.Tool)
 	}
 	text = claimText(c)
 	return text, "+ " + text
 }
 
-// redactClaim returns c with each secret of its model text replaced (Redact). checkSkill
-// filtered the skill fields already.
+// redactClaim returns c with each secret of its model text replaced (Redact). checkSkill and
+// checkTool filtered the skill and tool fields already.
 func redactClaim(c Claim) Claim {
 	c.Situation, c.Rule, c.ExpectedBenefit = Redact(c.Situation), Redact(c.Rule), Redact(c.ExpectedBenefit)
 	return c

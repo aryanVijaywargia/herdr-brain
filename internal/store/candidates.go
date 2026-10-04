@@ -220,7 +220,9 @@ func (g Gates) Reached(c Candidate) bool { return g.Support(c) >= g[c.Kind].Min 
 
 // ErrEvidenceRefused is the error of an evidence link that Brain does not attach: the
 // observation is from another scope, its sender cannot support the candidate kind (§6.5), or
-// it does not count (§6.4).
+// it does not count (§6.4). A command record supports a command chain candidate even when its
+// pane read counts instead: the pane read holds no command record, and an assistant sender
+// cannot support a command chain, so the occurrence still counts once (E17-S6).
 var ErrEvidenceRefused = errors.New("evidence refused")
 
 // Attach adds observation obs as evidence of the candidate of c.ClaimID in the scope of c
@@ -233,12 +235,14 @@ func Attach(ctx context.Context, tx *sql.Tx, c Candidate, obs int64, gates Gates
 		identity, workspace, harness string
 		sender                       Sender
 		session                      int64
-		counts                       bool
+		counts, command              bool
 		at                           time.Time
 	}
 	err := tx.QueryRowContext(ctx, `SELECT o.capture_identity, COALESCE(g.workspace_key, ''), s.harness, o.sender,
-		s.id, o.counts, o.at FROM observations o JOIN segments g ON g.id = o.segment_id JOIN sessions s ON s.id = g.session_id
-		WHERE o.id = ?`, obs).Scan(&l.identity, &l.workspace, &l.harness, &l.sender, &l.session, &l.counts, timeDest{&l.at})
+		s.id, o.counts, EXISTS (SELECT 1 FROM command_records c WHERE c.observation_id = o.id), o.at
+		FROM observations o JOIN segments g ON g.id = o.segment_id JOIN sessions s ON s.id = g.session_id
+		WHERE o.id = ?`, obs).Scan(&l.identity, &l.workspace, &l.harness, &l.sender, &l.session, &l.counts, &l.command,
+		timeDest{&l.at})
 	if err != nil {
 		return 0, fmt.Errorf("read observation %d: %w", obs, err)
 	}
@@ -247,7 +251,7 @@ func Attach(ctx context.Context, tx *sql.Tx, c Candidate, obs int64, gates Gates
 		return 0, fmt.Errorf("observation %d is from workspace %q, not %q: %w", obs, l.workspace, c.WorkspaceKey, ErrEvidenceRefused)
 	case !supports(c.Kind, l.sender):
 		return 0, fmt.Errorf("observation %d: sender %s cannot support a %s: %w", obs, l.sender, c.Kind, ErrEvidenceRefused)
-	case !l.counts:
+	case !l.counts && (!l.command || c.Kind != CandidateCommandChain):
 		return 0, fmt.Errorf("observation %d does not count: %w", obs, ErrEvidenceRefused)
 	}
 	var id int64

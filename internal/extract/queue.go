@@ -227,3 +227,28 @@ func (p Pass) why(ctx context.Context, tx *sql.Tx, j job, d Day) (string, store.
 	}
 	return d.Full(), b, nil
 }
+
+// roundRobin orders xs as order orders the extraction jobs (§7.3 queue): the first of each
+// workspace key (key), then the second, and so on; the key whose last extractor call is oldest
+// first. So under the daily proposal cap each workspace gets its turn.
+func roundRobin[T any](xs []T, key func(T) string, last map[string]time.Time) []T {
+	byKey := map[string][]T{}
+	var keys []string
+	for _, x := range xs {
+		k := key(x)
+		if _, ok := byKey[k]; !ok {
+			keys = append(keys, k)
+		}
+		byKey[k] = append(byKey[k], x)
+	}
+	slices.SortStableFunc(keys, func(a, b string) int { return last[a].Compare(last[b]) })
+	out := make([]T, 0, len(xs))
+	for i := 0; len(out) < len(xs); i++ {
+		for _, k := range keys {
+			if i < len(byKey[k]) {
+				out = append(out, byKey[k][i])
+			}
+		}
+	}
+	return out
+}
