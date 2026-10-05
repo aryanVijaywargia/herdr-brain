@@ -219,14 +219,21 @@ func (p *plan) apply(in *bufio.Reader, stdout io.Writer, bin string) (bool, erro
 
 // chooseExtractor asks which CLI runs the extractor of the store in folder dir, and its model,
 // and adds the write of the answer (D4) to p. It first explains where the excerpts go (D9). A
-// store with a chosen CLI keeps it with no question, unless again.
+// store with a recorded choice keeps it with no question, unless again. The choice none is
+// recorded too, as a store row with no CLI, so that a second setup asks nothing.
 func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, p *plan, in *bufio.Reader, stdout io.Writer) error {
 	fmt.Fprint(stdout, locality)
 	cur, err := readExtractor(ctx, dir)
 	if err != nil {
 		return err
 	}
-	if cur.CLI != "" && !again {
+	// A store row has a change time; a store with no row has no choice yet.
+	chosen := !cur.Changed.IsZero()
+	switch {
+	case chosen && !again && cur.CLI == "":
+		p.say("- Extractor: none. Already done. To choose one: brain setup --extractor\n")
+		return nil
+	case chosen && !again:
 		p.say("- Extractor: %s, %s. Already done. To change it: brain setup --extractor\n", cur.CLI,
 			cmp.Or(cur.Model, "its default model"))
 		return nil
@@ -235,25 +242,11 @@ func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, p
 	if err != nil {
 		return err
 	}
-	none := "No extractor CLI chosen: Brain makes no extractor call, and brain status says so. " +
-		"To choose one later: brain setup --extractor"
 	cli := store.ExtractorCLI(strings.ToLower(answer))
 	switch cli {
 	case store.ExtractorClaude, store.ExtractorCodex:
 	case "", "none":
-		if cur.CLI == "" {
-			fmt.Fprintln(stdout, none)
-			return nil
-		}
-		// A stored choice is cleared: none means no call (D4, D9).
-		p.say("- Extractor: clear the choice %s. Brain then makes no extractor call.\n", cur.CLI)
-		p.add(func() error {
-			if err := writeExtractor(ctx, dir, "", "", d.now()); err != nil {
-				return err
-			}
-			fmt.Fprintln(stdout, none)
-			return nil
-		})
+		planNone(ctx, d, dir, cur, p, stdout)
 		return nil
 	default:
 		fmt.Fprintf(stdout, "Unknown answer %q: the extractor choice stays as it was. To choose one: brain setup --extractor\n", answer)
@@ -287,6 +280,28 @@ func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, p
 		return nil
 	})
 	return nil
+}
+
+// planNone plans the extractor choice none for the store in folder dir, whose setting is cur.
+func planNone(ctx context.Context, d setupDeps, dir string, cur store.ExtractorSetting, p *plan, stdout io.Writer) {
+	switch {
+	case !cur.Changed.IsZero() && cur.CLI == "":
+		p.say("- Extractor: none. Already done.\n")
+		return
+	case cur.CLI == "":
+		p.say("- Extractor: record none in the store %s. Brain makes no extractor call.\n", dir)
+	default:
+		// A stored choice is cleared: none means no call (D4, D9).
+		p.say("- Extractor: clear the choice %s. Brain then makes no extractor call.\n", cur.CLI)
+	}
+	p.add(func() error {
+		if err := writeExtractor(ctx, dir, "", "", d.now()); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "No extractor CLI chosen: Brain makes no extractor call, and brain status says so. "+
+			"To choose one later: brain setup --extractor")
+		return nil
+	})
 }
 
 // writeExtractor records cli and model in the store in folder dir; cli "" clears the choice.
@@ -595,6 +610,7 @@ func planHooks(ctx context.Context, d setupDeps, bin string, p *plan, stdout io.
 		}
 	}
 	if hooked {
+		p.say("- Brain records each hook entry it adds in %s, with a copy of each hook file before its first change.\n", inst.Record)
 		p.say("- To remove the hook entries later: brain uninstall (a dry run), then brain uninstall --apply.\n" +
 			"  It removes only Brain's entries, and keeps every other byte of each file.\n")
 	}

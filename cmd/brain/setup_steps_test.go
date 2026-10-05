@@ -210,6 +210,7 @@ func TestSetupOneYes(t *testing.T) {
 	}
 	for _, want := range []string{"Step 3: the changes.", "- Binding: write ", "Make the symlink ",
 		"Add this entry to the SessionStart array of ", "Add these entries to ", "brain uninstall --apply",
+		"Brain records each hook entry it adds in " + filepath.Join(home, ".local", "share", "brain", "install.json"),
 		"- Extractor: record claude", "Bound session", "Linked ", "Added the Brain hook for codex",
 		"Added the hook record entries for claude", "Step 4: trust the hook in Codex."} {
 		if !strings.Contains(out, want) {
@@ -271,9 +272,13 @@ func TestSetupKeepsEditedEntry(t *testing.T) {
 	if err := os.Remove(filepath.Join(home, ".local", "bin", "brain")); err != nil {
 		t.Fatal(err)
 	}
+	// The first setup recorded the extractor choice none, so the one answer is the yes.
 	code, out, errOut := runSetup(t, "y\n")
 	if code != 0 {
 		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
+	}
+	if _, err := os.Readlink(filepath.Join(home, ".local", "bin", "brain")); err != nil {
+		t.Errorf("setup did not apply its plan: no link: %v\n%s", err, out)
 	}
 	if !strings.Contains(out, file+" holds a Brain hook entry for codex that you edited. Brain keeps it.") ||
 		strings.Contains(out, "Add this entry to the SessionStart array of "+file) {
@@ -502,7 +507,8 @@ func TestSetupOverlap(t *testing.T) {
 	if now := mustRead(t, file); !bytes.Equal(now, other) {
 		t.Errorf("bindings file changed:\n%s\n->\n%s", other, now)
 	}
-	if code, out, errOut := runSetup(t, "\ny\n"); code != 0 {
+	// The other setup recorded the extractor choice none, so the one answer is the yes.
+	if code, out, errOut := runSetup(t, "y\n"); code != 0 {
 		t.Fatalf("setup again = %d: %s\n%s", code, errOut, out)
 	}
 	if bs := readBindings(t, home); len(bs) != 2 {

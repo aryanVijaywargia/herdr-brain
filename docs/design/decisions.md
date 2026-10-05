@@ -111,9 +111,10 @@ An action needs no `PATH`. A popup closes by itself, and it needs no pane id.
 It checks herdr, asks the extractor choice, and then shows every write in one plan: the binding, the link, the hook entries, the hook record entries and the extractor setting, with the uninstall steps.
 It asks once: "Apply all of this? [y/N]". "y" writes every step. "n", an empty answer or EOF writes nothing.
 A step that is already right shows as "already done". With nothing to write, setup asks nothing.
+The extractor choice "none" is recorded too (a store row with no CLI), so a second setup does not ask it again. `brain setup --extractor` asks it again.
 The link rule stays: setup never replaces a file at the link path. The plan says so and prints the binary path.
 If one write fails, setup stops with the error. A second `brain setup` completes the rest.
-Tests: `TestSetupOneYes`, `TestSetupNo`, `TestSetupKeepsEditedEntry`, `TestSetupTestBinding`, `TestPlanLinkKeepsExistingFiles`.
+Tests: `TestSetupOneYes`, `TestSetupNo`, `TestSetupKeepsEditedEntry`, `TestSetupExtractorNone`, `TestSetupTestBinding`, `TestPlanLinkKeepsExistingFiles`.
 
 ## E2-S6: plugin `[[events]]` in M1 (#11)
 

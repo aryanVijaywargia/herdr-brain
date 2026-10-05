@@ -88,26 +88,45 @@ func TestSetupExtractor(t *testing.T) {
 	}
 }
 
-// No CLI, an unknown answer, or the answer no: setup chooses no CLI and makes no store file.
-// Brain never picks one by itself.
+// No CLI, an unknown answer, or the answer no: setup chooses no CLI. Brain never picks one by
+// itself. The choice none is recorded, so a second setup asks nothing (AC 3); an unknown answer
+// or the answer no makes no store file.
 func TestSetupExtractorNone(t *testing.T) {
-	for name, answers := range map[string]string{
-		"none":      "none\ny\n",
-		"no answer": "\ny\n",
-		"unknown":   "gemini\ny\n",
-		"no":        "claude\n\nn\n",
+	for name, c := range map[string]struct {
+		answers  string
+		recorded bool
+	}{
+		"none":      {"none\ny\n", true},
+		"no answer": {"\ny\n", true},
+		"unknown":   {"gemini\ny\n", false},
+		"no":        {"claude\n\nn\n", false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := setupHome(t, "0.9.1")
-			code, out, errOut := runSetup(t, answers)
+			code, out, errOut := runSetup(t, c.answers)
 			if code != 0 {
 				t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 			}
-			if _, err := os.Stat(filepath.Join(home, ".local", "share", "brain", "main", store.FileName)); !os.IsNotExist(err) {
-				t.Errorf("store file: %v, want none", err)
-			}
 			if strings.Contains(out, "\nExtractor: ") { // the line after a write; the plan line starts with "- "
 				t.Errorf("setup chose an extractor:\n%s", out)
+			}
+			_, err := os.Stat(filepath.Join(home, ".local", "share", "brain", "main", store.FileName))
+			if !c.recorded {
+				if !os.IsNotExist(err) {
+					t.Errorf("store file: %v, want none", err)
+				}
+				return
+			}
+			if x := extractorOf(t, home); x.CLI != "" || x.Changed.IsZero() {
+				t.Errorf("extractor = %+v, want the choice none recorded", x)
+			}
+			before := snapshot(t, home)
+			code, out, errOut = runSetup(t, "")
+			if code != 0 || strings.Contains(out, "?") || !strings.Contains(out, "- Extractor: none. Already done.") {
+				t.Errorf("second setup = %d asked a question: %s\n%s", code, errOut, out)
+			}
+			if after := snapshot(t, home); !maps.Equal(before, after) {
+				t.Errorf("the second setup changed files")
 			}
 		})
 	}
@@ -131,7 +150,7 @@ func TestSetupExtractorKeepsSwitch(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	code, out, errOut := runSetup(t, "claude\n\ny\n")
+	code, out, errOut := runSetup(t, "claude\n\ny\n", "--extractor")
 	if code != 0 || !strings.Contains(out, "Extraction stays off for the whole store") {
 		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 	}
