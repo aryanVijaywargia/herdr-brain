@@ -46,7 +46,7 @@ After you approve the item, the next Claude Code or Codex session in that worksp
 
 ### Setup
 
-`brain setup` shows each step and asks before each write. "No" at a step leaves its files as they are.
+`brain setup` shows all its changes in one plan and asks once. "No" writes nothing.
 Run it again at any time: it changes nothing that is already right.
 
 1. It checks the herdr version of the session, and stops if herdr is older than 0.9.1.
@@ -55,7 +55,7 @@ Run it again at any time: it changes nothing that is already right.
    Setup refuses a test store that is, holds or sits inside the main store or another test store, also through links.
 3. herdr does not put the plugin on your `PATH`. Setup shows the binary path and offers a `~/.local/bin/brain` link.
    It never edits your shell config.
-4. For Claude Code and Codex, when on `PATH`, it shows the hook entry and how to remove it, then adds it on yes.
+4. For Claude Code and Codex, when on `PATH`, it shows the hook entry and how to remove it.
 5. Codex runs a new hook only after you trust it. Setup prints the steps: start `codex`, open `/hooks`, and press `t`.
 6. It ends with a short first-use guide.
 

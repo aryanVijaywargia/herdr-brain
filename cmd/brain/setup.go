@@ -258,7 +258,7 @@ func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, p
 		return nil
 	}
 	p.say("- Extractor: record %s, %s in the store %s.\n", cli, cmp.Or(model, "its default model"), dir)
-	p.say("  Each extractor call sends short excerpts, after the secret filter, to the provider of %s (D9, Step 2).\n", cli)
+	p.say("  Each extractor call sends short excerpts, after the secret filter, to the provider of %s, as Step 2 says.\n", cli)
 	p.add(func() error {
 		if err := writeExtractor(ctx, dir, cli, model, d.now()); err != nil {
 			return err

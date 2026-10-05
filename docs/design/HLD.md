@@ -846,7 +846,7 @@ The facts below come from vendor docs and source, read on 2026-09-27. None is te
 
 ### 8.3 The herdr hook (`brain hook`)
 
-Brain installs one hook entry in each CLI's user-level config, as its profile says. It asks you first and shows the uninstall steps. It keeps all other hooks in those files, for example the herdr integration hooks.
+Brain installs one hook entry in each CLI's user-level config, as its profile says. Setup shows all its changes and the uninstall steps, then asks once. It keeps all other hooks in those files, for example the herdr integration hooks.
 
 What `brain hook` does at session start ("print nothing" means the profile's `output_none`: no bytes for Claude and Codex, `{}` for agy, E16-S2):
 1. If `HERDR_ENV` is not `1`: print nothing, exit 0. A session outside herdr gets no Brain items.
