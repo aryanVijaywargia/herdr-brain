@@ -126,6 +126,8 @@ A new user no longer types `herdr plugin action invoke brain.setup`.
 - With no `herdr` on PATH, a timeout or `BRAIN_NO_AUTO_SETUP=1`, the child does nothing. A build by hand, by CI, before `plugin link` or by tests calls no `herdr`.
 - The new `start` action runs `brain start`. It starts `brained` (see the D7 note), then opens the setup popup when the session has no binding.
 
+**Note (2026-10-05, E19-S4 #240): `brain doctor --fix`.** It applies each repair that `brain doctor` offers (today: the new hook entries of a moved or other binary) with no question. It prints the question and "y (--fix)". An entry that you edited stays, as before. Plain `brain doctor` still asks. `brain update` runs it after an update. Tests: `TestDoctorFix`, `TestDoctorFixArgs`.
+
 herdr facts (source v0.9.1, `herdrdev/herdr` tag `v0.9.1`):
 - `src/cli/plugin.rs:193` and `:1567` (`create_plugin_temp_dir`): the install builds in `<herdr config>/plugins/.tmp-install-<pid>-<ms>/checkout`. `:259` removes that folder when the install ends, also after a failure. Only `plugin install` uses the label `install`.
 - `src/cli/plugin.rs:1329` and `:1511` (`scrub_herdr_runtime_env`): the build gets null stdin and pipes for stdout and stderr. herdr removes `HERDR_SOCKET_PATH`, `HERDR_CLIENT_SOCKET_PATH`, `HERDR_SESSION` (`:1515`), `HERDR_BIN_PATH`, `HERDR_ENV`, the workspace, tab and pane ids, and every `HERDR_PLUGIN_*`. So `HERDR_SESSION` is **not** kept.
@@ -313,6 +315,35 @@ $S/h session stop brain-e2s6; $S/h session delete brain-e2s6
 - A reinstall keeps the old `brained`, which runs the old binary until the server stops. The new binary runs from the next server start.
 - Live check: see the D3 note. One `brained` after the install, after a second `brain.start` and after a reinstall.
 - Tests: `TestStartTwiceStartsOneBrained`, `TestRunning`, `TestSpawnBrainedDetached`.
+
+**Note (2026-10-05, E19-S4 #240, owner-approved): `brain update` and the `brained` restart.**
+herdr has no plugin update. `brain update [--check]` does it, and `brained` runs the new binary with no herdr restart.
+- `brain update` reads the install from `herdr plugin list --json --plugin brain`, not from a fixed string. herdr answers from its registry file when no server runs.
+  - `source.kind` `github`: a managed install. `owner`, `repo`, `subdir`, `requested_ref` and `resolved_commit` come from herdr (v0.9.1 `src/api/schema/plugins.rs:71` `PluginSourceInfo`, set at `src/cli/plugin.rs:197-204`).
+    The newest commit is `git ls-remote https://github.com/<owner>/<repo>.git HEAD`, the URL that herdr fetches (`src/cli/plugin.rs` `remote_url`).
+    The update runs `herdr plugin install <owner>/<repo> --yes`. herdr refuses that over a linked plugin (`ensure_replacement_allowed`).
+  - An install at a `--ref`: `update` stops and prints the install command, because it follows the default branch only.
+  - `source.kind` `local`: a `herdr plugin link` checkout at `plugin_root`. The installed commit is `git rev-parse HEAD`, the newest is `git ls-remote origin HEAD`. On `main` with no `git status --porcelain` output, it runs `git pull --ff-only` and `sh scripts/build.sh`. Else it stops with the reason and changes nothing.
+  - After the install or the build, it runs the new binary's `brain doctor --fix`. Outside a herdr pane, that doctor fails with "not in a herdr pane", and `update` exits 1 after it says that the update is done.
+  - The install folder stays `plugins/github/<slug>-<hash>/` (`src/plugin_paths.rs:9` `managed_checkout_path`, from the plugin id only; see D1). So the hook entries keep their path.
+  - `git` runs with `GIT_TERMINAL_PROMPT=0`. [NEW] `herdr plugin list` has a 5 s deadline. The install, git and the build have none.
+- `brained` keeps the path of its binary from its start (`paths.BinaryPath`), because on Linux `os.Executable` of a replaced file ends in " (deleted)".
+  - [NEW] Check: at each tick (`checkEvery`, 2 s), `brained` stats that path. A new inode or a new modification time is a change. A missing file is no change yet: a reinstall swaps the folder (D1).
+  - [NEW] Method: on a change, `brained` ends its run, drops the D7 lock (the deferred unlock) and calls `exec` of the new binary with `brained` and the same environment. The pid stays. The new binary takes the D7 lock again at its start.
+  - A `brain start` from the install build (E19-S3) can run at the same moment. The D7 lock keeps one copy: the loser exits with `ErrRunning`.
+- Live check (herdr 0.9.1, 2026-10-05, as D1 and the D3 note: scratch HOME, a local bare clone with `url.insteadOf`, one headless scratch server started with `env -i`; the main server and the real `default` session were not touched):
+
+| Step | Result |
+|---|---|
+| install at commit `3e59880` | `brained` pid 71978, binary inode 52588496. |
+| one more commit on the bare clone, `brain update --check` | "installed: … commit 3e59880ee880", "newest: … commit 1f73c3d5a42f", "update available", exit 0. |
+| `brain update` from a shell with no pane variables | The install ran ("Installed brain"). `brain doctor --fix` said "not in a herdr pane", so `update` exited 1 with "the update is done, but brain doctor --fix reports a problem". |
+| about 2 s later | Still one `brained`, pid 71978. `lsof` txt inode 52594403, the new `bin/brain`. A second `brain brained` exited with "brained already runs for herdr session \"default\"". |
+| one more commit, `brain update` with the pane variables of `w1:p1` | Install, then "all checks passed", exit 0. `brained` pid 71978, txt inode 52595195 (the new file). |
+| `brain update --check` | "up to date". |
+| scratch server stop (its pid) | `brained` exited. Scratch folders removed. |
+
+- Tests: `TestCheck`, `TestManagedUpdate`, `TestManagedInstallFails`, `TestManagedRef`, `TestLinked`, `TestDoctorFails` (`internal/update`, fake `herdr`, local bare remote), `TestRestartRunsNewBinary`, `TestRunRestartsOnMove`, `TestChanged` (`internal/brained`).
 
 ### D8. Claude capture: the screen read plus hooks, and no scroll
 
