@@ -121,6 +121,7 @@ A new user no longer types `herdr plugin action invoke brain.setup`.
 - At the end of a good build, `scripts/build.sh` checks for an install build. [NEW] Signal: the checkout path ends in `/plugins/.tmp-install-*/checkout`.
 - On an install build, it starts a detached `sh` child with stdin, stdout and stderr on `/dev/null`, and exits.
 - The child waits until the staging folder is gone and `herdr plugin list --plugin brain` lists brain. [NEW] The wait is at most 60 s, with a poll each second.
+- [NEW] Each `herdr` call of the child stops after 5 s. A herdr request has no deadline, so a server that does not answer would hold the child forever (Sol review, PR #244).
 - Then it runs `herdr --session <name> plugin action invoke brain.start` for each running session in `herdr session list`.
 - With no `herdr` on PATH, a timeout or `BRAIN_NO_AUTO_SETUP=1`, the child does nothing. A build by hand, by CI, before `plugin link` or by tests calls no `herdr`.
 - The new `start` action runs `brain start`. It starts `brained` (see the D7 note), then opens the setup popup when the session has no binding.
@@ -154,7 +155,7 @@ h plugin install aryanVijaywargia/herdr-brain --ref <this branch> -y        # re
 | reinstall (popup closed first) | Plugin log: `start` succeeded, exit 0. No `brain setup` process: no popup. Still one `brained`, the same pid. |
 | scratch server stop (its pid) | `brained` exited on the end of the event socket. |
 
-Tests: `TestBuildInstallStartsBrain`, `TestBuildStartsNoChild`, `TestBuildChildGivesUp`, `TestStartPopupOnlyWithoutBinding`, `TestManifestStartAction`.
+Tests: `TestBuildInstallStartsBrain`, `TestBuildStartsNoChild`, `TestBuildChildGivesUp` (also a herdr that does not answer), `TestStartPopupOnlyWithoutBinding`, `TestManifestStartAction`.
 
 ## E2-S6: plugin `[[events]]` in M1 (#11)
 
