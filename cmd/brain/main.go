@@ -13,6 +13,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/cli"
 	"github.com/aryanVijaywargia/herdr-brain/internal/event"
 	"github.com/aryanVijaywargia/herdr-brain/internal/hook"
+	"github.com/aryanVijaywargia/herdr-brain/internal/update"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -23,7 +24,8 @@ const usage = `usage: brain <command>
 commands:
   version   print the Brain version
   status    show Brain status
-  doctor    check the Brain setup and print the fix of each failed check
+  doctor    [--fix]: check the Brain setup and print the fix of each failed check; --fix applies each
+            offered repair with no question
   setup     [--session <name> [--test <folder>]] [--extractor]: bind a herdr session, add the agent hooks,
             choose the extractor CLI
   remember  "<text>" [--global | --workspace <w>] [--kind <k>]: draft an item for your review
@@ -43,6 +45,8 @@ commands:
   hook      --profile <name> --event start|prompt|tool|stop: the agent hooks (start prints the brief or nothing)
   brained   the herdr listener of one herdr session (herdr starts it; D7)
   start     start brained for this herdr session, and open setup when it has no binding (the start action)
+  update    [--check]: update the Brain plugin to the newest commit of its repo, then run brain doctor --fix;
+            --check only compares. The only Brain command that uses the network
   suggest   the live suggestion of one prompt (the hook or brained starts it)
   run       <tool> [--<input> <value>]...: run an approved tool in this workspace; exits with its exit code
   tools     list the approved tools that this workspace can run, with their inputs
@@ -101,6 +105,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = event.Main(context.Background(), args[1:], os.Environ())
 	case "start":
 		err = start(context.Background(), osStartDeps(os.Environ()))
+	case "update":
+		err = update.Main(context.Background(), args[1:], os.Environ(), stdout, stderr)
 	case "brained":
 		err = brained.Main(context.Background(), os.Environ(), stderr)
 		if errors.Is(err, brained.ErrStop) {
