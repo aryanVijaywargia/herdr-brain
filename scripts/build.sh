@@ -48,16 +48,34 @@ auto_start() {
 	(
 		trap '' HUP
 		cd /
-		while [ -d "$staging" ] || ! herdr plugin list --plugin brain |
+		while [ -d "$staging" ] || ! bounded plugin list --plugin brain |
 			awk '$1 == "-" && $2 == "brain" { f = 1 } END { exit !f }'; do
 			[ "$left" -gt 0 ] || exit 0
 			left=$((left - 1))
 			sleep 1
 		done
-		herdr session list | awk 'NR > 1 && $2 == "running" { print $1 }' | while read -r s; do
-			herdr --session "$s" plugin action invoke brain.start || :
+		bounded session list | awk 'NR > 1 && $2 == "running" { print $1 }' | while read -r s; do
+			bounded --session "$s" plugin action invoke brain.start || :
 		done
 	) </dev/null >/dev/null 2>&1 &
+}
+
+# bounded runs herdr "$@" and kills it after 5 s: a herdr request has no deadline, and a
+# server that does not answer would hold the child forever. [NEW] 5 s, as setupHerdrDeadline.
+bounded() {
+	herdr "$@" &
+	p=$!
+	(
+		sleep 5 &
+		s=$!
+		trap 'kill $s; exit 0' TERM
+		wait $s
+		kill "$p"
+	) >/dev/null 2>&1 &
+	k=$!
+	wait "$p" && r=0 || r=$?
+	kill "$k" 2>/dev/null || :
+	return $r
 }
 
 # from_source builds this checkout. Callers in a `||` list turn off set -e, so check go build.

@@ -482,9 +482,10 @@ func TestGitAutoMaintenanceOff(t *testing.T) {
 
 // fakeHerdr is a herdr that appends each command line to $HERDR_LOG. It lists the brain
 // plugin, or no plugin when HERDR_NO_BRAIN is set, and three herdr sessions: default and work
-// run, old is stopped.
+// run, old is stopped. With HERDR_HANG set, plugin list never answers.
 const fakeHerdr = `#!/bin/sh
 echo "$*" >> "$HERDR_LOG"
+[ "$*" = "plugin list --plugin brain" ] && [ -n "${HERDR_HANG:-}" ] && exec sleep 60
 case "$*" in
 "plugin list --plugin brain")
 	if [ -n "${HERDR_NO_BRAIN:-}" ]; then echo "No plugins installed."; else
@@ -647,23 +648,25 @@ func TestBuildStartsNoChild(t *testing.T) {
 	}
 }
 
-// #239: when the install does not end in time, or herdr does not list brain, the child stops
-// and invokes nothing.
+// #239: when the install does not end in time, herdr does not list brain or herdr does not
+// answer, the child stops and invokes nothing.
 func TestBuildChildGivesUp(t *testing.T) {
 	for _, c := range []struct {
 		name       string
 		endInstall bool
 		calls      string // the herdr calls of the child, each line once or more
+		env        string
 	}{
-		{"install does not end", false, ""},
-		{"brain not listed", true, "plugin list --plugin brain\n"},
+		{"install does not end", false, "", "HERDR_NO_BRAIN=1"},
+		{"brain not listed", true, "plugin list --plugin brain\n", "HERDR_NO_BRAIN=1"},
+		{"herdr does not answer", true, "plugin list --plugin brain\n", "HERDR_HANG=1"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			assetName(t)
 			dir, staging := installCheckout(t)
 			log := filepath.Join(t.TempDir(), "herdr.log")
 			done := buildDetached(t, dir, withFakeHerdr(t, noGoPath(t)), log,
-				"BRAIN_AUTO_SETUP_WAIT=1", "HERDR_NO_BRAIN=1")
+				"BRAIN_AUTO_SETUP_WAIT=1", c.env)
 			if c.endInstall {
 				if err := os.RemoveAll(staging); err != nil {
 					t.Fatal(err)
