@@ -114,32 +114,19 @@ func osSetupDeps(environ []string) setupDeps {
 // herdr 0.9.1 has no persistent session identity (§4.2, [M0]), so no binding is ever marked
 // "rebind needed", and setup has no rebind path for it (§8.3 continuity).
 func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, stdout io.Writer) error {
-	flags := flag.NewFlagSet("setup", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	name := flags.String("session", "", "")
-	test := flags.String("test", "", "")
-	again := flags.Bool("extractor", false, "")
-	if err := flags.Parse(args); err != nil {
-		return fmt.Errorf("%w\n%s", err, setupUsage)
+	name, test, again, err := setupFlags(d, args)
+	if err != nil {
+		return err
 	}
-	if flags.NArg() != 0 {
-		return fmt.Errorf("unexpected argument %q\n%s", flags.Arg(0), setupUsage)
-	}
-	if *test != "" && *name == "" {
-		return fmt.Errorf("--test needs --session <name>\n%s", setupUsage)
-	}
-	// This herdr session: a pane of the default session has no HERDR_SESSION (§4.2).
-	*name = cmp.Or(*name, lookupEnv(d.environ, "HERDR_SESSION"), "default")
-
-	fmt.Fprintf(stdout, "Step 1: check the herdr version of session %q.\n", *name)
-	sess, err := herdrSession(ctx, d, *name, stdout)
+	fmt.Fprintf(stdout, "Step 1: check the herdr version of session %q.\n", name)
+	sess, err := herdrSession(ctx, d, name, stdout)
 	if err != nil {
 		return err
 	}
 
 	// The whole plan comes before the first write, so that a refusal or "no" writes nothing.
 	var p plan
-	storeDir, err := planBind(d, sess, *test, &p, stdout)
+	storeDir, err := planBind(d, sess, test, &p, stdout)
 	if err != nil {
 		return err
 	}
@@ -160,37 +147,41 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 	}
 
 	fmt.Fprintln(stdout, "\nStep 2: the extractor CLI.")
-	if err := chooseExtractor(ctx, d, storeDir, *again, &p, in, stdout); err != nil {
+	if err := chooseExtractor(ctx, d, storeDir, again, &p, in, stdout); err != nil {
 		return err
 	}
 
 	fmt.Fprintln(stdout, "\nStep 3: the changes.")
 	fmt.Fprint(stdout, p.text.String())
-	trust := trustNow
-	if len(p.steps) == 0 {
-		fmt.Fprintln(stdout, "Every step is already done. Setup changes nothing.")
-	} else {
-		ok, err := ask(in, stdout, "Apply all of this? [y/N] ")
-		if err != nil {
-			return err
-		}
-		if !ok {
-			fmt.Fprintf(stdout, "Setup wrote nothing. Run brain setup again to apply the changes. Run Brain with: %s\n", bin)
-		} else {
-			// A failed write stops setup; a second setup plans the rest again.
-			for _, step := range p.steps {
-				if err := step(); err != nil {
-					return err
-				}
-			}
-			trust = trust || trustAdded
-		}
+	applied, err := p.apply(in, stdout, bin)
+	if err != nil {
+		return err
 	}
-	if trust {
+	if trustNow || applied && trustAdded {
 		fmt.Fprint(stdout, "\nStep 4: "+codexTrust)
 	}
 	fmt.Fprint(stdout, "\n"+firstUse)
 	return nil
+}
+
+// setupFlags parses the arguments of setup. The session name defaults to this herdr session.
+func setupFlags(d setupDeps, args []string) (name, test string, again bool, err error) {
+	flags := flag.NewFlagSet("setup", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	flags.StringVar(&name, "session", "", "")
+	flags.StringVar(&test, "test", "", "")
+	flags.BoolVar(&again, "extractor", false, "")
+	if err := flags.Parse(args); err != nil {
+		return "", "", false, fmt.Errorf("%w\n%s", err, setupUsage)
+	}
+	if flags.NArg() != 0 {
+		return "", "", false, fmt.Errorf("unexpected argument %q\n%s", flags.Arg(0), setupUsage)
+	}
+	if test != "" && name == "" {
+		return "", "", false, fmt.Errorf("--test needs --session <name>\n%s", setupUsage)
+	}
+	// This herdr session: a pane of the default session has no HERDR_SESSION (§4.2).
+	return cmp.Or(name, lookupEnv(d.environ, "HERDR_SESSION"), "default"), test, again, nil
 }
 
 // plan holds the writes of setup and the text that shows them, so that setup asks once for
@@ -203,6 +194,28 @@ type plan struct {
 func (p *plan) say(format string, a ...any) { fmt.Fprintf(&p.text, format, a...) }
 
 func (p *plan) add(step func() error) { p.steps = append(p.steps, step) }
+
+// apply asks once and runs every step on yes. It reports whether it ran them. A failed write
+// stops setup; a second setup plans the rest again.
+func (p *plan) apply(in *bufio.Reader, stdout io.Writer, bin string) (bool, error) {
+	if len(p.steps) == 0 {
+		fmt.Fprintln(stdout, "Every step is already done. Setup changes nothing.")
+		return false, nil
+	}
+	ok, err := ask(in, stdout, "Apply all of this? [y/N] ")
+	if err != nil || !ok {
+		if err == nil {
+			fmt.Fprintf(stdout, "Setup wrote nothing. Run brain setup again to apply the changes. Run Brain with: %s\n", bin)
+		}
+		return false, err
+	}
+	for _, step := range p.steps {
+		if err := step(); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
 
 // chooseExtractor asks which CLI runs the extractor of the store in folder dir, and its model,
 // and adds the write of the answer (D4) to p. It first explains where the excerpts go (D9). A
@@ -539,15 +552,10 @@ func rmdirs(made []string) error {
 // reports whether the entry of a profile with hook_trust "codex" is in place now, and whether
 // the plan adds one, so that setup shows the trust steps.
 func planHooks(ctx context.Context, d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, trustAdded bool, err error) {
-	home, err := paths.Home()
+	inst, err := installer(bin)
 	if err != nil {
 		return false, false, err
 	}
-	record, err := paths.InstallFile()
-	if err != nil {
-		return false, false, err
-	}
-	inst := &install.Installer{Home: home, Record: record, Binary: bin}
 	ps, err := adapter.LoadAll(d.profiles)
 	if err != nil {
 		return false, false, err
@@ -591,6 +599,19 @@ func planHooks(ctx context.Context, d setupDeps, bin string, p *plan, stdout io.
 			"  It removes only Brain's entries, and keeps every other byte of each file.\n")
 	}
 	return trustNow, trustAdded, nil
+}
+
+// installer is the hook installer of the user's home and install record, for binary bin.
+func installer(bin string) (*install.Installer, error) {
+	home, err := paths.Home()
+	if err != nil {
+		return nil, err
+	}
+	record, err := paths.InstallFile()
+	if err != nil {
+		return nil, err
+	}
+	return &install.Installer{Home: home, Record: record, Binary: bin}, nil
 }
 
 // planRecords plans the hook record entries of p (E11-S5, §6.1), which setup adds after its

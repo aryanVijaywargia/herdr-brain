@@ -180,7 +180,7 @@ func TestSetupOneYes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fakeCLI(t, home, "claude", p.TestedVersion)
+	fakeClaude(t, home, p.TestedVersion)
 	code, out, errOut := runSetup(t, "claude\n\ny\n")
 	if code != 0 {
 		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
@@ -240,7 +240,7 @@ func TestSetupNo(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			fakeCLI(t, home, "claude", p.TestedVersion)
+			fakeClaude(t, home, p.TestedVersion)
 			before := snapshot(t, home)
 			code, out, errOut := runSetup(t, answers)
 			if code != 0 {

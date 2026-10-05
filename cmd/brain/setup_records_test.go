@@ -10,11 +10,11 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 )
 
-// fakeCLI makes the fake kind CLI answer `--version` with version.
-func fakeCLI(t *testing.T, home, kind, version string) {
+// fakeClaude makes the fake claude CLI answer `--version` with version.
+func fakeClaude(t *testing.T, home, version string) {
 	t.Helper()
 	script := "#!/bin/sh\necho '" + version + " (fake)'\n"
-	if err := os.WriteFile(filepath.Join(home, "path", kind), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "path", "claude"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -31,7 +31,7 @@ func TestSetupHookRecords(t *testing.T) {
 
 	t.Run("yes", func(t *testing.T) {
 		home := setupHome(t, "0.9.1")
-		fakeCLI(t, home, "claude", p.TestedVersion)
+		fakeClaude(t, home, p.TestedVersion)
 		code, out, errOut := runSetup(t, "\ny\n")
 		if code != 0 {
 			t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
@@ -65,7 +65,7 @@ func TestSetupHookRecords(t *testing.T) {
 	})
 	t.Run("retest", func(t *testing.T) {
 		home := setupHome(t, "0.9.1")
-		fakeCLI(t, home, "claude", "9.9.9")
+		fakeClaude(t, home, "9.9.9")
 		code, out, errOut := runSetup(t, "\ny\n")
 		if code != 0 {
 			t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
