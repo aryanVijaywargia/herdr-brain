@@ -52,9 +52,47 @@ var ErrStop = errors.New("brained stops")
 // ErrRunning means that another brained holds the lock of the same herdr session.
 var ErrRunning = errors.New("brained already runs")
 
+// errRestart means that the brained binary file changed: brain update, or a new install or
+// build, put a new binary at its path (E19-S4).
+var errRestart = errors.New("the brained binary changed")
+
 // Main runs brained for the herdr session of environ, the environment that herdr gives a
-// [[startup]] process. It reads the panes with Capture and writes its errors to log.
+// [[startup]] process. It reads the panes with Capture and writes its errors to log. When its
+// binary file changes, it drops the lock and runs the new binary in its place (E19-S4).
 func Main(ctx context.Context, environ []string, log io.Writer) error {
+	// The path comes from the start: on Linux, os.Executable of a replaced file ends in
+	// " (deleted)".
+	bin, err := paths.BinaryPath()
+	if err != nil {
+		return err
+	}
+	fi, err := os.Stat(bin)
+	if err != nil {
+		return err
+	}
+	err = serve(ctx, environ, log, func() bool { return changed(bin, fi) })
+	if !errors.Is(err, errRestart) {
+		return err
+	}
+	_, _ = fmt.Fprintf(log, "brained: %s changed; brained runs it again\n", bin) // a failed log write has no other place to go
+	// [NEW] The method: exec in place keeps the pid and the environment. The lock file closes
+	// on exec (O_CLOEXEC), and the new binary takes the D7 lock again at its start.
+	return syscall.Exec(bin, []string{bin, "brained"}, environ)
+}
+
+// changed reports whether the file at bin is no longer the file fi: a new file (inode), or
+// the same file with a new time. A missing file is no change yet: a reinstall swaps the plugin
+// folder, and for a moment bin/brain does not exist (D1).
+func changed(bin string, fi os.FileInfo) bool {
+	now, err := os.Stat(bin)
+	if err != nil {
+		return false // the next check looks again; Main keeps the old binary until then
+	}
+	return !os.SameFile(fi, now) || !now.ModTime().Equal(fi.ModTime())
+}
+
+// serve runs brained with the D7 lock until it stops. moved reports a change of the binary.
+func serve(ctx context.Context, environ []string, log io.Writer, moved func() bool) error {
 	e, err := parseEnv(environ)
 	if err != nil {
 		return err
@@ -73,7 +111,7 @@ func Main(ctx context.Context, environ []string, log io.Writer) error {
 	d := &daemon{
 		env: e, sock: herdr.Socket{Path: e.socket}, bindingsFile: bf,
 		handler: NewCapture(herdr.Socket{Path: e.socket}, environ), log: log, tick: t.C,
-		environ: environ, launch: StartLaunch, now: time.Now,
+		environ: environ, launch: StartLaunch, now: time.Now, moved: moved,
 		tries: connectTries, pause: connectPause, queue: queueSize, extract: extractPass,
 		stale: func(ctx context.Context, g Gate) error { return Stale(ctx, g, "", time.Now) },
 	}

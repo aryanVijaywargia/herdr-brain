@@ -39,6 +39,7 @@ type daemon struct {
 	onBehind     func()                                  // tests only: called after a reader drops an event
 	extract      func(ctx context.Context, g Gate) error // one extraction pass of the store of g; nil for none
 	stale        func(ctx context.Context, g Gate) error // the stale check of every workspace of the store of g; nil for none
+	moved        func() bool                             // reports a new brained binary at its path; nil for none
 }
 
 // item is one event, or the end of a stream, from a reader.
@@ -104,6 +105,11 @@ func (d *daemon) run(ctx context.Context) error {
 			}
 			l.retry(ctx, GapBehind)
 		case <-d.tick:
+			// [NEW] The binary check runs at each tick (checkEvery), so a new binary runs within
+			// about 2 s of its install.
+			if d.moved != nil && d.moved() {
+				return errRestart
+			}
 			if err := l.check(ctx); err != nil {
 				return err
 			}
