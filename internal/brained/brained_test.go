@@ -169,6 +169,23 @@ func TestSecondCopy(t *testing.T) {
 	other()
 }
 
+// Running sees the lock of a brained of the same session, and leaves the lock free (E19-S3).
+func TestRunning(t *testing.T) {
+	dir := t.TempDir()
+	environ := []string{"HERDR_SESSION=s1", "HERDR_SOCKET_PATH=/tmp/none", "HERDR_PLUGIN_STATE_DIR=" + dir, "HERDR_PLUGIN_ID=brain"}
+	if got, err := Running(environ); err != nil || got {
+		t.Fatalf("Running with no brained = %v, %v; want false", got, err)
+	}
+	unlock, err := lock(dir, "s1") // Running dropped its lock
+	if err != nil {
+		t.Fatalf("lock after Running = %v", err)
+	}
+	defer unlock()
+	if got, err := Running(environ); err != nil || !got {
+		t.Errorf("Running with a brained = %v, %v; want true", got, err)
+	}
+}
+
 // D7: brained stops on the end of the event socket, and at the next check after Brain is
 // disabled or unlinked.
 func TestStops(t *testing.T) {

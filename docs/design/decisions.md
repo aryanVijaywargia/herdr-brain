@@ -116,6 +116,47 @@ The link rule stays: setup never replaces a file at the link path. The plan says
 If one write fails, setup stops with the error. A second `brain setup` completes the rest.
 Tests: `TestSetupOneYes`, `TestSetupNo`, `TestSetupKeepsEditedEntry`, `TestSetupExtractorNone`, `TestSetupTestBinding`, `TestPlanLinkKeepsExistingFiles`.
 
+**Note (2026-10-05, E19-S3 #239, owner-approved): setup starts by itself after an install.**
+A new user no longer types `herdr plugin action invoke brain.setup`.
+- At the end of a good build, `scripts/build.sh` checks for an install build. [NEW] Signal: the checkout path ends in `/plugins/.tmp-install-*/checkout`.
+- On an install build, it starts a detached `sh` child with stdin, stdout and stderr on `/dev/null`, and exits.
+- The child waits until the staging folder is gone and `herdr plugin list --plugin brain` lists brain. [NEW] The wait is at most 60 s, with a poll each second.
+- [NEW] Each `herdr` call of the child stops after 5 s. A herdr request has no deadline, so a server that does not answer would hold the child forever (Sol review, PR #244).
+- Then it runs `herdr --session <name> plugin action invoke brain.start` for each running session in `herdr session list`.
+- With no `herdr` on PATH, a timeout or `BRAIN_NO_AUTO_SETUP=1`, the child does nothing. A build by hand, by CI, before `plugin link` or by tests calls no `herdr`.
+- The new `start` action runs `brain start`. It starts `brained` (see the D7 note), then opens the setup popup when the session has no binding.
+
+herdr facts (source v0.9.1, `herdrdev/herdr` tag `v0.9.1`):
+- `src/cli/plugin.rs:193` and `:1567` (`create_plugin_temp_dir`): the install builds in `<herdr config>/plugins/.tmp-install-<pid>-<ms>/checkout`. `:259` removes that folder when the install ends, also after a failure. Only `plugin install` uses the label `install`.
+- `src/cli/plugin.rs:1329` and `:1511` (`scrub_herdr_runtime_env`): the build gets null stdin and pipes for stdout and stderr. herdr removes `HERDR_SOCKET_PATH`, `HERDR_CLIENT_SOCKET_PATH`, `HERDR_SESSION` (`:1515`), `HERDR_BIN_PATH`, `HERDR_ENV`, the workspace, tab and pane ids, and every `HERDR_PLUGIN_*`. So `HERDR_SESSION` is **not** kept.
+- `src/cli/target.rs:70` and `src/session.rs:96` (`active_name`): with no `--session` and no `HERDR_*` env, a herdr command goes to the **default** session. So the build cannot know the session of the install. The child invokes `brain.start` in every running session instead, as `[[startup]]` runs in every session.
+  - A side effect: each running session with no binding gets its own setup popup.
+- `src/app/api/plugins/mod.rs:95` and `:182`: `plugin list` and `plugin action invoke` reload the plugin registry first. Every running server knows the new plugin.
+
+**Live check** (herdr 0.9.1, 2026-10-05, as D1: scratch HOME, local bare clone with `url.insteadOf`, one headless scratch server, no `HERDR_*` env; the main server and the real `default` session were not touched):
+
+```sh
+S=<scratch>; P="$S/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/go/bin"   # $S/bin holds only a herdr link
+h() { env -i HOME=$S/home PATH=$P GOMODCACHE=... GOCACHE=... GIT_TERMINAL_PROMPT=0 herdr "$@"; }
+git clone -q --bare . $S/remote.git     # .gitconfig: url "$S/remote" insteadOf https://github.com/aryanVijaywargia/herdr-brain
+env -i HOME=$S/home PATH=$P herdr server &
+h workspace create                      # a popup needs a workspace (D3 test above)
+h plugin install aryanVijaywargia/herdr-brain --ref <this branch> -y
+h plugin action invoke brain.start      # a second start
+printf 'y\n' | env -i HOME=$S/home PATH=$P <plugin root>/bin/brain setup   # binds "default"; scratch HOME only
+h plugin install aryanVijaywargia/herdr-brain --ref <this branch> -y        # reinstall
+```
+
+| Step | Result |
+|---|---|
+| install | Returned in 1.1 s with "Installed brain". No typed command and no server restart. Plugin log: `start` succeeded, exit 0. `ps`: `bin/brain brained` (ppid 1) and `bin/brain setup` (the popup, a child of the scratch server). |
+| second `brain.start` | Still one `brained` (same pid). The popup call failed with `ui_busy: a popup pane is already open`, because the first popup was still open. |
+| `brain setup`, "y" | Bound session `default` to the scratch main store. |
+| reinstall (popup closed first) | Plugin log: `start` succeeded, exit 0. No `brain setup` process: no popup. Still one `brained`, the same pid. |
+| scratch server stop (its pid) | `brained` exited on the end of the event socket. |
+
+Tests: `TestBuildInstallStartsBrain`, `TestBuildStartsNoChild`, `TestBuildChildGivesUp` (also a herdr that does not answer), `TestStartPopupOnlyWithoutBinding`, `TestManifestStartAction`.
+
 ## E2-S6: plugin `[[events]]` in M1 (#11)
 
 ### D4. `workspace.closed` marks a workspace closed
@@ -262,6 +303,16 @@ $S/h session stop brain-e2s6; $S/h session delete brain-e2s6
 | `[[events]]` burst, 10 changes, 3 s hook | 10 hook processes at the same time. All 10 ran. |
 | `events.subscribe` with no `pane_id` for `pane.agent_status_changed` | `invalid_request`: "missing field `pane_id`". |
 | Socket subscriber on `session stop` | It reads EOF and exits. |
+
+**Note (2026-10-05, E19-S3 #239, owner-approved): `brained` starts after an install too.**
+`[[startup]]` does not run after `herdr plugin install`. So the install build invokes the new `start` action (see the D3 note), and `brain start` starts `brained`.
+- An action gets the same environment as `[[startup]]`: both go through `start_plugin_command` (herdr `src/app/api/plugins/runtime.rs:16`). That gives the server env (with `HERDR_SESSION` for a named session), `HERDR_SOCKET_PATH`, `HERDR_PLUGIN_STATE_DIR` and `HERDR_PLUGIN_ID`. Only `HERDR_PLUGIN_ACTION_ID` and the context differ.
+- `brain start` asks the D7 lock first (`brained.Running`: take the lock and drop it at once). If no `brained` holds it, `brain start` starts `brain brained` in its own session (setsid), with stdin, stdout and stderr on `/dev/null`, and does not wait.
+  - herdr reads an action's stdout and stderr until EOF (`runtime.rs:125`). A `brained` with those pipes would keep the action running.
+- There is no second lock. Two starts at the same moment can both start `brained`. The D7 lock then stops the second copy with `ErrRunning`.
+- A reinstall keeps the old `brained`, which runs the old binary until the server stops. The new binary runs from the next server start.
+- Live check: see the D3 note. One `brained` after the install, after a second `brain.start` and after a reinstall.
+- Tests: `TestStartTwiceStartsOneBrained`, `TestRunning`, `TestSpawnBrainedDetached`.
 
 ### D8. Claude capture: the screen read plus hooks, and no scroll
 

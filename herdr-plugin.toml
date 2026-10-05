@@ -32,6 +32,16 @@ title = "Brain setup"
 placement = "popup"
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" setup"]
 
+# E19-S3: starts brained for this herdr session when none holds the D7 lock, then opens the
+# setup popup when the session has no binding. herdr runs [[startup]] only after a session
+# restore, so scripts/build.sh invokes this action after `herdr plugin install`.
+# Also: `herdr plugin action invoke brain.start`.
+[[actions]]
+id = "start"
+title = "Brain: start"
+contexts = ["global", "workspace", "pane"]
+command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" start"]
+
 # E5-S3 (D6): opens the queue of the focused pane's workspace in a split beside that pane.
 # Also: `herdr plugin action invoke brain.review`.
 [[actions]]

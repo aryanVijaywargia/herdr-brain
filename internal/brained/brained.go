@@ -155,3 +155,22 @@ func lookup(environ []string, key string) string {
 	}
 	return v
 }
+
+// Running reports whether a brained holds the lock of the herdr session of environ (D7). It
+// takes the lock for a moment: a brained that starts in that moment stops with ErrRunning,
+// and the caller, which then sees no brained, starts one (brain start, E19-S3).
+func Running(environ []string) (bool, error) {
+	e, err := parseEnv(environ)
+	if err != nil {
+		return false, err
+	}
+	unlock, err := lock(e.stateDir, e.session)
+	if errors.Is(err, ErrRunning) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	unlock()
+	return false, nil
+}
