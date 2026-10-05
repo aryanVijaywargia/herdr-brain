@@ -57,7 +57,10 @@ type updater struct {
 type state struct {
 	installed, newest string // commit ids
 	from, remote      string // for the output
-	apply             func(ctx context.Context) error
+	// guard stops an update before the compare: a linked checkout off main or with local
+	// changes stops with its reason also when it is at the newest commit. nil for none.
+	guard func(ctx context.Context) error
+	apply func(ctx context.Context) error
 }
 
 // Main runs `brain update` with args in the process environment environ. It writes the
@@ -88,6 +91,11 @@ func Main(ctx context.Context, args, environ []string, stdout, stderr io.Writer)
 	}
 	if err != nil {
 		return err
+	}
+	if !check && s.guard != nil {
+		if err := s.guard(ctx); err != nil {
+			return err
+		}
 	}
 	verdict := "update available"
 	if s.installed == s.newest {
@@ -188,7 +196,7 @@ func (u *updater) linked(ctx context.Context, p plugin) (state, error) {
 	if err != nil {
 		return state{}, err
 	}
-	apply := func(ctx context.Context) error {
+	guard := func(ctx context.Context) error {
 		branch, err := u.output(ctx, root, "git", "branch", "--show-current")
 		if err != nil {
 			return err
@@ -205,12 +213,15 @@ func (u *updater) linked(ctx context.Context, p plugin) (state, error) {
 			return fmt.Errorf("the linked checkout %s has local changes; brain update changes nothing: "+
 				"commit or remove them, then run brain update again", root)
 		}
+		return nil
+	}
+	apply := func(ctx context.Context) error {
 		if err := u.run(ctx, root, "git", "pull", "--ff-only"); err != nil {
 			return err
 		}
 		return u.run(ctx, root, "sh", filepath.Join(root, "scripts", "build.sh"))
 	}
-	return state{installed: installed, newest: newest, from: "linked: " + root, remote: remote, apply: apply}, nil
+	return state{installed: installed, newest: newest, from: "linked: " + root, remote: remote, guard: guard, apply: apply}, nil
 }
 
 // head is the commit of the default branch (HEAD) of remote.

@@ -323,7 +323,7 @@ herdr has no plugin update. `brain update [--check]` does it, and `brained` runs
     The newest commit is `git ls-remote https://github.com/<owner>/<repo>.git HEAD`, the URL that herdr fetches (`src/cli/plugin.rs` `remote_url`).
     The update runs `herdr plugin install <owner>/<repo> --yes`. herdr refuses that over a linked plugin (`ensure_replacement_allowed`).
   - An install at a `--ref`: `update` stops and prints the install command, because it follows the default branch only.
-  - `source.kind` `local`: a `herdr plugin link` checkout at `plugin_root`. The installed commit is `git rev-parse HEAD`, the newest is `git ls-remote origin HEAD`. On `main` with no `git status --porcelain` output, it runs `git pull --ff-only` and `sh scripts/build.sh`. Else it stops with the reason and changes nothing.
+  - `source.kind` `local`: a `herdr plugin link` checkout at `plugin_root`. The installed commit is `git rev-parse HEAD`, the newest is `git ls-remote origin HEAD`. On `main` with no `git status --porcelain` output, it runs `git pull --ff-only` and `sh scripts/build.sh`. Else it stops with the reason and changes nothing, also at the newest commit (Sol review, PR #245). `--check` only compares.
   - After the install or the build, it runs the new binary's `brain doctor --fix`. Outside a herdr pane, that doctor fails with "not in a herdr pane", and `update` exits 1 after it says that the update is done.
   - The install folder stays `plugins/github/<slug>-<hash>/` (`src/plugin_paths.rs:9` `managed_checkout_path`, from the plugin id only; see D1). So the hook entries keep their path.
   - `git` runs with `GIT_TERMINAL_PROMPT=0`. [NEW] `herdr plugin list` has a 5 s deadline. The install, git and the build have none.

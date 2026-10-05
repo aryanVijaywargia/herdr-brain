@@ -106,7 +106,7 @@ func starts(t *testing.T, log string) []string {
 }
 
 // waitStarts waits until the helper log holds n starts.
-func waitStarts(t *testing.T, log string, n int, done <-chan error) []string {
+func waitStarts(t *testing.T, log string, n int, done chan error) []string {
 	t.Helper()
 	tk := time.NewTicker(20 * time.Millisecond)
 	defer tk.Stop()
@@ -118,6 +118,7 @@ func waitStarts(t *testing.T, log string, n int, done <-chan error) []string {
 		select {
 		case <-tk.C:
 		case err := <-done:
+			done <- err // for the cleanup
 			t.Fatalf("brained ended: %v", err)
 		case <-deadline:
 			t.Fatalf("brained starts = %q, want %d", starts(t, log), n)
@@ -182,7 +183,7 @@ func TestRestartRunsNewBinary(t *testing.T) {
 }
 
 // waitLock waits until a brained holds the lock of the session of environ.
-func waitLock(t *testing.T, environ []string, done <-chan error) {
+func waitLock(t *testing.T, environ []string, done chan error) {
 	t.Helper()
 	tk := time.NewTicker(20 * time.Millisecond)
 	defer tk.Stop()
@@ -198,6 +199,7 @@ func waitLock(t *testing.T, environ []string, done <-chan error) {
 		select {
 		case <-tk.C:
 		case err := <-done:
+			done <- err // for the cleanup
 			t.Fatalf("brained ended: %v", err)
 		case <-deadline:
 			t.Fatal("no brained holds the session lock")

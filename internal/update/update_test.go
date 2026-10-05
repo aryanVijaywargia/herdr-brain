@@ -262,14 +262,19 @@ func TestLinked(t *testing.T) {
 		name  string
 		setup func(t *testing.T, f *fixture)
 		want  string // "" for a good update
+		ahead bool   // the remote has a newer commit
 	}{
 		{"off main", func(t *testing.T, f *fixture) { f.git(t, f.root, "switch", "-q", "-c", "work") },
-			"is on work, not main; brain update changes nothing"},
+			"is on work, not main; brain update changes nothing", true},
+		{"off main at the newest commit", func(t *testing.T, f *fixture) { f.git(t, f.root, "switch", "-q", "-c", "work") },
+			"is on work, not main; brain update changes nothing", false},
 		{"detached", func(t *testing.T, f *fixture) { f.git(t, f.root, "switch", "-q", "--detach") },
-			"is on a detached HEAD, not main"},
+			"is on a detached HEAD, not main", true},
 		{"local changes", func(t *testing.T, f *fixture) { write(t, filepath.Join(f.root, "new.go"), "x", 0o600) },
-			"has local changes; brain update changes nothing"},
-		{"main and clean", func(*testing.T, *fixture) {}, ""},
+			"has local changes; brain update changes nothing", true},
+		{"local changes at the newest commit", func(t *testing.T, f *fixture) { write(t, filepath.Join(f.root, "new.go"), "x", 0o600) },
+			"has local changes; brain update changes nothing", false},
+		{"main and clean", func(*testing.T, *fixture) {}, "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -277,10 +282,11 @@ func TestLinked(t *testing.T) {
 			f.linked(t)
 			c1 := f.git(t, f.root, "rev-parse", "HEAD")
 			tt.setup(t, f)
-			c2 := f.push(t)
+			c2 := c1
+			if tt.ahead {
+				c2 = f.push(t)
+			}
 			out, err := f.update(t)
-			contains(t, "brain update", out, "installed: brain 0.0.1, commit "+c1[:12]+" (linked: "+f.root+")",
-				"newest:    commit "+c2[:12])
 			if tt.want != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.want) {
 					t.Errorf("update = %v, want %q\n%s", err, tt.want, out)
@@ -296,6 +302,8 @@ func TestLinked(t *testing.T) {
 			if err != nil {
 				t.Fatalf("update = %v\n%s", err, out)
 			}
+			contains(t, "brain update", out, "installed: brain 0.0.1, commit "+c1[:12]+" (linked: "+f.root+")",
+				"newest:    commit "+c2[:12])
 			if got := f.git(t, f.root, "rev-parse", "HEAD"); got != c2 {
 				t.Errorf("HEAD after update = %s, want %s", got, c2)
 			}
