@@ -32,7 +32,7 @@ func fakeProfiles(t *testing.T) fstest.MapFS {
 	return fsys
 }
 
-// AC 1: setup finds the CLI of a fake extra profile, asks, and installs its hook entry only
+// AC 1: setup finds the CLI of a fake extra profile, plans it, and installs its hook entry only
 // after the answer yes. The adapter state is then configured.
 func TestSetupFakeProfile(t *testing.T) {
 	for _, yes := range []bool{true, false} {
@@ -46,9 +46,9 @@ func TestSetupFakeProfile(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(home, "path", "fake"), []byte("#!/bin/sh\necho 'fake 0.0.1'\n"), 0o700); err != nil { //nolint:gosec // a test CLI must be executable
 				t.Fatal(err)
 			}
-			answers := "y\ny\ny\n" // the binding, the link, the fake hook
+			answers := "\ny\n" // no extractor, then yes to all
 			if !yes {
-				answers = "y\ny\nn\n"
+				answers = "\nn\n"
 			}
 			fsys := fakeProfiles(t)
 			d := osSetupDeps(os.Environ())
@@ -59,7 +59,7 @@ func TestSetupFakeProfile(t *testing.T) {
 			}
 			target := filepath.Join(home, ".fake", "hooks.json")
 			for _, want := range []string{"claude is not installed", "codex is not installed",
-				"Brain adds this entry to the BeforeTurn array of " + target, "Add the Brain hook for fake? [y/N] "} {
+				"Add this entry to the BeforeTurn array of " + target, "Apply all of this? [y/N] "} {
 				if !strings.Contains(out.String(), want) {
 					t.Errorf("setup output lacks %q:\n%s", want, out.String())
 				}
