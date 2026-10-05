@@ -22,7 +22,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-const doctorUsage = `usage: brain doctor`
+const doctorUsage = `usage: brain doctor [--fix]`
 
 // noReceipt is the gap word of a live agent whose agent session has no receipt (brain status).
 const noReceipt = "unknown: no receipt for its agent session"
@@ -31,10 +31,13 @@ const noReceipt = "unknown: no receipt for its agent session"
 // the fix for each failed check. A clean setup prints "all checks passed"; any failed check
 // returns an error, so the command exits 1. It opens the store as every store command does, so
 // it runs the repair and the deferred session-id check (§7.5 step 6). The one fix that writes,
-// a new hook entry, asks first and goes through install with its guard (§8.1). In a session
-// with no binding it explains, prints the setup command, and reads and writes nothing (S84).
+// a new hook entry, asks first and goes through install with its guard (§8.1). With --fix it
+// applies that fix with no question (E19-S4: brain update runs it); an entry that you edited
+// still stays. In a session with no binding it explains, prints the setup command, and reads
+// and writes nothing (S84).
 func Doctor(ctx context.Context, e Env, args []string) (err error) {
-	if len(args) != 0 {
+	fix := len(args) == 1 && args[0] == "--fix"
+	if len(args) != 0 && !fix {
 		return fmt.Errorf("unexpected argument %q\n%s", args[0], doctorUsage)
 	}
 	w := &lineWriter{w: e.Stdout}
@@ -43,7 +46,7 @@ func Doctor(ctx context.Context, e Env, args []string) (err error) {
 		return errors.Join(err, w.err, errors.New("1 check failed"))
 	}
 	defer func() { err = errors.Join(err, c.Close()) }()
-	d := &doctorCall{caller: newCaller(e, c), w: w, in: bufio.NewReader(orEmpty(e.Stdin))}
+	d := &doctorCall{caller: newCaller(e, c), w: w, in: bufio.NewReader(orEmpty(e.Stdin)), fix: fix}
 	d.run(ctx)
 	switch {
 	case w.err != nil:
@@ -70,6 +73,7 @@ type doctorCall struct {
 	caller
 	w      *lineWriter
 	in     *bufio.Reader
+	fix    bool // --fix: every question gets "y" with no read
 	failed int
 	herdrState
 }
@@ -342,8 +346,13 @@ func (d *doctorCall) conflicts() {
 }
 
 // ask prints question and reads one answer line. Only "y" or "yes" is yes; EOF means "no".
+// With --fix it prints the answer "y" and reads nothing.
 func (d *doctorCall) ask(question string) (bool, error) {
 	d.w.printf("%s", question)
+	if d.fix {
+		d.w.printf("y (--fix)\n")
+		return true, nil
+	}
 	answer, err := d.in.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		return false, fmt.Errorf("read answer: %w", err)

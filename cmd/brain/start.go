@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"errors"
@@ -112,7 +113,7 @@ func openSetup(ctx context.Context, environ []string) error {
 	cmd := exec.CommandContext(ctx, bin, "plugin", "pane", "open", "--plugin", "brain", "--entrypoint", "setup")
 	cmd.Env = environ
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("herdr plugin pane open: %w: %s", err, out)
+		return fmt.Errorf("herdr plugin pane open: %s: %w", bytes.TrimSpace(out), err)
 	}
 	return nil
 }

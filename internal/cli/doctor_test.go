@@ -114,6 +114,12 @@ func (f *doctorFixture) trust(t *testing.T, sum string) {
 // doctor runs brain doctor from pane w14:p1 with the answers in stdin.
 func (f *doctorFixture) doctor(t *testing.T, socket, stdin string) (string, error) {
 	t.Helper()
+	return f.doctorArgs(t, socket, stdin, nil)
+}
+
+// doctorArgs runs brain doctor with args from pane w14:p1 with the answers in stdin.
+func (f *doctorFixture) doctorArgs(t *testing.T, socket, stdin string, args []string) (string, error) {
+	t.Helper()
 	var out bytes.Buffer
 	e := f.env(socket, "w14:p1", "w14", &out)
 	e.Environ = append(e.Environ, "CODEX_HOME="+f.codexHome)
@@ -123,7 +129,7 @@ func (f *doctorFixture) doctor(t *testing.T, socket, stdin string) (string, erro
 	e.StatusHerdr = func(herdr.Target) (StatusHerdr, error) { return f.herdr, nil }
 	e.Now = func() time.Time { return testNow.Add(3 * time.Hour) }
 	e.Stdin = strings.NewReader(stdin)
-	err := Doctor(context.Background(), e, nil)
+	err := Doctor(context.Background(), e, args)
 	return out.String(), err
 }
 
