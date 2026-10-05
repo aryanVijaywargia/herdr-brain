@@ -39,6 +39,7 @@ Status: M1 to M4 are built. The repo is private, so there is no release binary y
 herdr plugin install aryanVijaywargia/herdr-brain
 ```
 
+herdr shows what the plugin runs and asks "Install this plugin? [y/N]". Answer y.
 The setup popup opens by itself. Read the plan and answer y.
 If it does not open, run `herdr plugin action invoke brain.setup`.
 
@@ -57,18 +58,20 @@ After you approve the item, the next Claude Code or Codex session in that worksp
 Run it again at any time: it changes nothing that is already right.
 
 1. It checks the herdr version of the session, and stops if herdr is older than 0.9.1.
-2. It plans the binding of this herdr session (or the one that `--session <name>` names) to the main store `~/.local/share/brain/main`.
-   `--session <name> --test <folder>` binds a test session to a test store instead.
-   Setup refuses a test store that is, holds or sits inside the main store or another test store, also through links.
-3. herdr does not put the plugin on your `PATH`. Setup shows the binary path and plans a `~/.local/bin/brain` link.
-   It never replaces a file at that path, and it never edits your shell config.
-4. For Claude Code, Codex and agy, when on `PATH`, it plans the hook entries and shows how to remove them.
-5. It explains where the excerpts of learning go, and asks which CLI runs the extractor: `claude`, `codex` or `none`.
+2. It explains where the excerpts of learning go, and asks which CLI runs the extractor: `claude`, `codex` or `none`.
    It asks this only once. `brain setup --extractor` asks again.
-6. It shows the whole plan and asks once: "Apply all of this? [y/N]". "y" writes every step. Any other answer writes nothing.
+3. It shows the whole plan:
+   - The binding of this herdr session (or the one that `--session <name>` names) to the main store `~/.local/share/brain/main`.
+     `--session <name> --test <folder>` binds a test session to a test store instead.
+     Setup refuses a test store that is, holds or sits inside the main store or another test store, also through links.
+   - herdr does not put the plugin on your `PATH`. Setup shows the binary path and a `~/.local/bin/brain` link.
+     It never replaces a file at that path, and it never edits your shell config.
+   - For Claude Code, Codex and agy, when on `PATH`: the hook entries, and how to remove them.
+   - The extractor choice.
+4. It asks once: "Apply all of this? [y/N]". "y" writes every step. Any other answer writes nothing.
    A step that is already right shows as "already done". With nothing to write, setup asks nothing.
-7. Codex runs a new hook only after you trust it. Setup prints the steps: start `codex`, open `/hooks`, and press `t`.
-8. It ends with a short first-use guide.
+5. Codex runs a new hook only after you trust it. Setup prints the steps: start `codex`, open `/hooks`, and press `t`.
+6. It ends with a short first-use guide.
 
 herdr 0.9.1 gives a session no lasting identity. If you rename or recreate a session, run `brain setup` in it again.
 
