@@ -15,8 +15,6 @@ import (
 	"testing"
 )
 
-const fakeAsset = "#!/bin/sh\necho brain release asset\n"
-
 // TestMain turns off git auto maintenance and auto gc for the git processes of this package:
 // the test helpers and build.sh inherit the environment. The file:// transport clears
 // GIT_CONFIG_COUNT for upload-pack, but upload-pack starts no auto maintenance.
@@ -155,18 +153,30 @@ func assetName(t *testing.T) string {
 	return "brain_" + runtime.GOOS + "_" + runtime.GOARCH
 }
 
-// fakeRelease writes a release folder with the asset and checksums.txt, and
+// fakeAsset is a release asset script that prints "brain <manifest version>", as `brain version` does.
+func fakeAsset(t *testing.T) string {
+	t.Helper()
+	return "#!/bin/sh\necho brain " + manifestVersion(t) + "\n"
+}
+
+// fakeRelease writes a release folder with fakeAsset and checksums.txt, and
 // returns its file:// base URL for BRAIN_RELEASE_BASE_URL. sum overrides the checksum when not empty.
 func fakeRelease(t *testing.T, sum string) string {
+	t.Helper()
+	return fakeReleaseOf(t, fakeAsset(t), sum)
+}
+
+// fakeReleaseOf is fakeRelease with the asset content body.
+func fakeReleaseOf(t *testing.T, body, sum string) string {
 	t.Helper()
 	base := t.TempDir()
 	dir := filepath.Join(base, "v"+manifestVersion(t))
 	asset := assetName(t)
 	if sum == "" {
-		h := sha256.Sum256([]byte(fakeAsset))
+		h := sha256.Sum256([]byte(body))
 		sum = hex.EncodeToString(h[:])
 	}
-	writeFile(t, filepath.Join(dir, asset), fakeAsset)
+	writeFile(t, filepath.Join(dir, asset), body)
 	writeFile(t, filepath.Join(dir, "checksums.txt"), sum+"  "+asset+"\n")
 	return "file://" + base
 }
@@ -209,27 +219,136 @@ func assertNoBinary(t *testing.T, dir string) {
 	}
 }
 
-// AC: with Go on PATH, a source change with no manifest version change is in bin/brain.
-func TestBuildWithGoUsesSource(t *testing.T) {
+// buildWithGo runs build.sh with the test PATH, which has go. It returns stdout and stderr apart.
+func buildWithGo(t *testing.T, dir, releaseURL string) (stdout, stderr string, err error) {
+	t.Helper()
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go is not on PATH")
 	}
-	dir := newRepo(t)
-	t.Setenv("BRAIN_RELEASE_BASE_URL", fakeRelease(t, ""))
-	main := filepath.Join(dir, "cmd/brain/main.go")
-	b, _ := os.ReadFile(main)
-	writeFile(t, main, strings.Replace(string(b), `"brain %s\n"`, `"brain changed %s\n"`, 1))
-	git(t, dir, "commit", "-q", "-am", "source change")
+	var o, e strings.Builder
+	cmd := exec.Command("/bin/sh", "scripts/build.sh")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "BRAIN_RELEASE_BASE_URL="+releaseURL)
+	cmd.Stdout, cmd.Stderr = &o, &e
+	err = cmd.Run()
+	return o.String(), e.String(), err
+}
 
-	if out, err := runScript(t, dir, os.Getenv("PATH"), "scripts/build.sh"); err != nil {
-		t.Fatalf("build.sh: %v\n%s", err, out)
+// assertSourceBuild checks that bin/brain is a Go build, not the release asset, and that
+// its `version` prints want.
+func assertSourceBuild(t *testing.T, dir, want string) {
+	t.Helper()
+	bin := filepath.Join(dir, "bin/brain")
+	if got, _ := os.ReadFile(bin); strings.HasPrefix(string(got), "#!/bin/sh") {
+		t.Fatalf("bin/brain = %q, want a source build", got)
 	}
-	out, err := exec.Command(filepath.Join(dir, "bin/brain"), "version").CombinedOutput()
+	out, err := exec.Command(bin, "version").CombinedOutput()
 	if err != nil {
 		t.Fatalf("bin/brain version: %v\n%s", err, out)
 	}
-	if want := "brain changed " + manifestVersion(t); !strings.Contains(string(out), want) {
-		t.Errorf("bin/brain version = %q, want %q", out, want)
+	if got := strings.TrimSpace(string(out)); got != want {
+		t.Errorf("bin/brain version = %q, want %q", got, want)
+	}
+}
+
+// changeVersionText makes `brain version` print "brain changed <version>".
+func changeVersionText(t *testing.T, dir string) {
+	t.Helper()
+	main := filepath.Join(dir, "cmd/brain/main.go")
+	b, err := os.ReadFile(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, main, strings.Replace(string(b), `"brain %s\n"`, `"brain changed %s\n"`, 1))
+}
+
+// #237 AC: with Go on PATH, at the release tag commit, build.sh installs the checked asset and does not compile.
+func TestBuildWithGoOnTagInstallsAsset(t *testing.T) {
+	tag := "v" + manifestVersion(t)
+	for _, c := range []struct {
+		name     string
+		checkout func(t *testing.T, src string) string
+	}{
+		{"local tag", func(_ *testing.T, src string) string { return src }},
+		{"herdr checkout", func(t *testing.T, src string) string { return herdrCheckout(t, src, tag) }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := c.checkout(t, newRepo(t))
+			stdout, stderr, err := buildWithGo(t, dir, fakeRelease(t, ""))
+			if err != nil || stderr != "" {
+				t.Fatalf("build.sh = %v\nstdout: %s\nstderr: %s\nwant success and no stderr", err, stdout, stderr)
+			}
+			if !strings.Contains(stdout, "release asset "+assetName(t)) {
+				t.Errorf("stdout = %q, want the release asset line", stdout)
+			}
+			if got, _ := os.ReadFile(filepath.Join(dir, "bin/brain")); string(got) != fakeAsset(t) {
+				t.Errorf("bin/brain = %q, want the release asset", got)
+			}
+		})
+	}
+}
+
+// #237 AC: with Go on PATH, a missing asset, a changed checksum or a wrong version from the
+// asset each give one stderr line and a source build.
+func TestBuildWithGoBadAssetBuildsSource(t *testing.T) {
+	missing := func(t *testing.T) string {
+		url := fakeRelease(t, "")
+		path := filepath.Join(strings.TrimPrefix(url, "file://"), "v"+manifestVersion(t), assetName(t))
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		return url
+	}
+	for _, c := range []struct {
+		name, reason string
+		release      func(t *testing.T) string
+	}{
+		{"missing asset", "cannot download", missing},
+		{"changed checksum", "checksum mismatch for", func(t *testing.T) string { return fakeRelease(t, strings.Repeat("0", 64)) }},
+		{"wrong version", "version printed \"brain 0.0.0-wrong\"", func(t *testing.T) string {
+			return fakeReleaseOf(t, "#!/bin/sh\necho brain 0.0.0-wrong\n", "")
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := newRepo(t)
+			stdout, stderr, err := buildWithGo(t, dir, c.release(t))
+			if err != nil {
+				t.Fatalf("build.sh: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+			}
+			lines := strings.Split(strings.TrimSuffix(stderr, "\n"), "\n")
+			if len(lines) != 1 || !strings.Contains(lines[0], c.reason) || !strings.Contains(lines[0], "building from source") {
+				t.Errorf("stderr = %q, want one line with %q and \"building from source\"", stderr, c.reason)
+			}
+			if !strings.Contains(stdout, "built from source") {
+				t.Errorf("stdout = %q, want the source build line", stdout)
+			}
+			assertSourceBuild(t, dir, "brain "+manifestVersion(t))
+		})
+	}
+}
+
+// #237 AC (and #4): with Go on PATH, on a commit after the tag or with local changes,
+// build.sh builds from source and the source change is in bin/brain.
+func TestBuildWithGoUsesSource(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		commit bool
+	}{
+		{"commit after the tag", true},
+		{"local changes", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := newRepo(t)
+			changeVersionText(t, dir)
+			if c.commit {
+				git(t, dir, "commit", "-q", "-am", "source change")
+			}
+			stdout, stderr, err := buildWithGo(t, dir, fakeRelease(t, ""))
+			if err != nil || stderr != "" {
+				t.Fatalf("build.sh = %v\nstdout: %s\nstderr: %s\nwant success and no stderr", err, stdout, stderr)
+			}
+			assertSourceBuild(t, dir, "brain changed "+manifestVersion(t))
+		})
 	}
 }
 
@@ -242,7 +361,7 @@ func TestBuildWithoutGoOnTagInstallsAsset(t *testing.T) {
 	}
 	bin := filepath.Join(dir, "bin/brain")
 	got, err := os.ReadFile(bin)
-	if err != nil || string(got) != fakeAsset {
+	if err != nil || string(got) != fakeAsset(t) {
 		t.Fatalf("bin/brain = %q, %v; want the release asset", got, err)
 	}
 	if fi, _ := os.Stat(bin); fi.Mode()&0o111 == 0 {
@@ -291,7 +410,7 @@ func TestBuildWithoutGoHerdrCheckout(t *testing.T) {
 			if err != nil {
 				t.Fatalf("build.sh: %v\n%s", err, out)
 			}
-			if got, _ := os.ReadFile(filepath.Join(dir, "bin/brain")); string(got) != fakeAsset {
+			if got, _ := os.ReadFile(filepath.Join(dir, "bin/brain")); string(got) != fakeAsset(t) {
 				t.Errorf("bin/brain = %q, want the release asset", got)
 			}
 		})
@@ -316,6 +435,16 @@ func TestBuildWithoutGoChecksumMismatch(t *testing.T) {
 	out, err := buildNoGo(t, dir, fakeRelease(t, strings.Repeat("0", 64)))
 	if err == nil || !strings.Contains(out, "checksum mismatch for "+assetName(t)) {
 		t.Fatalf("build.sh = %v\n%s\nwant the checksum mismatch error", err, out)
+	}
+	assertNoBinary(t, dir)
+}
+
+// With no Go, an asset that prints a wrong version stops the build.
+func TestBuildWithoutGoWrongVersion(t *testing.T) {
+	dir := newRepo(t)
+	out, err := buildNoGo(t, dir, fakeReleaseOf(t, "#!/bin/sh\necho brain 0.0.0-wrong\n", ""))
+	if err == nil || !strings.Contains(out, "version printed \"brain 0.0.0-wrong\"") {
+		t.Fatalf("build.sh = %v\n%s\nwant the version error", err, out)
 	}
 	assertNoBinary(t, dir)
 }
