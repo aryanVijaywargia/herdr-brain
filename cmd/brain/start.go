@@ -31,7 +31,14 @@ type startDeps struct {
 }
 
 func osStartDeps(environ []string) startDeps {
-	return startDeps{environ: environ, running: brained.Running, spawn: spawnBrained, openSetup: openSetup}
+	spawn := func(environ []string) error {
+		bin, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		return spawnBrained(bin, environ)
+	}
+	return startDeps{environ: environ, running: brained.Running, spawn: spawn, openSetup: openSetup}
 }
 
 // start is `brain start`, the plugin `start` action (E19-S3). The build of `herdr plugin
@@ -75,14 +82,10 @@ func bound(environ []string) (bool, error) {
 	return ok && b.Session == cmp.Or(lookupEnv(environ, "HERDR_SESSION"), "default"), nil
 }
 
-// spawnBrained starts `brain brained` in its own session, with stdin, stdout and stderr on
+// spawnBrained starts `bin brained` in its own session, with stdin, stdout and stderr on
 // /dev/null, and does not wait for it. herdr reads an action's output until EOF, so a brained
 // that kept those pipes would keep the action running.
-func spawnBrained(environ []string) error {
-	bin, err := os.Executable()
-	if err != nil {
-		return err
-	}
+func spawnBrained(bin string, environ []string) error {
 	null, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
 		return err

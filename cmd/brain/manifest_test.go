@@ -119,3 +119,14 @@ func TestManifestStartup(t *testing.T) {
 		t.Errorf("startup command = %s, want it to exec bin/brain brained", startup[0]["command"])
 	}
 }
+
+// E19-S3: the start action runs `brain start` from the plugin root.
+func TestManifestStartAction(t *testing.T) {
+	action := findTable(manifestTables(t, "actions"), "start")
+	if action == nil {
+		t.Fatal("no [[actions]] with id start")
+	}
+	if !strings.Contains(action["command"], `$HERDR_PLUGIN_ROOT/bin/brain\" start`) {
+		t.Errorf("start action command = %s, want it to run bin/brain start", action["command"])
+	}
+}
