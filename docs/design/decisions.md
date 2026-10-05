@@ -126,8 +126,6 @@ A new user no longer types `herdr plugin action invoke brain.setup`.
 - With no `herdr` on PATH, a timeout or `BRAIN_NO_AUTO_SETUP=1`, the child does nothing. A build by hand, by CI, before `plugin link` or by tests calls no `herdr`.
 - The new `start` action runs `brain start`. It starts `brained` (see the D7 note), then opens the setup popup when the session has no binding.
 
-**Note (2026-10-05, E19-S4 #240): `brain doctor --fix`.** It applies each repair that `brain doctor` offers (today: the new hook entries of a moved or other binary) with no question. It prints the question and "y (--fix)". An entry that you edited stays, as before. Plain `brain doctor` still asks. `brain update` runs it after an update. Tests: `TestDoctorFix`, `TestDoctorFixArgs`.
-
 herdr facts (source v0.9.1, `herdrdev/herdr` tag `v0.9.1`):
 - `src/cli/plugin.rs:193` and `:1567` (`create_plugin_temp_dir`): the install builds in `<herdr config>/plugins/.tmp-install-<pid>-<ms>/checkout`. `:259` removes that folder when the install ends, also after a failure. Only `plugin install` uses the label `install`.
 - `src/cli/plugin.rs:1329` and `:1511` (`scrub_herdr_runtime_env`): the build gets null stdin and pipes for stdout and stderr. herdr removes `HERDR_SOCKET_PATH`, `HERDR_CLIENT_SOCKET_PATH`, `HERDR_SESSION` (`:1515`), `HERDR_BIN_PATH`, `HERDR_ENV`, the workspace, tab and pane ids, and every `HERDR_PLUGIN_*`. So `HERDR_SESSION` is **not** kept.
@@ -158,6 +156,8 @@ h plugin install aryanVijaywargia/herdr-brain --ref <this branch> -y        # re
 | scratch server stop (its pid) | `brained` exited on the end of the event socket. |
 
 Tests: `TestBuildInstallStartsBrain`, `TestBuildStartsNoChild`, `TestBuildChildGivesUp` (also a herdr that does not answer), `TestStartPopupOnlyWithoutBinding`, `TestManifestStartAction`.
+
+**Note (2026-10-05, E19-S4 #240): `brain doctor --fix`.** It applies each repair that `brain doctor` offers (today: the new hook entries of a moved or other binary) with no question. It prints the question and "y (--fix)". An entry that you edited stays, as before. Plain `brain doctor` still asks. `brain update` runs it after an update. Tests: `TestDoctorFix`, `TestDoctorFixArgs`.
 
 ## E2-S6: plugin `[[events]]` in M1 (#11)
 
