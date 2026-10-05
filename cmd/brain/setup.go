@@ -106,9 +106,10 @@ func osSetupDeps(environ []string) setupDeps {
 
 // setup is `brain setup` (E9-S1), the first command a new user runs, from the herdr `setup`
 // action or by its path. It is the only command that makes a binding, so it needs none (HLD
-// §8.3). Each step says what it will do, and each write asks first; there is no --yes in M1.
-// A step that is already right changes nothing and asks nothing. It never edits a shell
-// config file.
+// §8.3). It checks herdr and asks the extractor choice, then shows every write in one plan and
+// asks once (E19-S2, D3): yes writes every step, and any other answer writes nothing. A step
+// that is already right shows as "already done"; with nothing to write, setup asks nothing.
+// It never edits a shell config file.
 //
 // herdr 0.9.1 has no persistent session identity (§4.2, [M0]), so no binding is ever marked
 // "rebind needed", and setup has no rebind path for it (§8.3 continuity).
@@ -136,17 +137,12 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 		return err
 	}
 
-	if *test == "" {
-		fmt.Fprintf(stdout, "\nStep 2: bind herdr session %q to the main store.\n", *name)
-	} else {
-		fmt.Fprintf(stdout, "\nStep 2: bind herdr session %q to the test store %s.\n", *name, *test)
-	}
-	storeDir, err := bind(d, sess, *test, in, stdout)
+	// The whole plan comes before the first write, so that a refusal or "no" writes nothing.
+	var p plan
+	storeDir, err := planBind(d, sess, *test, &p, stdout)
 	if err != nil {
 		return err
 	}
-
-	fmt.Fprintln(stdout, "\nStep 3: the brain command on your PATH.")
 	bin, err := paths.BinaryPath()
 	if err != nil {
 		return fmt.Errorf("binary path: %w", err)
@@ -155,42 +151,70 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 	if err != nil {
 		return fmt.Errorf("link path: %w", err)
 	}
-	if err := offerLink(bin, link, in, stdout); err != nil {
+	if err := planLink(bin, link, &p, stdout); err != nil {
 		return err
 	}
-
-	fmt.Fprintln(stdout, "\nStep 4: the Brain hook in each agent CLI.")
-	trust, err := hooks(ctx, d, bin, in, stdout)
+	trustNow, trustAdded, err := planHooks(ctx, d, bin, &p, stdout)
 	if err != nil {
 		return err
 	}
-	if err := chooseExtractor(ctx, d, storeDir, *again, in, stdout); err != nil {
+
+	fmt.Fprintln(stdout, "\nStep 2: the extractor CLI.")
+	if err := chooseExtractor(ctx, d, storeDir, *again, &p, in, stdout); err != nil {
 		return err
 	}
+
+	fmt.Fprintln(stdout, "\nStep 3: the changes.")
+	fmt.Fprint(stdout, p.text.String())
+	trust := trustNow
+	if len(p.steps) == 0 {
+		fmt.Fprintln(stdout, "Every step is already done. Setup changes nothing.")
+	} else {
+		ok, err := ask(in, stdout, "Apply all of this? [y/N] ")
+		if err != nil {
+			return err
+		}
+		if !ok {
+			fmt.Fprintf(stdout, "Setup wrote nothing. Run brain setup again to apply the changes. Run Brain with: %s\n", bin)
+		} else {
+			// A failed write stops setup; a second setup plans the rest again.
+			for _, step := range p.steps {
+				if err := step(); err != nil {
+					return err
+				}
+			}
+			trust = trust || trustAdded
+		}
+	}
 	if trust {
-		fmt.Fprint(stdout, "\nStep 6: "+codexTrust)
+		fmt.Fprint(stdout, "\nStep 4: "+codexTrust)
 	}
 	fmt.Fprint(stdout, "\n"+firstUse)
 	return nil
 }
 
+// plan holds the writes of setup and the text that shows them, so that setup asks once for
+// all of them (E19-S2).
+type plan struct {
+	text  strings.Builder // one line or block for each step, done or not
+	steps []func() error  // the writes, in order
+}
+
+func (p *plan) say(format string, a ...any) { fmt.Fprintf(&p.text, format, a...) }
+
+func (p *plan) add(step func() error) { p.steps = append(p.steps, step) }
+
 // chooseExtractor asks which CLI runs the extractor of the store in folder dir, and its model,
-// and records the answer in the store (D4). It first explains where the excerpts go (D9). A
-// store with a chosen CLI keeps it with no question, unless again. Setup makes no store for
-// the question: with no binding (dir "") the step waits for one.
-func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, in *bufio.Reader, stdout io.Writer) error {
-	fmt.Fprintln(stdout, "\nStep 5: the extractor CLI.")
-	if dir == "" {
-		fmt.Fprintln(stdout, "No binding, so no store: run brain setup again to bind it and choose the extractor CLI.")
-		return nil
-	}
+// and adds the write of the answer (D4) to p. It first explains where the excerpts go (D9). A
+// store with a chosen CLI keeps it with no question, unless again.
+func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, p *plan, in *bufio.Reader, stdout io.Writer) error {
 	fmt.Fprint(stdout, locality)
 	cur, err := readExtractor(ctx, dir)
 	if err != nil {
 		return err
 	}
 	if cur.CLI != "" && !again {
-		fmt.Fprintf(stdout, "Extractor: %s, %s. To change it: brain setup --extractor\n", cur.CLI,
+		p.say("- Extractor: %s, %s. Already done. To change it: brain setup --extractor\n", cur.CLI,
 			cmp.Or(cur.Model, "its default model"))
 		return nil
 	}
@@ -198,18 +222,25 @@ func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, i
 	if err != nil {
 		return err
 	}
+	none := "No extractor CLI chosen: Brain makes no extractor call, and brain status says so. " +
+		"To choose one later: brain setup --extractor"
 	cli := store.ExtractorCLI(strings.ToLower(answer))
 	switch cli {
 	case store.ExtractorClaude, store.ExtractorCodex:
 	case "", "none":
+		if cur.CLI == "" {
+			fmt.Fprintln(stdout, none)
+			return nil
+		}
 		// A stored choice is cleared: none means no call (D4, D9).
-		if cur.CLI != "" {
+		p.say("- Extractor: clear the choice %s. Brain then makes no extractor call.\n", cur.CLI)
+		p.add(func() error {
 			if err := writeExtractor(ctx, dir, "", "", d.now()); err != nil {
 				return err
 			}
-		}
-		fmt.Fprintln(stdout, "No extractor CLI chosen: Brain makes no extractor call, and brain status says so. "+
-			"To choose one later: brain setup --extractor")
+			fmt.Fprintln(stdout, none)
+			return nil
+		})
 		return nil
 	default:
 		fmt.Fprintf(stdout, "Unknown answer %q: the extractor choice stays as it was. To choose one: brain setup --extractor\n", answer)
@@ -222,17 +253,26 @@ func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, i
 	if err != nil {
 		return err
 	}
-	if err := writeExtractor(ctx, dir, cli, model, d.now()); err != nil {
-		return err
+	if cli == cur.CLI && model == cur.Model {
+		p.say("- Extractor: %s, %s. Already done.\n", cli, cmp.Or(model, "its default model"))
+		return nil
 	}
-	x, err := readExtractor(ctx, dir)
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(stdout, "Extractor: %s, %s.\n", cli, cmp.Or(model, "its default model"))
-	if !x.On {
-		fmt.Fprintln(stdout, "Extraction stays off for the whole store, as you set it: brain extract on turns it on.")
-	}
+	p.say("- Extractor: record %s, %s in the store %s.\n", cli, cmp.Or(model, "its default model"), dir)
+	p.say("  Each extractor call sends short excerpts, after the secret filter, to the provider of %s (D9, Step 2).\n", cli)
+	p.add(func() error {
+		if err := writeExtractor(ctx, dir, cli, model, d.now()); err != nil {
+			return err
+		}
+		x, err := readExtractor(ctx, dir)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Extractor: %s, %s.\n", cli, cmp.Or(model, "its default model"))
+		if !x.On {
+			fmt.Fprintln(stdout, "Extraction stays off for the whole store, as you set it: brain extract on turns it on.")
+		}
+		return nil
+	})
 	return nil
 }
 
@@ -294,11 +334,11 @@ func herdrSession(ctx context.Context, d setupDeps, name string, stdout io.Write
 	return ss[i], nil
 }
 
-// bind binds sess to the main store, or to the test store folder test (§8.3). It refuses a
-// test store that is, holds or sits inside the main store or another test store, after links
-// and aliases (S76), and a real session on a test store. A binding that is already right
-// stays as it is. It returns the store folder of the binding, or "" when you said no.
-func bind(d setupDeps, sess herdr.Session, test string, in *bufio.Reader, stdout io.Writer) (string, error) {
+// planBind plans the binding of sess to the main store, or to the test store folder test
+// (§8.3). It refuses a test store that is, holds or sits inside the main store or another test
+// store, after links and aliases (S76), and a real session on a test store. A binding that is
+// already right stays as it is. It returns the store folder of the binding.
+func planBind(d setupDeps, sess herdr.Session, test string, p *plan, stdout io.Writer) (string, error) {
 	file, err := paths.BindingsFile()
 	if err != nil {
 		return "", err
@@ -325,7 +365,7 @@ func bind(d setupDeps, sess herdr.Session, test string, in *bufio.Reader, stdout
 	}
 	switch {
 	case cur != nil && cur.Socket == want.Socket && cur.Store == want.Store && cur.Kind == want.Kind:
-		fmt.Fprintf(stdout, "Session %q is already bound to %s.\n", sess.Name, want.Store)
+		p.say("- Binding: session %q is bound to %s. Already done.\n", sess.Name, want.Store)
 		return want.Store, nil
 	case want.Kind == bindings.KindTest && (sess.Default || cur != nil && cur.Kind == bindings.KindMain):
 		return "", fmt.Errorf("refused: session %q is a real herdr session, and a real session cannot use a test store", sess.Name)
@@ -344,31 +384,28 @@ func bind(d setupDeps, sess herdr.Session, test string, in *bufio.Reader, stdout
 		}
 	}
 
-	showReplaced(stdout, sess.Name, cur, dropped)
-	ok, err := ask(in, stdout, fmt.Sprintf("Write %s: session %q, socket %s, store %s (%s)? [y/N] ",
-		file, want.Session, want.Socket, want.Store, want.Kind))
-	if err != nil || !ok {
-		if err == nil {
-			fmt.Fprintf(stdout, "No binding written. Brain gives session %q nothing until it is bound.\n", sess.Name)
+	p.say("- Binding: write %s: session %q, socket %s, store %s (%s).\n",
+		file, want.Session, want.Socket, want.Store, want.Kind)
+	showReplaced(&p.text, sess.Name, cur, dropped)
+	p.add(func() error {
+		if err := writeBinding(file, before, next, want); err != nil {
+			return err
 		}
-		return "", err
-	}
-	if err := writeBinding(file, before, next, want); err != nil {
-		return "", err
-	}
-	fmt.Fprintf(stdout, "Bound session %q to %s.\n", sess.Name, want.Store)
+		fmt.Fprintf(stdout, "Bound session %q to %s.\n", sess.Name, want.Store)
+		return nil
+	})
 	return want.Store, nil
 }
 
 // showReplaced shows the binding of session that setup replaces, and the bad test bindings of
 // other sessions that it removes.
-func showReplaced(stdout io.Writer, session string, cur *bindings.Binding, dropped []bindings.Dropped) {
+func showReplaced(w io.Writer, session string, cur *bindings.Binding, dropped []bindings.Dropped) {
 	if cur != nil {
-		fmt.Fprintf(stdout, "Session %q is bound to %s (%s). Setup replaces this binding.\n", cur.Session, cur.Store, cur.Kind)
+		fmt.Fprintf(w, "  Session %q is bound to %s (%s). Setup replaces this binding.\n", cur.Session, cur.Store, cur.Kind)
 	}
 	for _, x := range dropped {
 		if x.Binding.Session != session {
-			fmt.Fprintf(stdout, "Setup also removes the bad test binding of session %q: %v\n", x.Binding.Session, x.Err)
+			fmt.Fprintf(w, "  Setup also removes the bad test binding of session %q: %v\n", x.Binding.Session, x.Err)
 		}
 	}
 }
@@ -497,102 +534,131 @@ func rmdirs(made []string) error {
 	return errors.Join(errs...)
 }
 
-// hooks offers the Brain hook entry to the CLI of each profile that is installed (E8-S2,
-// E16-S10). It shows the entry and the uninstall steps before it asks. It reports whether the
-// entry of a profile with hook_trust "codex" is in place, so that setup shows the trust steps.
-func hooks(ctx context.Context, d setupDeps, bin string, in *bufio.Reader, stdout io.Writer) (trust bool, err error) {
+// planHooks plans the Brain hook entry for the CLI of each profile that is installed (E8-S2,
+// E16-S10), and its hook record entries. It shows each entry and the uninstall steps. It
+// reports whether the entry of a profile with hook_trust "codex" is in place now, and whether
+// the plan adds one, so that setup shows the trust steps.
+func planHooks(ctx context.Context, d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, trustAdded bool, err error) {
 	home, err := paths.Home()
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	record, err := paths.InstallFile()
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	inst := &install.Installer{Home: home, Record: record, Binary: bin}
 	ps, err := adapter.LoadAll(d.profiles)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	for _, p := range ps {
-		kind := p.Kind
+	var hooked bool
+	for _, pr := range ps {
+		kind := pr.Kind
 		if _, err := d.lookPath(kind); err != nil {
-			fmt.Fprintf(stdout, "%s is not installed. Setup skips it.\n", kind)
+			p.say("- %s is not installed. Setup skips it.\n", kind)
 			continue
 		}
-		e, st, err := inst.WouldInstall(p)
+		e, st, err := inst.WouldInstall(pr)
 		if err != nil {
-			return false, err
+			return false, false, err
 		}
+		start := false
 		switch st {
 		case install.Present:
-			fmt.Fprintf(stdout, "The Brain hook for %s is already in %s.\n", kind, e.Target)
+			p.say("- The Brain hook for %s is in %s. Already done.\n", kind, e.Target)
 		case install.Edited:
-			fmt.Fprintf(stdout, "%s holds a Brain hook entry for %s that you edited. Brain keeps it.\n", e.Target, kind)
+			p.say("- %s holds a Brain hook entry for %s that you edited. Brain keeps it.\n", e.Target, kind)
 			continue
 		default:
-			added, err := offerHook(inst, p, e, in, stdout)
-			if err != nil {
-				return false, err
-			}
-			if !added {
-				continue
-			}
+			p.say("- Add this entry to the %s array of %s:\n    %s\n", pr.Events.Start, e.Target, e.Text)
+			start = true
 		}
-		trust = trust || p.HookTrust == adapter.TrustCodex
-		if err := offerRecords(ctx, inst, p, in, stdout); err != nil {
-			return false, err
+		records, err := planRecords(ctx, inst, pr, p)
+		if err != nil {
+			return false, false, err
+		}
+		codex := pr.HookTrust == adapter.TrustCodex
+		trustNow = trustNow || codex && !start
+		trustAdded = trustAdded || codex && start
+		if start || len(records) > 0 {
+			hooked = true
+			p.add(func() error { return applyHooks(inst, pr, e.Target, start, records, stdout) })
 		}
 	}
-	return trust, nil
+	if hooked {
+		p.say("- To remove the hook entries later: brain uninstall (a dry run), then brain uninstall --apply.\n" +
+			"  It removes only Brain's entries, and keeps every other byte of each file.\n")
+	}
+	return trustNow, trustAdded, nil
 }
 
-// offerRecords offers the hook record entries of p (E11-S5, §6.1) after its start entry is in
-// place. It offers them only when the profile turns them on, after the E11-S1 test, and when
-// the E8 guard does not say retest: a CLI version that no test passed, or hook input of an
-// unknown shape. The user approves all of them with one answer.
-func offerRecords(ctx context.Context, inst *install.Installer, p *adapter.Profile, in *bufio.Reader, stdout io.Writer) error {
+// planRecords plans the hook record entries of p (E11-S5, §6.1), which setup adds after its
+// start entry. It plans them only when the profile turns them on, after the E11-S1 test, and
+// when the E8 guard does not say retest: a CLI version that no test passed, or hook input of
+// an unknown shape. It returns the hooks to add.
+func planRecords(ctx context.Context, inst *install.Installer, p *adapter.Profile, pl *plan) ([]adapter.Hook, error) {
 	hs := p.Hooks()[1:]
 	if len(hs) == 0 {
-		return nil
+		return nil, nil
 	}
 	var add []adapter.Hook
+	var texts []string
 	var target string
 	for _, h := range hs {
 		e, st, err := inst.WouldInstallHook(p, h)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		switch st {
 		case install.Present:
 		case install.Edited:
-			fmt.Fprintf(stdout, "%s holds a Brain %s entry for %s that you edited. Brain keeps it.\n", e.Target, h.CLIEvent, p.Kind)
+			pl.say("  %s holds a Brain %s entry for %s that you edited. Brain keeps it.\n", e.Target, h.CLIEvent, p.Kind)
 		default:
-			if len(add) == 0 {
-				fmt.Fprintf(stdout, "Brain can also store hook records of %s: prompts, commands and replies.\n", p.Kind)
-			}
-			fmt.Fprintf(stdout, "  %s: %s\n", h.CLIEvent, e.Text)
 			add, target = append(add, h), e.Target
+			texts = append(texts, fmt.Sprintf("    %s: %s\n", h.CLIEvent, e.Text))
 		}
 	}
 	if len(add) == 0 {
-		return nil
+		return nil, nil
 	}
 	ok, err := guard(ctx, inst, p)
-	if err != nil || !ok {
-		if err == nil {
-			fmt.Fprintf(stdout, "%s needs a retest first (brain doctor). Setup adds no hook record entry.\n", p.Kind)
-		}
-		return err
+	if err != nil {
+		return nil, err
 	}
-	ok, err = ask(in, stdout, fmt.Sprintf("Add the hook record entries for %s to %s? [y/N] ", p.Kind, target))
-	if err != nil || !ok {
-		if err == nil {
-			fmt.Fprintf(stdout, "No change to %s. Brain reads the %s panes only.\n", target, p.Kind)
-		}
-		return err
+	if !ok {
+		pl.say("  %s needs a retest first (brain doctor). Setup adds no hook record entry.\n", p.Kind)
+		return nil, nil
 	}
-	for _, h := range add {
+	pl.say("  Brain also stores hook records of %s: prompts, commands and replies. Add these entries to %s:\n", p.Kind, target)
+	for _, t := range texts {
+		pl.say("%s", t)
+	}
+	return add, nil
+}
+
+// applyHooks adds the start entry of p when start is true, then the hook record entries
+// records. A start entry that you edited since the plan stays, with no record entry.
+func applyHooks(inst *install.Installer, p *adapter.Profile, target string, start bool, records []adapter.Hook, stdout io.Writer) error {
+	if start {
+		// A CLI can be installed before it made its config folder.
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return err
+		}
+		st, err := inst.Install(p)
+		if err != nil {
+			return err
+		}
+		if st == install.Edited {
+			fmt.Fprintf(stdout, "%s holds a Brain hook entry for %s that you edited. Brain keeps it.\n", target, p.Kind)
+			return nil
+		}
+		fmt.Fprintf(stdout, "Added the Brain hook for %s.\n", p.Kind)
+	}
+	if len(records) == 0 {
+		return nil
+	}
+	for _, h := range records {
 		if _, err := inst.InstallHook(p, h); err != nil {
 			return err
 		}
@@ -628,76 +694,42 @@ type noPanes struct{}
 
 func (noPanes) Panes(context.Context) ([]herdr.Pane, error) { return nil, nil }
 
-// offerHook shows the hook entry e of p and how to remove it, and adds it on yes.
-func offerHook(inst *install.Installer, p *adapter.Profile, e install.Entry, in *bufio.Reader, stdout io.Writer) (bool, error) {
-	kind := p.Kind
-	fmt.Fprintf(stdout, "Brain adds this entry to the %s array of %s:\n  %s\n"+
-		"To remove it later: brain uninstall (a dry run), then brain uninstall --apply.\n"+
-		"It removes only this entry, and keeps every other byte of the file.\n",
-		p.Events.Start, e.Target, e.Text)
-	ok, err := ask(in, stdout, fmt.Sprintf("Add the Brain hook for %s? [y/N] ", kind))
-	if err != nil || !ok {
-		if err == nil {
-			fmt.Fprintf(stdout, "No change to %s. %s sessions get no Brain items.\n", e.Target, kind)
-		}
-		return false, err
-	}
-	// A CLI can be installed before it made its config folder.
-	if err := os.MkdirAll(filepath.Dir(e.Target), 0o700); err != nil {
-		return false, err
-	}
-	st, err := inst.Install(p)
-	if err != nil {
-		return false, err
-	}
-	if st == install.Edited {
-		fmt.Fprintf(stdout, "%s holds a Brain hook entry for %s that you edited. Brain keeps it.\n", e.Target, kind)
-		return false, nil
-	}
-	fmt.Fprintf(stdout, "Added the Brain hook for %s.\n", kind)
-	return true, nil
-}
-
-// offerLink shows the binary path and asks before it makes link -> bin.
-// It never replaces a file that it did not make.
-func offerLink(bin, link string, in *bufio.Reader, stdout io.Writer) error {
-	fmt.Fprintf(stdout, "Brain binary: %s\n", bin)
+// planLink shows the binary path and plans the link -> bin.
+// It never replaces a file that it did not make (D3).
+func planLink(bin, link string, p *plan, stdout io.Writer) error {
+	p.say("- Brain binary: %s\n", bin)
 	target, err := filepath.EvalSymlinks(link)
 	switch {
 	case err == nil && target == bin:
-		fmt.Fprintf(stdout, "%s already points to it.\n", link)
+		p.say("  %s already points to it. Already done.\n", link)
 		return nil
 	case err == nil:
-		fmt.Fprintf(stdout, "%s exists and points elsewhere. Brain did not change it.\nRun Brain with: %s\n", link, bin)
+		p.say("  %s exists and points elsewhere. Brain does not change it.\n  Run Brain with: %s\n", link, bin)
 		return nil
 	case !errors.Is(err, os.ErrNotExist):
 		return fmt.Errorf("check link %s: %w", link, err)
 	}
 	if _, err := os.Lstat(link); err == nil {
-		fmt.Fprintf(stdout, "%s exists but is broken. Brain did not change it.\nRun Brain with: %s\n", link, bin)
+		p.say("  %s exists but is broken. Brain does not change it.\n  Run Brain with: %s\n", link, bin)
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("check link %s: %w", link, err)
 	}
 
-	ok, err := ask(in, stdout, fmt.Sprintf("Make the symlink %s -> %s? [y/N] ", link, bin))
-	if err != nil {
-		return err
-	}
-	if !ok {
-		fmt.Fprintf(stdout, "No link made. Run Brain with: %s\n", bin)
+	p.say("  Make the symlink %s -> %s.\n", link, bin)
+	p.add(func() error {
+		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+			return fmt.Errorf("create link dir: %w", err)
+		}
+		if err := os.Symlink(bin, link); err != nil {
+			return fmt.Errorf("create link: %w", err)
+		}
+		fmt.Fprintf(stdout, "Linked %s.\n", link)
+		if !onPath(filepath.Dir(link)) {
+			fmt.Fprintf(stdout, "%s is not on your PATH. Add it yourself, or run Brain with: %s\n", filepath.Dir(link), bin)
+		}
 		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-		return fmt.Errorf("create link dir: %w", err)
-	}
-	if err := os.Symlink(bin, link); err != nil {
-		return fmt.Errorf("create link: %w", err)
-	}
-	fmt.Fprintf(stdout, "Linked %s.\n", link)
-	if !onPath(filepath.Dir(link)) {
-		fmt.Fprintf(stdout, "%s is not on your PATH. Add it yourself, or run Brain with: %s\n", filepath.Dir(link), bin)
-	}
+	})
 	return nil
 }
 

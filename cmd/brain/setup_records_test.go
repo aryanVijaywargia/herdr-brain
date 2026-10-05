@@ -32,7 +32,7 @@ func TestSetupHookRecords(t *testing.T) {
 	t.Run("yes", func(t *testing.T) {
 		home := setupHome(t, "0.9.1")
 		fakeCLI(t, home, "claude", p.TestedVersion)
-		code, out, errOut := runSetup(t, "y\ny\ny\ny\ny\n")
+		code, out, errOut := runSetup(t, "\ny\n")
 		if code != 0 {
 			t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 		}
@@ -45,7 +45,7 @@ func TestSetupHookRecords(t *testing.T) {
 		if strings.Contains(codex(home), "--event tool") {
 			t.Errorf("hooks.json holds a Codex hook record entry:\n%s", codex(home))
 		}
-		for _, want := range []string{"Add the hook record entries for claude", "Added the hook record entries for claude",
+		for _, want := range []string{"Add these entries to ", "Added the hook record entries for claude",
 			"needs trust again"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("output does not contain %q:\n%s", want, out)
@@ -63,25 +63,14 @@ func TestSetupHookRecords(t *testing.T) {
 			}
 		}
 	})
-	t.Run("no", func(t *testing.T) {
-		home := setupHome(t, "0.9.1")
-		fakeCLI(t, home, "claude", p.TestedVersion)
-		code, out, errOut := runSetup(t, "y\ny\ny\nn\ny\n")
-		if code != 0 {
-			t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
-		}
-		if s := settings(home); !strings.Contains(s, "--event start") || strings.Contains(s, "--event tool") {
-			t.Errorf("settings.json after no:\n%s\nwant the start entry only", s)
-		}
-	})
 	t.Run("retest", func(t *testing.T) {
 		home := setupHome(t, "0.9.1")
 		fakeCLI(t, home, "claude", "9.9.9")
-		code, out, errOut := runSetup(t, "y\ny\ny\ny\n")
+		code, out, errOut := runSetup(t, "\ny\n")
 		if code != 0 {
 			t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 		}
-		if s := settings(home); strings.Contains(s, "--event tool") || strings.Contains(out, "Add the hook record entries") ||
+		if s := settings(home); strings.Contains(s, "--event tool") || strings.Contains(out, "Add these entries to ") ||
 			!strings.Contains(out, "claude needs a retest first") {
 			t.Errorf("setup on an untested version offered the hook records:\n%s\n%s", out, s)
 		}

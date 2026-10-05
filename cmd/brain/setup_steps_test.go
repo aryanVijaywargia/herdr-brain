@@ -11,7 +11,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
+	"github.com/aryanVijaywargia/herdr-brain/internal/install"
+	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
 // fakeHerdr answers `session list --json` and `api snapshot` from files in its folder.
@@ -131,7 +134,7 @@ func readBindings(t *testing.T, home string) []bindings.Binding {
 // Setup twice gives the same files and one binding; the second run asks nothing.
 func TestSetupTwice(t *testing.T) {
 	home := setupHome(t, "0.9.1")
-	code, out, errOut := runSetup(t, "y\ny\ny\ny\n")
+	code, out, errOut := runSetup(t, "\ny\n")
 	if code != 0 {
 		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 	}
@@ -168,63 +171,117 @@ func TestSetupTwice(t *testing.T) {
 	}
 }
 
-// "No" at each step leaves that step's files unchanged; the other steps still run.
-func TestSetupNoAtEachStep(t *testing.T) {
-	steps := []struct {
-		name  string
-		files []string
-	}{
-		{"binding", []string{".local/share/brain/bindings.json", ".local/share/brain/main"}},
-		{"link", []string{".local/bin"}},
-		{"claude", []string{".claude"}},
-		{"codex", []string{".codex"}},
+// AC 1: a fresh home with Claude and Codex: one question, and "y" writes the binding, the
+// link, both hook entries, the hook records of Claude and the extractor setting. AC 3: a
+// second setup asks nothing and changes nothing.
+func TestSetupOneYes(t *testing.T) {
+	home := setupHome(t, "0.9.1")
+	p, err := adapter.Load("claude")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for i, step := range steps {
-		t.Run(step.name, func(t *testing.T) {
+	fakeCLI(t, home, "claude", p.TestedVersion)
+	code, out, errOut := runSetup(t, "claude\n\ny\n")
+	if code != 0 {
+		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
+	}
+	if n := strings.Count(out, "[y/N]"); n != 1 {
+		t.Errorf("setup asked %d yes or no questions, want 1:\n%s", n, out)
+	}
+	if bs := readBindings(t, home); len(bs) != 1 || bs[0].Session != "default" {
+		t.Errorf("bindings = %+v", bs)
+	}
+	if got, err := os.Readlink(filepath.Join(home, ".local", "bin", "brain")); err != nil || !filepath.IsAbs(got) {
+		t.Errorf("link = %q, %v", got, err)
+	}
+	if b := mustRead(t, filepath.Join(home, ".codex", "hooks.json")); !bytes.Contains(b, []byte(" hook --profile codex --event start")) {
+		t.Errorf("hooks.json has no Brain hook entry:\n%s", b)
+	}
+	if b := mustRead(t, filepath.Join(home, ".claude", "settings.json")); !bytes.Contains(b, []byte(" hook --profile claude --event start")) ||
+		!bytes.Contains(b, []byte("--event tool")) {
+		t.Errorf("settings.json has no Brain hook entry or no hook record entry:\n%s", b)
+	}
+	rec, err := install.Read(filepath.Join(home, ".local", "share", "brain", "install.json"))
+	if err != nil || rec.Entries["claude"].Target == "" || rec.Entries["codex"].Target == "" {
+		t.Errorf("install record = %+v, %v", rec, err)
+	}
+	if x := extractorOf(t, home); x.CLI != store.ExtractorClaude {
+		t.Errorf("extractor = %+v, want claude", x)
+	}
+	for _, want := range []string{"Step 3: the changes.", "- Binding: write ", "Make the symlink ",
+		"Add this entry to the SessionStart array of ", "Add these entries to ", "brain uninstall --apply",
+		"- Extractor: record claude", "Bound session", "Linked ", "Added the Brain hook for codex",
+		"Added the hook record entries for claude", "Step 4: trust the hook in Codex."} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output does not contain %q:\n%s", want, out)
+		}
+	}
+
+	before := snapshot(t, home)
+	code, out, errOut = runSetup(t, "")
+	if code != 0 {
+		t.Fatalf("second setup = %d: %s\n%s", code, errOut, out)
+	}
+	if strings.Contains(out, "[y/N]") || strings.Contains(out, "Which CLI") || !strings.Contains(out, "Every step is already done") {
+		t.Errorf("the second setup asked a question:\n%s", out)
+	}
+	if after := snapshot(t, home); !maps.Equal(before, after) {
+		t.Errorf("the second setup changed files:\nbefore %v\nafter  %v", before, after)
+	}
+}
+
+// AC 2: "n", an empty answer or EOF writes nothing: no binding, no link, no hook entry, no
+// install.json, no store and no extractor setting.
+func TestSetupNo(t *testing.T) {
+	for name, answers := range map[string]string{"n": "claude\n\nn\n", "empty": "claude\n\n\n", "EOF": "claude\n\n"} {
+		t.Run(name, func(t *testing.T) {
 			home := setupHome(t, "0.9.1")
-			answers := strings.Repeat("y\n", len(steps))
-			answers = answers[:2*i] + "n" + answers[2*i+1:]
+			p, err := adapter.Load("claude")
+			if err != nil {
+				t.Fatal(err)
+			}
+			fakeCLI(t, home, "claude", p.TestedVersion)
 			before := snapshot(t, home)
 			code, out, errOut := runSetup(t, answers)
 			if code != 0 {
 				t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 			}
-			after := snapshot(t, home)
-			changed := false
-			for _, m := range []map[string]string{before, after} {
-				for rel := range m {
-					if !under(rel, step.files) {
-						changed = changed || before[rel] != after[rel]
-						continue
-					}
-					if before[rel] != after[rel] {
-						t.Errorf("%s changed after the answer no: %q -> %q", rel, before[rel], after[rel])
-					}
-				}
+			if n := strings.Count(out, "[y/N]"); n != 1 || !strings.Contains(out, "Setup wrote nothing.") {
+				t.Errorf("setup asked %d yes or no questions, want 1:\n%s", n, out)
 			}
-			if !changed {
-				t.Error("the other steps changed nothing")
+			if after := snapshot(t, home); !maps.Equal(before, after) {
+				t.Errorf("setup changed files after the answer %s:\nbefore %v\nafter  %v", name, before, after)
 			}
 		})
 	}
-
-	home := setupHome(t, "0.9.1")
-	before := snapshot(t, home)
-	if code, out, errOut := runSetup(t, "n\nn\nn\nn\n"); code != 0 {
-		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
-	}
-	if after := snapshot(t, home); !maps.Equal(before, after) {
-		t.Errorf("no at every step changed files:\nbefore %v\nafter  %v", before, after)
-	}
 }
 
-func under(rel string, prefixes []string) bool {
-	for _, p := range prefixes {
-		if rel == filepath.FromSlash(p) || strings.HasPrefix(rel, filepath.FromSlash(p)+string(filepath.Separator)) {
-			return true
-		}
+// AC 4: a hook entry that you edited stays as it is, and the plan says so.
+func TestSetupKeepsEditedEntry(t *testing.T) {
+	home := setupHome(t, "0.9.1")
+	if code, out, errOut := runSetup(t, "\ny\n"); code != 0 {
+		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 	}
-	return false
+	file := filepath.Join(home, ".codex", "hooks.json")
+	edited := bytes.Replace(mustRead(t, file), []byte("--event start"), []byte("--event start --mine"), 1)
+	if err := os.WriteFile(file, edited, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A missing link gives the plan a step, so setup asks.
+	if err := os.Remove(filepath.Join(home, ".local", "bin", "brain")); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := runSetup(t, "y\n")
+	if code != 0 {
+		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
+	}
+	if !strings.Contains(out, file+" holds a Brain hook entry for codex that you edited. Brain keeps it.") ||
+		strings.Contains(out, "Add this entry to the SessionStart array of "+file) {
+		t.Errorf("the plan does not keep the edited entry:\n%s", out)
+	}
+	if now := mustRead(t, file); !bytes.Equal(now, edited) {
+		t.Errorf("setup changed the edited entry:\n%s", now)
+	}
 }
 
 // S81: herdr older than 0.9.1. Setup refuses with the version and the fix, writes nothing,
@@ -259,12 +316,17 @@ func TestSetupS81(t *testing.T) {
 // A test binding gets its own store folder, beside the main binding.
 func TestSetupTestBinding(t *testing.T) {
 	home := setupHome(t, "0.9.1")
-	if code, out, errOut := runSetup(t, "y\nn\nn\nn\n"); code != 0 {
+	if code, out, errOut := runSetup(t, "\ny\n"); code != 0 {
 		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 	}
 	store := filepath.Join(home, "eval", "store")
-	if code, out, errOut := runSetup(t, "y\nn\nn\nn\n", "--session", "brain-test", "--test", store); code != 0 {
+	code, out, errOut := runSetup(t, "\ny\n", "--session", "brain-test", "--test", store)
+	if code != 0 {
 		t.Fatalf("setup --test = %d: %s\n%s", code, errOut, out)
+	}
+	// AC 5: the same one question.
+	if n := strings.Count(out, "[y/N]"); n != 1 || !strings.Contains(out, "Apply all of this? [y/N]") {
+		t.Errorf("setup --test asked %d yes or no questions, want 1:\n%s", n, out)
 	}
 	bs := readBindings(t, home)
 	if len(bs) != 2 || bs[1].Session != "brain-test" || bs[1].Kind != bindings.KindTest || bs[1].Store != store {
@@ -316,19 +378,21 @@ func TestSetupS76(t *testing.T) {
 			home := setupHome(t, "0.9.1")
 			main := filepath.Join(home, ".local", "share", "brain", "main")
 			if c.mainBound {
-				if code, out, errOut := runSetup(t, "y\nn\nn\nn\n"); code != 0 {
+				if code, out, errOut := runSetup(t, "\ny\n"); code != 0 {
 					t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 				}
 			}
 			other := filepath.Join(home, "other-test")
-			if code, out, errOut := runSetup(t, "y\nn\nn\nn\n", "--session", "brain-test2", "--test", other); code != 0 {
+			if code, out, errOut := runSetup(t, "\ny\n", "--session", "brain-test2", "--test", other); code != 0 {
 				t.Fatalf("setup --test = %d: %s\n%s", code, errOut, out)
 			}
 			folder := c.prep(t, home, main, other)
 			file := filepath.Join(home, ".local", "share", "brain", "bindings.json")
 			before := mustRead(t, file)
 			session := cmpOr(c.session, "brain-test")
-			code, out, errOut := runSetup(t, "y\ny\ny\ny\n", "--session", session, "--test", folder)
+			code, out, errOut := runSetup(t, "\ny\n", "--session", session, "--test", folder)
+			// A store folder that does not exist yet is checked after the answer: the binding is
+			// the first write, so setup stops before any other write.
 			if code != 1 || !strings.Contains(errOut, "refused") {
 				t.Errorf("setup = %d, stderr %q, want 1 and refused\n%s", code, errOut, out)
 			}
@@ -361,7 +425,7 @@ func TestSetupSkipsMissingCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := mustRead(t, filepath.Join(home, ".codex", "hooks.json"))
-	code, out, errOut := runSetup(t, "y\ny\ny\ny\n")
+	code, out, errOut := runSetup(t, "\ny\n")
 	if code != 0 {
 		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 	}
@@ -377,10 +441,10 @@ func TestSetupSkipsMissingCLI(t *testing.T) {
 // nothing on no.
 func TestSetupMissingConfigFolder(t *testing.T) {
 	for _, c := range []struct{ kind, dir, file, answers string }{
-		{"claude", ".claude", "settings.json", "y\ny\ny\ny\n"},
-		{"codex", ".codex", "hooks.json", "y\ny\ny\ny\n"},
-		{"claude", ".claude", "settings.json", "y\ny\nn\ny\n"},
-		{"codex", ".codex", "hooks.json", "y\ny\ny\nn\n"},
+		{"claude", ".claude", "settings.json", "\ny\n"},
+		{"codex", ".codex", "hooks.json", "\ny\n"},
+		{"claude", ".claude", "settings.json", "\nn\n"},
+		{"codex", ".codex", "hooks.json", "\nn\n"},
 	} {
 		yes := !strings.Contains(c.answers, "n")
 		t.Run(fmt.Sprintf("%s yes=%t", c.kind, yes), func(t *testing.T) {
@@ -425,8 +489,8 @@ func TestSetupOverlap(t *testing.T) {
 	home := setupHome(t, "0.9.1")
 	file := filepath.Join(home, ".local", "share", "brain", "bindings.json")
 	var other []byte
-	in := &hookReader{r: strings.NewReader("y\nn\nn\nn\n"), fn: func() {
-		if code, out, errOut := runSetup(t, "y\nn\nn\nn\n", "--session", "brain-test2"); code != 0 {
+	in := &hookReader{r: strings.NewReader("\ny\n"), fn: func() {
+		if code, out, errOut := runSetup(t, "\ny\n", "--session", "brain-test2"); code != 0 {
 			t.Fatalf("other setup = %d: %s\n%s", code, errOut, out)
 		}
 		other = mustRead(t, file)
@@ -438,7 +502,7 @@ func TestSetupOverlap(t *testing.T) {
 	if now := mustRead(t, file); !bytes.Equal(now, other) {
 		t.Errorf("bindings file changed:\n%s\n->\n%s", other, now)
 	}
-	if code, out, errOut := runSetup(t, "y\nn\nn\nn\n"); code != 0 {
+	if code, out, errOut := runSetup(t, "\ny\n"); code != 0 {
 		t.Fatalf("setup again = %d: %s\n%s", code, errOut, out)
 	}
 	if bs := readBindings(t, home); len(bs) != 2 {
