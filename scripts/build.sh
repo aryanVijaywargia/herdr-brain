@@ -8,6 +8,7 @@
 # Any other ref builds this checkout from source, so a source change always reaches bin/brain.
 # With no Go, such a ref stops with "this ref needs Go".
 # The asset path needs a public repo: a private repo cannot serve release assets without auth.
+# After a build of `herdr plugin install`, it starts the `start` action (see auto_start).
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -25,11 +26,46 @@ die() {
 	exit 1
 }
 
+# auto_start runs at the end of a good build (E19-S3): herdr runs [[startup]] only after a
+# session restore, so after an install nothing would start brained or setup. [NEW] The signal
+# of an install build: herdr 0.9.1 builds in <herdr config>/plugins/.tmp-install-<pid>-<ms>/checkout
+# and removes that folder when the install ends (src/cli/plugin.rs, create_plugin_temp_dir).
+# A detached child waits for that end and for herdr to list brain, then invokes brain.start in
+# each running herdr session: herdr removes HERDR_SESSION from the build environment, so the
+# build cannot know the session of the install. herdr reads the build output until EOF, so the
+# child gets /dev/null for stdin, stdout and stderr. BRAIN_NO_AUTO_SETUP=1 turns it off.
+auto_start() {
+	[ "${BRAIN_NO_AUTO_SETUP:-}" != 1 ] || return 0
+	case "$(pwd -P)" in
+	*/plugins/.tmp-install-*/checkout) ;;
+	*) return 0 ;;
+	esac
+	command -v herdr >/dev/null 2>&1 || return 0
+	staging=$(dirname "$(pwd -P)")
+	# [NEW] 60 s: after the build, the install only moves the checkout and links the plugin.
+	# BRAIN_AUTO_SETUP_WAIT is for tests only.
+	left=${BRAIN_AUTO_SETUP_WAIT:-60}
+	(
+		trap '' HUP
+		cd /
+		while [ -d "$staging" ] || ! herdr plugin list --plugin brain |
+			awk '$1 == "-" && $2 == "brain" { f = 1 } END { exit !f }'; do
+			[ "$left" -gt 0 ] || exit 0
+			left=$((left - 1))
+			sleep 1
+		done
+		herdr session list | awk 'NR > 1 && $2 == "running" { print $1 }' | while read -r s; do
+			herdr --session "$s" plugin action invoke brain.start || :
+		done
+	) </dev/null >/dev/null 2>&1 &
+}
+
 # from_source builds this checkout. Callers in a `||` list turn off set -e, so check go build.
 from_source() {
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${version}" -o bin/brain ./cmd/brain ||
 		die "go build failed"
 	echo "brain build: bin/brain ${version} (built from source)"
+	auto_start
 	exit 0
 }
 
@@ -106,3 +142,4 @@ printed=$("$tmp/$asset" version 2>/dev/null) || printed=""
 
 mv "$tmp/$asset" bin/brain
 echo "brain build: bin/brain ${version} (release asset ${asset}, checksum OK)"
+auto_start

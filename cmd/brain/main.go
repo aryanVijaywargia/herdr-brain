@@ -42,6 +42,7 @@ commands:
   uninstall [--apply] [--data]: list what uninstall removes; --apply removes it, --data the stores too
   hook      --profile <name> --event start|prompt|tool|stop: the agent hooks (start prints the brief or nothing)
   brained   the herdr listener of one herdr session (herdr starts it; D7)
+  start     start brained for this herdr session, and open setup when it has no binding (the start action)
   suggest   the live suggestion of one prompt (the hook or brained starts it)
   run       <tool> [--<input> <value>]...: run an approved tool in this workspace; exits with its exit code
   tools     list the approved tools that this workspace can run, with their inputs
@@ -98,6 +99,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = command(commands[args[0]], args[1:], in, stdout, stderr)
 	case "event":
 		err = event.Main(context.Background(), args[1:], os.Environ())
+	case "start":
+		err = start(context.Background(), osStartDeps(os.Environ()))
 	case "brained":
 		err = brained.Main(context.Background(), os.Environ(), stderr)
 		if errors.Is(err, brained.ErrStop) {
