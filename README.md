@@ -43,7 +43,7 @@ herdr shows what the plugin runs and asks "Install this plugin? [y/N]". Answer y
 The setup popup opens by itself. Read the plan and answer y.
 If it does not open, run `herdr plugin action invoke brain.setup`.
 
-Then, in a pane of a herdr workspace (setup offers a `brain` link on your `PATH`):
+Then, in a pane of a herdr workspace (setup offers a `~/.local/bin/brain` link; if that folder is not on your `PATH`, setup prints the binary path to use instead):
 
 ```sh
 brain remember "use pnpm, not npm"   # a draft for this workspace; a review pane opens beside you
@@ -131,6 +131,7 @@ They work without `brain` on your `PATH`.
 - `brain forget <item>` removes the text of an item from the store and the output.
   It cannot remove the text from backups or from sessions that already got it.
 - Learning sends short excerpts (at most 500 characters, after a secret filter) to the extractor CLI that you choose in setup.
+  For a shell command that could become a tool, it sends the whole command record (at most 4 KB).
   Extraction is on after setup. `brain extract off [--workspace <id>]` turns it off for one workspace or for all.
 
 ## Update
