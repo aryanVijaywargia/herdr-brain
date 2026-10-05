@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -142,7 +143,7 @@ func TestRestartRunsNewBinary(t *testing.T) {
 	environ := []string{"HOME=" + filepath.Join(dir, "home"), "PATH=/usr/bin:/bin", "HERDR_SESSION=s1",
 		"HERDR_SOCKET_PATH=" + f.path, "HERDR_PLUGIN_STATE_DIR=" + state, "HERDR_PLUGIN_ID=brain"}
 	cmd := exec.Command(bin, "brained")
-	cmd.Env = append(environ, "BRAINED_TEST_LOG="+log)
+	cmd.Env = append(slices.Clone(environ), "BRAINED_TEST_LOG="+log)
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		t.Fatal(err)

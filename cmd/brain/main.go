@@ -75,6 +75,9 @@ var commands = map[string]func(context.Context, cli.Env, []string) error{
 	"run":        cli.Run,
 	"tools":      cli.Tools,
 	"automation": cli.Automation,
+	"update": func(ctx context.Context, e cli.Env, args []string) error {
+		return update.Main(ctx, args, e.Environ, e.Stdout, e.Stderr)
+	},
 }
 
 func main() {
@@ -99,14 +102,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "setup":
 		err = setup(context.Background(), osSetupDeps(os.Environ()), args[1:], in, stdout)
 	case "status", "doctor", "remember", "review", "pin", "archive", "promote", "undo", "workspace", "forget", "repair", "pane", "uninstall", "learn", "extract",
-		"suggest", "run", "tools", "automation":
+		"suggest", "run", "tools", "automation", "update":
 		err = command(commands[args[0]], args[1:], in, stdout, stderr)
 	case "event":
 		err = event.Main(context.Background(), args[1:], os.Environ())
 	case "start":
 		err = start(context.Background(), osStartDeps(os.Environ()))
-	case "update":
-		err = update.Main(context.Background(), args[1:], os.Environ(), stdout, stderr)
 	case "brained":
 		err = brained.Main(context.Background(), os.Environ(), stderr)
 		if errors.Is(err, brained.ErrStop) {

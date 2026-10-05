@@ -89,14 +89,15 @@ func Main(ctx context.Context, args, environ []string, stdout, stderr io.Writer)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "installed: brain %s, commit %s (%s)\n", p.Version, short(s.installed), s.from)
-	fmt.Fprintf(stdout, "newest:    commit %s on the default branch of %s\n", short(s.newest), s.remote)
+	verdict := "update available"
 	if s.installed == s.newest {
-		fmt.Fprintln(stdout, "up to date")
-		return nil
+		verdict = "up to date"
 	}
-	fmt.Fprintln(stdout, "update available")
-	if check {
+	if _, err := fmt.Fprintf(stdout, "installed: brain %s, commit %s (%s)\nnewest:    commit %s on the default branch of %s\n%s\n",
+		p.Version, short(s.installed), s.from, short(s.newest), s.remote, verdict); err != nil {
+		return err
+	}
+	if check || s.installed == s.newest {
 		return nil
 	}
 	if err := s.apply(ctx); err != nil {
@@ -235,7 +236,9 @@ func (u *updater) doctor(ctx context.Context, root string) error {
 
 // run runs name with args in dir, with its output on the output of update.
 func (u *updater) run(ctx context.Context, dir, name string, args ...string) error {
-	fmt.Fprintf(u.stdout, "$ %s %s\n", name, strings.Join(args, " "))
+	if _, err := fmt.Fprintf(u.stdout, "$ %s %s\n", name, strings.Join(args, " ")); err != nil {
+		return err
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir, cmd.Env = dir, u.environ
 	cmd.Stdout, cmd.Stderr = u.stdout, u.stderr
