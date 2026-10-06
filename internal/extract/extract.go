@@ -34,6 +34,16 @@ type Pass struct {
 	Now          func() time.Time
 	Gates        store.Gates // nil for store.DefaultGates
 	Caps         Caps        // the zero value for DefaultCaps
+	// Suggest starts the review pane of a new lesson proposal after its commit (#253, §7.2);
+	// nil for none.
+	Suggest func(ctx context.Context, s Suggestion) error
+}
+
+// Suggestion is the reserved suggestion of a new lesson proposal (#253): the review pane opens
+// beside the agent pane where you said the lesson, as for a repeated prompt (§5.5).
+type Suggestion struct {
+	store.Suggestion
+	WorkspaceID string // the herdr workspace of the agent pane
 }
 
 // ref is one observation of the input of a batch, with its ref id in the prompt.
@@ -45,6 +55,7 @@ type ref struct {
 	sender    store.Sender
 	excerpt   string
 	kind      signal.Kind          // the kind of the signal of the observation
+	lesson    bool                 // the observation starts a lesson signal too (§7.1)
 	cmd       *store.CommandRecord // the command record of the observation; nil for none
 }
 
@@ -273,8 +284,15 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 		return slices.ContainsFunc(run, func(o store.SignalInput) bool { return o.ID == id })
 	}
 	kinds := map[int64]signal.Kind{}
+	// A lesson is a mark beside the kind, so a lesson that is a correction too keeps its
+	// correction kind for the comebacks (§5.4).
+	lessons := map[int64]bool{}
 	for _, s := range sigs {
 		if len(s.Observations) == 0 || !in(s.Observations[0]) {
+			continue
+		}
+		if s.Kind == signal.Lesson {
+			lessons[s.Observations[0]] = true
 			continue
 		}
 		for i, id := range s.Observations {
@@ -283,6 +301,11 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 					kinds[id] = s.Kind
 				}
 			}
+		}
+	}
+	for id := range lessons {
+		if _, seen := kinds[id]; !seen {
+			kinds[id] = signal.Lesson
 		}
 	}
 	var rs []ref
@@ -294,7 +317,7 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 			o.Excerpt = o.Command.Argv
 		}
 		rs = append(rs, ref{id: fmt.Sprintf("e%d", id), obs: id, identity: o.CaptureIdentity, workspace: o.WorkspaceKey,
-			sender: o.Sender, excerpt: o.Excerpt, kind: k, cmd: o.Command})
+			sender: o.Sender, excerpt: o.Excerpt, kind: k, lesson: lessons[id], cmd: o.Command})
 	}
 	slices.SortFunc(rs, func(a, b ref) int { return int(a.obs - b.obs) })
 	return rs
@@ -352,7 +375,9 @@ func (p Pass) extract(ctx context.Context, j job) error {
 // input again; a forget that touched the input discards the whole result. Then it writes the
 // evidence links, candidates and proposals, and moves the watermark.
 func (p Pass) commit(ctx context.Context, j job, id int64, claims []Claim, callErr error) error {
-	return p.Store.Write(ctx, func(tx *sql.Tx) error {
+	var lessons []Suggestion
+	err := p.Store.Write(ctx, func(tx *sql.Tx) error {
+		lessons = nil
 		now := p.Now()
 		b, err := store.BatchByID(ctx, tx, id)
 		if err != nil || b.Status != store.BatchActive {
@@ -375,8 +400,12 @@ func (p Pass) commit(ctx context.Context, j job, id int64, claims []Claim, callE
 			return err
 		}
 		for _, c := range claims {
-			if err := p.write(ctx, tx, j, c, now); err != nil {
+			s, err := p.write(ctx, tx, j, c, now)
+			if err != nil {
 				return err
+			}
+			if s.ID != 0 {
+				lessons = append(lessons, s)
 			}
 		}
 		status := store.BatchCommitted
@@ -388,6 +417,14 @@ func (p Pass) commit(ctx context.Context, j job, id int64, claims []Claim, callE
 		}
 		return store.MoveWatermark(ctx, tx, j.batch)
 	})
+	if err != nil || p.Suggest == nil {
+		return err
+	}
+	var errs []error
+	for _, s := range lessons {
+		errs = append(errs, p.Suggest(ctx, s))
+	}
+	return errors.Join(errs...)
 }
 
 // stale returns why the result of j must be discarded, or "": extraction or learning went off,
@@ -443,29 +480,29 @@ func untombstoned(ctx context.Context, tx *sql.Tx, refs []ref) ([]ref, error) {
 // (§6.7): a forget erases the claim key, so the tombstone source keys stop the same evidence.
 // A known claim (the same claim id) gets the evidence first; propose then drops the duplicate
 // proposal (§7.3). A candidate that reaches its gate gets a proposal.
-func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Time) error {
+func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Time) (Suggestion, error) {
 	kept, err := untombstoned(ctx, tx, c.Refs)
 	if c.Refs = kept; err != nil || len(kept) == 0 {
-		return err
+		return Suggestion{}, err
 	}
 	// No tool from a command that held a secret or was cut (§6.7): the claim adds nothing.
 	if c.Tool != "" && slices.ContainsFunc(c.Refs, func(r ref) bool { return r.cmd != nil && heldBack(*r.cmd) }) {
-		return nil
+		return Suggestion{}, nil
 	}
 	c = redactClaim(c)
 	claim, err := store.ClaimID(ctx, tx, claimKey(c), now)
 	if err != nil {
-		return err
+		return Suggestion{}, err
 	}
 	if ts, err := store.TombstonesByClaim(ctx, tx, claim); err != nil || len(ts) > 0 {
-		return err
+		return Suggestion{}, err
 	}
 	if c.SameAs != "" && c.SameAs != claim {
 		// The model guess alone is not proof (§5.4): the link is proposed and waits for review,
 		// and the evidence stays with the claim's own candidate (§7.2). check found c.SameAs in
 		// the input.
 		if _, err := store.SameAs(ctx, tx, claim, c.SameAs, store.Match{Permissions: c.TouchesPermission}); err != nil {
-			return err
+			return Suggestion{}, err
 		}
 	}
 	key := j.batch.WorkspaceKey
@@ -477,7 +514,7 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	case err == nil:
 		kind = old.Kind
 	case !errors.Is(err, sql.ErrNoRows):
-		return err
+		return Suggestion{}, err
 	}
 	var cand int64
 	var accepted []ref
@@ -488,16 +525,16 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 		case errors.Is(err, store.ErrEvidenceRefused):
 			continue
 		case err != nil:
-			return err
+			return Suggestion{}, err
 		}
 		cand = id
 		accepted = append(accepted, r)
 	}
 	if err := p.outcomes(ctx, tx, j, claim, corrections(kind, accepted), now); err != nil {
-		return err
+		return Suggestion{}, err
 	}
 	if cand == 0 {
-		return nil
+		return Suggestion{}, nil
 	}
 	return p.propose(ctx, tx, cand, c, now)
 }
@@ -594,12 +631,19 @@ func outcomeOf(d store.Delivery, ok bool, item int64) (store.OutcomeKind, int64,
 	return "", 0, false
 }
 
-// candidateKind is the candidate kind of claim c: a command chain for a tool, else the kind of
-// the first signal of its evidence that is a candidate kind. Else [NEW] a procedure claim is a
-// procedure, and any other claim a correction.
+// candidateKind is the candidate kind of claim c: a command chain for a tool, a lesson for a
+// lesson claim with lesson evidence, else the kind of the first signal of its evidence that is
+// a candidate kind. Else [NEW] a procedure claim is a procedure, and any other claim a
+// correction. A lesson needs both the local rule and the extractor (§7.1): lesson evidence of
+// any other claim kind is a false positive, and a lesson claim with no lesson evidence keeps
+// the gate of its evidence.
 func candidateKind(c Claim) store.CandidateKind {
 	if c.Tool != "" {
 		return store.CandidateCommandChain
+	}
+	lesson := slices.ContainsFunc(c.Refs, func(r ref) bool { return r.lesson })
+	if c.Kind == kindLesson && lesson {
+		return store.CandidateLesson
 	}
 	for _, r := range c.Refs {
 		switch r.kind {
@@ -619,19 +663,19 @@ func candidateKind(c Claim) store.CandidateKind {
 // candidate. It stores the §7.4 fields: the excerpts stay in the evidence links, and the
 // proposal holds the hashes of its trigger prompts (store.ProposeCandidate) and the items that
 // it conflicts with.
-func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now time.Time) error {
+func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now time.Time) (Suggestion, error) {
 	cand, err := store.CandidateByID(ctx, tx, id)
 	if err != nil || !p.gates().Reached(cand) {
-		return err
+		return Suggestion{}, err
 	}
 	if pending, err := store.PendingCandidateProposalIDs(ctx, tx, id); err != nil || len(pending) > 0 {
-		return err
+		return Suggestion{}, err
 	}
 	if has, err := store.ClaimHasItem(ctx, tx, cand.ClaimID, cand.WorkspaceKey); err != nil || has {
-		return err
+		return Suggestion{}, err
 	}
 	if held, err := store.Rejected(ctx, tx, cand.ClaimID, cand.WorkspaceKey); err != nil || held {
-		return err
+		return Suggestion{}, err
 	}
 	var key *string
 	if cand.Scope == store.ScopeWorkspace {
@@ -640,29 +684,18 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 	target, err := target(ctx, tx, cand)
 	switch {
 	case errors.Is(err, sql.ErrNoRows): // the item needs the workspace row: the next evidence tries again
-		return nil
+		return Suggestion{}, nil
 	case err != nil:
-		return err
-	}
-	// [NEW] a fact claim makes a fact, a skill claim a skill (E16-S4), a tool claim a tool
-	// (E17-S6); every other claim kind makes a preference, the kind of a lesson.
-	kind := store.KindPreference
-	switch c.Kind {
-	case "fact":
-		kind = store.KindFact
-	case kindSkill:
-		kind = store.KindSkill
-	case kindTool:
-		kind = store.KindTool
+		return Suggestion{}, err
 	}
 	conflicts, err := conflictItems(ctx, tx, cand, c)
 	if err != nil {
-		return err
+		return Suggestion{}, err
 	}
-	item, err := store.InsertItem(ctx, tx, store.Item{ClaimID: cand.ClaimID, CurrentRevision: 1, Kind: kind,
+	item, err := store.InsertItem(ctx, tx, store.Item{ClaimID: cand.ClaimID, CurrentRevision: 1, Kind: itemKind(c),
 		Scope: cand.Scope, WorkspaceKey: key, State: store.StateDraft, Created: now})
 	if err != nil {
-		return err
+		return Suggestion{}, err
 	}
 	text, diff := draft(c)
 	base := int64(1)
@@ -671,14 +704,51 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 		PermissionWarning: c.TouchesPermission, ConflictsWith: conflicts,
 		Status: store.ProposalPending, Created: now})
 	if err != nil {
-		return err
+		return Suggestion{}, err
 	}
 	if err := store.InsertItemRevision(ctx, tx, store.ItemRevision{ItemID: item, Revision: 1, Text: text,
 		Scope: cand.Scope, WorkspaceKey: key, State: store.StateDraft, Author: store.AuthorBrain,
 		Origin: store.OriginExtractor, ProposalID: &pid, Created: now}); err != nil {
-		return err
+		return Suggestion{}, err
 	}
-	return store.MarkProposed(ctx, tx, id)
+	if err := store.MarkProposed(ctx, tx, id); err != nil || cand.Kind != store.CandidateLesson {
+		return Suggestion{}, err
+	}
+	return lessonSuggestion(ctx, tx, cand, pid, now)
+}
+
+// lessonSuggestion reserves the suggestion of proposal pid of lesson candidate cand beside the
+// agent pane of its newest evidence: the lesson of this batch (#253, §7.2). A suggestion that
+// Brain cannot reserve leaves the proposal in brain review, as any proposal.
+func lessonSuggestion(ctx context.Context, tx *sql.Tx, cand store.Candidate, pid int64, now time.Time) (Suggestion, error) {
+	obs, err := store.NewestEvidence(ctx, tx, cand.ID)
+	if err != nil {
+		return Suggestion{}, err
+	}
+	s, err := store.ReserveLessonSuggestion(ctx, tx, obs, pid, now)
+	if err != nil || s.ID == 0 {
+		return Suggestion{}, err
+	}
+	w, err := store.WorkspaceByKey(ctx, tx, s.WorkspaceKey)
+	if err != nil {
+		return Suggestion{}, err
+	}
+	return Suggestion{Suggestion: s, WorkspaceID: w.HerdrWorkspaceID}, nil
+}
+
+// itemKind is the item kind of a proposal of claim c. [NEW] a fact claim makes a fact, a skill
+// claim a skill (E16-S4), a tool claim a tool (E17-S6); every other claim kind makes a
+// preference, the kind of a lesson.
+func itemKind(c Claim) store.Kind {
+	switch c.Kind {
+	case "fact":
+		return store.KindFact
+	case kindSkill:
+		return store.KindSkill
+	case kindTool:
+		return store.KindTool
+	}
+	return store.KindPreference
 }
 
 // claimKey is the claim key of claim c, in normal form. A tool keeps its key (toolKey), so the

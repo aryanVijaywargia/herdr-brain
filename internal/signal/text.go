@@ -40,10 +40,10 @@ func normalize(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// hasMarker reports whether t holds a correction marker as whole words.
-func (t text) hasMarker() bool {
+// hasAny reports whether t holds one of markers as whole words.
+func (t text) hasAny(markers []string) bool {
 	padded := " " + t.norm + " "
-	for _, m := range correctionMarkers {
+	for _, m := range markers {
 		if strings.Contains(padded, " "+m+" ") {
 			return true
 		}

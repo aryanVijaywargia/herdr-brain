@@ -115,6 +115,51 @@ func TestCorrection(t *testing.T) {
 	})
 }
 
+// m2Lesson is the prompt of the M2 real-use test (2026-10-07) that made no proposal (#253).
+const m2Lesson = "Remember this for this project only: every exported function in src/math.js gets a one-line " +
+	"JSDoc comment above it."
+
+// AC #253: the plain-words lesson rule (§7.1) finds each lesson word from its first
+// occurrence. It is wide: the extractor drops "never mind". A correction with no lesson word
+// gives no lesson.
+func TestLesson(t *testing.T) {
+	runRule(t, Lesson, []ruleCase{
+		{"m2 prompt", []store.SignalInput{obs(1, 1, unconf, m2Lesson)}, [][]int64{{1}}},
+		{"each word", []store.SignalInput{obs(1, 1, unconf, "remember to run make lint"),
+			obs(2, 1, unconf, "From now on, use pnpm."), obs(3, 1, unconf, "always squash merge"),
+			obs(4, 1, unconf, "never push to main"), obs(5, 1, unconf, "Going forward write tests first"),
+			obs(6, 1, unconf, "in this project we use tabs")},
+			[][]int64{{1}, {2}, {3}, {4}, {5}, {6}}},
+		{"your text", []store.SignalInput{obs(1, 1, you, "always use pnpm")}, [][]int64{{1}}},
+		{"wide on purpose", []store.SignalInput{obs(1, 1, unconf, "never mind"),
+			obs(2, 1, unconf, "I always forget the flag")}, [][]int64{{1}, {2}}},
+		{"each occurrence", []store.SignalInput{obs(1, 1, unconf, "always use pnpm"),
+			obs(2, 2, unconf, "always use pnpm")}, [][]int64{{1}, {2}}},
+		{"correction with no lesson word", []store.SignalInput{obs(1, 1, unconf, "Do not add JSDoc to the other functions")}, nil},
+		{"word inside a word", []store.SignalInput{obs(1, 1, unconf, "the remembered value is nevertheless fine")}, nil},
+		{"assistant text", []store.SignalInput{obs(1, 1, assistant, "I will always remember that.")}, nil},
+		{"tool text", []store.SignalInput{obs(1, 1, tool, "never: remember failed")}, nil},
+		{"brain origin", []store.SignalInput{with(obs(1, 1, unconf, "always use pnpm"), func(in *store.SignalInput) {
+			in.BrainOrigin = true
+		})}, nil},
+		{"not counted", []store.SignalInput{with(obs(1, 1, unconf, "always use pnpm"), func(in *store.SignalInput) {
+			in.Counts = false
+		})}, nil},
+	})
+}
+
+// AC #253: a text with a lesson word and a correction marker gives both signals.
+func TestLessonAfterCorrection(t *testing.T) {
+	sigs := Find([]store.SignalInput{obs(1, 1, unconf, "No, from now on use pnpm.")})
+	var kinds []Kind
+	for _, s := range sigs {
+		kinds = append(kinds, s.Kind)
+	}
+	if want := []Kind{Correction, Lesson}; !reflect.DeepEqual(kinds, want) {
+		t.Errorf("Find kinds = %v, want %v", kinds, want)
+	}
+}
+
 const (
 	proc1 = "First run go vet on all packages. Then run golangci-lint with a fresh cache. " +
 		"Then run the full test suite with the race flag and paste the summary."
@@ -306,7 +351,7 @@ func TestEligible(t *testing.T) {
 // Each candidate kind is a signal kind, and a sender supports a candidate as it supports a
 // signal of that kind (§6.5).
 func TestSupports(t *testing.T) {
-	for _, k := range []store.CandidateKind{store.CandidateCorrection, store.CandidateFailure,
+	for _, k := range []store.CandidateKind{store.CandidateCorrection, store.CandidateLesson, store.CandidateFailure,
 		store.CandidateProcedure, store.CandidateCommandChain} {
 		for _, s := range []store.Sender{you, unconf, assistant, tool} {
 			if got, want := Supports(k, s), eligible(Kind(k), s); got != want {
@@ -316,5 +361,8 @@ func TestSupports(t *testing.T) {
 	}
 	if Supports(store.CandidateCorrection, assistant) || !Supports(store.CandidateFailure, tool) {
 		t.Error("Supports: want no correction from assistant text, and failures from tool records")
+	}
+	if !Supports(store.CandidateLesson, unconf) || Supports(store.CandidateLesson, assistant) {
+		t.Error("Supports: want lessons from unconfirmed text, and none from assistant text (§6.5)")
 	}
 }

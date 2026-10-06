@@ -18,9 +18,11 @@ import (
 // Kind is the kind of a signal (§7.1).
 type Kind string
 
-// The signal kinds. An explicit lesson comes from brain remember directly, not from a rule.
+// The signal kinds. An explicit lesson comes from brain remember directly, not from a rule; a
+// lesson is an explicit lesson in plain words in captured text (#253).
 const (
 	Correction      Kind = "correction"
+	Lesson          Kind = "lesson"
 	Procedure       Kind = "procedure"
 	RepeatedPrompt  Kind = "repeated_prompt"
 	CommandChain    Kind = "command_chain"
@@ -50,6 +52,7 @@ type Signal struct {
 // approval is not listed: herdr's blocked state starts it, not the sender of the screen text.
 var senders = map[Kind][]store.Sender{
 	Correction:     {store.SenderYou, store.SenderUnconfirmed},
+	Lesson:         {store.SenderYou, store.SenderUnconfirmed},
 	Procedure:      {store.SenderYou, store.SenderUnconfirmed},
 	RepeatedPrompt: {store.SenderYou, store.SenderUnconfirmed},
 	Failure:        {store.SenderTool},
@@ -84,6 +87,7 @@ func Find(ins []store.SignalInput) []Signal {
 	sigs = append(sigs, corrections(texts)...)
 	sigs = append(sigs, procedures(texts)...)
 	sigs = append(sigs, repeatedPrompts(texts)...)
+	sigs = append(sigs, lessons(texts)...)
 	sigs = append(sigs, commandChains(kept)...)
 	sigs = append(sigs, failures(kept)...)
 	sigs = append(sigs, blockedApprovals(texts)...)
@@ -105,10 +109,27 @@ func corrections(texts []text) []Signal {
 		earlier := matches(texts[:i], func(e text) bool {
 			return eligible(Correction, e.in.Sender) && t.similar(e, promptSimilarity)
 		})
-		if len(earlier) == 0 && !t.hasMarker() {
+		if len(earlier) == 0 && !t.hasAny(correctionMarkers) {
 			continue
 		}
 		sigs = append(sigs, Signal{Kind: Correction, Observations: append([]int64{t.in.ID}, earlier...)})
+	}
+	return sigs
+}
+
+// lessonWords are the words of an explicit lesson in plain words (§7.1).
+var lessonWords = []string{"remember", "from now on", "always", "never", "going forward", "in this project"}
+
+// lessons finds text that gives a lesson for later in plain words: text with a lesson word
+// (§7.1). The rule is wide: the extractor drops "never mind" and "I always forget the flag".
+// Each one is a signal from its first occurrence; its gate is 1 (§7.2). The sender stays
+// unconfirmed.
+func lessons(texts []text) []Signal {
+	var sigs []Signal
+	for _, t := range texts {
+		if eligible(Lesson, t.in.Sender) && t.hasAny(lessonWords) {
+			sigs = append(sigs, Signal{Kind: Lesson, Observations: []int64{t.in.ID}})
+		}
 	}
 	return sigs
 }

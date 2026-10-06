@@ -112,25 +112,39 @@ func serve(ctx context.Context, environ []string, log io.Writer, moved func() bo
 		env: e, sock: herdr.Socket{Path: e.socket}, bindingsFile: bf,
 		handler: NewCapture(herdr.Socket{Path: e.socket}, environ), log: log, tick: t.C,
 		environ: environ, launch: StartLaunch, now: time.Now, moved: moved,
-		tries: connectTries, pause: connectPause, queue: queueSize, extract: extractPass,
-		stale: func(ctx context.Context, g Gate) error { return Stale(ctx, g, "", time.Now) },
+		tries: connectTries, pause: connectPause, queue: queueSize,
+		extract: func(ctx context.Context, g Gate) error { return extractPass(ctx, g, environ, Start) },
+		stale:   func(ctx context.Context, g Gate) error { return Stale(ctx, g, "", time.Now) },
 	}
 	return d.run(ctx)
 }
 
-// extractPass runs one extraction pass of the store of g with the extractor CLI (§7.3).
-func extractPass(ctx context.Context, g Gate) (err error) {
+// extractPass runs one extraction pass of the store of g with the extractor CLI (§7.3). start
+// starts `brain suggest` for each new lesson proposal (Start), with the herdr variables of the
+// agent pane where you said the lesson, so the process resolves that pane again (#253, §7.2).
+func extractPass(ctx context.Context, g Gate, environ []string,
+	start func(ctx context.Context, environ []string, d Dispatch) error) (err error) {
 	st, err := store.Open(ctx, g.Binding.Store, busyTimeout)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, st.Close()) }()
 	p := extract.Pass{Store: st, Runner: extract.ExecRunner{}, HerdrSession: g.Binding.Session,
-		DefaultOn: g.Binding.Kind != bindings.KindTest, Now: time.Now}
+		DefaultOn: g.Binding.Kind != bindings.KindTest, Now: time.Now,
+		Suggest: func(ctx context.Context, s extract.Suggestion) error {
+			return start(ctx, paneEnv(environ, g.Binding, s.AgentPaneID, s.WorkspaceID), LessonDispatch(g.Binding.Store, s))
+		}}
 	if err := p.Run(ctx); err != nil {
 		return fmt.Errorf("extract: %w", err)
 	}
 	return nil
+}
+
+// LessonDispatch is the Dispatch of the suggestion s of a lesson proposal in the store folder
+// dir.
+func LessonDispatch(dir string, s extract.Suggestion) Dispatch {
+	return Dispatch{Suggestion: s.ID, Binding: s.HerdrSession, Store: dir, Workspace: s.WorkspaceKey,
+		Session: s.SessionID, Occurrence: s.ObservationID, Generation: s.Generation, Proposal: s.ProposalID}
 }
 
 // env is what brained reads from the [[startup]] environment.

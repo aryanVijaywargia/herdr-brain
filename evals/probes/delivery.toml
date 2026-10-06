@@ -32,7 +32,7 @@ harnesses = ["claude", "codex"]
 
 # A full-size brief (about 9,400 of 9,500 bytes) with the marker item in its middle. A Codex
 # pass needs this case: a model that gets only a preview of the hook output does not see the
-# marker (E8-S2). The padding items are no rule, only size. [NEW] the padding counts: 431 global
+# marker (E8-S2). The padding items are no rule, only size. [NEW] the padding counts: 420 global
 # words, and 112 and 570 workspace words around the marker item.
 [[probe]]
 id = "delivery-full-brief"
@@ -40,7 +40,7 @@ stage = "delivery"
 source = "synthetic marker, Codex inline check"
 full_brief = true
 setup = [
-  "brain remember \"Padding item for a size test, not a rule: $(printf 'pad%04d ' $(seq 1 431))\" --global",
+  "brain remember \"Padding item for a size test, not a rule: $(printf 'pad%04d ' $(seq 1 420))\" --global",
   "brain remember \"Padding item for a size test, not a rule: $(printf 'pad%04d ' $(seq 1001 1112))\"",
   'brain remember "The release code word of this workspace is {{marker}}."',
   "brain remember \"Padding item for a size test, not a rule: $(printf 'pad%04d ' $(seq 2001 2570))\"",
