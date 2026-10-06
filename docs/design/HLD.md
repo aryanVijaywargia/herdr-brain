@@ -647,7 +647,7 @@ Limits:
 
 | Sender | Can support | Cannot create |
 |---|---|---|
-| You (after review approval of a `brain remember` draft, or a review edit) | Any item | — |
+| You (after review approval of a `brain remember` draft or a plain-words lesson proposal, or a review edit) | Any item | — |
 | Sender not confirmed (captured message) | A correction, explicit lesson, procedure or fact candidate | Nothing goes live without review |
 | Assistant text (agent reply, recap, summary) | Context for a candidate | Your preference, a permission, or a safety rule |
 | Tool output (errors) | A failure candidate | A preference or a permission |
@@ -1321,7 +1321,7 @@ The full goal needs all four milestones. M1 alone is useful, but it is not the f
 | S11 | You edited a Brain file by hand (for example a skill) or the Brain hook entry | The hash does not match. Brain reports a conflict and asks before it overwrites or removes it. |
 | S12 | A message contains an API key in a supported pattern | Secret filter removes it before storage and before the extractor |
 | S13 | `brained` was down for a day | On start it takes a baseline of live panes and records a gap. It does not invent missed text. |
-| S14 | A CLI update changes a hook payload | The profile parse fails closed; herdr capture continues; `brain doctor` reports the parse failure. A CLI update with no payload change gives only the warning "newer than tested"; hook records and learning stay on (owner decision 2026-10-07, #251). |
+| S14 | A CLI update gives an unknown hook input shape that the profile cannot parse | The profile parse fails closed; herdr capture continues; `brain doctor` reports the parse failure. A CLI update alone, also with a changed payload that the profile still parses, gives only the warning "newer than tested"; hook records and learning stay on (owner decision 2026-10-07, #251). |
 | S15 | Extractor CLI is signed out | Signals wait; `brain doctor` says why |
 | S16 | Removed in v1.4: Brain has no export path | — |
 | S17 | `brain learn off` | Delivery continues; no capture and no new proposals |
@@ -1427,7 +1427,7 @@ The full goal needs all four milestones. M1 alone is useful, but it is not the f
 
 ## 16. Owner decisions
 
-You made all decisions on 2026-09-27. The record is `OWNER_QUESTIONS.md`, section "Owner answers". Astra's recommendations are in [ASTRA4].
+The first decisions are dated 2026-09-27. Later decisions have dates in their rows. The record of the first decisions is `OWNER_QUESTIONS.md`, section "Owner answers". Astra's recommendations are in [ASTRA4].
 
 | # | Decision | Owner answer |
 |---|---|---|
