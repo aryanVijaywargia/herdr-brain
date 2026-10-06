@@ -1,0 +1,13 @@
+│ >_ OpenAI Codex (v0.160.1)                     │
+│                                                │
+│ model:     gpt-6.1-sol high   /model to change │
+│ directory: ~/demo                              │
+╰────────────────────────────────────────────────╯
+
+  Tip: Maximize usage with GPT-6.1 Sol. Try it on complex work for near-
+  Astra performance at a lower cost.
+
+
+› Add multiply with a test.
+
+• Added multiply.

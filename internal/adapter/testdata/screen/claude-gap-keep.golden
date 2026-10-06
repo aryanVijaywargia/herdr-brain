@@ -1,0 +1,3 @@
+❯ Run the tests and keep the complete test command in the summary for me please.
+⏺ Summary of the completed change in this repository:  2 files changed +17 -1.
+  Tests pass with npm test.

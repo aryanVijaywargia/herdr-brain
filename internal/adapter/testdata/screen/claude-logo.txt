@@ -1,0 +1,6 @@
+
+ ▐▛███▛█   Claude Code v2.1.287
+▝▜██████▀  Haiku 4.5 · API Usage Billing
+ ▝▝   ▝▝   /private/tmp/e11s1/agent
+
+❯ Say hi.

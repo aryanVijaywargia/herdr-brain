@@ -65,20 +65,24 @@ func (p *Profile) Noise(line string) bool {
 
 // Screen splits the screen text of one pane read into lines without trailing space. It cuts
 // the side panel off each line, and drops blank lines and the noise of the profile: the
-// noise lines and the noise blocks (§6.2, #258).
+// noise lines and the noise blocks (§6.2, #258). A read can start inside a block, as a
+// bounded read after the start line left it, so the lines at the start of the read that a
+// block's Next matches are dropped too.
 func (p *Profile) Screen(text string) []string {
 	rows := strings.Split(text, "\n")
 	col := p.panelColumn(rows)
 	var ls []string
+	head := true            // no line of the read is kept or starts a block yet
 	var next *regexp.Regexp // the Next of the open noise block; nil when none
 	for _, row := range rows {
 		l := strings.TrimRightFunc(cut(row, col), unicode.IsSpace)
 		switch {
 		case strings.TrimSpace(l) == "":
 			continue
-		case next != nil && next.MatchString(l):
+		case next != nil && next.MatchString(l), head && p.blockNext(l):
 			continue
 		}
+		head = false
 		next = p.blockStart(l)
 		if next != nil || p.Noise(l) {
 			continue
@@ -98,24 +102,45 @@ func (p *Profile) blockStart(l string) *regexp.Regexp {
 	return nil
 }
 
-// panelColumn returns the display column where the side panel starts in rows, or -1 when no
-// row holds its header. The header must start at min_column or right of it, after blank text
-// or a gap of two spaces, as a column does: a reply that names a diff stays main text.
+// blockNext reports whether line l can be a next line of a noise block.
+func (p *Profile) blockNext(l string) bool {
+	for _, b := range p.blocks {
+		if b.next.MatchString(l) {
+			return true
+		}
+	}
+	return false
+}
+
+// panelColumn returns the display column where the side panel starts in rows, or -1. The
+// header must start at min_column or right of it, after a gap, and another row must hold text
+// after a gap at the same column: a column has both, and a reply that names a diff does not.
 func (p *Profile) panelColumn(rows []string) int {
 	if p.panel == nil {
 		return -1
 	}
-	for _, row := range rows {
+	for i, row := range rows {
 		loc := p.panel.FindStringIndex(row)
-		if loc == nil {
+		if loc == nil || !gap(row[:loc[0]]) {
 			continue
 		}
-		left := row[:loc[0]]
-		if c := columns(left); c >= p.SidePanel.MinColumn && (strings.TrimSpace(left) == "" || strings.HasSuffix(left, "  ")) {
-			return c
+		c := columns(row[:loc[0]])
+		if c < p.SidePanel.MinColumn {
+			continue
+		}
+		for j, other := range rows {
+			left := cut(other, c)
+			if j != i && gap(left) && strings.TrimSpace(other[len(left):]) != "" {
+				return c
+			}
 		}
 	}
 	return -1
+}
+
+// gap reports whether left, the text left of a column, is blank or ends in two spaces.
+func gap(left string) bool {
+	return strings.TrimSpace(left) == "" || strings.HasSuffix(left, "  ")
 }
 
 // cut returns the part of row left of display column col; all of row when col < 0.
@@ -141,8 +166,12 @@ func columns(s string) int {
 	return c
 }
 
-// runeWidth is the number of terminal columns of r: 2 for a wide East Asian rune, else 1.
+// runeWidth is the number of terminal columns of r: 0 for a combining mark or a format rune,
+// 2 for a wide East Asian rune, else 1.
 func runeWidth(r rune) int {
+	if unicode.In(r, unicode.Mn, unicode.Me, unicode.Cf) {
+		return 0
+	}
 	switch width.LookupRune(r).Kind() {
 	case width.EastAsianWide, width.EastAsianFullwidth:
 		return 2

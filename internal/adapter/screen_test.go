@@ -11,8 +11,8 @@ import (
 // #258: the shipped profiles drop the CLI screen chrome (tips, start banners, footer and
 // status lines) and cut the side panel, and keep the real prompts and replies, also those
 // with the words of the chrome. Each testdata/screen/<harness>-<case>.txt is a made screen of
-// the CLI versions of the real-use test (claude 2.1.292, codex 0.160.1); its .golden holds
-// the kept lines.
+// the CLI versions of the real-use test (claude 2.1.292, codex 0.160.1), or rows of the
+// recorded reads (claude-logo, claude-tip-nbsp); its .golden holds the kept lines.
 func TestScreen(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join("testdata", "screen", "*.txt"))
 	if err != nil {
