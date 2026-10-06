@@ -152,9 +152,10 @@ func SameAs(ctx context.Context, tx *sql.Tx, id, other string, m Match) (SameAsS
 // signal kinds of the same name (internal/signal).
 type CandidateKind string
 
-// The candidate kinds.
+// The candidate kinds. A lesson is an explicit lesson in plain words (#253).
 const (
 	CandidateCorrection   CandidateKind = "correction"
+	CandidateLesson       CandidateKind = "lesson"
 	CandidateFailure      CandidateKind = "failure"
 	CandidateProcedure    CandidateKind = "procedure"
 	CandidateCommandChain CandidateKind = "command_chain"
@@ -200,6 +201,7 @@ type Gates map[CandidateKind]Gate
 func DefaultGates() Gates {
 	return Gates{
 		CandidateCorrection:   {Min: 2},
+		CandidateLesson:       {Min: 1},
 		CandidateFailure:      {Min: 2, Sessions: true},
 		CandidateProcedure:    {Min: 3},
 		CandidateCommandChain: {Min: 3, Sessions: true},

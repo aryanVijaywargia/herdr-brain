@@ -18,10 +18,13 @@ const (
 	endMarker   = "<!-- brain:end -->"
 	precedence  = `Precedence: for ordinary preferences, a workspace item wins over a global item. ` +
 		`It never relaxes a global permission or safety rule. A "conflicts with" mark wins over this line.`
+	// remember tells agents how to save a lesson; the call makes a draft (§8.1, #253).
+	remember       = `When the user asks you to remember something for later, run: brain remember "<lesson>"`
+	header         = precedence + "\n" + remember + "\n"
 	globalLabel    = "## Global (all workspaces)\n"
 	workspaceLabel = "## This workspace\n"
 	// frame is the text that every brief has around its two parts.
-	frame = beginMarker + "\n" + precedence + "\n" + endMarker
+	frame = beginMarker + "\n" + header + endMarker
 )
 
 // The budgets of §8.1, in bytes of UTF-8. A byte count is never below the character count that
@@ -161,7 +164,7 @@ func WorkspaceSize(workspace string) (size, limit int) { return len(workspace), 
 
 // Text puts the frame around the two parts and returns the whole brief.
 func Text(global, workspace string) string {
-	return beginMarker + "\n" + precedence + "\n" + global + workspace + endMarker
+	return beginMarker + "\n" + header + global + workspace + endMarker
 }
 
 // LastSession adds the line that names the last session of the workspace at the end of the

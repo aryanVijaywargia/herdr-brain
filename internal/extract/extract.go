@@ -594,12 +594,19 @@ func outcomeOf(d store.Delivery, ok bool, item int64) (store.OutcomeKind, int64,
 	return "", 0, false
 }
 
-// candidateKind is the candidate kind of claim c: a command chain for a tool, else the kind of
-// the first signal of its evidence that is a candidate kind. Else [NEW] a procedure claim is a
-// procedure, and any other claim a correction.
+// candidateKind is the candidate kind of claim c: a command chain for a tool, a lesson for a
+// lesson claim with lesson evidence, else the kind of the first signal of its evidence that is
+// a candidate kind. Else [NEW] a procedure claim is a procedure, and any other claim a
+// correction. A lesson needs both the local rule and the extractor (§7.1): lesson evidence of
+// any other claim kind is a false positive, and a lesson claim with no lesson evidence keeps
+// the gate of its evidence.
 func candidateKind(c Claim) store.CandidateKind {
 	if c.Tool != "" {
 		return store.CandidateCommandChain
+	}
+	lesson := slices.ContainsFunc(c.Refs, func(r ref) bool { return r.kind == signal.Lesson })
+	if c.Kind == kindLesson && lesson {
+		return store.CandidateLesson
 	}
 	for _, r := range c.Refs {
 		switch r.kind {
