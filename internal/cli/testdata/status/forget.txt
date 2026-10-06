@@ -5,7 +5,7 @@ workspace w14 (shop): key ws_a14, project <tmp>/proj
 
 agent CLIs:
   claude 2.1.283: none
-  codex 0.155.0: retest
+  codex 0.155.0: none; newer than tested (0.154.0)
 
 delivery to live agents:
   claude: no live agent

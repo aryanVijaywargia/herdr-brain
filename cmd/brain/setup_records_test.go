@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 )
@@ -19,8 +20,8 @@ func fakeClaude(t *testing.T, home, version string) {
 	}
 }
 
-// Setup offers the hook record entries of Claude after its start entry, with one question,
-// only when the E8 guard says no retest (E11-S5). Codex keeps them off.
+// Setup offers the hook record entries of Claude after its start entry, with one question
+// (E11-S5). Codex keeps them off. A CLI version newer than tested still gets them (D13, #251).
 func TestSetupHookRecords(t *testing.T) {
 	p, err := adapter.Load("claude")
 	if err != nil {
@@ -45,6 +46,12 @@ func TestSetupHookRecords(t *testing.T) {
 		if strings.Contains(codex(home), "--event tool") {
 			t.Errorf("hooks.json holds a Codex hook record entry:\n%s", codex(home))
 		}
+		// #249: setup records the install time of each start entry it adds.
+		for _, kind := range []string{"claude", "codex"} {
+			if _, err := os.Stat(filepath.Join(home, ".local", "share", "brain", "installed", kind+".json")); err != nil {
+				t.Errorf("install time of %s: %v", kind, err)
+			}
+		}
 		for _, want := range []string{"Add these entries to ", "Added the hook record entries for claude",
 			"needs trust again"} {
 			if !strings.Contains(out, want) {
@@ -63,16 +70,56 @@ func TestSetupHookRecords(t *testing.T) {
 			}
 		}
 	})
-	t.Run("retest", func(t *testing.T) {
+	// AC 1 #251: the M2 case, claude 2.1.292 against tested 2.1.283.
+	t.Run("newer than tested", func(t *testing.T) {
 		home := setupHome(t, "0.9.1")
-		fakeClaude(t, home, "9.9.9")
+		fakeClaude(t, home, "2.1.292")
 		code, out, errOut := runSetup(t, "\ny\n")
 		if code != 0 {
 			t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 		}
-		if s := settings(home); strings.Contains(s, "--event tool") || strings.Contains(out, "Add these entries to ") ||
-			!strings.Contains(out, "claude needs a retest first") {
-			t.Errorf("setup on an untested version offered the hook records:\n%s\n%s", out, s)
+		if s := settings(home); !strings.Contains(s, "--event tool") || !strings.Contains(out, "Added the hook record entries for claude") ||
+			strings.Contains(out, "retest") {
+			t.Errorf("setup on a newer version did not add the hook records:\n%s\n%s", out, s)
 		}
 	})
+}
+
+// #249 (coordinator check on PR #262): the install time of a start entry changes only when
+// Brain adds a new start entry for that CLI. An entry that is present keeps its time, and the
+// install of another CLI, which writes install.json too, does not touch it.
+func TestAddStartInstallTime(t *testing.T) {
+	home := setupHome(t, "0.9.1")
+	inst, err := installer("/opt/brain/bin/brain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	load := func(kind string) *adapter.Profile {
+		t.Helper()
+		p, err := adapter.Load(kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	claude, codex := load("claude"), load("codex")
+	timeFile := filepath.Join(home, ".local", "share", "brain", "installed", "claude.json")
+	first := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	if added, err := addStart(inst, claude, filepath.Join(home, ".claude", "settings.json"), first); err != nil || !added {
+		t.Fatalf("addStart(claude) = %v, %v, want added", added, err)
+	}
+	want := string(mustRead(t, timeFile))
+	if !strings.Contains(want, "2026-10-06T12:00:00Z") {
+		t.Fatalf("install time of claude = %s, want 2026-10-06T12:00:00Z", want)
+	}
+	later := first.Add(24 * time.Hour)
+	if added, err := addStart(inst, claude, filepath.Join(home, ".claude", "settings.json"), later); err != nil || !added {
+		t.Fatalf("addStart(claude, present) = %v, %v, want no error", added, err)
+	}
+	if _, err := addStart(inst, codex, filepath.Join(home, ".codex", "hooks.json"), later); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(mustRead(t, timeFile)); got != want {
+		t.Errorf("install time of claude after a present entry and a codex install = %s, want %s", got, want)
+	}
 }

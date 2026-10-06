@@ -5,7 +5,7 @@ workspace w14 (shop): key ws_a14, project <tmp>/proj
 
 agent CLIs:
   claude 2.1.283: detected, no Brain hook
-  codex 0.155.0: retest
+  codex 0.155.0: detected, no Brain hook; newer than tested (0.154.0)
   opencode: no start-time delivery; live panes: 1
 
 delivery to live agents:

@@ -137,27 +137,64 @@ func TestStates(t *testing.T) {
 			if s := check(t, e, seen, p); s.State() != Verified {
 				t.Fatalf("conformance pass: state %s, want verified", s.State())
 			}
+			// A newer CLI version keeps the state and only warns (D13, #251).
 			e.cli(t, tc.kind, strings.Replace(tc.version, p.TestedVersion, "9.9.9", 1))
 			s = check(t, e, seen, p)
-			if s.State() != Retest || s.CLIVersion != "9.9.9" || s.Verified || !s.Configured {
-				t.Fatalf("new CLI version: %+v, want retest at 9.9.9, configured, not verified", s)
+			if s.State() != Verified || s.CLIVersion != "9.9.9" || s.Retest ||
+				s.VersionNote() != "newer than tested ("+p.TestedVersion+")" {
+				t.Fatalf("new CLI version: %+v, note %q, want verified at 9.9.9, newer than tested", s, s.VersionNote())
 			}
 			pass.CLIVersion, pass.RunID = "9.9.9", "run-2"
 			e.conformance(t, pass)
-			if s := check(t, e, seen, p); s.State() != Verified || s.Retest {
-				t.Fatalf("conformance pass on 9.9.9: %+v, want verified, no retest", s)
+			if s := check(t, e, seen, p); s.State() != Verified || s.VersionNote() != "" {
+				t.Fatalf("conformance pass on 9.9.9: %+v, want verified, no note", s)
 			}
 			// The last pass tested 9.9.9, not the profile version.
 			e.cli(t, tc.kind, tc.version)
 			s = check(t, e, seen, p)
-			if s.State() != Retest || s.CLIVersion != p.TestedVersion || s.Verified {
-				t.Fatalf("back to %s after a pass on 9.9.9: %+v, want retest", p.TestedVersion, s)
-			}
-			e.cli(t, tc.kind, strings.Replace(tc.version, p.TestedVersion, "9.9.10", 1))
-			if s := check(t, e, seen, p); s.State() != Retest {
-				t.Fatalf("second new CLI version: state %s, want retest", s.State())
+			if s.State() != Verified || s.VersionNote() != "not the tested version (9.9.9)" {
+				t.Fatalf("back to %s after a pass on 9.9.9: %+v, note %q", p.TestedVersion, s, s.VersionNote())
 			}
 		})
+	}
+}
+
+// AC 1 #251: the M2 case. A CLI newer than its tested version, with no conformance pass, is
+// configured with the warning "newer than tested", not retest.
+func TestNewerThanTested(t *testing.T) {
+	for _, tc := range []struct{ kind, version, tested string }{
+		{"claude", "2.1.292 (Claude Code)", "2.1.283"},
+		{"codex", "codex-cli 0.160.1", "0.154.0"},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			e := newEnv(t)
+			p := load(t, tc.kind)
+			e.cli(t, tc.kind, tc.version)
+			e.install(t, p)
+			s := check(t, e, fakeHerdr{}, p)
+			if s.State() != Configured || s.Retest || s.VersionNote() != "newer than tested ("+tc.tested+")" {
+				t.Errorf("%+v, note %q, want configured, newer than tested (%s)", s, s.VersionNote(), tc.tested)
+			}
+		})
+	}
+}
+
+func TestNewer(t *testing.T) {
+	for _, tt := range []struct {
+		a, b string
+		want bool
+	}{
+		{"2.1.292", "2.1.283", true},
+		{"0.160.1", "0.154.0", true},
+		{"0.154.0", "0.154.0", false},
+		{"0.153.9", "0.154.0", false},
+		{"10.0.0", "9.9.9", true},
+		{"1.2.3", "1.2", false},
+		{"1.2.3", "x.2.3", false},
+	} {
+		if got := newer(tt.a, tt.b); got != tt.want {
+			t.Errorf("newer(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+		}
 	}
 }
 
@@ -183,8 +220,8 @@ func TestNotVerified(t *testing.T) {
 		{"pending", []Result{with(func(r *Result) { r.Result = "pending" })}, Configured},
 		{"fail", []Result{with(func(r *Result) { r.Result = "fail" })}, Configured},
 		{"inconclusive", []Result{with(func(r *Result) { r.Result = "inconclusive" })}, Configured},
-		// The pass tested another version than the current one (§8.5).
-		{"other CLI version", []Result{with(func(r *Result) { r.CLIVersion = "0.153.0" })}, Retest},
+		// The pass tested another version than the current one: only a warning (D13).
+		{"other CLI version", []Result{with(func(r *Result) { r.CLIVersion = "0.153.0" })}, Verified},
 		{"other profile", []Result{with(func(r *Result) { r.ProfileSHA256 = "00" })}, Configured},
 		{"other entry", []Result{with(func(r *Result) { r.EntrySHA256 = "00" })}, Configured},
 		{"other harness", []Result{with(func(r *Result) { r.Harness = "claude" })}, Configured},
@@ -224,7 +261,7 @@ func TestRetestMarker(t *testing.T) {
 	}
 	mark := func(m int) {
 		t.Helper()
-		if err := MarkRetest(e.files.Retest, "claude", at(m)); err != nil {
+		if err := MarkRetest(e.files.Retest, "claude", p.SHA256, at(m)); err != nil {
 			t.Fatalf("MarkRetest() = %v", err)
 		}
 	}
@@ -262,6 +299,29 @@ func TestRetestMarker(t *testing.T) {
 	if s := check(t, e, fakeHerdr{}, load(t, "codex")); s.Retest {
 		t.Errorf("codex with a claude marker: %+v, want no retest", s)
 	}
+	// A marker of another profile, for example before a Brain update, is stale (#251).
+	if err := MarkRetest(e.files.Retest, "claude", "old-profile", at(7)); err != nil {
+		t.Fatal(err)
+	}
+	if s := check(t, e, fakeHerdr{}, p); s.Retest || s.State() != Verified {
+		t.Errorf("marker of another profile: %+v, want verified, no retest", s)
+	}
+	// A marker of an older writer has no profile hash: it stays (S14).
+	if err := os.WriteFile(filepath.Join(e.files.Retest, "claude.json"),
+		[]byte(`{"at":"`+at(7).Add(time.Second).Format(time.RFC3339)+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if s := check(t, e, fakeHerdr{}, p); !s.Retest {
+		t.Errorf("marker of an older writer: %+v, want retest", s)
+	}
+	// A CLI that is not installed has no retest (#250).
+	mark(8)
+	if err := os.Remove(filepath.Join(e.bin, "claude")); err != nil {
+		t.Fatal(err)
+	}
+	if s := check(t, e, fakeHerdr{}, p); s.Retest || s.Installed || s.VersionNote() != "" {
+		t.Errorf("marked CLI that is not installed: %+v, want no retest, no note", s)
+	}
 }
 
 // TestRetestMarkerOlderLater checks that an older marker written after a newer one does not
@@ -274,7 +334,7 @@ func TestRetestMarkerOlderLater(t *testing.T) {
 	e.cli(t, "claude", "2.1.283 (Claude Code)")
 	entry := e.install(t, p)
 	for _, at := range []time.Time{t0.Add(2 * time.Second), t0} {
-		if err := MarkRetest(e.files.Retest, "claude", at); err != nil {
+		if err := MarkRetest(e.files.Retest, "claude", p.SHA256, at); err != nil {
 			t.Fatalf("MarkRetest(%s) = %v", at, err)
 		}
 	}
@@ -329,16 +389,20 @@ func TestNotConfigured(t *testing.T) {
 	}
 }
 
-// TestVersionFailure checks that a version that cannot be read or parsed sets retest.
+// TestVersionFailure checks that a CLI that is not on the PATH is not installed, with no
+// retest and no warning (#250), and that a version that cannot be parsed warns "version
+// unknown" and changes no state (D13).
 func TestVersionFailure(t *testing.T) {
 	tests := []struct {
-		name string
-		out  string // empty: no CLI on the PATH
-		want string
+		name      string
+		out       string // empty: no CLI on the PATH
+		want      string
+		installed bool
+		note      string
 	}{
-		{"no CLI", "", "claude --version: exec"},
-		{"no version word", "Claude Code", `claude --version: no version in "Claude Code\n"`},
-		{"two-part version", "2.1 (Claude Code)", "no version in"},
+		{"no CLI", "", "claude --version: exec", false, ""},
+		{"no version word", "Claude Code", `claude --version: no version in "Claude Code\n"`, true, "version unknown"},
+		{"two-part version", "2.1 (Claude Code)", "no version in", true, "version unknown"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -347,9 +411,10 @@ func TestVersionFailure(t *testing.T) {
 				e.cli(t, "claude", tt.out)
 			}
 			s := check(t, e, fakeHerdr{}, load(t, "claude"))
-			if s.State() != Retest || s.CLIVersion != "" || s.VersionErr == nil ||
-				!strings.Contains(s.VersionErr.Error(), tt.want) {
-				t.Errorf("%+v, want retest with an error that contains %q", s, tt.want)
+			if s.State() != None || s.Installed != tt.installed || s.VersionNote() != tt.note || s.CLIVersion != "" ||
+				s.VersionErr == nil || !strings.Contains(s.VersionErr.Error(), tt.want) {
+				t.Errorf("%+v, note %q, want none, installed %v, note %q, error with %q", s, s.VersionNote(),
+					tt.installed, tt.note, tt.want)
 			}
 		})
 	}
@@ -404,14 +469,14 @@ func TestMarkRetestError(t *testing.T) {
 	if err := os.WriteFile(file, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := MarkRetest(filepath.Join(file, "retest"), "claude", time.Now()); err == nil || !strings.Contains(err.Error(), "retest marker") {
+	if err := MarkRetest(filepath.Join(file, "retest"), "claude", "sha", time.Now()); err == nil || !strings.Contains(err.Error(), "retest marker") {
 		t.Errorf("MarkRetest(under a file) = %v, want a retest marker error", err)
 	}
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "claude.json"), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := MarkRetest(dir, "claude", time.Now()); err == nil || !strings.Contains(err.Error(), "retest marker") {
+	if err := MarkRetest(dir, "claude", "sha", time.Now()); err == nil || !strings.Contains(err.Error(), "retest marker") {
 		t.Errorf("MarkRetest(over a bad marker) = %v, want a retest marker error", err)
 	}
 }

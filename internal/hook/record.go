@@ -56,7 +56,7 @@ func (h Hook) record(ctx context.Context, stdin io.Reader) (err error) {
 	}
 	in, err := h.Profile.ParseRecord(h.Event, raw)
 	if errors.Is(err, adapter.ErrRetest) {
-		return errors.Join(err, harness.MarkRetest(h.Retest, h.Profile.Kind, h.Now()))
+		return errors.Join(err, harness.MarkRetest(h.Retest, h.Profile.Kind, h.Profile.SHA256, h.Now()))
 	}
 	if err != nil || session == 0 {
 		return err

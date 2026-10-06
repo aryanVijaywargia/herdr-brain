@@ -141,7 +141,7 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 	if err := planLink(bin, link, &p, stdout); err != nil {
 		return err
 	}
-	trustNow, trustAdded, err := planHooks(ctx, d, bin, &p, stdout)
+	trustNow, trustAdded, err := planHooks(d, bin, &p, stdout)
 	if err != nil {
 		return err
 	}
@@ -566,7 +566,7 @@ func rmdirs(made []string) error {
 // E16-S10), and its hook record entries. It shows each entry and the uninstall steps. It
 // reports whether the entry of a profile with hook_trust "codex" is in place now, and whether
 // the plan adds one, so that setup shows the trust steps.
-func planHooks(ctx context.Context, d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, trustAdded bool, err error) {
+func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, trustAdded bool, err error) {
 	inst, err := installer(bin)
 	if err != nil {
 		return false, false, err
@@ -597,7 +597,7 @@ func planHooks(ctx context.Context, d setupDeps, bin string, p *plan, stdout io.
 			p.say("- Add this entry to the %s array of %s:\n    %s\n", pr.Events.Start, e.Target, e.Text)
 			start = true
 		}
-		records, err := planRecords(ctx, inst, pr, p)
+		records, err := planRecords(inst, pr, p)
 		if err != nil {
 			return false, false, err
 		}
@@ -606,7 +606,7 @@ func planHooks(ctx context.Context, d setupDeps, bin string, p *plan, stdout io.
 		trustAdded = trustAdded || codex && start
 		if start || len(records) > 0 {
 			hooked = true
-			p.add(func() error { return applyHooks(inst, pr, e.Target, start, records, stdout) })
+			p.add(func() error { return applyHooks(inst, pr, e.Target, start, records, d.now(), stdout) })
 		}
 	}
 	if hooked {
@@ -631,10 +631,9 @@ func installer(bin string) (*install.Installer, error) {
 }
 
 // planRecords plans the hook record entries of p (E11-S5, §6.1), which setup adds after its
-// start entry. It plans them only when the profile turns them on, after the E11-S1 test, and
-// when the E8 guard does not say retest: a CLI version that no test passed, or hook input of
-// an unknown shape. It returns the hooks to add.
-func planRecords(ctx context.Context, inst *install.Installer, p *adapter.Profile, pl *plan) ([]adapter.Hook, error) {
+// start entry. It plans them only when the profile turns them on, after the E11-S1 test. A
+// CLI version that no test passed does not stop them (D13). It returns the hooks to add.
+func planRecords(inst *install.Installer, p *adapter.Profile, pl *plan) ([]adapter.Hook, error) {
 	hs := p.Hooks()[1:]
 	if len(hs) == 0 {
 		return nil, nil
@@ -659,14 +658,6 @@ func planRecords(ctx context.Context, inst *install.Installer, p *adapter.Profil
 	if len(add) == 0 {
 		return nil, nil
 	}
-	ok, err := guard(ctx, inst, p)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		pl.say("  %s needs a retest first (brain doctor). Setup adds no hook record entry.\n", p.Kind)
-		return nil, nil
-	}
 	pl.say("  Brain also stores hook records of %s: prompts, commands and replies. Add these entries to %s:\n", p.Kind, target)
 	for _, t := range texts {
 		pl.say("%s", t)
@@ -676,17 +667,14 @@ func planRecords(ctx context.Context, inst *install.Installer, p *adapter.Profil
 
 // applyHooks adds the start entry of p when start is true, then the hook record entries
 // records. A start entry that you edited since the plan stays, with no record entry.
-func applyHooks(inst *install.Installer, p *adapter.Profile, target string, start bool, records []adapter.Hook, stdout io.Writer) error {
+func applyHooks(inst *install.Installer, p *adapter.Profile, target string, start bool, records []adapter.Hook,
+	now time.Time, stdout io.Writer) error {
 	if start {
-		// A CLI can be installed before it made its config folder.
-		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-			return err
-		}
-		st, err := inst.Install(p)
+		added, err := addStart(inst, p, target, now)
 		if err != nil {
 			return err
 		}
-		if st == install.Edited {
+		if !added {
 			fmt.Fprintf(stdout, "%s holds a Brain hook entry for %s that you edited. Brain keeps it.\n", target, p.Kind)
 			return nil
 		}
@@ -706,30 +694,6 @@ func applyHooks(inst *install.Installer, p *adapter.Profile, target string, star
 	}
 	return nil
 }
-
-// guard is the E8 guard of p (§8.5): false when harness.Check says retest.
-func guard(ctx context.Context, inst *install.Installer, p *adapter.Profile) (bool, error) {
-	conf, err := paths.ConformanceFile()
-	if err != nil {
-		return false, err
-	}
-	data, err := paths.DataHome()
-	if err != nil {
-		return false, err
-	}
-	// The guard needs no panes: detection does not change retest.
-	ss, err := harness.Check(ctx, noPanes{}, harness.Files{Install: inst.Record, Conformance: conf,
-		Retest: filepath.Join(data, "retest")}, []*adapter.Profile{p})
-	if err != nil {
-		return false, err
-	}
-	return !ss[0].Retest, nil
-}
-
-// noPanes is a pane list with no pane.
-type noPanes struct{}
-
-func (noPanes) Panes(context.Context) ([]herdr.Pane, error) { return nil, nil }
 
 // planLink shows the binary path and plans the link -> bin.
 // It never replaces a file that it did not make (D3).
@@ -807,4 +771,24 @@ func lookupEnv(environ []string, key string) string {
 		}
 	}
 	return v
+}
+
+// addStart adds the start entry of p, and records its install time now only when it added a
+// new entry (#249): an entry that is present keeps its time. It reports false for an entry
+// that you edited.
+func addStart(inst *install.Installer, p *adapter.Profile, target string, now time.Time) (bool, error) {
+	// A CLI can be installed before it made its config folder.
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		return false, err
+	}
+	st, err := inst.Install(p)
+	if err != nil || st != install.Added {
+		return st != install.Edited, err
+	}
+	data, err := paths.DataHome()
+	if err != nil {
+		return false, err
+	}
+	// The install times of the start entries, as brain status reads them.
+	return true, harness.MarkInstalled(filepath.Join(data, "installed"), p.Kind, now)
 }
