@@ -51,20 +51,11 @@ type Suggestion struct {
 // generation checks and after the enrichment match, so the two paths of one occurrence reserve
 // one suggestion. Of several matches, the oldest proposal wins [NEW].
 func ReserveSuggestion(ctx context.Context, tx *sql.Tx, obs int64, hash string, now time.Time) (Suggestion, error) {
-	s := Suggestion{ObservationID: obs, PromptHash: hash, Reserved: now}
-	var taken bool
-	err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM suggestions WHERE observation_id IN (
-		SELECT id FROM observations WHERE id = ?1 OR enriched_by = ?1
-		UNION SELECT enriched_by FROM observations WHERE id = ?1)),
-		g.session_id, se.generation, se.herdr_session, COALESCE(g.workspace_key, ''), g.pane_id
-		FROM observations o JOIN segments g ON g.id = o.segment_id JOIN sessions se ON se.id = g.session_id
-		WHERE o.id = ?1`, obs).Scan(&taken, &s.SessionID, &s.Generation, &s.HerdrSession, &s.WorkspaceKey, &s.AgentPaneID)
-	if err != nil {
-		return Suggestion{}, fmt.Errorf("read suggestion of observation %d: %w", obs, err)
+	s, taken, err := newSuggestion(ctx, tx, obs, now)
+	if err != nil || taken {
+		return Suggestion{}, err
 	}
-	if taken {
-		return Suggestion{}, nil
-	}
+	s.PromptHash = hash
 	on, err := ExtractionOn(ctx, tx, s.WorkspaceKey)
 	if err != nil || !on {
 		return Suggestion{}, err
@@ -82,13 +73,62 @@ func ReserveSuggestion(ctx context.Context, tx *sql.Tx, obs int64, hash string, 
 			continue
 		}
 		s.ProposalID = id
-		s.ID, err = insertRow(ctx, tx, "suggestion", `INSERT INTO suggestions (observation_id, proposal_id, session_id,
-			generation, herdr_session, workspace_key, agent_pane_id, prompt_hash, reserved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			s.ObservationID, s.ProposalID, s.SessionID, s.Generation, s.HerdrSession, nullText(s.WorkspaceKey),
-			s.AgentPaneID, s.PromptHash, timeArg(s.Reserved))
-		return s, err
+		return insertSuggestion(ctx, tx, s)
 	}
 	return Suggestion{}, nil
+}
+
+// ReserveLessonSuggestion reserves the suggestion of a new proposal of a plain-words lesson
+// (#253, §7.2): the review pane of proposal opens beside the agent pane of obs, the
+// observation where you said the lesson. The ids come from the segment of obs, as for
+// ReserveSuggestion; the prompt hash is the one of the prompt index row of obs, or "" when obs
+// has none. It returns a Suggestion with ID 0 when the occurrence has a suggestion already, or
+// "later" muted the proposal in the session. The caller runs it in the transaction that makes
+// the proposal.
+func ReserveLessonSuggestion(ctx context.Context, tx *sql.Tx, obs, proposal int64, now time.Time) (Suggestion, error) {
+	s, taken, err := newSuggestion(ctx, tx, obs, now)
+	if err != nil || taken {
+		return Suggestion{}, err
+	}
+	muted, err := SuggestionMuted(ctx, tx, s.SessionID, proposal)
+	if err != nil || muted {
+		return Suggestion{}, err
+	}
+	err = tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT hash FROM prompt_index WHERE observation_id = ?), '')`, obs).
+		Scan(&s.PromptHash)
+	if err != nil {
+		return Suggestion{}, fmt.Errorf("read prompt hash of observation %d: %w", obs, err)
+	}
+	s.ProposalID = proposal
+	return insertSuggestion(ctx, tx, s)
+}
+
+// newSuggestion returns the unsaved suggestion of occurrence obs with the ids of its segment,
+// and whether the occurrence has a suggestion already: a hook record and a pane read of one
+// prompt are one occurrence, linked by enrichment (S57).
+func newSuggestion(ctx context.Context, tx *sql.Tx, obs int64, now time.Time) (Suggestion, bool, error) {
+	s := Suggestion{ObservationID: obs, Reserved: now}
+	var taken bool
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM suggestions WHERE observation_id IN (
+		SELECT id FROM observations WHERE id = ?1 OR enriched_by = ?1
+		UNION SELECT enriched_by FROM observations WHERE id = ?1)),
+		g.session_id, se.generation, se.herdr_session, COALESCE(g.workspace_key, ''), g.pane_id
+		FROM observations o JOIN segments g ON g.id = o.segment_id JOIN sessions se ON se.id = g.session_id
+		WHERE o.id = ?1`, obs).Scan(&taken, &s.SessionID, &s.Generation, &s.HerdrSession, &s.WorkspaceKey, &s.AgentPaneID)
+	if err != nil {
+		return Suggestion{}, false, fmt.Errorf("read suggestion of observation %d: %w", obs, err)
+	}
+	return s, taken, nil
+}
+
+// insertSuggestion stores s and returns it with its id.
+func insertSuggestion(ctx context.Context, tx *sql.Tx, s Suggestion) (Suggestion, error) {
+	var err error
+	s.ID, err = insertRow(ctx, tx, "suggestion", `INSERT INTO suggestions (observation_id, proposal_id, session_id,
+		generation, herdr_session, workspace_key, agent_pane_id, prompt_hash, reserved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.ObservationID, s.ProposalID, s.SessionID, s.Generation, s.HerdrSession, nullText(s.WorkspaceKey),
+		s.AgentPaneID, s.PromptHash, timeArg(s.Reserved))
+	return s, err
 }
 
 // SuggestionMuted reports whether you chose "later" for a suggestion of proposal in capture

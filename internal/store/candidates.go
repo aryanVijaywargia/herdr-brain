@@ -325,6 +325,17 @@ func recount(ctx context.Context, tx *sql.Tx, id int64, gates Gates) error {
 	return nil
 }
 
+// NewestEvidence returns the observation of the newest evidence link of candidate id.
+func NewestEvidence(ctx context.Context, tx *sql.Tx, id int64) (int64, error) {
+	var obs int64
+	err := tx.QueryRowContext(ctx, `SELECT observation_id FROM evidence_links WHERE candidate_id = ?
+		ORDER BY at DESC, observation_id DESC LIMIT 1`, id).Scan(&obs)
+	if err != nil {
+		return 0, fmt.Errorf("read newest evidence of candidate %d: %w", id, err)
+	}
+	return obs, nil
+}
+
 // candidateColumns are the columns that scanCandidate reads, in order.
 const candidateColumns = `id, claim_id, scope, COALESCE(workspace_key, ''), kind, harnesses, count, sessions, priority,
 	first_seen, last_seen, status`

@@ -21,7 +21,7 @@ Status: M1 to M4 are built. The repo is private, so there is no release binary y
 
 ## What Brain does
 
-- You tell Brain a fact or a preference with `brain remember`. It stays a draft until you approve it in a review pane beside your session.
+- You tell Brain a fact or a preference in plain words in your agent session ("remember ...", "from now on ..."). Brain finds it when the session ends or goes idle. You can also use `brain remember`. Each one stays a draft until you approve it in a review pane beside your session.
 - Each new Claude Code or Codex session in herdr gets the approved items at start, through one hook. Global items go to every workspace. Workspace items go to one herdr workspace.
 - You can pin, undo and forget an item. `brain status` and `brain doctor` show what works and what to fix.
 - Built after M1: learning from your corrections and live suggestions (M2), skills and upkeep (M3), tools and automations (M4).
@@ -46,6 +46,7 @@ If it does not open, run `herdr plugin action invoke brain.setup`.
 Then, in a pane of a herdr workspace (setup offers a `~/.local/bin/brain` link; if that folder is not on your `PATH`, setup prints the binary path to use instead):
 
 ```sh
+# In your agent session, say "from now on, use pnpm, not npm". Or run:
 brain remember "use pnpm, not npm"   # a draft for this workspace; a review pane opens beside you
 brain doctor                         # checks the setup and prints the fix of each failed check
 ```

@@ -66,7 +66,15 @@ func TestLessonProposal(t *testing.T) {
 	f := newFixture(t)
 	f.capturedSession("a", m2Lesson)
 	f.cli.reply = kindOf(kindLesson, "add a one-line JSDoc comment above each exported function")
-	f.mustRun()
+	var started []Suggestion
+	p := f.pass()
+	p.Suggest = func(_ context.Context, s Suggestion) error {
+		started = append(started, s)
+		return nil
+	}
+	if err := p.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(f.cli.prompts[0], lessonHelp) || !strings.Contains(f.cli.prompts[0], m2Lesson) {
 		t.Errorf("extractor prompt has no lesson help or no lesson text:\n%s", f.cli.prompts[0])
 	}
@@ -79,6 +87,11 @@ func TestLessonProposal(t *testing.T) {
 	if len(ps) != 1 || ps[0].Status != store.ProposalPending || ps[0].Scope != store.ScopeWorkspace ||
 		ps[0].Target != "workspace w1 (ws-A)" || ps[0].CandidateID == nil || *ps[0].CandidateID != cs[0].ID {
 		t.Fatalf("proposals = %+v, want one pending workspace proposal of candidate %d", ps, cs[0].ID)
+	}
+	// AC 2: the review pane of the proposal opens beside the agent pane of the lesson.
+	if len(started) != 1 || started[0].ProposalID != ps[0].ID || started[0].WorkspaceID != "w1" ||
+		started[0].WorkspaceKey != "ws-A" || started[0].AgentPaneID != "w1:p1" {
+		t.Errorf("suggestions started = %+v, want one of proposal %d beside pane w1:p1", started, ps[0].ID)
 	}
 	var sender, state, author, kind string
 	f.write(func(ctx context.Context, tx *sql.Tx) error {
@@ -155,5 +168,23 @@ func TestLessonCorrectionComeback(t *testing.T) {
 	f.mustRun()
 	if got, want := f.outcomes(), []string{"comeback 1"}; !slices.Equal(got, want) {
 		t.Errorf("outcomes = %v, want %v", got, want)
+	}
+}
+
+// AC #253 (2): a correction proposal opens no review pane: only a lesson does.
+func TestCorrectionProposalStartsNoPane(t *testing.T) {
+	f := newFixture(t)
+	f.session("z", true, line{"ws-A", pnpm, t0})
+	f.session("a", true, line{"ws-A", pnpm, t0.Add(time.Minute)})
+	p := f.pass()
+	p.Suggest = func(_ context.Context, s Suggestion) error {
+		t.Errorf("suggestion started for %+v, want none", s)
+		return nil
+	}
+	if err := p.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if ps := f.proposals(); len(ps) != 1 {
+		t.Errorf("proposals = %+v, want the correction proposal", ps)
 	}
 }
