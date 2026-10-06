@@ -2,11 +2,13 @@ package harness
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -16,25 +18,70 @@ import (
 // 10:12:03 2026" on macOS and on Linux procps.
 const psLayout = "Mon Jan 2 15:04:05 2006"
 
-// StartedBefore reports whether the agent with the processes pids started before Brain wrote
-// its install record (#249). A CLI reads its hook file when it starts, so such an agent runs
-// without the Brain hook and has no receipt; that is no hook failure. The signal is the
-// earliest process start against the time of the last write of the install record: every
-// recorded hook entry is that old or older. [NEW] the signal. ps gives whole seconds, so a
-// start in the second of the write counts as after. No install record means no hook entry.
-func StartedBefore(ctx context.Context, record string, pids []int) (bool, error) {
-	fi, err := os.Stat(record)
-	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
+// installed is the install time of the Brain start entry of one CLI.
+type installed struct {
+	At time.Time `json:"at"`
+}
+
+// MarkInstalled records in dir that Brain installed the start entry of harness kind at time
+// at: <dir>/<kind>.json. Setup and doctor call it after each start entry they add (#249). A
+// later install of another CLI keeps it. [NEW] the folder and the file.
+func MarkInstalled(dir, kind string, at time.Time) error {
+	data, err := json.Marshal(installed{At: at})
+	if err != nil {
+		return err
 	}
-	if err != nil || len(pids) == 0 {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("install time: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, kind+".json"), data, 0o600); err != nil {
+		return fmt.Errorf("install time: %w", err)
+	}
+	return nil
+}
+
+// installTime returns the install time of the start entry of kind. An install before
+// MarkInstalled existed has no file: then the last write of the install record stands in,
+// which is that install or later. No install record means no entry, so ok is false.
+func installTime(f Files, kind string) (at time.Time, ok bool, err error) {
+	path := filepath.Join(f.Installed, kind+".json")
+	data, err := os.ReadFile(path)
+	if err == nil {
+		var in installed
+		if err := json.Unmarshal(data, &in); err != nil {
+			return time.Time{}, false, fmt.Errorf("install time %s: %w", path, err)
+		}
+		return in.At, true, nil
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return time.Time{}, false, err
+	}
+	fi, err := os.Stat(f.Install)
+	if errors.Is(err, fs.ErrNotExist) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return fi.ModTime(), true, nil
+}
+
+// StartedBefore reports whether the agent of harness kind with the processes pids started
+// before Brain installed the start entry of kind (#249). A CLI reads its hook file when it
+// starts, so such an agent runs without the Brain hook and has no receipt; that is no hook
+// failure. The signal is the earliest process start against the install time of the entry.
+// [NEW] the signal. ps gives whole seconds, so a start in the second of the install counts as
+// after.
+func StartedBefore(ctx context.Context, f Files, kind string, pids []int) (bool, error) {
+	at, ok, err := installTime(f, kind)
+	if err != nil || !ok || len(pids) == 0 {
 		return false, err
 	}
 	started, err := processStart(ctx, pids)
 	if err != nil {
 		return false, err
 	}
-	return started.Before(fi.ModTime().Truncate(time.Second)), nil
+	return started.Before(at.Truncate(time.Second)), nil
 }
 
 // processStart returns the earliest start time of the processes pids, to the second.

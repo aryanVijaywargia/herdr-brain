@@ -45,6 +45,12 @@ func TestSetupHookRecords(t *testing.T) {
 		if strings.Contains(codex(home), "--event tool") {
 			t.Errorf("hooks.json holds a Codex hook record entry:\n%s", codex(home))
 		}
+		// #249: setup records the install time of each start entry it adds.
+		for _, kind := range []string{"claude", "codex"} {
+			if _, err := os.Stat(filepath.Join(home, ".local", "share", "brain", "installed", kind+".json")); err != nil {
+				t.Errorf("install time of %s: %v", kind, err)
+			}
+		}
 		for _, want := range []string{"Add these entries to ", "Added the hook record entries for claude",
 			"needs trust again"} {
 			if !strings.Contains(out, want) {

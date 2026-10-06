@@ -32,6 +32,10 @@ const statusUsage = `usage: brain status`
 // retestDir is the folder of the retest markers in the data home, as in the hook (S14).
 const retestDir = "retest"
 
+// installedDir is the folder of the install times of the start entries in the data home
+// (harness.MarkInstalled, #249). Setup writes it too. [NEW] its place.
+const installedDir = "installed"
+
 // StatusHerdr is the part of a herdr client that brain status uses. *herdr.Client is one.
 type StatusHerdr interface {
 	Panes(ctx context.Context) ([]herdr.Pane, error)
@@ -50,7 +54,8 @@ func adapterFiles(data string) (harness.Files, error) {
 	if err != nil {
 		return harness.Files{}, err
 	}
-	return harness.Files{Install: inst, Conformance: conf, Retest: filepath.Join(data, retestDir)}, nil
+	return harness.Files{Install: inst, Conformance: conf, Retest: filepath.Join(data, retestDir),
+		Installed: filepath.Join(data, installedDir)}, nil
 }
 
 // Status runs `brain status` (E9-S2, §8.3 "Human diagnostics"): one screen of counts and short
@@ -102,12 +107,12 @@ type herdrState struct {
 	// panesErr is why the pane list failed; then the delivery coverage is unavailable.
 	panesErr error
 	client   StatusHerdr // nil when versionErr says why there is none
-	record   string      // the install record (harness.StartedBefore)
+	files    harness.Files // the install files (harness.StartedBefore)
 }
 
 // readHerdr checks the server version of the binding's herdr session and lists its panes once.
 func readHerdr(ctx context.Context, e Env, b bindings.Binding) herdrState {
-	st := herdrState{record: e.Adapters.Install}
+	st := herdrState{files: e.Adapters}
 	h, err := e.StatusHerdr(herdr.Target{Session: b.Session, Socket: b.Socket})
 	if err != nil {
 		st.versionErr, st.panesErr = err, err
@@ -535,7 +540,7 @@ func (h herdrState) gap(ctx context.Context, tx *sql.Tx, session, kind string, p
 		return "", err
 	}
 	if !ok {
-		return h.noReceipt(ctx, p), nil
+		return h.noReceipt(ctx, kind, p), nil
 	}
 	if d.Result == store.ResultWithheld && d.WithheldReason != nil {
 		return fmt.Sprintf("%s: %s", d.Result, *d.WithheldReason), nil
@@ -546,7 +551,7 @@ func (h herdrState) gap(ctx context.Context, tx *sql.Tx, session, kind string, p
 // noReceipt is the gap word of live pane p whose agent session has no receipt: beforeBrain
 // when its agent started before the install, else noReceipt, with the reason when the start
 // is unknown.
-func (h herdrState) noReceipt(ctx context.Context, p herdr.Pane) string {
+func (h herdrState) noReceipt(ctx context.Context, kind string, p herdr.Pane) string {
 	hctx, cancel := context.WithTimeout(ctx, herdrDeadline)
 	defer cancel()
 	ps, err := h.client.PaneProcesses(hctx, p.ID)
@@ -557,7 +562,7 @@ func (h herdrState) noReceipt(ctx context.Context, p herdr.Pane) string {
 	for i, pr := range ps {
 		pids[i] = pr.PID
 	}
-	before, err := harness.StartedBefore(hctx, h.record, pids)
+	before, err := harness.StartedBefore(hctx, h.files, kind, pids)
 	switch {
 	case err != nil:
 		return fmt.Sprintf("%s (agent start unknown: %v)", noReceipt, err)

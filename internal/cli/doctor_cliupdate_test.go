@@ -17,37 +17,40 @@ import (
 
 // The tests of #249, #250, #251 and #257, from the real-use test on a spare Mac (2026-10-07).
 
-// ps puts ps on the PATH of the fixture, which holds only the fake CLIs.
+// The fake agent processes: oldPID started before the install time of the tests, newPID after.
+const (
+	oldPID = 111
+	newPID = 222
+)
+
+// installTime is the claude install time of the tests, between the starts of oldPID and newPID.
+var installTime = time.Date(2026, 10, 6, 12, 0, 0, 0, time.Local)
+
+// ps puts a fake ps on the PATH of the fixture: `ps -o lstart= -p <pid>` prints the fixed
+// start of oldPID or newPID.
 func (f *doctorFixture) ps(t *testing.T) {
 	t.Helper()
-	link := filepath.Join(filepath.Dir(f.store), "bin", "ps")
-	if _, err := os.Lstat(link); err == nil {
-		return
-	}
-	if err := os.Symlink("/bin/ps", link); err != nil {
+	script := "#!/bin/sh\nfor a; do p=$a; done\ncase $p in\n" +
+		"111) echo 'Mon Oct  5 10:00:00 2026';;\n222) echo 'Wed Oct  7 10:00:00 2026';;\n*) exit 1;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(filepath.Dir(f.store), "bin", "ps"), []byte(script), 0o700); err != nil { //nolint:gosec // a test ps must be executable
 		t.Fatal(err)
 	}
 }
 
-// installedAt sets the time of the last write of the install record: the hook install time
-// that harness.StartedBefore compares with the agent start.
-func (f *doctorFixture) installedAt(t *testing.T, at time.Time) {
+// started makes pid the agent process of each pane, with the claude install time between the
+// two fake starts.
+func (f *doctorFixture) started(t *testing.T, pid int, panes ...string) {
 	t.Helper()
 	f.ps(t)
-	if err := os.Chtimes(filepath.Join(f.data, "install.json"), at, at); err != nil {
+	if err := harness.MarkInstalled(filepath.Join(f.data, installedDir), "claude", installTime); err != nil {
 		t.Fatal(err)
 	}
-}
-
-// startedBeforeInstall makes the agent of each pane the test process, and the hook install
-// an hour after its start.
-func (f *doctorFixture) startedBeforeInstall(t *testing.T, panes ...string) {
-	t.Helper()
-	f.herdr.procs = map[string][]herdr.Process{}
-	for _, id := range panes {
-		f.herdr.procs[id] = []herdr.Process{{Name: "claude", PID: os.Getpid()}}
+	if f.herdr.procs == nil {
+		f.herdr.procs = map[string][]herdr.Process{}
 	}
-	f.installedAt(t, time.Now().Add(time.Hour))
+	for _, id := range panes {
+		f.herdr.procs[id] = []herdr.Process{{Name: "claude", PID: pid}}
+	}
 }
 
 // m2 is the M2 case: claude 2.1.292 against tested 2.1.283, codex 0.160.1 against tested
@@ -64,7 +67,7 @@ func m2(t *testing.T) *doctorFixture {
 	}
 	f.herdr.panes = append(f.herdr.panes, agent("w14:p1", "claude", "s-new"))
 	receipt(t, f.store, "default", "claude", "w14:p1", "s-new", store.ResultEmitted, "")
-	f.startedBeforeInstall(t, old...)
+	f.started(t, oldPID, old...)
 	return f
 }
 
@@ -119,16 +122,18 @@ func TestStatusM2(t *testing.T) {
 }
 
 // AC 2: a live session that started after the hook entry and has no receipt is still a
-// failure, also beside the sessions that started before Brain.
+// failure, beside the sessions that started before Brain. A later write of the install record,
+// such as the install of another CLI, does not move the claude install time.
 func TestDoctorNoReceiptAfterInstall(t *testing.T) {
 	f := m2(t)
 	f.herdr.panes = append(f.herdr.panes, agent("w6:p1", "claude", "s-after"))
-	f.herdr.procs["w6:p1"] = []herdr.Process{{Name: "claude", PID: os.Getpid()}}
-	f.installedAt(t, time.Now().Add(-24*time.Hour))
-	out := f.failed(t, "", "claude: hook not trusted or not firing: 5 live agent(s) with no Brain receipt (w2:p1, w3:p1, w4:p1, w5:p1, w6:p1)")
-	f.startedBeforeInstall(t, "w2:p1", "w3:p1", "w4:p1", "w5:p1")
-	out += f.failed(t, "", "claude: hook not trusted or not firing: 1 live agent(s) with no Brain receipt (w6:p1)",
-		"note: claude: 4 live agent(s) started before Brain installed its hook")
+	f.started(t, newPID, "w6:p1")
+	later := time.Now().Add(time.Hour)
+	if err := os.Chtimes(filepath.Join(f.data, "install.json"), later, later); err != nil {
+		t.Fatal(err)
+	}
+	out := f.failed(t, "", "claude: hook not trusted or not firing: 1 live agent(s) with no Brain receipt (w6:p1)",
+		"note: claude: 4 live agent(s) started before Brain installed its hook (w2:p1, w3:p1, w4:p1, w5:p1)")
 	if strings.Contains(out, "go run") {
 		t.Errorf("brain doctor:\n%s\nwant no go run", out)
 	}
@@ -183,7 +188,7 @@ func TestStatusNotInstalled(t *testing.T) {
 	e := f.env(f.sock, "w14:p1", "w14", &out)
 	e.Data = f.data
 	e.Adapters = harness.Files{Install: filepath.Join(f.data, "install.json"),
-		Conformance: filepath.Join(f.data, "conformance.json"), Retest: filepath.Join(f.data, retestDir)}
+		Conformance: filepath.Join(f.data, "conformance.json"), Retest: filepath.Join(f.data, retestDir), Installed: filepath.Join(f.data, installedDir)}
 	e.StatusHerdr = func(herdr.Target) (StatusHerdr, error) { return f.herdr, nil }
 	e.Now = func() time.Time { return testNow.Add(3 * time.Hour) }
 	e.Profiles = fakeProfiles(t) // the fake CLI is not on the PATH, as agy on the M2 Mac

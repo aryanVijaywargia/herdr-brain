@@ -306,6 +306,14 @@ func TestRetestMarker(t *testing.T) {
 	if s := check(t, e, fakeHerdr{}, p); s.Retest || s.State() != Verified {
 		t.Errorf("marker of another profile: %+v, want verified, no retest", s)
 	}
+	// A marker of an older writer has no profile hash: it stays (S14).
+	if err := os.WriteFile(filepath.Join(e.files.Retest, "claude.json"),
+		[]byte(`{"at":"`+at(7).Add(time.Second).Format(time.RFC3339)+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if s := check(t, e, fakeHerdr{}, p); !s.Retest {
+		t.Errorf("marker of an older writer: %+v, want retest", s)
+	}
 	// A CLI that is not installed has no retest (#250).
 	mark(8)
 	if err := os.Remove(filepath.Join(e.bin, "claude")); err != nil {

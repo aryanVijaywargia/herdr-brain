@@ -17,7 +17,7 @@ type marker struct {
 	At time.Time `json:"at"`
 	// Profile is the adapter.Profile.SHA256 that could not parse the input. A marker of
 	// another profile is stale, so a Brain update with a new profile clears it (#251). A
-	// marker of an older writer has none. [NEW] the field.
+	// marker of an older writer has none; it stays until a later pass. [NEW] the field.
 	Profile string `json:"profile_sha256"`
 }
 

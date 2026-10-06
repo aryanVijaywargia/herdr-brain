@@ -21,6 +21,7 @@ import (
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
+	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
@@ -570,6 +571,12 @@ func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, tr
 	if err != nil {
 		return false, false, err
 	}
+	data, err := paths.DataHome()
+	if err != nil {
+		return false, false, err
+	}
+	// The install times of the start entries, as brain status reads them (#249).
+	times := filepath.Join(data, "installed")
 	ps, err := adapter.LoadAll(d.profiles)
 	if err != nil {
 		return false, false, err
@@ -605,7 +612,7 @@ func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, tr
 		trustAdded = trustAdded || codex && start
 		if start || len(records) > 0 {
 			hooked = true
-			p.add(func() error { return applyHooks(inst, pr, e.Target, start, records, stdout) })
+			p.add(func() error { return applyHooks(inst, pr, e.Target, start, records, times, d.now(), stdout) })
 		}
 	}
 	if hooked {
@@ -664,9 +671,11 @@ func planRecords(inst *install.Installer, p *adapter.Profile, pl *plan) ([]adapt
 	return add, nil
 }
 
-// applyHooks adds the start entry of p when start is true, then the hook record entries
-// records. A start entry that you edited since the plan stays, with no record entry.
-func applyHooks(inst *install.Installer, p *adapter.Profile, target string, start bool, records []adapter.Hook, stdout io.Writer) error {
+// applyHooks adds the start entry of p when start is true, and records its install time at
+// now in the folder times, then the hook record entries records. A start entry that you
+// edited since the plan stays, with no record entry.
+func applyHooks(inst *install.Installer, p *adapter.Profile, target string, start bool, records []adapter.Hook,
+	times string, now time.Time, stdout io.Writer) error {
 	if start {
 		// A CLI can be installed before it made its config folder.
 		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
@@ -679,6 +688,9 @@ func applyHooks(inst *install.Installer, p *adapter.Profile, target string, star
 		if st == install.Edited {
 			fmt.Fprintf(stdout, "%s holds a Brain hook entry for %s that you edited. Brain keeps it.\n", target, p.Kind)
 			return nil
+		}
+		if err := harness.MarkInstalled(times, p.Kind, now); err != nil {
+			return err
 		}
 		fmt.Fprintf(stdout, "Added the Brain hook for %s.\n", p.Kind)
 	}

@@ -246,6 +246,11 @@ func (d *doctorCall) replace(inst *install.Installer, p *adapter.Profile, hooks 
 		if _, err := inst.InstallHook(p, h); err != nil {
 			return err
 		}
+		if h == p.Hooks()[0] {
+			if err := harness.MarkInstalled(d.Adapters.Installed, p.Kind, d.Now()); err != nil {
+				return err
+			}
+		}
 		d.w.printf("Replaced the Brain %s entry for %s.\n", h.CLIEvent, p.Kind)
 	}
 	return nil
@@ -336,15 +341,9 @@ func (d *doctorCall) receipts(ctx context.Context, p *adapter.Profile) error {
 	if len(missing) == 0 {
 		return nil
 	}
-	// The herdr pane list shows no prompt. Claude runs the hook at start, so no receipt is a
-	// failure. Codex runs it at the first prompt (M0 item 1), so no receipt is only a note:
-	// the trust check above already fails an untrusted Codex hook.
-	if p.HookTrust == adapter.TrustCodex {
-		d.w.printf("note: codex: %d live agent(s) with no Brain receipt (%s); Codex runs the hook at the first prompt. "+
-			"If an agent had a prompt, the hook is not trusted or not firing: trust it (/hooks in Codex); "+
-			"if it is trusted, the CLI sandbox may block the herdr socket\n", len(missing), strings.Join(missing, ", "))
-		return nil
-	}
+	// Claude runs the hook at start. Codex runs it at the first prompt (M0 item 1), and herdr
+	// gets the Codex session id from its own hook at that prompt too (#257): a Codex agent with
+	// no id is not counted here, and one with an id ran its hooks.
 	d.fail("%s: hook not trusted or not firing: %d live agent(s) with no Brain receipt (%s); fix: start a new session; "+
 		"if it gets no receipt either, the CLI sandbox may block the herdr socket", kind, len(missing), strings.Join(missing, ", "))
 	return nil

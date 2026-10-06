@@ -110,6 +110,7 @@ type Files struct {
 	Install     string // <data home>/install.json (paths.InstallFile)
 	Conformance string // <data home>/conformance.json (paths.ConformanceFile)
 	Retest      string // the folder of the retest markers that the hook writes (MarkRetest)
+	Installed   string // the folder of the install times of the start entries (MarkInstalled)
 }
 
 // versionRe matches a version word in `<cli> --version`: "2.1.283 (Claude Code)" and
@@ -147,8 +148,9 @@ func Check(ctx context.Context, h Panes, f Files, profiles []*adapter.Profile) (
 		if err != nil {
 			return nil, err
 		}
-		// A marker of another profile is stale: a Brain update may parse that input now.
-		marked = marked && m.Profile == p.SHA256
+		// A marker of another profile is stale: a Brain update may parse that input now. A
+		// marker of an older writer has no profile, so it stays.
+		marked = marked && (m.Profile == "" || m.Profile == p.SHA256)
 		r, ok := last(results, p.Kind)
 		// A newer CLI version keeps the state (D13), so the version is not a current value.
 		current := s.Configured && ok && r.Result == Pass && r.ProfileSHA256 == p.SHA256 && r.EntrySHA256 == e.SHA256

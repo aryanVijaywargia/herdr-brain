@@ -87,7 +87,7 @@ func (f *statusFixture) statusAt(t *testing.T, socket string, now time.Time) (st
 	e := f.env(socket, "w14:p1", "w14", &out)
 	e.Data = f.data
 	e.Adapters = harness.Files{Install: filepath.Join(f.data, "install.json"),
-		Conformance: filepath.Join(f.data, "conformance.json"), Retest: filepath.Join(f.data, retestDir)}
+		Conformance: filepath.Join(f.data, "conformance.json"), Retest: filepath.Join(f.data, retestDir), Installed: filepath.Join(f.data, installedDir)}
 	e.StatusHerdr = func(herdr.Target) (StatusHerdr, error) { return f.herdr, nil }
 	e.Now = func() time.Time { return now }
 	err := Status(context.Background(), e, nil)
@@ -178,7 +178,7 @@ func TestStatusLetterWorkspaceID(t *testing.T) {
 	e.Pane = resolver.HerdrPane([]string{"PATH=/usr/bin:/bin", "HERDR_BIN_PATH=" + bin})
 	e.Data = f.data
 	e.Adapters = harness.Files{Install: filepath.Join(f.data, "install.json"),
-		Conformance: filepath.Join(f.data, "conformance.json"), Retest: filepath.Join(f.data, retestDir)}
+		Conformance: filepath.Join(f.data, "conformance.json"), Retest: filepath.Join(f.data, retestDir), Installed: filepath.Join(f.data, installedDir)}
 	e.StatusHerdr = func(herdr.Target) (StatusHerdr, error) { return f.herdr, nil }
 	e.Now = func() time.Time { return testNow }
 	if err := Status(context.Background(), e, nil); err != nil {
