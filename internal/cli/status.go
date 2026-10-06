@@ -106,7 +106,7 @@ type herdrState struct {
 	panes      []herdr.Pane
 	// panesErr is why the pane list failed; then the delivery coverage is unavailable.
 	panesErr error
-	client   StatusHerdr // nil when versionErr says why there is none
+	client   StatusHerdr   // nil when versionErr says why there is none
 	files    harness.Files // the install files (harness.StartedBefore)
 }
 

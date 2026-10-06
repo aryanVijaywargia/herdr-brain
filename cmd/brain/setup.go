@@ -571,12 +571,6 @@ func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, tr
 	if err != nil {
 		return false, false, err
 	}
-	data, err := paths.DataHome()
-	if err != nil {
-		return false, false, err
-	}
-	// The install times of the start entries, as brain status reads them (#249).
-	times := filepath.Join(data, "installed")
 	ps, err := adapter.LoadAll(d.profiles)
 	if err != nil {
 		return false, false, err
@@ -612,7 +606,7 @@ func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, tr
 		trustAdded = trustAdded || codex && start
 		if start || len(records) > 0 {
 			hooked = true
-			p.add(func() error { return applyHooks(inst, pr, e.Target, start, records, times, d.now(), stdout) })
+			p.add(func() error { return applyHooks(inst, pr, e.Target, start, records, d.now(), stdout) })
 		}
 	}
 	if hooked {
@@ -671,26 +665,18 @@ func planRecords(inst *install.Installer, p *adapter.Profile, pl *plan) ([]adapt
 	return add, nil
 }
 
-// applyHooks adds the start entry of p when start is true, and records its install time at
-// now in the folder times, then the hook record entries records. A start entry that you
-// edited since the plan stays, with no record entry.
+// applyHooks adds the start entry of p when start is true, then the hook record entries
+// records. A start entry that you edited since the plan stays, with no record entry.
 func applyHooks(inst *install.Installer, p *adapter.Profile, target string, start bool, records []adapter.Hook,
-	times string, now time.Time, stdout io.Writer) error {
+	now time.Time, stdout io.Writer) error {
 	if start {
-		// A CLI can be installed before it made its config folder.
-		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-			return err
-		}
-		st, err := inst.Install(p)
+		added, err := addStart(inst, p, target, now)
 		if err != nil {
 			return err
 		}
-		if st == install.Edited {
+		if !added {
 			fmt.Fprintf(stdout, "%s holds a Brain hook entry for %s that you edited. Brain keeps it.\n", target, p.Kind)
 			return nil
-		}
-		if err := harness.MarkInstalled(times, p.Kind, now); err != nil {
-			return err
 		}
 		fmt.Fprintf(stdout, "Added the Brain hook for %s.\n", p.Kind)
 	}
@@ -785,4 +771,24 @@ func lookupEnv(environ []string, key string) string {
 		}
 	}
 	return v
+}
+
+// addStart adds the start entry of p, and records its install time now only when it added a
+// new entry (#249): an entry that is present keeps its time. It reports false for an entry
+// that you edited.
+func addStart(inst *install.Installer, p *adapter.Profile, target string, now time.Time) (bool, error) {
+	// A CLI can be installed before it made its config folder.
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		return false, err
+	}
+	st, err := inst.Install(p)
+	if err != nil || st != install.Added {
+		return st != install.Edited, err
+	}
+	data, err := paths.DataHome()
+	if err != nil {
+		return false, err
+	}
+	// The install times of the start entries, as brain status reads them.
+	return true, harness.MarkInstalled(filepath.Join(data, "installed"), p.Kind, now)
 }

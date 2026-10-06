@@ -243,10 +243,12 @@ func (d *doctorCall) replace(inst *install.Installer, p *adapter.Profile, hooks 
 				p.Kind, target, h.CLIEvent, st, inst.Binary)
 			continue
 		}
-		if _, err := inst.InstallHook(p, h); err != nil {
+		st, err = inst.InstallHook(p, h)
+		if err != nil {
 			return err
 		}
-		if h == p.Hooks()[0] {
+		// Only a new start entry gets a new install time (#249).
+		if st == install.Added && h == p.Hooks()[0] {
 			if err := harness.MarkInstalled(d.Adapters.Installed, p.Kind, d.Now()); err != nil {
 				return err
 			}

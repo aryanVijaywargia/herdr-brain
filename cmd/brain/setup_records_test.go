@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 )
@@ -82,4 +83,43 @@ func TestSetupHookRecords(t *testing.T) {
 			t.Errorf("setup on a newer version did not add the hook records:\n%s\n%s", out, s)
 		}
 	})
+}
+
+// #249 (coordinator check on PR #262): the install time of a start entry changes only when
+// Brain adds a new start entry for that CLI. An entry that is present keeps its time, and the
+// install of another CLI, which writes install.json too, does not touch it.
+func TestAddStartInstallTime(t *testing.T) {
+	home := setupHome(t, "0.9.1")
+	inst, err := installer("/opt/brain/bin/brain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	load := func(kind string) *adapter.Profile {
+		t.Helper()
+		p, err := adapter.Load(kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	claude, codex := load("claude"), load("codex")
+	timeFile := filepath.Join(home, ".local", "share", "brain", "installed", "claude.json")
+	first := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	if added, err := addStart(inst, claude, filepath.Join(home, ".claude", "settings.json"), first); err != nil || !added {
+		t.Fatalf("addStart(claude) = %v, %v, want added", added, err)
+	}
+	want := string(mustRead(t, timeFile))
+	if !strings.Contains(want, "2026-10-06T12:00:00Z") {
+		t.Fatalf("install time of claude = %s, want 2026-10-06T12:00:00Z", want)
+	}
+	later := first.Add(24 * time.Hour)
+	if added, err := addStart(inst, claude, filepath.Join(home, ".claude", "settings.json"), later); err != nil || !added {
+		t.Fatalf("addStart(claude, present) = %v, %v, want no error", added, err)
+	}
+	if _, err := addStart(inst, codex, filepath.Join(home, ".codex", "hooks.json"), later); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(mustRead(t, timeFile)); got != want {
+		t.Errorf("install time of claude after a present entry and a codex install = %s, want %s", got, want)
+	}
 }
