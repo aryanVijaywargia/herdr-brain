@@ -688,22 +688,11 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 	case err != nil:
 		return Suggestion{}, err
 	}
-	// [NEW] a fact claim makes a fact, a skill claim a skill (E16-S4), a tool claim a tool
-	// (E17-S6); every other claim kind makes a preference, the kind of a lesson.
-	kind := store.KindPreference
-	switch c.Kind {
-	case "fact":
-		kind = store.KindFact
-	case kindSkill:
-		kind = store.KindSkill
-	case kindTool:
-		kind = store.KindTool
-	}
 	conflicts, err := conflictItems(ctx, tx, cand, c)
 	if err != nil {
 		return Suggestion{}, err
 	}
-	item, err := store.InsertItem(ctx, tx, store.Item{ClaimID: cand.ClaimID, CurrentRevision: 1, Kind: kind,
+	item, err := store.InsertItem(ctx, tx, store.Item{ClaimID: cand.ClaimID, CurrentRevision: 1, Kind: itemKind(c),
 		Scope: cand.Scope, WorkspaceKey: key, State: store.StateDraft, Created: now})
 	if err != nil {
 		return Suggestion{}, err
@@ -745,6 +734,21 @@ func lessonSuggestion(ctx context.Context, tx *sql.Tx, cand store.Candidate, pid
 		return Suggestion{}, err
 	}
 	return Suggestion{Suggestion: s, WorkspaceID: w.HerdrWorkspaceID}, nil
+}
+
+// itemKind is the item kind of a proposal of claim c. [NEW] a fact claim makes a fact, a skill
+// claim a skill (E16-S4), a tool claim a tool (E17-S6); every other claim kind makes a
+// preference, the kind of a lesson.
+func itemKind(c Claim) store.Kind {
+	switch c.Kind {
+	case "fact":
+		return store.KindFact
+	case kindSkill:
+		return store.KindSkill
+	case kindTool:
+		return store.KindTool
+	}
+	return store.KindPreference
 }
 
 // claimKey is the claim key of claim c, in normal form. A tool keeps its key (toolKey), so the
