@@ -888,3 +888,32 @@ func TestCaptureForgetDuringLearningSwitch(t *testing.T) {
 		}
 	}
 }
+
+// #258: a Claude 2.1.292 task with the start banner, a tip that wraps and the diff panel
+// beside the conversation (made reads, testdata/claude-i258-*). The observations hold the
+// prompt and the reply with their senders, and no banner, tip, mode line or panel text.
+func TestCaptureScreenChrome(t *testing.T) {
+	k := newCapture(t, "s1", t.TempDir())
+	k.pane("w1:p1", "claude", "")
+	k.reads(t, "w1:p1", "claude-i258-0-base.txt", "claude-i258-1-working.txt", "claude-i258-2-idle.txt")
+	k.must(t, Baseline, "w1:p1", "", GapNone)
+	k.must(t, Change, "w1:p1", "working", GapNone)
+	k.must(t, Change, "w1:p1", "idle", GapNone)
+	type obs struct {
+		sender  store.Sender
+		excerpt string
+	}
+	var got []obs
+	for _, o := range k.rows(t).obs {
+		got = append(got, obs{o.Sender, o.Excerpt})
+	}
+	want := []obs{
+		{store.SenderUnconfirmed, "❯ Add multiply to src/math.js with a test."},
+		{store.SenderAssistant, "⏺ Update(src/math.js)"},
+		{store.SenderTool, "  ⎿  Added 4 lines"},
+		{store.SenderAssistant, "⏺ Added multiply and its test."},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("observations = %q, want %q", got, want)
+	}
+}

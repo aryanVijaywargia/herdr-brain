@@ -1,0 +1,5 @@
+❯ Add multiply to src/math.js with a test.                  │ 2 files changed +17 -1
+                                                            │
+⏺ Update(src/math.js)                                       │ src/math.js                                +9 -1
+  ⎿  Added 4 lines                                          │ test/math.test.js                          +8
+                                                            │

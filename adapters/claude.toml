@@ -47,6 +47,7 @@ noise_blocks = [
   { start = '\s*╭─+ Claude Code .*╮', next = '\s*[│╰].*' },
 ]
 # The diff panel (/diff, Claude Code 2.1.260 and later) opens beside the conversation in a
-# terminal at least 110 columns wide; its header is "N files changed +A -D" (#258). [NEW] The
-# conversation keeps at least 40 columns.
-side_panel = { header = '\d+ files? changed \+\d+ [-−]\d+', min_column = 40 }
+# terminal at least 110 columns wide; its header is "N files changed +A -D" (#258). The header
+# takes a divider glyph before it too, so the cut drops the divider [NEW: the divider is not
+# recorded]. [NEW] The conversation keeps at least 40 columns.
+side_panel = { header = '(?:[│┃] +)?\d+ files? changed \+\d+ [-−]\d+', min_column = 40 }

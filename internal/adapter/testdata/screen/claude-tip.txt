@@ -1,0 +1,13 @@
+❯ Run the tests.
+
+⏺ Bash(npm test)
+  ⎿  2 passing
+
+✻ Brewing… (3s · thinking)
+  ⎿  Tip: Use /permissions to pre-approve and pre-deny bash, edit, and
+     MCP tools
+
+──────────────────────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────────────────────
+  ⏵⏵ accept edits on (shift+tab to cycle)
