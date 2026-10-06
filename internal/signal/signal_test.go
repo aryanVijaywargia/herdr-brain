@@ -162,7 +162,7 @@ func TestLessonAfterCorrection(t *testing.T) {
 }
 
 const (
-	proc1 ="First run go vet on all packages. Then run golangci-lint with a fresh cache. " +
+	proc1 = "First run go vet on all packages. Then run golangci-lint with a fresh cache. " +
 		"Then run the full test suite with the race flag and paste the summary."
 	proc2 = "1. Run go vet on all packages\n2. Run golangci-lint with a fresh cache\n" +
 		"3. Run the full test suite with the race flag\n4. Paste the summary here please"
