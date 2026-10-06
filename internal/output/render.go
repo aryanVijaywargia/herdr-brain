@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/brief"
+	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
 )
@@ -319,7 +320,7 @@ type marks struct {
 // dispute is the brief mark of item id: none when the item is not disputed.
 func (m marks) dispute(id int64) brief.Dispute {
 	d := m.disputes[id]
-	return brief.Dispute{Anchors: d.Anchors, At: d.At}
+	return brief.Dispute{Anchors: d.Anchors, Moved: signal.Moved(d.Diff), At: d.At}
 }
 
 // renderPart renders one part with fn and lists the item revisions in it, the skill revisions

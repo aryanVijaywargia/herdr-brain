@@ -166,7 +166,7 @@ func TestStale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "- [1] The loader is in load.go, next to keep.go. (disputed: load.go changed on 2026-10-03)\n"; !strings.Contains(b.Workspace, want) {
+	if want := "- [1] The loader is in load.go, next to keep.go. (disputed: load.go moved on 2026-10-03)\n"; !strings.Contains(b.Workspace, want) {
 		t.Errorf("brief workspace part = %q, want %q", b.Workspace, want)
 	}
 }

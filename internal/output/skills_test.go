@@ -344,7 +344,7 @@ func TestDisputedSkill(t *testing.T) {
 	gen := mustBuild(t, s, out)
 	b := mustRead(t, out, "k1")
 	wPath := skillPath(skillsDir(out), w, 1)
-	mark := " (disputed: package.json changed on " + testNow.UTC().Format("2006-01-02") + ")\n"
+	mark := " (disputed: package.json deleted on " + testNow.UTC().Format("2006-01-02") + ")\n"
 	if !strings.Contains(b.Workspace, "- deploy: Do the deploy task. File: "+wPath+mark) ||
 		!strings.Contains(b.Workspace, "use pnpm, see package.json"+mark) {
 		t.Errorf("workspace part = %q, want the skill entry and the item, each with the mark", b.Workspace)

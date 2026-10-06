@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
@@ -24,17 +25,30 @@ const (
 	outDir = "out"
 )
 
-// dispute is one item whose anchors no longer match git.
+// dispute is one item whose anchor files moved or were deleted.
 type dispute struct {
 	item    store.Item
 	changes []signal.AnchorChange
 }
 
-// Stale checks the anchors of the active items of workspace key in the store of g, or of every
-// workspace when key is "" (§9.1). An item whose anchor changed, moved or was deleted becomes
-// disputed, with a proposal in the review queue that holds the anchor diff. It stays delivered
-// with a mark, so Stale builds the output. Brain does not change the text of the item or
-// retire it: you decide in review. now is the clock.
+// check is what the stale check does with one item (§9.1, #252): dispute it, give it a new
+// baseline after a normal edit, or make it active again.
+type check struct {
+	item store.Item
+	// gone holds the anchors whose path is gone: moved or deleted.
+	gone []signal.AnchorChange
+	// now holds the anchors as they are now.
+	now []store.Anchor
+}
+
+// Stale checks the anchors of the active and disputed items of workspace key in the store of
+// g, or of every workspace when key is "" (§9.1). An active item whose anchor file moved or
+// was deleted becomes disputed, with a proposal in the review queue that holds the anchor
+// diff. It stays delivered with a mark, so Stale builds the output. A normal edit of an anchor
+// file does not dispute the item: the item gets the new blob as its baseline. A disputed item
+// whose anchor paths are all still there is active again: an older build disputed it for a
+// normal edit (#252). Brain does not change the text of the item or retire it: you decide in
+// review. now is the clock.
 func Stale(ctx context.Context, g Gate, key string, now func() time.Time) (err error) {
 	ctx, cancel := context.WithTimeout(ctx, staleTimeout)
 	defer cancel()
@@ -52,33 +66,35 @@ func Stale(ctx context.Context, g Gate, key string, now func() time.Time) (err e
 		return err
 	}
 	// git runs outside the transaction, so the store lock does not wait for it.
-	var ds []dispute
+	var cs []check
 	for _, it := range items {
-		changes, _, err := signal.CheckAnchors(ctx, it.Anchors)
+		changes, cur, err := signal.CheckAnchors(ctx, it.Anchors)
 		if err != nil {
 			return fmt.Errorf("check the anchors of item %d: %w", it.ID, err)
 		}
-		if len(changes) > 0 {
-			ds = append(ds, dispute{item: it, changes: changes})
+		gone := slices.DeleteFunc(changes, func(c signal.AnchorChange) bool { return c.Blob != "" })
+		edited := len(cur) == len(it.Anchors) && !slices.Equal(cur, it.Anchors)
+		switch {
+		case it.State == store.StateActive && (len(gone) > 0 || edited),
+			it.State == store.StateDisputed && len(gone) == 0:
+			cs = append(cs, check{item: it, gone: gone, now: cur})
 		}
 	}
-	if len(ds) == 0 {
+	if len(cs) == 0 {
 		return nil
 	}
-	n := 0
+	build := false
 	err = st.Write(ctx, func(tx *sql.Tx) error {
-		for _, d := range ds {
-			ok, err := disputeItem(ctx, tx, d, now().UTC())
+		for _, c := range cs {
+			ok, err := apply(ctx, tx, c, now().UTC())
 			if err != nil {
 				return err
 			}
-			if ok {
-				n++
-			}
+			build = build || ok
 		}
 		return nil
 	})
-	if err != nil || n == 0 {
+	if err != nil || !build {
 		return err
 	}
 	_, err = output.Build(ctx, st, filepath.Join(g.Binding.Store, outDir), nil, now)
@@ -87,6 +103,19 @@ func Stale(ctx context.Context, g Gate, key string, now func() time.Time) (err e
 		return nil
 	}
 	return err
+}
+
+// apply does what c says. build is true when the brief changed: an item became disputed or
+// active again. An item that changed after the check read it is left to the next check.
+func apply(ctx context.Context, tx *sql.Tx, c check, now time.Time) (build bool, err error) {
+	it := c.item
+	switch {
+	case it.State == store.StateDisputed:
+		return store.Undispute(ctx, tx, it.ID, it.CurrentRevision, c.now, now)
+	case len(c.gone) > 0:
+		return disputeItem(ctx, tx, dispute{item: it, changes: c.gone}, now)
+	}
+	return false, store.RebaseAnchors(ctx, tx, it.ID, it.CurrentRevision, c.now)
 }
 
 // disputeItem makes the item of d disputed with its review proposal. ok is false when the

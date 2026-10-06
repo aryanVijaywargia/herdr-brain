@@ -14,8 +14,8 @@ import (
 )
 
 // The git anchors of the stale check (E16-S6, §9.1). Like the revert rule, they run only
-// read-only git commands: rev-parse, ls-files and hash-object without -w, which writes no
-// object. An anchor holds the blob of a tracked file as it is in the work tree now [NEW]: a
+// read-only git commands: rev-parse, ls-files, diff, log and hash-object without -w, which
+// writes no object. An anchor holds the blob of a tracked file as it is in the work tree now [NEW]: a
 // saved edit, a git mv or a deletion counts before a commit.
 
 // wordStart and wordEnd hold the characters that a path in a text can stand between: quotes,
@@ -85,7 +85,8 @@ type AnchorChange struct {
 	Anchor store.Anchor
 	// Blob is the blob of the path now; "" when the path is gone.
 	Blob string
-	// MovedTo is a path that holds the old blob now, when the path is gone; "" when none does.
+	// MovedTo is the path that the file moved to, when the path is gone; "" when git cannot
+	// tell a move: the file is deleted.
 	MovedTo string
 }
 
@@ -109,12 +110,82 @@ func CheckAnchors(ctx context.Context, anchors []store.Anchor) (changes []Anchor
 		}
 		switch {
 		case !ok:
-			changes = append(changes, AnchorChange{Anchor: a, MovedTo: holder(tree, a.Blob)})
+			to, err := movedTo(ctx, a, tree)
+			if err != nil {
+				return nil, nil, err
+			}
+			changes = append(changes, AnchorChange{Anchor: a, MovedTo: to})
 		case blob != a.Blob:
 			changes = append(changes, AnchorChange{Anchor: a, Blob: blob})
 		}
 	}
 	return changes, now, nil
+}
+
+// movedTo returns the path that the file of anchor a, whose path is gone from tree, moved to:
+// a path that holds the old blob now, or else the last rename of the path that git finds since
+// the stored blob, in the work tree, the index or the log, whose new path is in tree. It
+// returns "" when git cannot tell a move.
+func movedTo(ctx context.Context, a store.Anchor, tree map[string]string) (string, error) {
+	if p := holder(tree, a.Blob); p != "" {
+		return p, nil
+	}
+	// The work tree and the index against HEAD first, then the commits, newest first.
+	for _, args := range [][]string{
+		{"diff", "-M", "--raw", "-z", "--no-abbrev", "HEAD"},
+		{"log", "-M", "--raw", "-z", "--no-abbrev", "--format=", fmt.Sprintf("--max-count=%d", maxLog)},
+	} {
+		out, err := git(ctx, a.Root, args...)
+		if err != nil {
+			if errors.As(err, new(*exec.ExitError)) {
+				return "", nil // not a repo, or no commit
+			}
+			return "", err
+		}
+		to, done := renamed(string(out), a)
+		if to != "" {
+			if _, ok := tree[to]; ok {
+				return to, nil
+			}
+		}
+		if done {
+			return "", nil
+		}
+	}
+	return "", nil
+}
+
+// renamed reads raw diff records (git --raw -z) and returns the new path of the first rename of
+// a.Path. done is true when a record made a.Path hold the stored blob first: the renames
+// before it are older than the anchor, so they do not count.
+func renamed(raw string, a store.Anchor) (to string, done bool) {
+	f := strings.Split(raw, "\x00")
+	for i := 0; i < len(f); i++ {
+		meta := strings.Fields(strings.TrimLeft(f[i], "\n"))
+		if len(meta) != 5 || !strings.HasPrefix(meta[0], ":") {
+			continue
+		}
+		status, blob := meta[4], meta[3]
+		src := ""
+		if i+1 < len(f) {
+			src = f[i+1]
+		}
+		dst := src
+		if strings.HasPrefix(status, "R") || strings.HasPrefix(status, "C") {
+			if i+2 < len(f) {
+				dst = f[i+2]
+			}
+			i++
+		}
+		i++
+		switch {
+		case strings.HasPrefix(status, "R") && src == a.Path:
+			return dst, true
+		case dst == a.Path && blob == a.Blob:
+			return "", true
+		}
+	}
+	return "", false
 }
 
 // holder returns the first path, in path order, whose blob is blob in tree, or "".
@@ -147,6 +218,21 @@ func AnchorDiff(changes []AnchorChange) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// Moved returns the paths of the anchors that moved in diff, an AnchorDiff, in diff order.
+func Moved(diff string) []string {
+	var paths []string
+	lines := strings.Split(diff, "\n")
+	for i := 1; i < len(lines); i++ {
+		if !strings.HasSuffix(lines[i], " (moved)") || !strings.HasPrefix(lines[i-1], "- ") {
+			continue
+		}
+		if p, _, ok := strings.Cut(strings.TrimPrefix(lines[i-1], "- "), " "); ok {
+			paths = append(paths, p)
+		}
+	}
+	return paths
 }
 
 func short(blob string) string { return blob[:min(len(blob), shortBlob)] }

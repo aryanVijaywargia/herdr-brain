@@ -48,27 +48,41 @@ type Item struct {
 	ExceptionTo int64
 	// ConflictsWith are the items that this item has an unresolved conflict with (§7.4).
 	ConflictsWith []int64
-	// Dispute marks an item whose anchor changed, until you decide (§9.1).
+	// Dispute marks an item whose anchor moved or was deleted, until you decide (§9.1).
 	Dispute Dispute
 	// Anchors are the paths of the item's anchors. The part keeps room for their mark.
 	Anchors []string
 }
 
 // Dispute is the mark of a disputed item or skill (§9.1, G7): the paths of the anchors that
-// changed, moved or were deleted, and the time of the check that found them. A Dispute with no
-// anchors is no mark.
+// moved or were deleted, the paths of those that moved, and the time of the check that found
+// them. A Dispute with no anchors is no mark.
 type Dispute struct {
 	Anchors []string
+	Moved   []string
 	At      time.Time
 }
 
-// mark is the text of d: " (disputed: <anchor> changed on <date>)", with the date in UTC.
-// [NEW] several anchors are joined with ", ".
+// Gone is the text of the anchors of d, each with what happened to it: "<anchor> moved" or
+// "<anchor> deleted". [NEW] several anchors are joined with ", ".
+func (d Dispute) Gone() string {
+	words := make([]string, len(d.Anchors))
+	for i, a := range d.Anchors {
+		words[i] = a + " deleted"
+		if slices.Contains(d.Moved, a) {
+			words[i] = a + " moved"
+		}
+	}
+	return strings.Join(words, ", ")
+}
+
+// mark is the text of d: " (disputed: <anchor> moved on <date>)" or " (disputed: <anchor>
+// deleted on <date>)", with the date in UTC.
 func (d Dispute) mark() string {
 	if len(d.Anchors) == 0 {
 		return ""
 	}
-	return " (disputed: " + strings.Join(d.Anchors, ", ") + " changed on " + d.At.UTC().Format("2006-01-02") + ")"
+	return " (disputed: " + d.Gone() + " on " + d.At.UTC().Format("2006-01-02") + ")"
 }
 
 // Skill is one active skill as the brief lists it (§8.2): its name, its one-line description,
@@ -80,7 +94,7 @@ type Skill struct {
 	Path        string
 	// NotAvailable comes from the reviewed text, for example "gh in codex".
 	NotAvailable string
-	// Dispute marks a skill whose anchor changed, until you decide (§9.1).
+	// Dispute marks a skill whose anchor moved or was deleted, until you decide (§9.1).
 	Dispute Dispute
 	// Anchors are the paths of the skill's anchors. The part keeps room for their mark.
 	Anchors []string
@@ -209,7 +223,7 @@ func part(name, label string, extra, limit int, items []Item, skills []Skill, to
 }
 
 // markRoom is the room that the mark of anchors needs beyond the mark d that the text holds:
-// a dispute names some of the anchors, never more.
+// a dispute names some of the anchors, never more, and "deleted" is the longer word.
 func markRoom(anchors []string, d Dispute) int {
 	return max(0, len(Dispute{Anchors: anchors}.mark())-len(d.mark()))
 }
