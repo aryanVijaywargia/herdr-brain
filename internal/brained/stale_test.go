@@ -227,7 +227,7 @@ func TestStaleDeletedAndEdited(t *testing.T) {
 
 // AC 5 (#252): an item that an older build disputed for a normal edit is active again at the
 // next check, with no mark, its dispute closed as superseded and the new blob as its anchor.
-// An item disputed for a deleted file stays disputed.
+// An item disputed for a deleted file stays disputed, also when the file is back.
 func TestStaleOldEditDispute(t *testing.T) {
 	gitEnv(t)
 	ctx := context.Background()
@@ -282,6 +282,16 @@ func TestStaleOldEditDispute(t *testing.T) {
 	}
 	if want := "- [1] The loader is in edit.go.\n"; !strings.Contains(b.Workspace, want) {
 		t.Errorf("brief workspace part = %q, want %q", b.Workspace, want)
+	}
+
+	// The deleted file is back: its dispute waits for your decision (§9.1).
+	git(t, root, "checkout", "-q", "HEAD~1", "--", "drop.go")
+	git(t, root, "commit", "-q", "-m", "restore")
+	if err := Stale(ctx, g, "", now); err != nil {
+		t.Fatal(err)
+	}
+	if it, _, ps := staleRows(t, dir, ids[1]); it.State != store.StateDisputed || len(ps) != 1 {
+		t.Errorf("item = %+v, proposals %+v, want disputed with its dispute: a restored file is not your decision", it, ps)
 	}
 }
 

@@ -155,7 +155,7 @@ func TestCheckAnchorsUncommitted(t *testing.T) {
 }
 
 // AC 3 (#252): git tells a move of an anchor file that was also edited, in a commit or staged
-// in the index. A file that was renamed before the anchor took its blob, and is deleted now,
+// in the index, also after two renames. A file that was renamed before the anchor took its blob, and is deleted now,
 // counts as deleted.
 func TestCheckAnchorsRenamed(t *testing.T) {
 	gitEnv(t)
@@ -165,13 +165,14 @@ func TestCheckAnchorsRenamed(t *testing.T) {
 	long := strings.Repeat("a line of the file\n", 20)
 	commit(t, dir, "committed.txt", long, "add committed")
 	commit(t, dir, "staged.txt", long+"s\n", "add staged")
+	commit(t, dir, "twice.txt", long+"t\n", "add twice")
 	commit(t, dir, "old.txt", long+"o\n", "add old")
 	run(t, dir, "mv", "old.txt", "renamed.txt")
 	run(t, dir, "commit", "-q", "-m", "rename old")
 	commit(t, dir, "renamed.txt", long+"o2\n", "edit renamed")
-	as, err := FindAnchors(ctx, dir, "committed.txt staged.txt renamed.txt")
-	if err != nil || len(as) != 3 {
-		t.Fatalf("FindAnchors = %v, %v, want 3 anchors", as, err)
+	as, err := FindAnchors(ctx, dir, "committed.txt staged.txt renamed.txt twice.txt")
+	if err != nil || len(as) != 4 {
+		t.Fatalf("FindAnchors = %v, %v, want 4 anchors", as, err)
 	}
 
 	run(t, dir, "mv", "committed.txt", "committed2.txt")
@@ -183,11 +184,18 @@ func TestCheckAnchorsRenamed(t *testing.T) {
 	run(t, dir, "add", "staged2.txt")
 	run(t, dir, "rm", "-q", "renamed.txt")
 	run(t, dir, "commit", "-q", "-m", "drop renamed", "--", "renamed.txt")
+	// Two renames, then an edit: twice.txt → twice2.txt → twice3.txt.
+	run(t, dir, "mv", "twice.txt", "twice2.txt")
+	run(t, dir, "commit", "-q", "-m", "rename twice once", "--", "twice.txt", "twice2.txt")
+	run(t, dir, "mv", "twice2.txt", "twice3.txt")
+	run(t, dir, "commit", "-q", "-m", "rename twice again", "--", "twice2.txt", "twice3.txt")
+	commit(t, dir, "twice3.txt", long+"t2\n", "edit twice")
 	changes, _, err := CheckAnchors(ctx, as)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []AnchorChange{{Anchor: as[0], MovedTo: "committed2.txt"}, {Anchor: as[1], MovedTo: "staged2.txt"}, {Anchor: as[2]}}
+	want := []AnchorChange{{Anchor: as[0], MovedTo: "committed2.txt"}, {Anchor: as[1], MovedTo: "staged2.txt"}, {Anchor: as[2]},
+		{Anchor: as[3], MovedTo: "twice3.txt"}}
 	if !reflect.DeepEqual(changes, want) {
 		t.Errorf("changes = %+v, want %+v", changes, want)
 	}

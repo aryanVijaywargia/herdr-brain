@@ -46,8 +46,8 @@ type check struct {
 // was deleted becomes disputed, with a proposal in the review queue that holds the anchor
 // diff. It stays delivered with a mark, so Stale builds the output. A normal edit of an anchor
 // file does not dispute the item: the item gets the new blob as its baseline. A disputed item
-// whose anchor paths are all still there is active again: an older build disputed it for a
-// normal edit (#252). Brain does not change the text of the item or retire it: you decide in
+// whose anchor paths are all still there, and whose dispute is of a normal edit, is active
+// again: an older build disputed it (#252). Brain does not change the text of the item or retire it: you decide in
 // review. now is the clock.
 func Stale(ctx context.Context, g Gate, key string, now func() time.Time) (err error) {
 	ctx, cancel := context.WithTimeout(ctx, staleTimeout)

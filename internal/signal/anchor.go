@@ -123,14 +123,15 @@ func CheckAnchors(ctx context.Context, anchors []store.Anchor) (changes []Anchor
 }
 
 // movedTo returns the path that the file of anchor a, whose path is gone from tree, moved to:
-// a path that holds the old blob now, or else the last rename of the path that git finds since
-// the stored blob, in the work tree, the index or the log, whose new path is in tree. It
-// returns "" when git cannot tell a move.
+// a path that holds the old blob now, or else the end of the renames of the path that git
+// finds since the stored blob, in the work tree, the index and the log, when that path is in
+// tree. It returns "" when git cannot tell a move.
 func movedTo(ctx context.Context, a store.Anchor, tree map[string]string) (string, error) {
 	if p := holder(tree, a.Blob); p != "" {
 		return p, nil
 	}
 	// The work tree and the index against HEAD first, then the commits, newest first.
+	moves := map[string]string{}
 	for _, args := range [][]string{
 		{"diff", "-M", "--raw", "-z", "--no-abbrev", "HEAD"},
 		{"log", "-M", "--raw", "-z", "--no-abbrev", "--format=", fmt.Sprintf("--max-count=%d", maxLog)},
@@ -142,23 +143,30 @@ func movedTo(ctx context.Context, a store.Anchor, tree map[string]string) (strin
 			}
 			return "", err
 		}
-		to, done := renamed(string(out), a)
-		if to != "" {
-			if _, ok := tree[to]; ok {
-				return to, nil
-			}
+		if renames(string(out), a, moves) {
+			break
 		}
-		if done {
+	}
+	// Follow the renames from the path: a.go → b.go, then b.go → c.go. Each step is one rename,
+	// so a loop of renames ends.
+	p := a.Path
+	for range len(moves) {
+		next, ok := moves[p]
+		if !ok {
 			return "", nil
 		}
+		if _, ok := tree[next]; ok {
+			return next, nil
+		}
+		p = next
 	}
 	return "", nil
 }
 
-// renamed reads raw diff records (git --raw -z) and returns the new path of the first rename of
-// a.Path. done is true when a record made a.Path hold the stored blob first: the renames
-// before it are older than the anchor, so they do not count.
-func renamed(raw string, a store.Anchor) (to string, done bool) {
+// renames reads raw diff records (git --raw -z), newest first, and adds the newest rename of
+// each path to moves: its new path by its old path. It stops and returns true at the record
+// that made a.Path hold the stored blob: the renames before it are older than the anchor.
+func renames(raw string, a store.Anchor, moves map[string]string) (done bool) {
 	f := strings.Split(raw, "\x00")
 	for i := 0; i < len(f); i++ {
 		meta := strings.Fields(strings.TrimLeft(f[i], "\n"))
@@ -178,14 +186,14 @@ func renamed(raw string, a store.Anchor) (to string, done bool) {
 			i++
 		}
 		i++
-		switch {
-		case strings.HasPrefix(status, "R") && src == a.Path:
-			return dst, true
-		case dst == a.Path && blob == a.Blob:
-			return "", true
+		if _, seen := moves[src]; strings.HasPrefix(status, "R") && !seen {
+			moves[src] = dst
+		}
+		if dst == a.Path && blob == a.Blob {
+			return true
 		}
 	}
-	return "", false
+	return false
 }
 
 // holder returns the first path, in path order, whose blob is blob in tree, or "".

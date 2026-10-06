@@ -101,12 +101,16 @@ func RebaseAnchors(ctx context.Context, tx *sql.Tx, id, rev int64, anchors []Anc
 
 // Undispute makes item id active again with anchors when it is still disputed at revision rev,
 // and closes its pending disputes as superseded at now: an older build disputed it for a
-// normal edit of an anchor file, and every anchor path is still there (#252). The item keeps
-// its revision. It records a new output generation, so the next build drops the mark. It
-// reports whether the item changed.
+// normal edit of an anchor file, and every anchor path is still there (#252). An item with a
+// pending dispute of a move or a delete stays disputed until you decide (§9.1), also when the
+// file is back: its anchor diff has a "(moved)" or "(deleted)" line. The item keeps its
+// revision. It records a new output generation, so the next build drops the mark. It reports
+// whether the item changed.
 func Undispute(ctx context.Context, tx *sql.Tx, id, rev int64, anchors []Anchor, now time.Time) (bool, error) {
-	res, err := tx.ExecContext(ctx, `UPDATE items SET state = ?, anchors = ? WHERE id = ? AND current_revision = ? AND state = ?`,
-		StateActive, jsonList[Anchor](anchors), id, rev, StateDisputed)
+	res, err := tx.ExecContext(ctx, `UPDATE items SET state = ?, anchors = ? WHERE id = ? AND current_revision = ? AND state = ?
+		AND NOT EXISTS (SELECT 1 FROM proposals p WHERE p.item_id = items.id AND p.status = ?
+			AND json_array_length(p.dispute) > 0 AND (p.diff LIKE '%(moved)%' OR p.diff LIKE '%(deleted)%'))`,
+		StateActive, jsonList[Anchor](anchors), id, rev, StateDisputed, ProposalPending)
 	if err != nil {
 		return false, fmt.Errorf("undispute item %d: %w", id, err)
 	}
