@@ -209,6 +209,7 @@ Each feature names the source of its idea. The tags are defined in §19. **[NEW]
 | Global and workspace facts, preferences and decisions | [S2] `CLAUDE.md`, [S3] `AGENTS.md`; [D] Drover §8 |
 | Task handoff as a workspace item subtype (goal, decisions, checks, blockers, next step) | [FLOW] handoff notes; [ASTRA2] "a task handoff is a workspace memory subtype" |
 | `brain remember "…"` makes a draft. Brain opens its review pane beside the caller; one key publishes. An agent call is never your word. | [S5] Devin Knowledge (person-written entries); [ASTRA3] F4; [OWNER] confirm in the herdr UI |
+| The brief tells agents to run `brain remember` when you ask them to remember something | [OWNER] 2026-10-07, #253 (D15) |
 | Scope from a live membership check of the calling pane (workspace by default, `--global` for global) | [H] `herdr pane get`; [ASTRA3] F3 "resolve membership before workspace writes" |
 | Every agent in a workspace gets its context, no matter who started it | [OWNER] "all the agents it invokes in a specific workspace would benefit"; [H] hook env carries `HERDR_WORKSPACE_ID` |
 | Global and workspace items reach each session through one herdr hook at session start, with no repo files | [OWNER] D8; [DOC] Codex hooks `SessionStart` `additionalContext` (`codex-rs/hooks/src/schema.rs`); [DOC] Claude Code SessionStart hooks; [M] `~/skills/tldraw-offline/inject-server-context.sh` |
@@ -234,6 +235,7 @@ Each feature names the source of its idea. The tags are defined in §19. **[NEW]
 | Strict attribution: assistant text cannot create your preference or a permission | [FLOW] `curation/prompt.ts` attribution rules; [ASTRA2] scenario 4 |
 | Filter for injected text and compaction summaries | [OMNI] `session_import/local.py:449-465`, `:557-568` |
 | Corrections, rejections and reverts as the main signal | [ASTRA] §6 and §10; [V] "one trigger"; [PR] "make overrides, corrections, failed checks and rejects the main learning path" |
+| A plain-words lesson ("remember", "from now on", "always", "never") from herdr capture gets a proposal after the first session (gate 1) | [OWNER] 2026-10-07, #253 (D15) |
 | Configurable priority defaults for repeats (correction 2, failure 2, procedure 3) | [V] assumption A1; [ASTRA2] "treat repeats as supporting evidence and queue-priority signals" |
 | Cross-harness count: a Codex correction and a Claude correction count as one pattern | [V] "only the cross-harness part is still open"; [H] herdr sees all 22 agent kinds; [NEW] the counting method |
 | Stable claim id, apart from the wording and the revision | [AMFS] `lessons.py:1-132`; [R] amfs A12 |
@@ -464,7 +466,7 @@ you: brain remember "use pnpm, not npm"   (in a pane of workspace w14 "shop")
 
 - With `--global`, the item goes into the global part of the brief. Then every new session in herdr, in every CLI with a tested profile, gets it.
 - `--workspace` and `--global` only choose the scope. They never skip the binding check (§8.3).
-- An agent that calls `brain remember` follows the same path. The review pane opens beside that agent. The item stays a draft until you act.
+- An agent that calls `brain remember` follows the same path. The review pane opens beside that agent. The item stays a draft until you act. The brief tells agents to make this call when you ask them to remember something (§8.1).
 - If Brain cannot open the pane (for example, the split fails), the draft waits in `brain review`, and the pane label shows it.
 - You can also confirm through the herdr plugin popup or `brain review`. All surfaces use the same queue.
 - **Trust boundary:** no path proves human origin. herdr 0.8.2 `notification show` has no reply. Any process of your user can call `brain review` or send keys to the review pane. So review guards against normal agent calls. It is not authentication. Brain does not defend against a hostile process with your user rights.
@@ -597,7 +599,7 @@ herdr capture is the main path. It needs no code for each harness. Hook records 
 - `Stop`: an observation only. It does not prove that the reply is complete. Claude's `Stop` payload has `last_assistant_message`, the text of the final reply.
 - `PreCompact`: deferred. Its payload has no conversation text.
 - Capture hooks are short. They exit 0 on any error and never block the CLI.
-- Brain enables a hook event for a CLI only after its M0 test on the recorded CLI version.
+- Brain enables a hook event for a CLI only after its M0 test on a recorded CLI version. A newer CLI version keeps the event on, and setup still adds its entry (§8.5, owner decision 2026-10-07, #251).
 
 ### 6.2 herdr capture
 
@@ -646,7 +648,7 @@ Limits:
 | Sender | Can support | Cannot create |
 |---|---|---|
 | You (after review approval of a `brain remember` draft, or a review edit) | Any item | — |
-| Sender not confirmed (captured message) | A correction, procedure or fact candidate | Nothing goes live without review |
+| Sender not confirmed (captured message) | A correction, explicit lesson, procedure or fact candidate | Nothing goes live without review |
 | Assistant text (agent reply, recap, summary) | Context for a candidate | Your preference, a permission, or a safety rule |
 | Tool output (errors) | A failure candidate | A preference or a permission |
 
@@ -689,6 +691,7 @@ Limits:
 | Signal | Source | Detection (local rules, no LLM) |
 |---|---|---|
 | Explicit lesson | `brain remember` | Direct |
+| Explicit lesson in plain words | herdr capture, hook record (where it exists) | Text that gives a lesson for later, with lesson words such as "remember", "from now on", "always", "never", "going forward" or "in this project". The sender stays unconfirmed (owner decision 2026-10-07, #253). |
 | Correction | herdr capture | Correction-like text: new text after an agent state change with correction markers ("no", "don't", "I said", "again", "instead", "wrong", "stop"), or text that repeats earlier text. The sender stays unconfirmed. |
 | Procedure | herdr capture | You send a long multi-step instruction that is similar to an earlier one |
 | Repeated prompt | herdr capture, hook record | A prompt that is the same as, or close to, earlier prompts. Input for live suggestions (§5.5). |
@@ -713,6 +716,7 @@ The rules are wide on purpose. The extractor removes the false positives.
 | Kind | Default gate for the queue |
 |---|---|
 | Explicit lesson | 1 (a draft that you confirm in the review pane) |
+| Explicit lesson in plain words | 1 occurrence. A candidate from this signal has this kind, not the correction kind. The extractor proposes it after the first session, and the review pane opens. Your approval sets sender = you, as for `brain remember` (owner decision 2026-10-07, #253). |
 | Correction | 2 occurrences, in any harnesses |
 | Failure | 2 sessions with the same signature |
 | Procedure → skill | 3 occurrences |
@@ -814,6 +818,7 @@ SQLite is the authority. Files are outputs.
 - **Uninstall** is a dry run by default. It removes only a Brain entry whose hash is unchanged. It keeps all other bytes as they are now. A hand-edited entry stays, and Brain reports it.
 - The brief starts with `<!-- brain:begin v1 -->` and ends with `<!-- brain:end -->`. The injected-text filter uses this marker (§6.3). The exact marker text is a Brain choice [NEW].
 - The brief header has one fixed precedence line: for ordinary preferences, a workspace item wins over a global item. It never relaxes a global permission or safety rule. A `conflicts with` mark wins over this line (§7.4). [NEW]
+- The brief header also has one fixed **remember line** for agents: `When the user asks you to remember something for later, run: brain remember "<lesson>"`. It sits in the global part, once in each brief, beside the precedence line. Its characters count in the global part budget. The call makes a draft, as any `brain remember` call (§5.1, S52). Nothing goes live until you approve (owner decision 2026-10-07, #253).
 - **Size budgets** (defaults):
   - one brief for each session: at most 9,500 characters for the whole `additionalContext` text, with the markers, the two scope labels (global and workspace) and one manifest. Claude Code 2.1.283 shows at most 10,000 characters inline. Above that, it writes the text to a file and the model sees only a path `[M0]`. The 500-character margin is a guess [NEW];
   - inside it, the global part: at most 3,800 characters (about 38 lines) [NEW];
@@ -934,7 +939,7 @@ shim = ""                                      # "ts" for OpenCode and pi
 | Shim | None, or the shared TypeScript shim template |
 | Noise lines | Screen patterns to drop from herdr capture |
 | State | `detected` (herdr saw the kind) → `configured` (hook installed) → `verified` (the conformance test passed on the recorded CLI version) |
-| Tested version | The CLI version of the last test. A new CLI version sets the state to **retest**. |
+| Tested version | The CLI version of the last test. A newer CLI version does not change the state. `brain status` and `brain doctor` show the warning **newer than tested** (owner decision 2026-10-07, #251). |
 | Last delivery, last error | Time and text |
 
 - **Overrides:** a harness gets its own Go code only where its profile cannot express the behavior. Expected: no overrides for Claude, Codex and agy. OpenCode and pi need only the shared TypeScript shim template. The shim calls `brain hook` and passes its output to the plugin API.
@@ -943,6 +948,8 @@ shim = ""                                      # "ts" for OpenCode and pi
 - **Conformance test:** the delivery stage of the evals (§12.1). A fresh session in a test herdr session gets a test item with an opaque marker. The agent returns the marker, and the question does not contain it. Only this test sets `verified`.
 - **Receipts** say `emitted`, `withheld` or `unmapped`. A withheld receipt has a reason: not live, not a member, unknown herdr session, identity (the saved root lies outside the project folder of the workspace, or cannot be read; §11, owner decision 2026-09-28), inconsistent output, or control (§12.1). An emitted receipt proves that the hook printed. It does not prove that the model used the text.
 - `brain status` shows the states apart. A configured hook with no test shows as **unverified**. A session with no receipt shows as **unknown**.
+- **Newer CLI version** (owner decision 2026-10-07, #251): a CLI update alone is only a warning. Delivery, hook records and learning stay on, and setup still adds the hook record entries. `brain doctor` and `brain update` pass while hook receipts arrive. `brain doctor` reports a problem only when the receipts stop for live sessions of that CLI. No user step needs the Brain repo or Go. The evals after a CLI update are recommended, not required (§12.1).
+- **Changed hook payload** (S14): if the profile parse fails on an unknown input shape, the parse fails closed. herdr capture continues, and `brain doctor` reports the parse failure.
 - Brain does not repair a configuration silently. `brain doctor` explains and asks.
 
 ---
@@ -953,8 +960,9 @@ shim = ""                                      # "ts" for OpenCode and pi
 
 - When an item names a file, a command or a path, Brain stores an anchor: (repo root, path, git blob hash at creation).
 - After a session ends, and once a day, Brain checks the anchors of that workspace's items.
-- If an anchor changed, moved or was deleted, the item state becomes **disputed**. It appears in the review queue with the diff of the anchor.
-- A disputed item stays delivered until you decide, with a visible mark in the brief: `(disputed: <anchor> changed on <date>)` (G7).
+- If the anchor file was renamed (moved) or deleted, the item state becomes **disputed**. It appears in the review queue with the diff of the anchor.
+- A normal edit of the anchor file does not make the item disputed (owner decision 2026-10-07, #252). An agent that follows the item often edits that file.
+- A disputed item stays delivered until you decide, with a visible mark in the brief: `(disputed: <anchor> moved on <date>)` or `(disputed: <anchor> deleted on <date>)` (G7).
 - For a clearly wrong path or an unsafe instruction, the review offers to retire the item at once. Retire keeps the history, and you can restore it (§9.2).
 - Brain does not delete or change the item by itself. It does not promote a newer guess in silence.
 
@@ -1266,7 +1274,7 @@ harnesses = ["claude", "codex"]
 **Probe source and size**
 - The pre-M0 look-back (§13) gives the probes. For each real example, it gives the question, the right answer and the old answer.
 - The probe count is design coverage, not a statistical sample. No number is set. [NEW]
-- You start runs by hand: at M0, at each milestone exit, and after a CLI version or profile change (state **retest**, §8.5).
+- You start runs by hand: at M0, at each milestone exit, and after a profile change. After a CLI update a run is recommended, not required: the CLI shows **newer than tested** until a run records the new version (§8.5, owner decision 2026-10-07, #251).
 
 ---
 
@@ -1313,7 +1321,7 @@ The full goal needs all four milestones. M1 alone is useful, but it is not the f
 | S11 | You edited a Brain file by hand (for example a skill) or the Brain hook entry | The hash does not match. Brain reports a conflict and asks before it overwrites or removes it. |
 | S12 | A message contains an API key in a supported pattern | Secret filter removes it before storage and before the extractor |
 | S13 | `brained` was down for a day | On start it takes a baseline of live panes and records a gap. It does not invent missed text. |
-| S14 | A CLI update changes a hook payload | The profile parse fails closed; herdr capture continues; the adapter state becomes "retest"; `brain doctor` warns |
+| S14 | A CLI update changes a hook payload | The profile parse fails closed; herdr capture continues; `brain doctor` reports the parse failure. A CLI update with no payload change gives only the warning "newer than tested"; hook records and learning stay on (owner decision 2026-10-07, #251). |
 | S15 | Extractor CLI is signed out | Signals wait; `brain doctor` says why |
 | S16 | Removed in v1.4: Brain has no export path | — |
 | S17 | `brain learn off` | Delivery continues; no capture and no new proposals |
@@ -1375,7 +1383,7 @@ The full goal needs all four milestones. M1 alone is useful, but it is not the f
 | S69 (M2) | A crash after the extractor returns and before the commit; a crash after the commit; a forget during extraction | First: the retry counts once. Second: nothing counts twice. Third: the batch result is discarded, and a later batch extracts from the kept evidence. |
 | S70 (M2) | The extractor returns a valid empty result, then an invalid response | Empty: the watermark moves. Invalid: the watermark stays, and `brain status` shows the failure. |
 | S71 (M2) | The labeled prompt set: real repeats (also non-English), negation, other arguments, another repo, everyday text | Each prompt gives its labeled result: the expected proposal or no match. 0 model calls. |
-| S72 (M3) | The anchor of an active item changes | The brief shows the item with a disputed mark until you decide |
+| S72 (M3) | The anchor file of an active item is deleted; the anchor file of another active item gets a normal edit (owner decision 2026-10-07, #252) | The brief shows the first item with a disputed mark until you decide. The second item stays active, with no mark and no review task. |
 | S73 | An eval reply has both the expected and the stale answer | UNSURE, not PASS. You review it. |
 | S74 | An eval run in the test herdr session | Real items never reach test panes. Test items never reach real panes. An agent in a test pane calls `brain remember`: the draft goes to the test store only. Real capture sees nothing of the run. |
 | S75 (M2) | Extraction is off for a workspace, and signals exist | The model-call counter for that workspace stays 0 |
@@ -1441,6 +1449,9 @@ You made all decisions on 2026-09-27. The record is `OWNER_QUESTIONS.md`, sectio
 | — | Inside herdr only | Brain is a herdr plugin. All its effects stay inside herdr. No export, no native skill folders, no MCP tools outside herdr (§1.2). |
 | — | Live suggestion limits | No hourly cap and no reject mute. Only mechanical rules. Measure first (§5.5). |
 | D12 | Hook and allow-rule suggestions (§10.4) | **Open.** They act outside herdr. Kept for now; the owner decides later. Astra recommends only a herdr-gated form, and "unsupported" where a CLI has no session-local rule ([ASTRA5] G8). |
+| D13 | CLI update (2026-10-07, #251) | A newer CLI version gives only the warning "newer than tested" in `brain status` and `brain doctor`. Hook records and learning stay on. Doctor and update pass while hook receipts arrive. Evals after a CLI update are recommended, not required (§6.1, §8.5, §12.1, S14). [OWNER] |
+| D14 | Disputed anchors (2026-10-07, #252) | Only a rename (move) or delete of the anchor file makes an item disputed. A normal edit does not (§9.1, S72). [OWNER] |
+| D15 | Plain-words lessons (2026-10-07, #253) | A new signal "explicit lesson in plain words" from herdr capture, with gate 1. The brief tells agents to run `brain remember` when you ask them to remember something (§7.1, §7.2, §8.1). [OWNER] |
 | — | Sequencing | The 30-60 minute look-back and the M0 spike can run at the same time. The look-back gives probes; it is not a gate. Facts that M1 does not need can stay unknown. |
 | — | Product bar (v1.6) | Brain is for every herdr user on herdr 0.9.1 or later. The first use must show why Brain is needed (§13). [OWNER] |
 | — | Waku study (v1.5) | You asked for v1.5 with gaps G1-G7 and the eval method (§12.1). D12 stays open. |
