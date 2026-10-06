@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
@@ -243,6 +244,22 @@ func TestAttachChecks(t *testing.T) {
 	}
 }
 
+// AC #253: a plain-words lesson reaches its gate with one occurrence, and the store keeps its
+// kind. A correction of the same count stays below its gate of 2.
+func TestLessonGate(t *testing.T) {
+	e := newEvidenceStore(t)
+	lesson := e.mustAttach(t, Candidate{ClaimID: e.claim(t, "jsdoc on exported functions"), Scope: ScopeWorkspace,
+		WorkspaceKey: "ws-a", Kind: CandidateLesson}, e.observe(t, "claude", "a1", "ws-a", SenderUnconfirmed, testNow))
+	if lesson.Kind != CandidateLesson || lesson.Count != 1 || lesson.Priority != 1 || !DefaultGates().Reached(lesson) {
+		t.Errorf("one lesson: %+v, want a lesson with count 1 at the gate", lesson)
+	}
+	correction := e.mustAttach(t, Candidate{ClaimID: e.claim(t, "no jsdoc on old functions"), Scope: ScopeWorkspace,
+		WorkspaceKey: "ws-a", Kind: CandidateCorrection}, e.observe(t, "claude", "a1", "ws-a", SenderUnconfirmed, testNow))
+	if correction.Count != 1 || correction.Priority != 0 || DefaultGates().Reached(correction) {
+		t.Errorf("one correction: %+v, want count 1 below the gate", correction)
+	}
+}
+
 // AC: two failures in one session do not pass the 2-session gate; one more in another
 // session does.
 func TestSessionGate(t *testing.T) {
@@ -260,10 +277,12 @@ func TestSessionGate(t *testing.T) {
 	}
 }
 
-// The §7.2 defaults: correction 2, failure 2 sessions, procedure 3, command chain 3 sessions.
+// The §7.2 defaults: correction 2, plain-words lesson 1 (#253), failure 2 sessions,
+// procedure 3, command chain 3 sessions.
 func TestDefaultGates(t *testing.T) {
 	want := Gates{
 		CandidateCorrection:   {Min: 2},
+		CandidateLesson:       {Min: 1},
 		CandidateFailure:      {Min: 2, Sessions: true},
 		CandidateProcedure:    {Min: 3},
 		CandidateCommandChain: {Min: 3, Sessions: true},
@@ -426,5 +445,57 @@ func TestEraseItemClaimText(t *testing.T) {
 				return nil
 			})
 		})
+	}
+}
+
+// migrationsUpTo returns the embedded migrations up to version n.
+func migrationsUpTo(t *testing.T, n int) fstest.MapFS {
+	t.Helper()
+	ms, err := loadMigrations(migrations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fsys := fstest.MapFS{}
+	for _, m := range ms[:n] {
+		fsys["migrations/"+m.name] = &fstest.MapFile{Data: []byte(m.sql)}
+	}
+	return fsys
+}
+
+// AC #253: migration 26 keeps the candidates and their evidence links of an older store, with
+// their ids and foreign keys, and then takes a lesson candidate.
+func TestLessonKindMigration(t *testing.T) {
+	dir := t.TempDir()
+	e := &evidenceStore{Store: openTest(t, dir, migrationsUpTo(t, 25)), sessions: map[string]int64{}}
+	c := Candidate{ClaimID: e.claim(t, "use pnpm"), Scope: ScopeWorkspace, WorkspaceKey: "ws-a", Kind: CandidateCorrection}
+	old := e.mustAttach(t, c, e.observe(t, "claude", "a1", "ws-a", SenderUnconfirmed, testNow))
+	lesson := Candidate{ClaimID: e.claim(t, "jsdoc"), Scope: ScopeWorkspace, WorkspaceKey: "ws-a", Kind: CandidateLesson}
+	if _, err := e.attach(t, lesson, e.observe(t, "claude", "a1", "ws-a", SenderUnconfirmed, testNow)); err == nil {
+		t.Fatal("a lesson candidate before migration 26 = nil error, want a CHECK error")
+	}
+	closeTest(t, e.Store)
+
+	e.Store = openTest(t, dir, migrationsUpTo(t, 26))
+	defer closeTest(t, e.Store)
+	got := e.mustAttach(t, c, e.observe(t, "codex", "b1", "ws-a", SenderUnconfirmed, testNow))
+	if got.ID != old.ID || got.Count != 2 || got.Priority != 1 {
+		t.Errorf("after migration: %+v, want candidate %d with count 2 at the gate", got, old.ID)
+	}
+	if l := e.mustAttach(t, lesson, e.observe(t, "claude", "a1", "ws-a", SenderUnconfirmed, testNow)); l.Kind != CandidateLesson {
+		t.Errorf("lesson after migration: %+v, want kind lesson", l)
+	}
+	if n := queryInt(t, e.Store, `SELECT count(*) FROM pragma_foreign_key_check`); n != 0 {
+		t.Errorf("foreign key check = %d rows, want 0", n)
+	}
+	for _, name := range []string{"candidates_claim_scope", "evidence_links_session"} {
+		if n := queryInt(t, e.Store, `SELECT count(*) FROM sqlite_schema WHERE type = 'index' AND name = '`+name+`'`); n != 1 {
+			t.Errorf("index %s: %d, want 1", name, n)
+		}
+	}
+	if n := queryInt(t, e.Store, `SELECT count(*) FROM sqlite_schema WHERE name IN ('candidates_old', 'evidence_links_new')`); n != 0 {
+		t.Errorf("%d migration tables left, want 0", n)
+	}
+	if n := queryInt(t, e.Store, `SELECT count(*) FROM pragma_foreign_key_list('evidence_links') WHERE "table" = 'candidates'`); n != 1 {
+		t.Errorf("evidence_links references candidates %d times, want 1", n)
 	}
 }
