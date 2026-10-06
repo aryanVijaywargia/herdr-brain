@@ -21,7 +21,6 @@ import (
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
-	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
@@ -597,7 +596,7 @@ func planHooks(ctx context.Context, d setupDeps, bin string, p *plan, stdout io.
 			p.say("- Add this entry to the %s array of %s:\n    %s\n", pr.Events.Start, e.Target, e.Text)
 			start = true
 		}
-		records, err := planRecords(ctx, inst, pr, p)
+		records, err := planRecords(inst, pr, p)
 		if err != nil {
 			return false, false, err
 		}
@@ -631,10 +630,9 @@ func installer(bin string) (*install.Installer, error) {
 }
 
 // planRecords plans the hook record entries of p (E11-S5, §6.1), which setup adds after its
-// start entry. It plans them only when the profile turns them on, after the E11-S1 test, and
-// when the E8 guard does not say retest: a CLI version that no test passed, or hook input of
-// an unknown shape. It returns the hooks to add.
-func planRecords(ctx context.Context, inst *install.Installer, p *adapter.Profile, pl *plan) ([]adapter.Hook, error) {
+// start entry. It plans them only when the profile turns them on, after the E11-S1 test. A
+// CLI version that no test passed does not stop them (D13). It returns the hooks to add.
+func planRecords(inst *install.Installer, p *adapter.Profile, pl *plan) ([]adapter.Hook, error) {
 	hs := p.Hooks()[1:]
 	if len(hs) == 0 {
 		return nil, nil
@@ -657,14 +655,6 @@ func planRecords(ctx context.Context, inst *install.Installer, p *adapter.Profil
 		}
 	}
 	if len(add) == 0 {
-		return nil, nil
-	}
-	ok, err := guard(ctx, inst, p)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		pl.say("  %s needs a retest first (brain doctor). Setup adds no hook record entry.\n", p.Kind)
 		return nil, nil
 	}
 	pl.say("  Brain also stores hook records of %s: prompts, commands and replies. Add these entries to %s:\n", p.Kind, target)
@@ -706,30 +696,6 @@ func applyHooks(inst *install.Installer, p *adapter.Profile, target string, star
 	}
 	return nil
 }
-
-// guard is the E8 guard of p (§8.5): false when harness.Check says retest.
-func guard(ctx context.Context, inst *install.Installer, p *adapter.Profile) (bool, error) {
-	conf, err := paths.ConformanceFile()
-	if err != nil {
-		return false, err
-	}
-	data, err := paths.DataHome()
-	if err != nil {
-		return false, err
-	}
-	// The guard needs no panes: detection does not change retest.
-	ss, err := harness.Check(ctx, noPanes{}, harness.Files{Install: inst.Record, Conformance: conf,
-		Retest: filepath.Join(data, "retest")}, []*adapter.Profile{p})
-	if err != nil {
-		return false, err
-	}
-	return !ss[0].Retest, nil
-}
-
-// noPanes is a pane list with no pane.
-type noPanes struct{}
-
-func (noPanes) Panes(context.Context) ([]herdr.Pane, error) { return nil, nil }
 
 // planLink shows the binary path and plans the link -> bin.
 // It never replaces a file that it did not make (D3).

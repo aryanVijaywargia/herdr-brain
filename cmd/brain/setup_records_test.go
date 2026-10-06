@@ -19,8 +19,8 @@ func fakeClaude(t *testing.T, home, version string) {
 	}
 }
 
-// Setup offers the hook record entries of Claude after its start entry, with one question,
-// only when the E8 guard says no retest (E11-S5). Codex keeps them off.
+// Setup offers the hook record entries of Claude after its start entry, with one question
+// (E11-S5). Codex keeps them off. A CLI version newer than tested still gets them (D13, #251).
 func TestSetupHookRecords(t *testing.T) {
 	p, err := adapter.Load("claude")
 	if err != nil {
@@ -63,16 +63,17 @@ func TestSetupHookRecords(t *testing.T) {
 			}
 		}
 	})
-	t.Run("retest", func(t *testing.T) {
+	// AC 1 #251: the M2 case, claude 2.1.292 against tested 2.1.283.
+	t.Run("newer than tested", func(t *testing.T) {
 		home := setupHome(t, "0.9.1")
-		fakeClaude(t, home, "9.9.9")
+		fakeClaude(t, home, "2.1.292")
 		code, out, errOut := runSetup(t, "\ny\n")
 		if code != 0 {
 			t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 		}
-		if s := settings(home); strings.Contains(s, "--event tool") || strings.Contains(out, "Add these entries to ") ||
-			!strings.Contains(out, "claude needs a retest first") {
-			t.Errorf("setup on an untested version offered the hook records:\n%s\n%s", out, s)
+		if s := settings(home); !strings.Contains(s, "--event tool") || !strings.Contains(out, "Added the hook record entries for claude") ||
+			strings.Contains(out, "retest") {
+			t.Errorf("setup on a newer version did not add the hook records:\n%s\n%s", out, s)
 		}
 	})
 }

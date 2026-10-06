@@ -174,7 +174,7 @@ func (h Hook) run(ctx context.Context, stdin io.Reader, stdout io.Writer) (err e
 	// Input of an unknown shape sets the adapter state to retest (S14). The marker is a file
 	// outside every store, so the run still writes the store at most once.
 	if errors.Is(err, adapter.ErrRetest) {
-		return errors.Join(err, harness.MarkRetest(h.Retest, h.Profile.Kind, h.Now()))
+		return errors.Join(err, harness.MarkRetest(h.Retest, h.Profile.Kind, h.Profile.SHA256, h.Now()))
 	}
 	if err != nil {
 		return err
