@@ -286,6 +286,38 @@ func TestSizes(t *testing.T) {
 	}
 }
 
+// AC #253: every brief has the remember line once, right after the precedence line, also a
+// brief with no items, and its characters count in the global part budget (§8.1).
+func TestRememberLine(t *testing.T) {
+	const line = `When the user asks you to remember something for later, run: brain remember "<lesson>"` + "\n"
+	g, err := Global([]Item{{ID: 1, Text: "use pnpm"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := Workspace([]Item{{ID: 2, Text: "use make"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, text := range map[string]string{"empty": Text("", ""), "items": Text(g, w),
+		"last session": Text(g, LastSession(w, "claude", time.Now(), "/t/s.jsonl"))} {
+		if n := strings.Count(text, line); n != 1 {
+			t.Errorf("%s brief has the remember line %d times, want 1", name, n)
+		}
+		if !strings.Contains(text, precedence+"\n"+line) {
+			t.Errorf("%s brief has no remember line after the precedence line:\n%s", name, text)
+		}
+	}
+	if size, _ := GlobalSize(""); size != len(beginMarker)+len(precedence)+len(line)+len(endMarker)+2 {
+		t.Errorf("GlobalSize(\"\") = %d, want the frame with the remember line", size)
+	}
+	// A global part that fits without the line is over the budget with it.
+	full := fill(t, len(frame)-len(line)+len(globalLabel), globalBudget)
+	var be *BudgetError
+	if _, err := Global(full); !errors.As(err, &be) || be.Size != globalBudget+len(line) {
+		t.Errorf("Global(full without the line) = %v, want a budget error of %d", err, globalBudget+len(line))
+	}
+}
+
 // AC E15-S4: the last session line goes at the end of the workspace part, in the zone of the
 // time; a workspace part that the generation does not hold yet gets its label first.
 func TestLastSession(t *testing.T) {

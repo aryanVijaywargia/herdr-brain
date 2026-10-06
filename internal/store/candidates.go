@@ -152,9 +152,10 @@ func SameAs(ctx context.Context, tx *sql.Tx, id, other string, m Match) (SameAsS
 // signal kinds of the same name (internal/signal).
 type CandidateKind string
 
-// The candidate kinds.
+// The candidate kinds. A lesson is an explicit lesson in plain words (#253).
 const (
 	CandidateCorrection   CandidateKind = "correction"
+	CandidateLesson       CandidateKind = "lesson"
 	CandidateFailure      CandidateKind = "failure"
 	CandidateProcedure    CandidateKind = "procedure"
 	CandidateCommandChain CandidateKind = "command_chain"
@@ -200,6 +201,7 @@ type Gates map[CandidateKind]Gate
 func DefaultGates() Gates {
 	return Gates{
 		CandidateCorrection:   {Min: 2},
+		CandidateLesson:       {Min: 1},
 		CandidateFailure:      {Min: 2, Sessions: true},
 		CandidateProcedure:    {Min: 3},
 		CandidateCommandChain: {Min: 3, Sessions: true},
@@ -321,6 +323,17 @@ func recount(ctx context.Context, tx *sql.Tx, id int64, gates Gates) error {
 		return fmt.Errorf("set priority of candidate %d: %w", id, err)
 	}
 	return nil
+}
+
+// NewestEvidence returns the observation of the newest evidence link of candidate id.
+func NewestEvidence(ctx context.Context, tx *sql.Tx, id int64) (int64, error) {
+	var obs int64
+	err := tx.QueryRowContext(ctx, `SELECT observation_id FROM evidence_links WHERE candidate_id = ?
+		ORDER BY at DESC, observation_id DESC LIMIT 1`, id).Scan(&obs)
+	if err != nil {
+		return 0, fmt.Errorf("read newest evidence of candidate %d: %w", id, err)
+	}
+	return obs, nil
 }
 
 // candidateColumns are the columns that scanCandidate reads, in order.

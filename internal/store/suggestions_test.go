@@ -222,3 +222,49 @@ func TestDecideSuggestions(t *testing.T) {
 		return err
 	})
 }
+
+// AC #253: a lesson proposal reserves its suggestion beside the pane of the lesson, with the
+// prompt hash of the lesson. The same occurrence never reserves twice, and "later" mutes the
+// proposal in the session.
+func TestReserveLessonSuggestion(t *testing.T) {
+	ctx := context.Background()
+	p := newPromptStore(t)
+	id, _ := p.propose(t, "from now on run make lint", ScopeWorkspace)
+	var o int64
+	var s Suggestion
+	lesson := func() Suggestion {
+		t.Helper()
+		var got Suggestion
+		write(t, p.Store, func(tx *sql.Tx) (err error) {
+			got, err = ReserveLessonSuggestion(ctx, tx, o, id, testNow)
+			return err
+		})
+		return got
+	}
+	write(t, p.Store, func(tx *sql.Tx) (err error) {
+		o, err = p.prompt(ctx, tx, "ws-A", "from now on run make lint")
+		return err
+	})
+	s = lesson()
+	want := Suggestion{ID: 1, ObservationID: o, ProposalID: id, SessionID: 1, HerdrSession: "default", WorkspaceKey: "ws-A",
+		AgentPaneID: "w1:p1", PromptHash: fingerprint.Prompt("from now on run make lint"), Reserved: testNow}
+	if s != want {
+		t.Errorf("ReserveLessonSuggestion() = %+v, want %+v", s, want)
+	}
+	if again := lesson(); again.ID != 0 {
+		t.Errorf("second reservation = %+v, want none", again)
+	}
+	write(t, p.Store, func(tx *sql.Tx) (err error) {
+		if err := ShowSuggestion(ctx, tx, s.ID, "w1:p9", testNow); err != nil {
+			return err
+		}
+		if err := DecideSuggestions(ctx, tx, id, SuggestionLater); err != nil {
+			return err
+		}
+		o, err = p.prompt(ctx, tx, "ws-A", "always run make lint")
+		return err
+	})
+	if muted := lesson(); muted.ID != 0 {
+		t.Errorf("reservation after later = %+v, want none", muted)
+	}
+}

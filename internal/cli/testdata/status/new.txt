@@ -29,7 +29,7 @@ extraction: no extractor CLI is chosen, so Brain makes no extractor call; run br
 archive: no candidates
 
 brief (output generation 1):
-  global: 270 of 3800 bytes
+  global: 357 of 3800 bytes
   workspace ws_a14: 18 of 5700 bytes
 output conflicts: none
 forget pending: none
