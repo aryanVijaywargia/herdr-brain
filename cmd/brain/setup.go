@@ -140,7 +140,7 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 	if err := planLink(bin, link, &p, stdout); err != nil {
 		return err
 	}
-	trustNow, trustAdded, err := planHooks(ctx, d, bin, &p, stdout)
+	trustNow, trustAdded, err := planHooks(d, bin, &p, stdout)
 	if err != nil {
 		return err
 	}
@@ -565,7 +565,7 @@ func rmdirs(made []string) error {
 // E16-S10), and its hook record entries. It shows each entry and the uninstall steps. It
 // reports whether the entry of a profile with hook_trust "codex" is in place now, and whether
 // the plan adds one, so that setup shows the trust steps.
-func planHooks(ctx context.Context, d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, trustAdded bool, err error) {
+func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, trustAdded bool, err error) {
 	inst, err := installer(bin)
 	if err != nil {
 		return false, false, err
