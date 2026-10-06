@@ -84,9 +84,9 @@ func TestGolden(t *testing.T) {
 			workspace: []Item{
 				{ID: 15, Text: "Run the tests with make test."},
 				{ID: 16, Text: "The config loader is in internal/config/load.go.",
-					Dispute: Dispute{Anchors: []string{"internal/config/load.go"}, At: time.Date(2026, 10, 3, 23, 30, 0, 0, time.FixedZone("x", -3600))}},
+					Dispute: Dispute{Anchors: []string{"internal/config/load.go"}, Moved: []string{"internal/config/load.go"}, At: time.Date(2026, 10, 3, 23, 30, 0, 0, time.FixedZone("x", -3600))}},
 				{ID: 17, Text: "Docs: docs/a.md and docs/b.md.", ConflictsWith: []int64{3},
-					Dispute: Dispute{Anchors: []string{"docs/a.md", "docs/b.md"}, At: time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)}},
+					Dispute: Dispute{Anchors: []string{"docs/a.md", "docs/b.md"}, Moved: []string{"docs/b.md"}, At: time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)}},
 			},
 			workspaceSkills: []Skill{{Name: "deploy", Description: "Deploy with scripts/deploy.sh.", Path: "/s/skills/7/r1/SKILL.md",
 				Dispute: Dispute{Anchors: []string{"scripts/deploy.sh"}, At: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}}},
@@ -223,7 +223,7 @@ func TestSkillBudget(t *testing.T) {
 // size, and an anchored item with no room for its mark is over the budget at once.
 func TestDisputeBudget(t *testing.T) {
 	anchors := []string{"a.go", "b.go"}
-	room := len(" (disputed: a.go, b.go changed on 2026-10-03)")
+	room := len(" (disputed: a.go deleted, b.go deleted on 2026-10-03)")
 	items := fill(t, len(workspaceLabel)+room, workspaceBudget)
 	items[0].Anchors = anchors
 	w, err := Workspace(items)
@@ -235,7 +235,7 @@ func TestDisputeBudget(t *testing.T) {
 	if w, err = Workspace(items); err != nil {
 		t.Fatalf("Workspace(full, disputed) error = %v, want nil", err)
 	}
-	if !strings.Contains(w, " (disputed: a.go changed on 2026-10-03)\n") {
+	if !strings.Contains(w, " (disputed: a.go deleted on 2026-10-03)\n") {
 		t.Errorf("part = %q, want the mark", w)
 	}
 	if got, _ := WorkspaceSize(w); got <= size || got > workspaceBudget {

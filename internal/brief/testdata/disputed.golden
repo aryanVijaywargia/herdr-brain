@@ -5,9 +5,9 @@ When the user asks you to remember something for later, run: brain remember "<le
 - [3] Use npm for installs.
 ## This workspace
 - [15] Run the tests with make test.
-- [16] The config loader is in internal/config/load.go. (disputed: internal/config/load.go changed on 2026-10-04)
-- [17] Docs: docs/a.md and docs/b.md. (conflicts with 3; ask the user) (disputed: docs/a.md, docs/b.md changed on 2026-10-02)
+- [16] The config loader is in internal/config/load.go. (disputed: internal/config/load.go moved on 2026-10-04)
+- [17] Docs: docs/a.md and docs/b.md. (conflicts with 3; ask the user) (disputed: docs/a.md deleted, docs/b.md moved on 2026-10-02)
 ### Skills
 Read the file of a skill before you do a task that matches it.
-- deploy: Deploy with scripts/deploy.sh. File: /s/skills/7/r1/SKILL.md (disputed: scripts/deploy.sh changed on 2026-10-01)
+- deploy: Deploy with scripts/deploy.sh. File: /s/skills/7/r1/SKILL.md (disputed: scripts/deploy.sh deleted on 2026-10-01)
 <!-- brain:end -->

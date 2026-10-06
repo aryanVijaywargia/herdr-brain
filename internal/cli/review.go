@@ -13,8 +13,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/brief"
 	"github.com/aryanVijaywargia/herdr-brain/internal/extract"
 	"github.com/aryanVijaywargia/herdr-brain/internal/secret"
+	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
 )
@@ -323,7 +325,7 @@ func belowGate(ctx context.Context, tx *sql.Tx, gates store.Gates, p store.Propo
 // summary is the one-line form of p for a list. A proposal with no text retires its item.
 func summary(p store.Proposal, it store.Item) string {
 	if len(p.Dispute) > 0 {
-		return fmt.Sprintf("item %d disputed: %s changed: %s", it.ID, strings.Join(p.Dispute, ", "), oneLine(p.Text))
+		return fmt.Sprintf("item %d disputed: %s: %s", it.ID, gone(p), oneLine(p.Text))
 	}
 	if p.Script() {
 		return scriptSummary(p)
@@ -591,11 +593,17 @@ func source(p store.Proposal, it store.Item, cur store.ItemRevision) string {
 	case p.Script():
 		return "the exact repeats of a command chain, sender unconfirmed"
 	case len(p.Dispute) > 0:
-		return fmt.Sprintf("the anchor check of item %d: %s changed", it.ID, strings.Join(p.Dispute, ", "))
+		return fmt.Sprintf("the anchor check of item %d: %s", it.ID, gone(p))
 	case it.State != store.StateDraft:
 		return fmt.Sprintf("a change to %s item %d, asked in review", it.State, it.ID)
 	}
 	return fmt.Sprintf("%s, sender unconfirmed", cur.Origin)
+}
+
+// gone is the text of the anchors of dispute p, each moved or deleted (§9.1), as the brief mark
+// says it.
+func gone(p store.Proposal) string {
+	return brief.Dispute{Anchors: p.Dispute, Moved: signal.Moved(p.Diff)}.Gone()
 }
 
 // disputeLine is the line of a dispute in show. The review pane finds a dispute by it, and

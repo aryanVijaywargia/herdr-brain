@@ -108,18 +108,18 @@ func TestDisputeKeep(t *testing.T) {
 		t.Fatalf("item = %+v %+v, want disputed at revision 2 (the draft is 1), text unchanged", it, rev)
 	}
 	p := f.pendingDispute(t)
-	if out := f.mustReview(t); !strings.Contains(out, fmt.Sprintf("%d  workspace w14 (shop)  item %d disputed: config/load.go changed: %s", p.ID, item, loaderText)) {
+	if out := f.mustReview(t); !strings.Contains(out, fmt.Sprintf("%d  workspace w14 (shop)  item %d disputed: config/load.go moved: %s", p.ID, item, loaderText)) {
 		t.Errorf("list = %q, want the dispute", out)
 	}
 	diff := fmt.Sprintf("diff:\n  - config/load.go %s\n  + config/loader.go %s (moved)\n", blob[:7], blob[:7])
 	out := f.mustReview(t, fmt.Sprint(p.ID))
-	for _, want := range []string{diff, fmt.Sprintf("source:   the anchor check of item %d: config/load.go changed", item),
+	for _, want := range []string{diff, fmt.Sprintf("source:   the anchor check of item %d: config/load.go moved", item),
 		fmt.Sprintf("actions:  brain review %d --keep | --approve --edit \"<text>\" | --retire | --later", p.ID)} {
 		if !strings.Contains(out, want) {
 			t.Errorf("show = %q, want %q", out, want)
 		}
 	}
-	mark := loaderText + " (disputed: config/load.go changed on 2026-09-28)"
+	mark := loaderText + " (disputed: config/load.go moved on 2026-09-28)"
 	if b := f.brief(t); !strings.Contains(b, mark) {
 		t.Errorf("brief = %q, want %q", b, mark)
 	}
@@ -147,27 +147,53 @@ func TestDisputeKeep(t *testing.T) {
 	}
 }
 
-// Keep stores the new blob of a changed path, and the next check finds no change.
-func TestDisputeKeepChanged(t *testing.T) {
+// AC 1 (#252): a normal edit of the anchor file does not dispute the item. The item stays
+// active with no mark and no review task, and its anchor gets the new blob as its baseline.
+func TestDisputeEdited(t *testing.T) {
 	f := newFixture(t)
 	root, git := f.gitRepo(t, "config/load.go", "Makefile")
 	item := f.approved(t, loaderText)
+	before := len(f.rows(t).proposals)
 	f.writeRepo(t, root, "config/load.go", "new content")
 	git("commit", "-q", "-am", "change")
+	for range 2 {
+		f.stale(t)
+	}
+	blob := git("rev-parse", "HEAD:config/load.go")
+	it, _ := f.rows(t).item(t, item)
+	if want := []store.Anchor{{Root: root, Path: "config/load.go", Blob: blob}}; it.State != store.StateActive ||
+		!reflect.DeepEqual(it.Anchors, want) {
+		t.Errorf("item = %+v, want active with anchors %+v", it, want)
+	}
+	if n := len(f.rows(t).proposals); n != before {
+		t.Errorf("%d proposals, want %d: no review task", n, before)
+	}
+	if out := f.mustReview(t); strings.Contains(out, "disputed") {
+		t.Errorf("list = %q, want no dispute", out)
+	}
+	if b := f.brief(t); strings.Contains(b, "disputed") || !strings.Contains(b, loaderText+"\n") {
+		t.Errorf("brief = %q, want the item with no mark", b)
+	}
+}
+
+// AC 2 and 4 (#252): a delete of the anchor file disputes the item; the mark and the review
+// task say deleted.
+func TestDisputeDeleted(t *testing.T) {
+	f := newFixture(t)
+	_, git := f.gitRepo(t, "config/load.go")
+	item := f.approved(t, loaderText)
+	git("rm", "-q", "config/load.go")
+	git("commit", "-q", "-m", "drop")
 	f.stale(t)
 	p := f.pendingDispute(t)
-	blob := git("rev-parse", "HEAD:config/load.go")
-	if !strings.Contains(p.Diff, "+ config/load.go "+blob[:7]+" (changed)") {
-		t.Errorf("diff = %q, want the changed blob", p.Diff)
+	if out := f.mustReview(t); !strings.Contains(out, fmt.Sprintf("item %d disputed: config/load.go deleted: %s", item, loaderText)) {
+		t.Errorf("list = %q, want the dispute", out)
 	}
-	f.mustReview(t, fmt.Sprint(p.ID), "--keep")
-	it, _ := f.rows(t).item(t, item)
-	if want := []store.Anchor{{Root: root, Path: "config/load.go", Blob: blob}}; !reflect.DeepEqual(it.Anchors, want) {
-		t.Errorf("anchors = %+v, want %+v", it.Anchors, want)
+	if out := f.mustReview(t, fmt.Sprint(p.ID)); !strings.Contains(out, fmt.Sprintf("the anchor check of item %d: config/load.go deleted", item)) {
+		t.Errorf("show = %q, want the deleted anchor", out)
 	}
-	f.stale(t)
-	if it, _ := f.rows(t).item(t, item); it.State != store.StateActive {
-		t.Errorf("item = %+v after a check with no change, want active", it)
+	if b, mark := f.brief(t), loaderText+" (disputed: config/load.go deleted on 2026-09-28)"; !strings.Contains(b, mark) {
+		t.Errorf("brief = %q, want %q", b, mark)
 	}
 }
 
