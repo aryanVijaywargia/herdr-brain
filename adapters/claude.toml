@@ -31,8 +31,22 @@ eval.setup_args = ["--allowedTools", "Bash(brain remember:*)"]
 # The version of the M0 test (spike/m0/FINDINGS.md).
 tested_version = "2.1.283"
 # The Claude screen lines that change on each read and that herdr capture drops (§6.2, E11-S4):
-# the spinner, the done line of a turn, the tip, the empty prompt box, the rules, the status
+# the spinner, the done line of a turn, the empty prompt box, the rules, the status
 # line and the mode line.
 # From the recorded reads in internal/brained/testdata (Claude Code 2.1.284). The status line
 # " | ctx:" is the one of the recording machine.
-noise_lines = ['[·✢✳✶✻✽*] \S+….*', '[·✢✳✶✻✽*] \S+ for .* · done .*', '\s*⎿\s+Tip: .*', '❯', '─+', '.* \| ctx:.*', '\s*⏸ .*']
+# Claude Code 2.1.292 (#258, real-use test 2026-10-07, made fixtures in
+# internal/adapter/testdata/screen): the rows of the start logo (logo, version, model and plan,
+# folder), the mode line of another mode and the shortcut hint.
+noise_lines = ['[·✢✳✶✻✽*] \S+….*', '[·✢✳✶✻✽*] \S+ for .* · done .*', '❯', '─+', '.* \| ctx:.*', '\s*⏸ .*',
+  '\s*[▐▛▜▌▝▘▗▖▙▟█][▐▛▜▌▝▘▗▖▙▟█ ]*\s{2,}.*', '\s*⏵⏵ .*', '\s*\? for shortcuts.*']
+# The screen parts of more than one line (#258): a tip, also when it wraps in a narrow column,
+# and the welcome box with its two columns.
+noise_blocks = [
+  { start = '\s*⎿\s+Tip: .*', next = '\s{5}\S.*' },
+  { start = '\s*╭─+ Claude Code .*╮', next = '\s*[│╰].*' },
+]
+# The diff panel (/diff, Claude Code 2.1.260 and later) opens beside the conversation in a
+# terminal at least 110 columns wide; its header is "N files changed +A -D" (#258). [NEW] The
+# conversation keeps at least 40 columns.
+side_panel = { header = '\d+ files? changed \+\d+ [-−]\d+', min_column = 40 }

@@ -36,4 +36,7 @@ additional_context_limit = 0
 # the empty composer, the footer, the spinner and the rules. From the recorded reads in
 # internal/brained/testdata (codex-cli 0.154.0). The footer starts with the git branch, so the
 # pattern takes any text before " · Context".
-noise_lines = ['› Ask Codex to do anything', '\s*.* · Context \d+% used · .*', '• Working \(.*\)', '─+']
+noise_lines = ['› Ask Codex to do anything', '\s*.* · Context \d+% (?:used|left) · .*', '• Working \(.*\)', '─+']
+# The start banner (#258): the box with the version, model and folder, and the tip lines under
+# it, also when a tip wraps. A tip line at another place is text of a reply.
+noise_blocks = [{ start = '╭─+╮', next = '[│╰].*|  \S.*' }]
