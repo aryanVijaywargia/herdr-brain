@@ -31,6 +31,12 @@ type fakeStatusHerdr struct {
 	untested bool
 	checkErr error // the CheckServer error, such as a herdr that is too old
 	lists    int   // the pane list calls
+	// procs are the agent processes of each pane; a pane with none has no known start.
+	procs map[string][]herdr.Process
+}
+
+func (h *fakeStatusHerdr) PaneProcesses(_ context.Context, id string) ([]herdr.Process, error) {
+	return h.procs[id], nil
 }
 
 func (h *fakeStatusHerdr) Panes(context.Context) ([]herdr.Pane, error) {

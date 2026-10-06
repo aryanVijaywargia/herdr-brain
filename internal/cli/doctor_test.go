@@ -295,14 +295,6 @@ func TestDoctorCodexTrust(t *testing.T) {
 	}
 }
 
-// AC: a CLI version that differs from the tested version needs a retest.
-func TestDoctorRetest(t *testing.T) {
-	f := newDoctorFixture(t)
-	f.cli(t, "codex", "codex-cli 0.155.0")
-	f.failed(t, "", "codex 0.155.0: needs a retest: tested on 0.154.0",
-		"fix: run the conformance test in the brain repo: go run ./cmd/brain-eval --probes evals/probes --stage delivery --harness codex")
-}
-
 // AC §17 item 30: a live agent of a configured kind with no receipt after its first prompt:
 // hook not trusted or not firing.
 func TestDoctorNoReceipt(t *testing.T) {

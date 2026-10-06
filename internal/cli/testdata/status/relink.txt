@@ -6,7 +6,7 @@ workspace w14 (shop): withheld: identity: root <tmp>/other is outside the projec
 
 agent CLIs:
   claude 2.1.283: none
-  codex 0.155.0: retest
+  codex 0.155.0: none; newer than tested (0.154.0)
 
 delivery to live agents:
   claude: no live agent
