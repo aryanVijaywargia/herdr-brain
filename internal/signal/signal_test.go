@@ -148,8 +148,7 @@ func TestLesson(t *testing.T) {
 	})
 }
 
-// AC #253: a text with a lesson word and a correction marker gives both signals, and the
-// lesson comes after the correction, so the extractor input takes the lesson kind (§7.2).
+// AC #253: a text with a lesson word and a correction marker gives both signals.
 func TestLessonAfterCorrection(t *testing.T) {
 	sigs := Find([]store.SignalInput{obs(1, 1, unconf, "No, from now on use pnpm.")})
 	var kinds []Kind

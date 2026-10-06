@@ -3,6 +3,7 @@ package extract
 import (
 	"context"
 	"database/sql"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -132,5 +133,27 @@ func TestLessonNeedsRuleAndExtractor(t *testing.T) {
 				t.Errorf("proposals = %+v, want none", ps)
 			}
 		})
+	}
+}
+
+// Sol finding on #261: a correction with a lesson word of an approved lesson keeps its
+// correction mark, so it is a comeback of the item (§5.4).
+func TestLessonCorrectionComeback(t *testing.T) {
+	f := newFixture(t)
+	item := f.revisedItem(1)
+	f.cli.reply = func(_ context.Context, prompt string) ([]byte, error) {
+		return claudeReply(map[string]any{"claims": []any{replyOf(map[string]any{"kind": kindLesson,
+			"evidence_refs": promptRefs(prompt)})}})
+	}
+	f.session("a", true, line{"ws-A", "from now on use pnpm", t0})
+	f.mustRun()
+	if cs := f.candidates(); len(cs) != 1 || cs[0].Kind != store.CandidateLesson {
+		t.Fatalf("candidates = %+v, want one lesson", cs)
+	}
+	f.deliver(receiptOf("default", "b", store.ResultEmitted, t0.Add(time.Hour), store.RevisionRef{Item: item, Revision: 1}))
+	f.session("b", true, line{"ws-A", "No, from now on use pnpm, not npm", t0.Add(2 * time.Hour)})
+	f.mustRun()
+	if got, want := f.outcomes(), []string{"comeback 1"}; !slices.Equal(got, want) {
+		t.Errorf("outcomes = %v, want %v", got, want)
 	}
 }

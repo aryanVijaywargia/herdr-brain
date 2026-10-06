@@ -45,6 +45,7 @@ type ref struct {
 	sender    store.Sender
 	excerpt   string
 	kind      signal.Kind          // the kind of the signal of the observation
+	lesson    bool                 // the observation starts a lesson signal too (§7.1)
 	cmd       *store.CommandRecord // the command record of the observation; nil for none
 }
 
@@ -273,8 +274,15 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 		return slices.ContainsFunc(run, func(o store.SignalInput) bool { return o.ID == id })
 	}
 	kinds := map[int64]signal.Kind{}
+	// A lesson is a mark beside the kind, so a lesson that is a correction too keeps its
+	// correction kind for the comebacks (§5.4).
+	lessons := map[int64]bool{}
 	for _, s := range sigs {
 		if len(s.Observations) == 0 || !in(s.Observations[0]) {
+			continue
+		}
+		if s.Kind == signal.Lesson {
+			lessons[s.Observations[0]] = true
 			continue
 		}
 		for i, id := range s.Observations {
@@ -283,6 +291,11 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 					kinds[id] = s.Kind
 				}
 			}
+		}
+	}
+	for id := range lessons {
+		if _, seen := kinds[id]; !seen {
+			kinds[id] = signal.Lesson
 		}
 	}
 	var rs []ref
@@ -294,7 +307,7 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 			o.Excerpt = o.Command.Argv
 		}
 		rs = append(rs, ref{id: fmt.Sprintf("e%d", id), obs: id, identity: o.CaptureIdentity, workspace: o.WorkspaceKey,
-			sender: o.Sender, excerpt: o.Excerpt, kind: k, cmd: o.Command})
+			sender: o.Sender, excerpt: o.Excerpt, kind: k, lesson: lessons[id], cmd: o.Command})
 	}
 	slices.SortFunc(rs, func(a, b ref) int { return int(a.obs - b.obs) })
 	return rs
@@ -604,7 +617,7 @@ func candidateKind(c Claim) store.CandidateKind {
 	if c.Tool != "" {
 		return store.CandidateCommandChain
 	}
-	lesson := slices.ContainsFunc(c.Refs, func(r ref) bool { return r.kind == signal.Lesson })
+	lesson := slices.ContainsFunc(c.Refs, func(r ref) bool { return r.lesson })
 	if c.Kind == kindLesson && lesson {
 		return store.CandidateLesson
 	}

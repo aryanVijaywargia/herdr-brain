@@ -87,8 +87,6 @@ func Find(ins []store.SignalInput) []Signal {
 	sigs = append(sigs, corrections(texts)...)
 	sigs = append(sigs, procedures(texts)...)
 	sigs = append(sigs, repeatedPrompts(texts)...)
-	// After the text rules above: the extractor input takes the kind of the last signal that an
-	// observation starts, and a lesson keeps its own kind, not the correction kind (§7.2).
 	sigs = append(sigs, lessons(texts)...)
 	sigs = append(sigs, commandChains(kept)...)
 	sigs = append(sigs, failures(kept)...)
