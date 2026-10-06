@@ -1,0 +1,4 @@
+❯ Run the tests.
+
+✻ Brewing… (3s · thinking)
+  ⎿  Tip: Use git worktrees to run multiple Claude sessions in parallel.

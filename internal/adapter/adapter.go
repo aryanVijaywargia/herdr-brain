@@ -116,6 +116,23 @@ type Profile struct {
 	// NoiseLines are optional regular expressions of screen lines that herdr capture drops,
 	// for example the input box (§6.3, E11-S3). A line matches when a pattern matches all of it.
 	NoiseLines []string `toml:"noise_lines"`
+	// NoiseBlocks [NEW] are optional screen parts of more than one line that herdr capture
+	// drops, such as a tip that wraps or a start banner (#258). A block is a line that Start
+	// matches and each next line that Next matches; a blank line does not end it. Patterns
+	// match a whole line.
+	NoiseBlocks []struct {
+		Start string `toml:"start"`
+		Next  string `toml:"next"`
+	} `toml:"noise_blocks"`
+	// SidePanel [NEW] is an optional column that the CLI draws to the right of the main text,
+	// such as the Claude diff panel (#258). Header is a regular expression of its header row;
+	// herdr capture cuts each line of a read at the column where the header starts.
+	SidePanel struct {
+		Header string `toml:"header"`
+		// MinColumn is the leftmost display column of the panel: a header text further left
+		// is main text.
+		MinColumn int `toml:"min_column"`
+	} `toml:"side_panel"`
 	// SHA256 is the hex SHA-256 of the profile file. A conformance result holds it, so a
 	// changed profile needs a new test (§8.5, E8-S4).
 	SHA256 string `toml:"-"`
@@ -124,6 +141,10 @@ type Profile struct {
 	cond []condition
 	// noise is NoiseLines, compiled.
 	noise []*regexp.Regexp
+	// blocks is NoiseBlocks, compiled.
+	blocks []noiseBlock
+	// panel is SidePanel.Header, compiled; nil when the profile has no side panel.
+	panel *regexp.Regexp
 	// exit is ExitPattern, compiled; nil when the profile has none.
 	exit *regexp.Regexp
 }
@@ -269,12 +290,8 @@ func (p *Profile) check() error {
 		}
 		p.exit = re
 	}
-	for _, n := range p.NoiseLines {
-		re, err := regexp.Compile(`^(?:` + n + `)$`)
-		if err != nil {
-			return fmt.Errorf("noise_lines %q: %w", n, err)
-		}
-		p.noise = append(p.noise, re)
+	if err := p.checkScreen(); err != nil {
+		return err
 	}
 	if p.StartCondition == "" {
 		return nil
@@ -295,16 +312,6 @@ func (p *Profile) check() error {
 		p.cond = append(p.cond, c)
 	}
 	return nil
-}
-
-// Noise reports whether line is screen noise by the profile's noise_lines.
-func (p *Profile) Noise(line string) bool {
-	for _, re := range p.noise {
-		if re.MatchString(line) {
-			return true
-		}
-	}
-	return false
 }
 
 // Parse reads the agent session id, the cwd and the transcript path from raw hook input by the

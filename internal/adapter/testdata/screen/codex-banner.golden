@@ -1,0 +1,3 @@
+› Add multiply with a test, then run the tests.
+• Added multiply to src/math.js and a test.
+  Files changed: src/math.js, test/math.test.js
