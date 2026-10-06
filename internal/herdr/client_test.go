@@ -252,22 +252,27 @@ func TestPane(t *testing.T) {
 	}
 }
 
-// AC (bug #247): past workspace 9, herdr 0.9.3 gives ids with letters (wZ, w1A, w1N:p1,
+// AC (bug #247): past workspace 9, herdr 0.9.3 gives ids with letters (wZ, w1A:p1, w1N:p1,
 // w1N:t1). The pane check and the reply parser accept them.
 func TestLetterIDs(t *testing.T) {
-	pane := strings.NewReplacer(`"w1:p1"`, `"w1N:p1"`, `"w1:t1"`, `"w1N:t1"`, `"w1"`, `"w1N"`).Replace(fixture(t, "pane-no-agent.json"))
-	c, dir := fakeClient(t, map[string]reply{"pane get w1N:p1": {Stdout: pane}})
-	got, err := c.Pane(deadline(t), "w1N:p1")
-	if want := (Pane{ID: "w1N:p1", WorkspaceID: "w1N", TabID: "w1N:t1", Cwd: ptr("/private/tmp")}); err != nil || !reflect.DeepEqual(got, want) {
-		t.Errorf("Pane(w1N:p1) = %+v, %v, want %+v", got, err, want)
+	paneIn := func(ws string) string {
+		return strings.NewReplacer(`"w1:p1"`, `"`+ws+`:p1"`, `"w1:t1"`, `"`+ws+`:t1"`, `"w1"`, `"`+ws+`"`).Replace(fixture(t, "pane-no-agent.json"))
 	}
-	if cs := calls(t, dir); len(cs) != 1 {
-		t.Errorf("herdr calls = %+v, want one", cs)
+	for _, ws := range []string{"w1A", "w1N"} {
+		c, dir := fakeClient(t, map[string]reply{"pane get " + ws + ":p1": {Stdout: paneIn(ws)}})
+		got, err := c.Pane(deadline(t), ws+":p1")
+		if want := (Pane{ID: ws + ":p1", WorkspaceID: ws, TabID: ws + ":t1", Cwd: ptr("/private/tmp")}); err != nil || !reflect.DeepEqual(got, want) {
+			t.Errorf("Pane(%s:p1) = %+v, %v, want %+v", ws, got, err, want)
+		}
+		if cs := calls(t, dir); len(cs) != 1 {
+			t.Errorf("herdr calls = %+v, want one", cs)
+		}
 	}
+	pane := paneIn("w1N")
 
 	list := `{"result":{"type":"workspace_list","workspaces":[` +
 		`{"label":"z","number":10,"workspace_id":"wZ"},{"label":"a","number":11,"workspace_id":"w1A"}]}}`
-	c, _ = fakeClient(t, map[string]reply{"workspace list": {Stdout: list}})
+	c, _ := fakeClient(t, map[string]reply{"workspace list": {Stdout: list}})
 	ws, err := c.Workspaces(deadline(t))
 	if want := []Workspace{{ID: "wZ", Label: "z", Number: 10}, {ID: "w1A", Label: "a", Number: 11}}; err != nil || !reflect.DeepEqual(ws, want) {
 		t.Errorf("Workspaces() = %+v, %v, want %+v", ws, err, want)
