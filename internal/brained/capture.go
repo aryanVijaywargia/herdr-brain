@@ -497,24 +497,25 @@ func (c *Capture) read(ctx context.Context, id string) (read, error) {
 		full:  source == herdr.ReadRecentUnwrapped && raw < lines && !rd.Truncated}, nil
 }
 
-// lines splits text into lines without trailing space, and drops blank lines and the noise
-// lines of the harness profile.
+// lines splits text into lines without trailing space, and drops blank lines. The screen
+// rules of the harness profile also cut its side panel and drop its noise (#258).
 func (c *Capture) lines(harness, text string) []string {
 	p, ok := c.noise[harness]
 	if !ok {
 		var err error
 		if p, err = c.profile(harness); err != nil {
-			p = nil // a harness with no profile has no noise patterns
+			p = nil // a harness with no profile has no screen rules
 		}
 		c.noise[harness] = p
 	}
+	if p != nil {
+		return p.Screen(text)
+	}
 	var ls []string
 	for _, l := range strings.Split(text, "\n") {
-		l = strings.TrimRightFunc(l, unicode.IsSpace)
-		if strings.TrimSpace(l) == "" || p != nil && p.Noise(l) {
-			continue
+		if l = strings.TrimRightFunc(l, unicode.IsSpace); strings.TrimSpace(l) != "" {
+			ls = append(ls, l)
 		}
-		ls = append(ls, l)
 	}
 	return ls
 }

@@ -1,0 +1,22 @@
+
+ ▐▛███▜▌   Claude Code v2.1.292
+▝▜█████▛▘  Opus 4.7 · Claude Max
+  ▘▘ ▝▝    ~/demo
+
+╭─── Claude Code v2.1.292 ──────────────────────────────────────────────────────╮
+│                                   │ Tips for getting started                  │
+│        Welcome back!              │ Run /init to create a CLAUDE.md file      │
+│                                   │ ───────────────────────────────────────── │
+│          ▐▛███▜▌                  │ Recent activity                           │
+│         ▝▜█████▛▘                 │ No recent activity                        │
+│   Opus 4.7 · Claude Max           │                                           │
+╰───────────────────────────────────────────────────────────────────────────────╯
+
+❯ Add a multiply function with a test.
+
+⏺ I will add multiply to src/math.js and a test.
+
+───────────────────────────────────────────────────────────────────────────────
+❯
+───────────────────────────────────────────────────────────────────────────────
+  ? for shortcuts
