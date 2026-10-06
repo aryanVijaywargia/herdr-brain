@@ -219,3 +219,13 @@ func TestStatusCodexNoSessionID(t *testing.T) {
 		}
 	}
 }
+
+// AC 1: a CLI version that cannot be read is a note, not a failed check (D13).
+func TestDoctorVersionUnknown(t *testing.T) {
+	f := newDoctorFixture(t)
+	f.cli(t, "claude", "Claude Code")
+	out, err := f.doctor(t, f.sock, "")
+	if err != nil || !strings.Contains(out, "note: claude: version unknown (claude --version: no version in") {
+		t.Errorf("Doctor() = %v\n%s\nwant a pass with a version unknown note", err, out)
+	}
+}

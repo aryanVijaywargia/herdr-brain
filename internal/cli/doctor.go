@@ -136,11 +136,12 @@ func (d *doctorCall) hooks(ctx context.Context, ps []*adapter.Profile) error {
 		if err := d.entry(inst, p); err != nil {
 			return err
 		}
-		if n := st.VersionNote(); n != "" {
-			// A CLI update is only a warning (D13): the receipt check below finds a hook that
-			// stopped.
-			d.w.printf("note: %s %s: %s; Brain keeps its hook records and learning on\n", p.Kind,
-				cmp.Or(st.CLIVersion, "(version unknown)"), n)
+		// A CLI update is only a warning (D13): the receipt check below finds a hook that stopped.
+		switch n := st.VersionNote(); {
+		case st.Installed && st.VersionErr != nil:
+			d.w.printf("note: %s: version unknown (%v); Brain keeps its hook records and learning on\n", p.Kind, st.VersionErr)
+		case n != "":
+			d.w.printf("note: %s %s: %s; Brain keeps its hook records and learning on\n", p.Kind, st.CLIVersion, n)
 		}
 		if st.Retest {
 			d.fail("%s %s: the Brain profile could not parse a %s hook input, last at %s, so Brain dropped it (S14); "+
