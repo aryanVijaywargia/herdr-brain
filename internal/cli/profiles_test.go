@@ -74,7 +74,7 @@ func TestStatusFakeProfile(t *testing.T) {
 	e := f.env(f.sock, "w14:p1", "w14", &out)
 	e.Data = f.data
 	e.Adapters = harness.Files{Install: filepath.Join(f.data, "install.json"),
-		Conformance: filepath.Join(f.data, "conformance.json"), Retest: filepath.Join(f.data, retestDir)}
+		Conformance: filepath.Join(f.data, "conformance.json"), Retest: filepath.Join(f.data, retestDir), Installed: filepath.Join(f.data, installedDir)}
 	e.StatusHerdr = func(herdr.Target) (StatusHerdr, error) { return f.herdr, nil }
 	e.Now = func() time.Time { return testNow.Add(3 * time.Hour) }
 	e.Profiles = fsys
@@ -98,7 +98,7 @@ func TestDoctorFakeProfile(t *testing.T) {
 	e.Environ = append(e.Environ, "CODEX_HOME="+f.codexHome)
 	e.Data = f.data
 	e.Adapters = harness.Files{Install: filepath.Join(f.data, "install.json"),
-		Conformance: filepath.Join(f.data, "conformance.json"), Retest: filepath.Join(f.data, retestDir)}
+		Conformance: filepath.Join(f.data, "conformance.json"), Retest: filepath.Join(f.data, retestDir), Installed: filepath.Join(f.data, installedDir)}
 	e.StatusHerdr = func(herdr.Target) (StatusHerdr, error) { return f.herdr, nil }
 	e.Now = func() time.Time { return testNow.Add(3 * time.Hour) }
 	e.Profiles = fakeProfiles(t)

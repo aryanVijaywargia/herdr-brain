@@ -14,7 +14,7 @@ import (
 // TestWriteConformanceSequences checks the conformance runs of one harness with the same
 // hashes (E10-S3 AC 2 and 3): a pass is verified; a later fail, incomplete reply
 // (inconclusive) or interrupted run (pending) is not; a pass after it is verified again. A new
-// CLI version after a pass is retest.
+// CLI version after a pass stays verified with a warning (D13).
 func TestWriteConformanceSequences(t *testing.T) {
 	for _, tc := range []struct{ kind, version string }{
 		{"claude", "2.1.283 (Claude Code)"},
@@ -60,8 +60,8 @@ func TestWriteConformanceSequences(t *testing.T) {
 				t.Fatalf("a later pass: state %s, want verified", s.State())
 			}
 			e.cli(t, tc.kind, strings.Replace(tc.version, p.TestedVersion, "9.9.9", 1))
-			if s := check(t, e, seen, p); s.State() != Retest {
-				t.Fatalf("new CLI version after a pass: state %s, want retest", s.State())
+			if s := check(t, e, seen, p); s.State() != Verified || s.VersionNote() == "" {
+				t.Fatalf("new CLI version after a pass: %+v, want verified with a version note", s)
 			}
 		})
 	}

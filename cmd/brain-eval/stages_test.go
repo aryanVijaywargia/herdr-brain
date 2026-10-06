@@ -296,7 +296,7 @@ func TestConformanceUnrequested(t *testing.T) {
 
 // AC 2 and 3 through the runner and the E8-S4 check: with the same hashes, a pass is verified;
 // a later fail, incomplete reply or interrupted run is not; a pass after it is verified again.
-// A new CLI version after a pass is retest.
+// A new CLI version after a pass stays verified, with a warning only (D13).
 func TestConformanceSequence(t *testing.T) {
 	e := newEnv(t)
 	e.fake.answer = knows
@@ -347,8 +347,8 @@ func TestConformanceSequence(t *testing.T) {
 		t.Fatalf("a later pass: state %s, want verified", s)
 	}
 	cliOnPath(t, bin, "claude", "9.9.9 (Claude Code)")
-	if s := state(); s != harness.Retest {
-		t.Fatalf("new CLI version after a pass: state %s, want retest", s)
+	if s := state(); s != harness.Verified {
+		t.Fatalf("new CLI version after a pass: state %s, want verified", s)
 	}
 }
 

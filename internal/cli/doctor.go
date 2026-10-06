@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/extract"
@@ -107,8 +109,8 @@ func (d *doctorCall) run(ctx context.Context) {
 	d.conflicts()
 }
 
-// hooks checks the hook entry, the retest state, the Codex trust (hook_trust "codex") and the
-// receipts of each profile.
+// hooks checks the hook entry, the CLI version, a hook input that the profile could not parse
+// (S14), the Codex trust (hook_trust "codex") and the receipts of each profile.
 func (d *doctorCall) hooks(ctx context.Context, ps []*adapter.Profile) error {
 	inst, err := d.installer()
 	if err != nil {
@@ -134,13 +136,17 @@ func (d *doctorCall) hooks(ctx context.Context, ps []*adapter.Profile) error {
 		if err := d.entry(inst, p); err != nil {
 			return err
 		}
+		// A CLI update is only a warning (D13): the receipt check below finds a hook that stopped.
+		switch n := st.VersionNote(); {
+		case st.Installed && st.VersionErr != nil:
+			d.w.printf("note: %s: version unknown (%v); Brain keeps its hook records and learning on\n", p.Kind, st.VersionErr)
+		case n != "":
+			d.w.printf("note: %s %s: %s; Brain keeps its hook records and learning on\n", p.Kind, st.CLIVersion, n)
+		}
 		if st.Retest {
-			version := st.CLIVersion
-			if st.VersionErr != nil {
-				version = "(version unknown)"
-			}
-			d.fail("%s %s: needs a retest: tested on %s, or the hook input changed its shape (S14); "+
-				"fix: run the conformance test in the brain repo: go run ./cmd/brain-eval --probes evals/probes --stage delivery --harness %s", p.Kind, version, p.TestedVersion, p.Kind)
+			d.fail("%s %s: the Brain profile could not parse a %s hook input, last at %s, so Brain dropped it (S14); "+
+				"herdr capture continues; fix: brain update, which may bring a profile for this input shape",
+				p.Kind, cmp.Or(st.CLIVersion, "(version unknown)"), p.Kind, st.RetestAt.Local().Format(time.DateTime))
 		}
 		if p.HookTrust == adapter.TrustCodex {
 			if err := d.trust(inst.Record, p); err != nil {
@@ -237,8 +243,15 @@ func (d *doctorCall) replace(inst *install.Installer, p *adapter.Profile, hooks 
 				p.Kind, target, h.CLIEvent, st, inst.Binary)
 			continue
 		}
-		if _, err := inst.InstallHook(p, h); err != nil {
+		st, err = inst.InstallHook(p, h)
+		if err != nil {
 			return err
+		}
+		// Only a new start entry gets a new install time (#249).
+		if st == install.Added && h == p.Hooks()[0] {
+			if err := harness.MarkInstalled(d.Adapters.Installed, p.Kind, d.Now()); err != nil {
+				return err
+			}
 		}
 		d.w.printf("Replaced the Brain %s entry for %s.\n", h.CLIEvent, p.Kind)
 	}
@@ -294,40 +307,45 @@ func (d *doctorCall) trust(record string, p *adapter.Profile) error {
 }
 
 // receipts checks that each live agent of the configured profile p has a receipt (§17 item
-// 30). No receipt means that the hook did not run or could not reach the herdr socket.
+// 30). No receipt means that the hook did not run or could not reach the herdr socket. An
+// agent that started before Brain installed its hook never ran it: that is only a note (#249).
 func (d *doctorCall) receipts(ctx context.Context, p *adapter.Profile) error {
 	kind := p.Kind
 	if d.panesErr != nil {
 		return nil //nolint:nilerr // run reports the failed pane list as its own check
 	}
-	var missing []string
+	var missing, before []string
 	err := d.Store.Write(ctx, func(tx *sql.Tx) error {
 		for _, pane := range d.panes {
 			if pane.Agent == nil || *pane.Agent != kind {
 				continue
 			}
-			g, err := gap(ctx, tx, d.Binding.Session, kind, pane)
+			g, err := d.gap(ctx, tx, d.Binding.Session, kind, pane)
 			if err != nil {
 				return err
 			}
-			if g == noReceipt {
+			switch {
+			case g == beforeBrain:
+				before = append(before, pane.ID)
+			case strings.HasPrefix(g, noReceipt):
 				missing = append(missing, pane.ID)
 			}
 		}
 		return nil
 	})
-	if err != nil || len(missing) == 0 {
+	if err != nil {
 		return err
 	}
-	// The herdr pane list shows no prompt. Claude runs the hook at start, so no receipt is a
-	// failure. Codex runs it at the first prompt (M0 item 1), so no receipt is only a note:
-	// the trust check above already fails an untrusted Codex hook.
-	if p.HookTrust == adapter.TrustCodex {
-		d.w.printf("note: codex: %d live agent(s) with no Brain receipt (%s); Codex runs the hook at the first prompt. "+
-			"If an agent had a prompt, the hook is not trusted or not firing: trust it (/hooks in Codex); "+
-			"if it is trusted, the CLI sandbox may block the herdr socket\n", len(missing), strings.Join(missing, ", "))
+	if len(before) > 0 {
+		d.w.printf("note: %s: %d live agent(s) started before Brain installed its hook (%s); "+
+			"their next sessions get Brain items\n", kind, len(before), strings.Join(before, ", "))
+	}
+	if len(missing) == 0 {
 		return nil
 	}
+	// Claude runs the hook at start. Codex runs it at the first prompt (M0 item 1), and herdr
+	// gets the Codex session id from its own hook at that prompt too (#257): a Codex agent with
+	// no id is not counted here, and one with an id ran its hooks.
 	d.fail("%s: hook not trusted or not firing: %d live agent(s) with no Brain receipt (%s); fix: start a new session; "+
 		"if it gets no receipt either, the CLI sandbox may block the herdr socket", kind, len(missing), strings.Join(missing, ", "))
 	return nil

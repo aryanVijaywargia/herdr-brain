@@ -125,7 +125,7 @@ func (f *doctorFixture) doctorArgs(t *testing.T, socket, stdin string, args []st
 	e.Environ = append(e.Environ, "CODEX_HOME="+f.codexHome)
 	e.Data = f.data
 	e.Adapters = harness.Files{Install: filepath.Join(f.data, "install.json"),
-		Conformance: filepath.Join(f.data, "conformance.json"), Retest: filepath.Join(f.data, retestDir)}
+		Conformance: filepath.Join(f.data, "conformance.json"), Retest: filepath.Join(f.data, retestDir), Installed: filepath.Join(f.data, installedDir)}
 	e.StatusHerdr = func(herdr.Target) (StatusHerdr, error) { return f.herdr, nil }
 	e.Now = func() time.Time { return testNow.Add(3 * time.Hour) }
 	e.Stdin = strings.NewReader(stdin)
@@ -230,6 +230,10 @@ func TestDoctorMissingBinary(t *testing.T) {
 	if strings.Contains(settings, gone) || !strings.Contains(settings, bin) {
 		t.Errorf("settings.json after yes:\n%s\nwant the entry of %s", settings, bin)
 	}
+	// #249: the new start entry has its install time.
+	if got := files(t, f.data)[filepath.Join(f.data, installedDir, "claude.json")]; !strings.Contains(got, testNow.Add(3*time.Hour).Format(time.RFC3339)) {
+		t.Errorf("install time of claude after yes = %q, want %s", got, testNow.Add(3*time.Hour))
+	}
 	if out, err := f.doctor(t, f.sock, ""); err != nil {
 		t.Errorf("Doctor() after the fix = %v\n%s", err, out)
 	}
@@ -295,14 +299,6 @@ func TestDoctorCodexTrust(t *testing.T) {
 	}
 }
 
-// AC: a CLI version that differs from the tested version needs a retest.
-func TestDoctorRetest(t *testing.T) {
-	f := newDoctorFixture(t)
-	f.cli(t, "codex", "codex-cli 0.155.0")
-	f.failed(t, "", "codex 0.155.0: needs a retest: tested on 0.154.0",
-		"fix: run the conformance test in the brain repo: go run ./cmd/brain-eval --probes evals/probes --stage delivery --harness codex")
-}
-
 // AC §17 item 30: a live agent of a configured kind with no receipt after its first prompt:
 // hook not trusted or not firing.
 func TestDoctorNoReceipt(t *testing.T) {
@@ -311,16 +307,13 @@ func TestDoctorNoReceipt(t *testing.T) {
 	f.failed(t, "", "claude: hook not trusted or not firing: 1 live agent(s) with no Brain receipt (w14:p1); fix: start a new session")
 }
 
-// AC: a Codex agent with no receipt is a note, not a failed check: Codex runs the hook at the
-// first prompt, and the trust check fails an untrusted hook. Doctor exits 0 when all else passes.
-func TestDoctorCodexNoReceiptNote(t *testing.T) {
+// AC 2 #251 (Sol review of PR #262): Codex runs the hook at the first prompt, and herdr shows
+// the Codex session id only after that prompt (#257). So a Codex agent with an id and no
+// receipt that started after the install is a failed check; one with no id is not counted.
+func TestDoctorCodexNoReceipt(t *testing.T) {
 	f := newDoctorFixture(t)
-	f.herdr.panes = []herdr.Pane{agent("w14:p1", "codex", "s-1"), agent("w14:p2", "codex", "s-2")}
-	out, err := f.doctor(t, f.sock, "")
-	want := "note: codex: 2 live agent(s) with no Brain receipt (w14:p1, w14:p2); Codex runs the hook at the first prompt."
-	if err != nil || !strings.Contains(out, want) || !strings.HasSuffix(out, "all checks passed\n") {
-		t.Errorf("Doctor() = %v\n%s\nwant the note and all checks passed", err, out)
-	}
+	f.herdr.panes = []herdr.Pane{agent("w14:p1", "codex", "s-1"), agent("w14:p2", "codex", "s-2"), agent("w14:p3", "codex", "")}
+	f.failed(t, "", "codex: hook not trusted or not firing: 2 live agent(s) with no Brain receipt (w14:p1, w14:p2)")
 }
 
 // AC S66: an output conflict fails with brain repair --confirm.

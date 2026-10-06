@@ -14,6 +14,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/adapters"
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
+	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
 )
 
@@ -94,3 +95,8 @@ func TestSetupFakeProfile(t *testing.T) {
 		})
 	}
 }
+
+// noPanes is a pane list with no pane.
+type noPanes struct{}
+
+func (noPanes) Panes(context.Context) ([]herdr.Pane, error) { return nil, nil }
