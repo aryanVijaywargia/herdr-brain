@@ -152,6 +152,37 @@ func receipt(t *testing.T, dir, session, profile, pane, agentSession string, r s
 	})
 }
 
+// AC (bug #247): brain status runs in a pane of a workspace whose id has letters (w1N, past
+// workspace 9 in herdr 0.9.3). The pane lookup is the real herdr client with a fake herdr.
+func TestStatusLetterWorkspaceID(t *testing.T) {
+	f := newStatusFixture(t)
+	dir := t.TempDir()
+	reply := `{"id":"cli:pane:get","result":{"type":"pane_info","pane":{"pane_id":"w1N:p1","tab_id":"w1N:t1",` +
+		`"workspace_id":"w1N","cwd":"/private/tmp"}}}`
+	if err := os.WriteFile(filepath.Join(dir, "reply.json"), []byte(reply), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "herdr")
+	script := "#!/bin/sh\n[ \"$*\" = 'pane get w1N:p1' ] || exit 1\ncat \"$(dirname \"$0\")/reply.json\"\n"
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil { //nolint:gosec // a test CLI must be executable
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	e := f.env(f.sock, "w1N:p1", "w1N", &out)
+	e.Pane = resolver.HerdrPane([]string{"PATH=/usr/bin:/bin", "HERDR_BIN_PATH=" + bin})
+	e.Data = f.data
+	e.Adapters = harness.Files{Install: filepath.Join(f.data, "install.json"),
+		Conformance: filepath.Join(f.data, "conformance.json"), Retest: filepath.Join(f.data, retestDir)}
+	e.StatusHerdr = func(herdr.Target) (StatusHerdr, error) { return f.herdr, nil }
+	e.Now = func() time.Time { return testNow }
+	if err := Status(context.Background(), e, nil); err != nil {
+		t.Fatalf("Status() in w1N:p1 = %v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "workspace w1N: unmapped") {
+		t.Errorf("brain status in w1N:p1:\n%s", out.String())
+	}
+}
+
 // AC: the screen of a new setup: no live agent, no receipt, an empty queue.
 func TestStatusNewSetup(t *testing.T) {
 	f := newStatusFixture(t)

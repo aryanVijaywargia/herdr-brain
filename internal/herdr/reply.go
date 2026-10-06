@@ -64,11 +64,12 @@ type PluginPane struct {
 }
 
 // Ids as herdr 0.9.1 prints them: workspace w14, pane w14:p2F, tab w14:t1. A pane or tab id
-// starts with its workspace id (HLD §4.2).
+// starts with its workspace id (HLD §4.2). Past workspace 9, herdr 0.9.3 puts letters in the
+// workspace id too: wZ, w1A, w1N:p1 (bug #247).
 var (
-	workspaceIDRe = regexp.MustCompile(`^w[0-9]+$`)
-	paneIDRe      = regexp.MustCompile(`^(w[0-9]+):p[0-9A-Za-z]+$`)
-	tabIDRe       = regexp.MustCompile(`^(w[0-9]+):t[0-9A-Za-z]+$`)
+	workspaceIDRe = regexp.MustCompile(`^w[0-9A-Za-z]+$`)
+	paneIDRe      = regexp.MustCompile(`^(w[0-9A-Za-z]+):p[0-9A-Za-z]+$`)
+	tabIDRe       = regexp.MustCompile(`^(w[0-9A-Za-z]+):t[0-9A-Za-z]+$`)
 )
 
 // check keeps the first problem that it finds in a reply.
