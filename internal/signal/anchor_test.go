@@ -153,3 +153,50 @@ func TestCheckAnchorsUncommitted(t *testing.T) {
 		t.Errorf("count-objects = %q, want the 9 objects of the 3 commits: the check writes none", n)
 	}
 }
+
+// AC 3 (#252): git tells a move of an anchor file that was also edited, in a commit or staged
+// in the index. A file that was renamed before the anchor took its blob, and is deleted now,
+// counts as deleted.
+func TestCheckAnchorsRenamed(t *testing.T) {
+	gitEnv(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	run(t, dir, "init", "-q")
+	long := strings.Repeat("a line of the file\n", 20)
+	commit(t, dir, "committed.txt", long, "add committed")
+	commit(t, dir, "staged.txt", long+"s\n", "add staged")
+	commit(t, dir, "old.txt", long+"o\n", "add old")
+	run(t, dir, "mv", "old.txt", "renamed.txt")
+	run(t, dir, "commit", "-q", "-m", "rename old")
+	commit(t, dir, "renamed.txt", long+"o2\n", "edit renamed")
+	as, err := FindAnchors(ctx, dir, "committed.txt staged.txt renamed.txt")
+	if err != nil || len(as) != 3 {
+		t.Fatalf("FindAnchors = %v, %v, want 3 anchors", as, err)
+	}
+
+	run(t, dir, "mv", "committed.txt", "committed2.txt")
+	commit(t, dir, "committed2.txt", long+"edit\n", "move and edit committed")
+	run(t, dir, "mv", "staged.txt", "staged2.txt")
+	if err := os.WriteFile(filepath.Join(dir, "staged2.txt"), []byte(long+"s2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run(t, dir, "add", "staged2.txt")
+	run(t, dir, "rm", "-q", "renamed.txt")
+	run(t, dir, "commit", "-q", "-m", "drop renamed", "--", "renamed.txt")
+	changes, _, err := CheckAnchors(ctx, as)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []AnchorChange{{Anchor: as[0], MovedTo: "committed2.txt"}, {Anchor: as[1], MovedTo: "staged2.txt"}, {Anchor: as[2]}}
+	if !reflect.DeepEqual(changes, want) {
+		t.Errorf("changes = %+v, want %+v", changes, want)
+	}
+}
+
+func TestMoved(t *testing.T) {
+	diff := "- a.go 1234567\n+ b.go 1234567 (moved)\n- c.go 7654321\n+ (deleted)\n- d.go 1111111\n+ d.go 2222222 (changed)\n" +
+		"- e.go 3333333\n+ f.go 4444444 (moved)"
+	if got, want := Moved(diff), []string{"a.go", "e.go"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Moved = %q, want %q", got, want)
+	}
+}
