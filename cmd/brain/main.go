@@ -29,6 +29,7 @@ commands:
   setup     [--session <name> [--test <folder>]] [--extractor]: bind a herdr session, add the agent hooks,
             choose the extractor CLI
   remember  "<text>" [--global | --workspace <w>] [--kind <k>]: draft an item for your review
+  recall    <words>: print the approved items of this pane's brief that match the words, best match first
   review    [<id> [--approve | --reject | --later | --change "<text>"]]: the queue of proposals (brain review --help)
   pin       [--off] <item>: pin an active item, so it never ages
   archive   [--all | --keep]: list the items with no relevant session for 90 days; --all retires them, --keep keeps them
@@ -57,6 +58,7 @@ commands:
 // commands are the store commands of internal/cli, by name.
 var commands = map[string]func(context.Context, cli.Env, []string) error{
 	"remember":   cli.Remember,
+	"recall":     cli.Recall,
 	"review":     cli.Review,
 	"pin":        cli.Pin,
 	"archive":    cli.Archive,
@@ -101,7 +103,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "brain %s\n", version)
 	case "setup":
 		err = setup(context.Background(), osSetupDeps(os.Environ()), args[1:], in, stdout)
-	case "status", "doctor", "remember", "review", "pin", "archive", "promote", "undo", "workspace", "forget", "repair", "pane", "uninstall", "learn", "extract",
+	case "status", "doctor", "remember", "recall", "review", "pin", "archive", "promote", "undo", "workspace", "forget", "repair", "pane", "uninstall", "learn", "extract",
 		"suggest", "run", "tools", "automation", "update":
 		err = command(commands[args[0]], args[1:], in, stdout, stderr)
 	case "event":

@@ -96,6 +96,8 @@ func noItemTextFields() []Field {
 		// The path of the CLI's own transcript file, not item text: brain forget --session
 		// clears it (E15-S4, §6.7).
 		{"deliveries", "transcript_path"},
+		{"recalls", "item_revisions"},
+		{"recalls", "at"},
 		{"review_panes", "herdr_session"},
 		{"review_panes", "session_identity"},
 		{"review_panes", "pane_id"},

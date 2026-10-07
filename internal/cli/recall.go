@@ -1,0 +1,148 @@
+package cli
+
+import (
+	"cmp"
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+	"time"
+	"unicode"
+
+	"github.com/aryanVijaywargia/herdr-brain/internal/brief"
+	"github.com/aryanVijaywargia/herdr-brain/internal/output"
+	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
+)
+
+const recallUsage = `usage: brain recall <words>`
+
+// maxRecall is the most items that one recall prints (E20-S2 AC).
+const maxRecall = 10
+
+// Recall runs `brain recall` with args after "recall" (E20-S2, §8.6). It prints the items that
+// the brief of the calling pane can deliver and whose text matches the words, best match
+// first, with the brief's marks. It records the item revisions that it printed on the
+// receipt of the pane's agent session, so outcomes count them as delivered (§5.4).
+func Recall(ctx context.Context, e Env, args []string) (err error) {
+	words := recallWords(strings.Join(args, " "))
+	if len(words) == 0 {
+		return fmt.Errorf("want words to match\n%s", recallUsage)
+	}
+	c, err := e.Open(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, c.Close()) }()
+	key, err := briefKey(c)
+	if err != nil {
+		return err
+	}
+	var text string
+	var recorded bool
+	err = c.Store.Write(ctx, func(tx *sql.Tx) error {
+		items, revision, err := output.Items(ctx, tx, key)
+		if err != nil {
+			return err
+		}
+		items = bestMatches(items, words)
+		if text, err = brief.Entries(items); err != nil || len(items) == 0 {
+			return err
+		}
+		recorded, err = recordRecall(ctx, tx, c, items, revision, e.Now())
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	query := strings.Join(words, " ")
+	if text == "" {
+		_, err = fmt.Fprintf(e.Stdout, "no Brain item matches %q\n", query)
+		return err
+	}
+	if !recorded {
+		// No receipt ties the pane's agent session, so no outcome could count the recall.
+		if _, err := fmt.Fprintln(e.Stderr, "brain: warning: no Brain receipt for the agent session of this pane; this recall is not recorded"); err != nil {
+			return err
+		}
+	}
+	// [NEW] the output form: one heading line, then the items as the brief shows them.
+	_, err = fmt.Fprintf(e.Stdout, "Brain items for %q, best match first:\n%s", query, text)
+	return err
+}
+
+// briefKey is the workspace key whose part the brief of the calling pane delivers, or "" for
+// the global part only: an unmapped workspace, or one whose root check failed (§8.3 step 4).
+func briefKey(c *Call) (string, error) {
+	m, err := c.Workspace.Lookup(c.WorkspaceID)
+	if err != nil {
+		return "", err
+	}
+	if m.State != workspace.Mapped {
+		return "", nil
+	}
+	return m.Entry.Key, nil
+}
+
+// recordRecall records the revisions of items on the newest receipt of the calling pane's
+// agent session. It returns false when there is no such receipt.
+func recordRecall(ctx context.Context, tx *sql.Tx, c *Call, items []brief.Item, revision map[int64]int64, now time.Time) (bool, error) {
+	id, ok, err := store.RecallReceipt(ctx, tx, c.Binding.Session, c.PaneID, c.AgentSession)
+	if err != nil || !ok {
+		return false, err
+	}
+	refs := make([]store.RevisionRef, len(items))
+	for i, it := range items {
+		refs[i] = store.RevisionRef{Item: it.ID, Revision: revision[it.ID]}
+	}
+	_, err = store.InsertRecall(ctx, tx, store.Recall{DeliveryID: id, ItemRevisions: refs, At: now})
+	return err == nil, err
+}
+
+// bestMatches returns the items of items that match words, the best match first, at most
+// maxRecall. [NEW] the match rule: an item scores one point for each word that starts a word
+// of its text, case aside; more points first, then the lower item id. An item with no point
+// does not match.
+func bestMatches(items []brief.Item, words []string) []brief.Item {
+	type scored struct {
+		it    brief.Item
+		score int
+	}
+	var ss []scored
+	for _, it := range items {
+		text := recallWords(it.Text)
+		n := 0
+		for _, w := range words {
+			if slices.ContainsFunc(text, func(t string) bool { return strings.HasPrefix(t, w) }) {
+				n++
+			}
+		}
+		if n > 0 {
+			ss = append(ss, scored{it, n})
+		}
+	}
+	slices.SortFunc(ss, func(a, b scored) int {
+		return cmp.Or(cmp.Compare(b.score, a.score), cmp.Compare(a.it.ID, b.it.ID))
+	})
+	out := make([]brief.Item, min(len(ss), maxRecall))
+	for i := range out {
+		out[i] = ss[i].it
+	}
+	return out
+}
+
+// recallWords splits s into its words in lower case, each word once, in the order of s. A
+// word is a run of letters and digits.
+func recallWords(s string) []string {
+	var words []string
+	for _, w := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if !slices.Contains(words, w) {
+			words = append(words, w)
+		}
+	}
+	return words
+}
