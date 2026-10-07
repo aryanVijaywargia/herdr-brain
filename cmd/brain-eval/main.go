@@ -34,12 +34,17 @@ const usage = `usage: brain-eval --probes <file or folder> [--stage <stage>]... 
 With --probes, runs each probe of the probe file, or of each *.toml file of the folder, and
 its control; --stage and --harness keep only the probes of those stages and CLIs. A CLI is
 the kind of a Brain profile, for example claude or codex. The stages
-are delivery, exclusion, transfer, update, restraint, forget, usefulness and skill-choice. A
+are delivery, exclusion, transfer, update, restraint, forget, usefulness, skill-choice and
+regression. A
 skill-choice case asks one prompt with all fixture skills of its file in the brief, and gets
 one result for each skill. It writes the
 results to eval-results.json and a short report to eval-report.md in the test store folder. A
 run of the delivery stage writes the conformance record of each CLI to conformance.json in
 the data home: pending at the start, then pass, fail or inconclusive when the run completes.
+
+A regression case (bug-<issue>) runs the Go tests of one bug's fixture with go test in the
+current folder, the Brain repo, and prints one pass or fail line. It needs no herdr, no CLI
+and no setup, and --harness leaves it out. So --stage regression runs anywhere in the repo.
 
 Else runs one ad-hoc case in the brain-eval test session: each --step in a shell pane of a fresh
 scratch git folder, then --prompt to a fresh CLI of each --probe. "{{marker}}" in a step or the
@@ -67,13 +72,27 @@ func run(args, environ []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "brain-eval: %v\n\n%s", err, usage)
 		return 2
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	code := 0
+	if bugs := slices.DeleteFunc(slices.Clone(cases), func(c Case) bool { return c.Stage != regressionStage }); len(bugs) > 0 {
+		failed, err := runRegression(ctx, ".", environ, bugs, stdout)
+		if err != nil {
+			fmt.Fprintf(stderr, "brain-eval: %v\n", err)
+			return 1
+		}
+		if failed {
+			code = 1
+		}
+		if cases = slices.DeleteFunc(cases, func(c Case) bool { return c.Stage == regressionStage }); len(cases) == 0 {
+			return code
+		}
+	}
 	r, err := newRunner(environ, stdout)
 	if err != nil {
 		fmt.Fprintf(stderr, "brain-eval: %v\n", err)
 		return 1
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	out, err := r.Run(ctx, cases)
 	for _, o := range out {
 		fmt.Fprintf(stdout, "case %s: marker %s\n", o.CaseID, o.Marker)
@@ -88,7 +107,7 @@ func run(args, environ []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "brain-eval: %v\n", err)
 		return 1
 	}
-	return 0
+	return code
 }
 
 func parse(args []string) ([]Case, error) {
@@ -138,7 +157,8 @@ func parse(args []string) ([]Case, error) {
 	return []Case{c}, nil
 }
 
-// only keeps the cases of stages and the probes of harnesses; an empty list keeps all.
+// only keeps the cases of stages and the probes of harnesses; an empty list keeps all. A
+// harness leaves out the regression cases.
 func only(cases []Case, wantStages, wantHarnesses []string) ([]Case, error) {
 	for _, s := range wantStages {
 		if !slices.Contains(stages, s) {
@@ -154,6 +174,12 @@ func only(cases []Case, wantStages, wantHarnesses []string) ([]Case, error) {
 	var out []Case
 	for _, c := range cases {
 		if len(wantStages) > 0 && !slices.Contains(wantStages, c.Stage) {
+			continue
+		}
+		if c.Stage == regressionStage {
+			if len(wantHarnesses) == 0 { // a regression case asks no CLI
+				out = append(out, c)
+			}
 			continue
 		}
 		if len(wantHarnesses) > 0 {

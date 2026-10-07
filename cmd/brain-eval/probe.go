@@ -16,11 +16,13 @@ import (
 )
 
 // probeFile is one file evals/probes/*.toml (HLD §12.1 "Probe format"). Its [[skill]] and
-// [[negative]] entries make the skill choice cases (E16-S5).
+// [[negative]] entries make the skill choice cases (E16-S5), and its [[bug]] entries the
+// regression cases (E20-S1).
 type probeFile struct {
 	Probe    []probeEntry    `toml:"probe"`
 	Skill    []skillEntry    `toml:"skill"`
 	Negative []negativeEntry `toml:"negative"`
+	Bug      []bugEntry      `toml:"bug"`
 }
 
 // skillEntry is one [[skill]] of a probe file: a fixture skill, whose example prompt is a
@@ -66,7 +68,7 @@ type probeEntry struct {
 }
 
 // stages are the eval stages of §12.1.
-var stages = []string{"delivery", "exclusion", "transfer", "update", "restraint", "forget", "usefulness", skillStage}
+var stages = []string{"delivery", "exclusion", "transfer", "update", "restraint", "forget", "usefulness", skillStage, regressionStage}
 
 // hookModes are the herdr states in which an exclusion probe calls the hook (§12.1
 // exclusion): no herdr, a closed pane, no herdr answer in time, a socket with no binding, and
@@ -84,7 +86,8 @@ var markerName = regexp.MustCompile(`^marker[0-9]*$`)
 
 // loadProbes reads the probe files of path, a probe file or a folder of *.toml files in name
 // order, and returns the cases: each probe and then its control, the same case with no setup
-// steps (§12.1 "Control"). An error names the file and the probe.
+// steps (§12.1 "Control"), and each regression case, which has no control. An error names the
+// file and the probe.
 func loadProbes(path string) ([]Case, error) {
 	files := []string{path}
 	if fi, err := os.Stat(path); err != nil {
@@ -109,8 +112,8 @@ func loadProbes(path string) ([]Case, error) {
 		if un := md.Undecoded(); len(un) > 0 {
 			return nil, fmt.Errorf("%s: unknown key %q", f, un[0].String())
 		}
-		if len(pf.Probe) == 0 && len(pf.Skill) == 0 {
-			return nil, fmt.Errorf("%s: no [[probe]] or [[skill]]", f)
+		if len(pf.Probe) == 0 && len(pf.Skill) == 0 && len(pf.Bug) == 0 {
+			return nil, fmt.Errorf("%s: no [[probe]], [[skill]] or [[bug]]", f)
 		}
 		var fc []Case
 		for i, p := range pf.Probe {
@@ -123,14 +126,21 @@ func loadProbes(path string) ([]Case, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", f, err)
 		}
-		for _, c := range append(fc, sc...) {
+		bc, err := bugCases(pf.Bug)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", f, err)
+		}
+		for _, c := range slices.Concat(fc, sc, bc) {
 			if other, ok := seen[c.ID]; ok {
 				return nil, fmt.Errorf("%s: id %q is also in %s", f, c.ID, other)
 			}
 			seen[c.ID] = f
-			ctl := c
-			ctl.Control, ctl.Setup = true, nil
-			cases = append(cases, c, ctl)
+			cases = append(cases, c)
+			if c.Stage != regressionStage {
+				ctl := c
+				ctl.Control, ctl.Setup = true, nil
+				cases = append(cases, ctl)
+			}
 		}
 	}
 	return cases, nil
@@ -219,6 +229,8 @@ func (p probeEntry) check(kinds []string) error {
 	switch {
 	case p.Stage == skillStage:
 		errs = append(errs, errors.New("stage skill-choice: give its cases as [[skill]] and [[negative]]"))
+	case p.Stage == regressionStage:
+		errs = append(errs, errors.New("stage regression: give its cases as [[bug]]"))
 	case !slices.Contains(stages, p.Stage):
 		errs = append(errs, fmt.Errorf("stage %q: want one of %s", p.Stage, strings.Join(stages, ", ")))
 	}
