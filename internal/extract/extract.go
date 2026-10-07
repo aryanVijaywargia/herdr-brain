@@ -21,8 +21,9 @@ import (
 const (
 	// idle is how long a session with work stays quiet before it is finished (§7.3).
 	idle = 10 * time.Minute
-	// retryAfter is the wait before a failed or invalid batch is tried again. [NEW] 1 hour: the
-	// evidence waits, and brain status shows the failure.
+	// retryAfter is the wait before a failed or invalid batch is tried again, unless a later
+	// call works first (#263). [NEW] 1 hour: the evidence waits, and brain status shows the
+	// failure.
 	retryAfter = time.Hour
 )
 
@@ -237,8 +238,8 @@ func (p Pass) job(r pending, sigs []signal.Signal, byID map[int64]store.SignalIn
 }
 
 // batch reports whether job j is extracted now. It returns false when the batch waits:
-// extraction or learning is off for its key, no CLI is chosen, or it failed less than
-// retryAfter ago. A job with no signal is recorded as an empty batch here.
+// extraction or learning is off for its key, no CLI is chosen, or its failed call still waits
+// for the retry. A job with no signal is recorded as an empty batch here.
 func (p Pass) batch(ctx context.Context, tx *sql.Tx, j job) (bool, error) {
 	if on, err := p.allowed(ctx, tx, j); err != nil || !on {
 		return false, err
@@ -257,10 +258,18 @@ func (p Pass) batch(ctx context.Context, tx *sql.Tx, j job) (bool, error) {
 		return false, err
 	case old.Done():
 		return false, nil
-	case (old.Status == store.BatchFailed || old.Status == store.BatchInvalid) && p.Now().Sub(old.At) < retryAfter:
-		return false, nil
+	case old.Status == store.BatchFailed || old.Status == store.BatchInvalid:
+		worked, err := store.LastWorkedCall(ctx, tx)
+		return err == nil && !p.waits(old.At, worked), err
 	}
 	return true, nil
+}
+
+// waits reports whether a failed or invalid call that ended at at still waits for its retry:
+// it ended less than retryAfter ago, and no extractor call worked after it. A call that works
+// shows that the CLI works again, so the failed work goes at the next pass (#263).
+func (p Pass) waits(at, worked time.Time) bool {
+	return p.Now().Sub(at) < retryAfter && !worked.After(at)
 }
 
 // allowed reports whether batch j may call the extractor: extraction is on for its workspace
