@@ -250,6 +250,40 @@ func TestSignedOutCLI(t *testing.T) {
 	}
 }
 
+// AC #263: after a failed call, a later call that works clears the failure from the wait, and
+// the failed batch gets its retry at the next pass, not after retryAfter. The failed batch
+// stays in the failed batches until then, with its time.
+func TestRetryAfterWorkedCall(t *testing.T) {
+	f := newFixture(t)
+	sid, _ := f.session("a", true, line{"ws-A", pnpm, t0})
+	f.cli.reply = func(context.Context, string) ([]byte, error) { return nil, errors.New("claude: exit status 1") }
+	f.mustRun()
+	failedAt := f.now
+	f.now = f.now.Add(time.Minute)
+	f.session("b", true, line{"ws-B", pnpm, t0.Add(time.Minute)})
+	f.cli.reply = noClaims
+	f.mustRun()
+	if f.calls("ws-A") != 1 || f.calls("ws-B") != 1 {
+		t.Fatalf("calls of ws-A, ws-B = %d, %d, want 1, 1", f.calls("ws-A"), f.calls("ws-B"))
+	}
+	if ws := f.waiting(); len(ws) != 1 || ws[0].WorkspaceKey != "ws-A" || ws[0].Why != "" || ws[0].Failed != "" {
+		t.Errorf("waiting = %+v, want ws-A with no failure: a later call worked", ws)
+	}
+	var failed []store.Batch
+	f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
+		failed, err = store.FailedBatches(ctx, tx)
+		return err
+	})
+	if len(failed) != 1 || failed[0].WorkspaceKey != "ws-A" || !failed[0].At.Equal(failedAt) {
+		t.Errorf("failed batches = %+v, want the ws-A batch at %v", failed, failedAt)
+	}
+	f.now = f.now.Add(time.Minute)
+	f.mustRun()
+	if f.calls("ws-A") != 2 || f.watermark(sid, "ws-A") == 0 {
+		t.Errorf("calls of ws-A %d, watermark %d, want the retry and a watermark", f.calls("ws-A"), f.watermark(sid, "ws-A"))
+	}
+}
+
 // The proposal cap stops the calls that follow. A batch that crosses the cap commits all its
 // proposals, so no candidate at its gate is left with no proposal.
 func TestProposalCap(t *testing.T) {
@@ -278,6 +312,21 @@ func TestProposalCap(t *testing.T) {
 	}
 	if f.cli.calls() != 1 || f.calls("ws-B") != 0 {
 		t.Errorf("calls = %d, calls of ws-B = %d, want 1 and 0", f.cli.calls(), f.calls("ws-B"))
+	}
+	// AC #282: a rejected proposal still counts toward the daily proposal cap (§7.3).
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		return store.DecideProposal(ctx, tx, 1, store.ProposalRejected, store.SurfaceCLI, f.now)
+	})
+	if err := p.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var d Day
+	f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
+		d, err = p.Day(ctx, tx)
+		return err
+	})
+	if d.Proposals != 2 || d.Full() == "" || f.calls("ws-B") != 0 {
+		t.Errorf("day = %+v, calls of ws-B = %d, want 2 proposals, a full cap and no call", d, f.calls("ws-B"))
 	}
 	f.now = f.now.Add(day + time.Minute)
 	if err := p.Run(context.Background()); err != nil {

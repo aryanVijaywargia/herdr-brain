@@ -384,3 +384,18 @@ func LastCalls(ctx context.Context, tx *sql.Tx) (map[string]time.Time, error) {
 	}
 	return m, nil
 }
+
+// LastWorkedCall returns the end time of the last extractor call that worked: a batch with a
+// model call that committed or gave a valid empty result. It is the zero time when no call
+// worked. A failed batch older than it is tried again at once (#263). Only batches count: a
+// done batch keeps its row and time, but brain review can queue a done change request again,
+// which replaces its time.
+func LastWorkedCall(ctx context.Context, tx *sql.Tx) (time.Time, error) {
+	var at time.Time
+	err := tx.QueryRowContext(ctx, `SELECT MAX(at) FROM extraction_batches WHERE status IN (?, ?) AND model_calls > 0`,
+		BatchCommitted, BatchEmpty).Scan(timeDest{&at})
+	if err != nil {
+		return time.Time{}, fmt.Errorf("read last worked extractor call: %w", err)
+	}
+	return at, nil
+}

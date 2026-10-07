@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -147,7 +148,7 @@ func TestNoCLIWaits(t *testing.T) {
 	f.signalSession(t, "ws_a14", "a1")
 	status := f.mustStatus(t)
 	for _, want := range []string{"extraction: no extractor CLI is chosen, so Brain makes no extractor call; run brain setup\n",
-		"  waiting in workspace ws_a14: 1 batches, the oldest 3h old; no extractor CLI is chosen; run brain setup\n"} {
+		"  waiting in workspace ws_a14: 1 batch, the oldest 3h old; no extractor CLI is chosen; run brain setup\n"} {
 		if !strings.Contains(status, want) {
 			t.Errorf("brain status:\n%s\nwant %q", status, want)
 		}
@@ -172,7 +173,7 @@ func TestSignedOutExtractor(t *testing.T) {
 	s := openStore(t, f.store)
 	cli := &failingCLI{}
 	p := extract.Pass{Store: s, Runner: cli, HerdrSession: "default", DefaultOn: true,
-		Now: func() time.Time { return testNow.Add(2 * time.Hour) }}
+		Now: func() time.Time { return testNow.Add(150 * time.Minute) }}
 	if err := p.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -180,12 +181,81 @@ func TestSignedOutExtractor(t *testing.T) {
 	if cli.calls != 1 {
 		t.Fatalf("calls = %d, want 1", cli.calls)
 	}
-	want := "  waiting in workspace ws_a14: 1 batches, the oldest 3h old; the last claude call failed: claude: exit status 1\n"
+	want := "  waiting in workspace ws_a14: 1 batch, the oldest 3h old; the last claude call failed: claude: exit status 1\n"
 	if status := f.mustStatus(t); !strings.Contains(status, want) {
 		t.Errorf("brain status:\n%s\nwant %q", status, want)
 	}
 	f.failed(t, "", "extraction: the last extractor call for workspace ws_a14 failed (claude: exit status 1), so its signals wait; "+
 		"fix: run claude in a terminal and check that it works and is signed in")
+}
+
+// noClaimsCLI is an extractor CLI that works and finds no claim.
+type noClaimsCLI struct{}
+
+func (noClaimsCLI) Run(context.Context, extract.Command) ([]byte, error) {
+	return []byte(`{"type":"result","is_error":false,"structured_output":{"claims":[]}}`), nil
+}
+
+// AC #263: after a failed call, a later call that works: status and doctor no longer say that
+// the last call failed. The failed batch stays in the failed batches, with its time.
+func TestExtractorWorksAfterFailure(t *testing.T) {
+	f := newDoctorFixture(t)
+	f.setClaude(t)
+	f.signalSession(t, "ws_a14", "a1")
+	s := openStore(t, f.store)
+	run := func(r extract.Runner, at time.Time) {
+		t.Helper()
+		p := extract.Pass{Store: s, Runner: r, HerdrSession: "default", DefaultOn: true, Now: func() time.Time { return at }}
+		if err := p.Run(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run(&failingCLI{}, testNow.Add(150*time.Minute))
+	closeStore(t, s)
+	f.signalSession(t, "ws_b14", "b1")
+	s = openStore(t, f.store)
+	run(noClaimsCLI{}, testNow.Add(151*time.Minute))
+	closeStore(t, s)
+	status := f.mustStatus(t)
+	for _, want := range []string{
+		"  waiting in workspace ws_a14: 1 batch, the oldest 3h old; the next pass takes them\n",
+		"  failed batches: 1; their evidence waits for the next pass\n",
+		"workspace ws_a14: failed, claude: exit status 1, 30m ago\n",
+	} {
+		if !strings.Contains(status, want) {
+			t.Errorf("brain status:\n%s\nwant %q", status, want)
+		}
+	}
+	if strings.Contains(status, "call failed") {
+		t.Errorf("brain status:\n%s\nwant no failed last call", status)
+	}
+	if out, err := f.doctor(t, f.sock, ""); err != nil || out != "all checks passed\n" {
+		t.Errorf("Doctor() = %v\n%s\nwant all checks passed: no failed last call", err, out)
+	}
+}
+
+// AC #282: the gates and caps come from the config file. Status shows each value that is not
+// the default, and the caps line uses it. A bad value is a failed doctor check and a status line.
+func TestExtractionConfig(t *testing.T) {
+	f := newDoctorFixture(t)
+	f.setClaude(t)
+	config := filepath.Join(filepath.Dir(f.store), "config.toml")
+	putFile(t, config, "live_suggestions = \"on\"\n[gates]\ncorrection = 3\n[caps]\nproposals_per_day = 8\n")
+	status := f.mustStatus(t)
+	for _, want := range []string{
+		"  config: gates.correction = 3 (default 2), caps.proposals_per_day = 8 (default 5)\n",
+		"  last 24h: 0 of 10 extractor calls, 0 of 8 new proposals\n",
+	} {
+		if !strings.Contains(status, want) {
+			t.Errorf("brain status:\n%s\nwant %q", status, want)
+		}
+	}
+	putFile(t, config, "[caps]\ncalls_per_day = 0\n")
+	want := "caps.calls_per_day = 0, want 1 or more"
+	if status := f.mustStatus(t); !strings.Contains(status, want+"; Brain makes no extractor call until you fix the file\n") {
+		t.Errorf("brain status:\n%s\nwant %q", status, want)
+	}
+	f.failed(t, "", want+", so Brain makes no extractor call")
 }
 
 // The review queue line of status counts only what the default brain review lists: a
@@ -203,5 +273,19 @@ func TestStatusQueueBelowGate(t *testing.T) {
 	f.correct(t, claim, "ws_a14", "a2")
 	if status := f.mustStatus(t); !strings.Contains(status, "review queue: 1 pending, the oldest 3h old\n") {
 		t.Errorf("brain status:\n%s\nwant 1 pending at the gate", status)
+	}
+}
+
+// AC #282: the review queue line of status uses the gates of the config: with
+// gates.correction = 1, a proposal of one correction is in the queue.
+func TestStatusQueueConfigGate(t *testing.T) {
+	f := newStatusFixture(t)
+	putFile(t, filepath.Join(filepath.Dir(f.store), "config.toml"), "[gates]\ncorrection = 1\n")
+	c := f.correct(t, f.claim(t), "ws_a14", "a1")
+	if _, err := f.propose(t, c, "workspace w14 (shop)"); err != nil {
+		t.Fatal(err)
+	}
+	if status := f.mustStatus(t); !strings.Contains(status, "review queue: 1 pending, the oldest 3h old\n") {
+		t.Errorf("brain status:\n%s\nwant 1 pending at the configured gate", status)
 	}
 }

@@ -101,6 +101,10 @@ func serve(ctx context.Context, environ []string, log io.Writer, moved func() bo
 	if err != nil {
 		return err
 	}
+	config, err := paths.ConfigFile()
+	if err != nil {
+		return err
+	}
 	unlock, err := lock(e.stateDir, e.session)
 	if err != nil {
 		return err
@@ -113,24 +117,29 @@ func serve(ctx context.Context, environ []string, log io.Writer, moved func() bo
 		handler: NewCapture(herdr.Socket{Path: e.socket}, environ), log: log, tick: t.C,
 		environ: environ, launch: StartLaunch, now: time.Now, moved: moved,
 		tries: connectTries, pause: connectPause, queue: queueSize,
-		extract: func(ctx context.Context, g Gate) error { return extractPass(ctx, g, environ, Start) },
+		extract: func(ctx context.Context, g Gate) error { return extractPass(ctx, g, config, environ, Start) },
 		stale:   func(ctx context.Context, g Gate) error { return Stale(ctx, g, "", time.Now) },
 	}
 	return d.run(ctx)
 }
 
-// extractPass runs one extraction pass of the store of g with the extractor CLI (§7.3). start
+// extractPass runs one extraction pass of the store of g with the extractor CLI (§7.3), with the
+// gates and caps of the config file config, read at each pass so an edit needs no restart. start
 // starts `brain suggest` for each new lesson proposal (Start), with the herdr variables of the
 // agent pane where you said the lesson, so the process resolves that pane again (#253, §7.2).
-func extractPass(ctx context.Context, g Gate, environ []string,
+func extractPass(ctx context.Context, g Gate, config string, environ []string,
 	start func(ctx context.Context, environ []string, d Dispatch) error) (err error) {
+	gates, caps, err := extract.ReadConfig(config)
+	if err != nil {
+		return fmt.Errorf("extract: %w", err)
+	}
 	st, err := store.Open(ctx, g.Binding.Store, busyTimeout)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, st.Close()) }()
 	p := extract.Pass{Store: st, Runner: extract.ExecRunner{}, HerdrSession: g.Binding.Session,
-		DefaultOn: g.Binding.Kind != bindings.KindTest, Now: time.Now,
+		DefaultOn: g.Binding.Kind != bindings.KindTest, Now: time.Now, Gates: gates, Caps: caps,
 		Suggest: func(ctx context.Context, s extract.Suggestion) error {
 			return start(ctx, paneEnv(environ, g.Binding, s.AgentPaneID, s.WorkspaceID), LessonDispatch(g.Binding.Store, s))
 		}}
