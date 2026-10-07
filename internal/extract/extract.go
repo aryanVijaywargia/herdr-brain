@@ -68,6 +68,7 @@ type job struct {
 	session store.Session
 	refs    []ref
 	known   []store.Claim        // the claims that the input names by claim id
+	skills  map[string]string    // the name of each active skill of the scope, by claim id (E20-S5)
 	brief   []store.ItemRevision // the current brief items
 	change  *change              // a change request instead of a batch; nil for a batch
 }
@@ -490,7 +491,8 @@ func untombstoned(ctx context.Context, tx *sql.Tx, refs []ref) ([]ref, error) {
 // (§6.7): a forget erases the claim key, so the tombstone source keys stop the same evidence.
 // A known claim (the same claim id) gets the evidence first; propose then drops the duplicate
 // proposal (§7.3). A same_as link to an open claim of the same kind in the same scope adds the
-// evidence to that claim's candidate (merge). A candidate that reaches its gate gets a proposal.
+// evidence to that claim's candidate (merge). A candidate that reaches its gate gets a proposal,
+// but a claim that an active skill covers goes to that skill: it makes no proposal (E20-S5).
 func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Time) (Suggestion, error) {
 	kept, err := untombstoned(ctx, tx, c.Refs)
 	if c.Refs = kept; err != nil || len(kept) == 0 {
@@ -531,10 +533,16 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	if err != nil {
 		return Suggestion{}, err
 	}
+	// The skill link comes first: an unconfirmed same_as link to the same skill adds no
+	// uncertain outcome over its comeback.
+	covered, err := p.skillOutcomes(ctx, tx, j, c.CoveredBy, failures(kind, accepted), now)
+	if err != nil {
+		return Suggestion{}, err
+	}
 	if err := p.outcomes(ctx, tx, j, claim, corrections(kind, accepted), now); err != nil {
 		return Suggestion{}, err
 	}
-	if id == 0 {
+	if id == 0 || covered {
 		return Suggestion{}, nil
 	}
 	return p.propose(ctx, tx, id, c, now)
@@ -646,10 +654,46 @@ func corrections(kind store.CandidateKind, refs []ref) []ref {
 	return slices.DeleteFunc(slices.Clone(refs), func(r ref) bool { return r.kind != signal.Correction })
 }
 
+// failures returns the new failures of refs, the evidence that Attach accepted for a candidate
+// of kind, for the skill that covers them (E20-S5): all of refs for a correction candidate,
+// else the refs of a correction or of the failure output of a tool.
+func failures(kind store.CandidateKind, refs []ref) []ref {
+	if kind == store.CandidateCorrection {
+		return refs
+	}
+	return slices.DeleteFunc(slices.Clone(refs), func(r ref) bool { return r.kind != signal.Correction && r.kind != signal.Failure })
+}
+
+// skillOutcomes records an outcome of each new failure in refs for each active item of skill,
+// the claim of the skill that covers them, in the scope of batch j (E20-S5): the skill gets the
+// comeback of the revision that the session got, as an item of the claim does (§5.4). It
+// reports whether such a skill exists.
+func (p Pass) skillOutcomes(ctx context.Context, tx *sql.Tx, j job, skill string, refs []ref, now time.Time) (bool, error) {
+	if skill == "" {
+		return false, nil
+	}
+	items, err := store.ActiveClaimSkills(ctx, tx, skill, j.batch.WorkspaceKey)
+	if err != nil || len(items) == 0 {
+		return false, err
+	}
+	for _, r := range refs {
+		d, ok, err := store.TiedReceipt(ctx, tx, r.obs)
+		if err != nil {
+			return false, err
+		}
+		for _, it := range items {
+			if err := p.outcome(ctx, tx, j, it, r, d, ok, false, now); err != nil {
+				return false, err
+			}
+		}
+	}
+	return true, nil
+}
+
 // outcomes records an outcome of each new correction in refs of claim, for each active item of the claim in the scope of batch j, after the evidence (§5.4, §7.3
 // order for a known claim). An active item of the claim that an unconfirmed same_as link of
 // claim names gets an uncertain outcome instead of a comeback. A second comeback on one
-// revision queues the change request of that revision.
+// revision queues the change request of that revision (outcome).
 func (p Pass) outcomes(ctx context.Context, tx *sql.Tx, j job, claim string, refs []ref, now time.Time) error {
 	key := j.batch.WorkspaceKey
 	items, err := store.ActiveClaimItems(ctx, tx, claim, key)
@@ -689,7 +733,9 @@ func (p Pass) outcomes(ctx context.Context, tx *sql.Tx, j job, claim string, ref
 }
 
 // outcome records the outcome of correction r for item from receipt d (ok is false for no
-// tied receipt): uncertain replaces a comeback when the match is a guess.
+// tied receipt): uncertain replaces a comeback when the match is a guess. The second comeback
+// on one revision queues its change request. A skill counts sessions, not flags: two flags in
+// one session queue nothing (E20-S5).
 func (p Pass) outcome(ctx context.Context, tx *sql.Tx, j job, item int64, r ref, d store.Delivery, ok, guess bool, now time.Time) error {
 	kind, rev, write := outcomeOf(d, ok, item)
 	if !write {
@@ -703,7 +749,15 @@ func (p Pass) outcome(ctx context.Context, tx *sql.Tx, j job, item int64, r ref,
 	if err != nil || !added || kind != store.OutcomeComeback {
 		return err
 	}
-	n, err := store.Comebacks(ctx, tx, item, rev)
+	it, err := store.ItemByID(ctx, tx, item)
+	if err != nil {
+		return err
+	}
+	count := store.Comebacks
+	if it.Kind == store.KindSkill {
+		count = store.ComebackSessions
+	}
+	n, err := count(ctx, tx, item, rev)
 	if err != nil || n < 2 {
 		return err
 	}

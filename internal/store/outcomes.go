@@ -53,6 +53,18 @@ func Comebacks(ctx context.Context, tx *sql.Tx, item, revision int64) (int, erro
 	return n, nil
 }
 
+// ComebackSessions counts the sessions with a comeback on revision of item: two flags in one
+// session are one. A skill counts sessions, not flags (E20-S5).
+func ComebackSessions(ctx context.Context, tx *sql.Tx, item, revision int64) (int, error) {
+	var n int
+	err := tx.QueryRowContext(ctx, `SELECT count(DISTINCT session_id) FROM outcomes
+		WHERE item_id = ? AND revision = ? AND kind = ?`, item, revision, OutcomeComeback).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count comeback sessions of item %d revision %d: %w", item, revision, err)
+	}
+	return n, nil
+}
+
 // ComebackExcerpts returns the observations of the comebacks on revision of item that are still
 // in the store, the newest first: the input of the change request of that revision.
 func ComebackExcerpts(ctx context.Context, tx *sql.Tx, item, revision int64) ([]Excerpt, error) {
