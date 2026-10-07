@@ -1,9 +1,13 @@
 package main
 
 import (
+	"cmp"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +20,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/brief"
 	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
+	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
@@ -752,6 +757,124 @@ func TestTrustDialog(t *testing.T) {
 				if !tt.answered || !ok || filepath.Dir(dir) != e.r.Scratch {
 					t.Errorf("trusted folder %s (%v), want only the case folder in %s after an answer", dir, ok, e.r.Scratch)
 				}
+			}
+		})
+	}
+}
+
+// sessionHook is hook with receipts as the real hook writes them in a mapped workspace
+// (E15-S4): each agent start has its own agent session id and transcript path, and the hook
+// adds the line of the last session in the workspace before it, with the time in zone, the zone
+// of the hook clock. printed makes the brief that the hook prints from the global part, the
+// workspace part, and the workspace part with that line.
+func (e *env) sessionHook(t *testing.T, zone *time.Location, printed func(global, workspace, withLine string) string) {
+	t.Helper()
+	e.hook(t, store.ResultEmitted, "")
+	starts := 0
+	e.fake.onStart = func(pane, kind string) {
+		starts++
+		ws, _, _ := strings.Cut(pane, ":")
+		key := e.lookup(t, ws).Entry.Key
+		br, err := output.Read(filepath.Join(e.testStore, outDir), key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s, err := store.Open(context.Background(), e.testStore, time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close() //nolint:errcheck // test
+		agent, transcript := fmt.Sprintf("agent-%d", starts), fmt.Sprintf("/tmp/transcript-%d.jsonl", starts)
+		if err := s.Write(context.Background(), func(tx *sql.Tx) error {
+			withLine := br.Workspace
+			last, ok, err := store.LastSession(context.Background(), tx, key, agent)
+			if err != nil {
+				return err
+			}
+			if ok {
+				withLine = brief.LastSession(br.Workspace, last.Profile, last.At.In(zone), *last.TranscriptPath)
+			}
+			sum := sha256.Sum256([]byte(printed(br.Global, br.Workspace, withLine)))
+			h, sess := hex.EncodeToString(sum[:]), session
+			_, err = store.InsertDelivery(context.Background(), tx, store.Delivery{Profile: kind, HerdrSession: &sess,
+				PaneID: pane, AgentSessionID: &agent, WorkspaceKey: &key, BriefHash: &h, OutputGeneration: &br.Generation,
+				ItemRevisions: br.Revisions, Result: store.ResultEmitted, At: e.r.Now(), TranscriptPath: &transcript})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// receipts counts the receipts in the test store.
+func receipts(t *testing.T, e *env) int {
+	t.Helper()
+	s, err := store.Open(context.Background(), e.testStore, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close() //nolint:errcheck // test
+	var n int
+	if err := s.Write(context.Background(), func(tx *sql.Tx) error {
+		return tx.QueryRowContext(context.Background(), "SELECT count(*) FROM deliveries").Scan(&n)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// #296: a claude whose folder-trust dialog the runner answered can run its start hook before
+// its close. Its receipt puts the line of its session into the brief of the fresh claude, and an
+// earlier probe puts its own into the brief of a later probe in the case workspace. A probe is
+// delivered when its receipt has the hash of the brief with that line, also when the hook clock
+// has another zone than the runner clock (UTC here). It is not delivered when its pane got
+// another brief: the brief without the line, or a line whose time is off by no zone offset.
+func TestLastSessionLine(t *testing.T) {
+	honest := func(global, _, withLine string) string { return brief.Text(global, withLine) }
+	both := deliveryCase("claude")[0]
+	both.Probes = append(both.Probes, Probe{Harness: "codex", Prompt: both.Probes[0].Prompt})
+	tests := []struct {
+		name     string
+		c        Case
+		zone     *time.Location // the zone of the hook clock; nil is UTC
+		printed  func(global, workspace, withLine string) string
+		receipts int // the trust answer, the probes
+		status   Status
+		why      string
+	}{
+		{"no earlier session", deliveryCase("codex")[0], nil, honest, 1, Delivered, ""},
+		{"answered claude ran its hook", deliveryCase("claude")[0], nil, honest, 2, Delivered, ""},
+		{"earlier probe", both, nil, honest, 3, Delivered, ""},
+		{"hook clock in another zone", deliveryCase("claude")[0], time.FixedZone("IST", 5*3600+30*60), honest, 2, Delivered, ""},
+		{"brief without the line", deliveryCase("claude")[0], nil, func(global, workspace, _ string) string {
+			return brief.Text(global, workspace)
+		}, 2, NotDelivered, "another brief hash"},
+		{"line with another time", deliveryCase("claude")[0], time.FixedZone("", 7*60), honest, 2, NotDelivered, "another brief hash"},
+		{"another brief", deliveryCase("claude")[0], nil, func(_, _, withLine string) string {
+			return brief.Text("other facts\n", withLine)
+		}, 2, NotDelivered, "another brief hash"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.fake.answer = knows
+			e.fake.trust = map[string]bool{"claude": true}
+			e.fake.hookOnTrust = true
+			e.sessionHook(t, cmp.Or(tt.zone, time.UTC), tt.printed)
+			if _, err := e.r.Run(context.Background(), []Case{tt.c}); err != nil {
+				t.Fatal(err)
+			}
+			rs := readResults(t, e)
+			if len(rs) != len(tt.c.Probes) {
+				t.Fatalf("got %d results, want %d", len(rs), len(tt.c.Probes))
+			}
+			for _, r := range rs {
+				if Status(r.Status) != tt.status || !strings.Contains(r.Why, tt.why) {
+					t.Errorf("result %s: %s (%s), want %s with %q", r.Harness, r.Status, r.Why, tt.status, tt.why)
+				}
+			}
+			if n := receipts(t, e); n != tt.receipts {
+				t.Errorf("receipts(test store) = %d, want %d", n, tt.receipts)
 			}
 		})
 	}
