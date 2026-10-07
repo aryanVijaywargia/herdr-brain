@@ -198,8 +198,9 @@ func TestCaptureS31(t *testing.T) {
 				"codex-s31-3-working.txt", "codex-s31-4-done.txt"},
 			statuses: []string{"working", "blocked", "working", "done"},
 			prompt:   "› Run touch made.txt",
-			want:     []string{"Would you like to run", "✔ You approved codex", "• Ran touch made.txt", "successfully"},
-			noise:    []string{"Context", "Working (", "Ask Codex"}},
+			want:     []string{"Would you like to run", "• Ran touch made.txt", "successfully"},
+			// The choices of the approval dialog and its echo line are not user text (#281).
+			noise: []string{"Context", "Working (", "Ask Codex", "Yes, proceed", "don't ask again", "✔ You approved codex"}},
 		{harness: "claude", source: herdr.ReadVisible,
 			files: []string{"claude-s31-0-base.txt", "claude-s31-1-working.txt", "claude-s31-2-blocked.txt",
 				"claude-s31-3-working.txt", "claude-s31-4-idle.txt"},
