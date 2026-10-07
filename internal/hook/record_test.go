@@ -25,16 +25,22 @@ import (
 // anthropicKey is a fake key in the shape that the secret filter finds.
 var anthropicKey = "sk-" + "ant-api03-" + strings.Repeat("xY9_", 8)
 
-// recordFixture is the fixture with an open capture session and segment of pane w14:p1 in
-// herdr session default, as brained keeps it.
+// recordFixture is the fixture with an open claude capture session and segment of pane w14:p1
+// in herdr session default, as brained keeps it.
 func recordFixture(t *testing.T) *fixture {
+	t.Helper()
+	return recordFixtureOf(t, "claude")
+}
+
+// recordFixtureOf is recordFixture with a capture session of harness.
+func recordFixtureOf(t *testing.T, harness string) *fixture {
 	t.Helper()
 	f := newFixture(t)
 	s := openStore(t, f.mainStore)
 	defer closeStore(t, s)
 	ctx := context.Background()
 	write(t, s, func(tx *sql.Tx) error {
-		key := store.SessionKey{HerdrSession: "default", Harness: "claude", Kind: store.KeyCapture, ID: "cap-1"}
+		key := store.SessionKey{HerdrSession: "default", Harness: harness, Kind: store.KeyCapture, ID: "cap-1"}
 		id, err := store.OpenSession(ctx, tx, key, "w14:p1", "ws_a14", testNow)
 		if err != nil {
 			return err
@@ -140,11 +146,105 @@ func TestRecord(t *testing.T) {
 	}
 }
 
+// AC #285: the codex-cli 0.160.1 payloads of the live hook test
+// (spike/m0/data/e11s1c-codex-hooks.txt) store the records that Brain needs. A prompt keeps an
+// @-mention as typed. A command record has the whole command and the turn cwd, also when the
+// command ran in another folder, and no exit status. The stop record has the reply.
+func TestRecordCodex(t *testing.T) {
+	p, err := adapter.Load("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := func(name string) []byte {
+		t.Helper()
+		raw, err := os.ReadFile(filepath.Join("testdata", "codex-0.160.1", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	f := recordFixtureOf(t, "codex")
+	clock := testNow
+	for _, r := range []struct{ event, file string }{
+		{adapter.EventPrompt, "prompt.json"},
+		{adapter.EventPrompt, "prompt-mention.json"},
+		{adapter.EventTool, "tool-cd.json"},
+		{adapter.EventTool, "tool-workdir.json"},
+		{adapter.EventTool, "tool-long.json"},
+		{adapter.EventStop, "stop.json"},
+	} {
+		if err := runRecord(t, f, p, r.event, "w14:p1", string(payload(r.file)), &clock); err != nil {
+			t.Fatalf("hook --event %s with %s: %v", r.event, r.file, err)
+		}
+	}
+	obs, cmds := recordRows(t, f)
+	commands := []string{"cd sub && pwd && ls nosuchfile-zq .", "pwd", "sleep 15 && echo long-zq-done ."}
+	want := []struct {
+		event   string
+		sender  store.Sender
+		excerpt string
+	}{
+		{"prompt", store.SenderUnconfirmed, "Repeat this whole message back to me exactly, character for character, " +
+			"and nothing else. Do not use any tool: qx-4410 blue river 7."},
+		{"prompt", store.SenderUnconfirmed, "Read @notes-zk.txt and quote its marker line. Do not run any shell command."},
+		{"tool", store.SenderTool, commands[0]},
+		{"tool", store.SenderTool, commands[1]},
+		{"tool", store.SenderTool, commands[2]},
+		// The excerpt drops the blank line of the reply.
+		{"stop", store.SenderAssistant, "zr-5531\nAll three commands ran in order; the first reported the missing file, " +
+			"and Git status was clean."},
+	}
+	if len(obs) != len(want) || len(cmds) != len(commands) {
+		t.Fatalf("got %d observations and %d command records, want %d and %d:\n%+v\n%+v", len(obs), len(cmds),
+			len(want), len(commands), obs, cmds)
+	}
+	for i, w := range want {
+		if o := obs[i]; o.Source != store.SourceHook || o.Event != w.event || o.Sender != w.sender || !o.Counts ||
+			o.Excerpt != w.excerpt {
+			t.Errorf("observation %d = %+v, want a hook %s by %s with %q", i, o, w.event, w.sender, w.excerpt)
+		}
+	}
+	// tool-workdir.json ran pwd in the sub folder: the cwd is still the turn cwd.
+	for i, c := range cmds {
+		if c.Argv != commands[i] || c.CWD != "~/brain-eval/t0134/work" || c.ExitStatus != nil || c.Truncated ||
+			c.SecretFound || c.ObservationID != obs[i+2].ID {
+			t.Errorf("command record %d = %+v, want %q in the turn cwd with no exit status", i, c, commands[i])
+		}
+	}
+
+	// The prompt hook with no output left the prompt unchanged: Codex echoed it word for word.
+	prompt, err := p.ParseRecord(adapter.EventPrompt, payload("prompt.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if echo, err := p.ParseRecord(adapter.EventStop, payload("stop-echo.json")); err != nil || echo.Text != prompt.Text {
+		t.Errorf("echo reply = %q, %v, want the prompt %q", echo.Text, err, prompt.Text)
+	}
+	// Every tool fires PostToolUse; an MCP tool has no command. So the tool entry matches only
+	// the shell tool, whose tool_name the profile names.
+	var mcp, shell struct {
+		ToolName string `json:"tool_name"`
+	}
+	if err := json.Unmarshal(payload("tool-mcp.json"), &mcp); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(payload("tool-cd.json"), &shell); err != nil {
+		t.Fatal(err)
+	}
+	if shell.ToolName != p.Events.ToolMatcher || mcp.ToolName == p.Events.ToolMatcher {
+		t.Errorf("tool matcher %q: shell tool %q, MCP tool %q, want only the shell tool", p.Events.ToolMatcher,
+			shell.ToolName, mcp.ToolName)
+	}
+	if _, err := p.ParseRecord(adapter.EventTool, payload("tool-mcp.json")); !errors.Is(err, adapter.ErrRetest) {
+		t.Errorf("MCP tool input = %v, want ErrRetest: it has no command", err)
+	}
+}
+
 // A hook record stores nothing when capture has no open segment of the pane, when learning is
 // off, or when the profile keeps the event off. Input of an unknown shape marks a retest.
 func TestRecordStoresNothing(t *testing.T) {
 	stop := `{"session_id":"s1","last_assistant_message":"ready"}`
-	codex, err := adapter.Load("codex")
+	agy, err := adapter.Load("agy")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +255,7 @@ func TestRecordStoresNothing(t *testing.T) {
 	}{
 		{"no capture segment", "w15:p1", nil, nil},
 		{"pane not live", "w14:p7", nil, nil},
-		{"codex records off", "w14:p1", codex, nil},
+		{"agy stop record off", "w14:p1", agy, nil},
 		{"learning off", "w14:p1", nil, func(t *testing.T, f *fixture) {
 			t.Helper()
 			s := openStore(t, f.mainStore)

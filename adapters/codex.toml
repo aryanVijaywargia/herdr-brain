@@ -4,9 +4,15 @@ kind = "codex"
 install_target = "~/.codex/hooks.json"
 # Codex 0.154 fires SessionStart at the first prompt, not at start (M0 item 1).
 events.start = "SessionStart"
-# Hook records (E11-S5, §6.1) stay off: the E11-S1 live hook test of Codex is still open. When
-# they go on, the Stop hook gives the stop record; `notify` is not a Brain source. Each new
-# hook entry needs Codex trust again.
+# Hook records (E11-S5, §6.1): on after the live hook test on codex-cli 0.160.1 (#285,
+# spike/m0/data/e11s1c-codex-hooks.txt). Codex has no failure event: PostToolUse also fires for
+# a command that fails. Every tool fires PostToolUse, MCP tools too, and only the shell tool
+# has a command, so the tool hook runs only for "Bash". The Stop hook gives the stop record;
+# `notify` is not a Brain source. Each new hook entry needs Codex trust again.
+events.prompt = "UserPromptSubmit"
+events.tool = ["PostToolUse"]
+events.tool_matcher = "Bash"
+events.stop = "Stop"
 start_condition = ""
 output_form = "hookSpecificOutput.additionalContext"
 input.session_id = "session_id"
@@ -14,8 +20,12 @@ input.cwd = "cwd"
 # The start input names the CLI's transcript file; Brain stores the path in the receipt and
 # never reads the file (E15-S4, spike/m0/data/e11s1-codex-hooks.txt).
 input.transcript_path = "transcript_path"
-# The hook record paths, from the Codex source: the shell command and the turn cwd, with no
-# exit status; the Stop reply can be null.
+# The hook record paths (live on codex-cli 0.160.1, #285). The prompt is the text as typed: an
+# @-mention stays "@file", and a hook with no output leaves the prompt unchanged. The shell
+# command is the whole command string, also for a long command. The cwd is the turn cwd: a
+# `cd` in the command and the workdir of the tool call do not change it. PostToolUse has no
+# exit status. The Stop reply is the final reply text; the Codex source says it can be null.
+# A turn that you stop with Esc fires no Stop and no PostToolUse.
 input.prompt = "prompt"
 input.command = "tool_input.command"
 input.reply = "last_assistant_message"
