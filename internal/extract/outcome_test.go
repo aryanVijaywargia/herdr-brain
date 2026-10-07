@@ -337,3 +337,39 @@ func TestComebackOfProcedureItem(t *testing.T) {
 		t.Errorf("outcomes = %v, want %v", got, want)
 	}
 }
+
+// AC E20-S2 #266 3: brain recall delivers too. A recall on the session's receipt before the
+// observation counts its revision, also when the brief did not hold the item; a later recall
+// can name a newer revision than the brief.
+func TestOutcomeRecall(t *testing.T) {
+	rev := func(item, n int64) store.RevisionRef { return store.RevisionRef{Item: item, Revision: n} }
+	for _, c := range []struct {
+		name  string
+		brief func(item int64) []store.RevisionRef
+		at    time.Duration // the recall time from t0
+		want  []string
+	}{
+		{"item not in the brief", func(item int64) []store.RevisionRef { return []store.RevisionRef{rev(item+1, 1)} },
+			-time.Minute, []string{"comeback 3"}},
+		{"newer than the brief", func(item int64) []store.RevisionRef { return []store.RevisionRef{rev(item, 1)} },
+			-time.Minute, []string{"comeback 3"}},
+		{"recall after the observation", func(item int64) []store.RevisionRef { return []store.RevisionRef{rev(item+1, 1)} },
+			time.Minute, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t)
+			item := f.revisedItem(3)
+			f.deliver(receiptOf("default", "a", store.ResultEmitted, t0.Add(-time.Hour), c.brief(item)...))
+			f.write(func(ctx context.Context, tx *sql.Tx) error {
+				_, err := store.InsertRecall(ctx, tx, store.Recall{DeliveryID: 1, ItemRevisions: []store.RevisionRef{rev(item, 3)},
+					At: t0.Add(c.at)})
+				return err
+			})
+			f.session("a", true, line{"ws-A", pnpm, t0})
+			f.mustRun()
+			if got := f.outcomes(); !slices.Equal(got, c.want) {
+				t.Errorf("outcomes = %v, want %v", got, c.want)
+			}
+		})
+	}
+}

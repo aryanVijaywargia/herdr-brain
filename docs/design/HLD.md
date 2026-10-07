@@ -953,6 +953,18 @@ shim = ""                                      # "ts" for OpenCode and pi
 - **Changed hook payload** (S14): if the profile parse fails on an unknown input shape, the parse fails closed. herdr capture continues, and `brain doctor` reports the parse failure.
 - Brain does not repair a configuration silently. `brain doctor` explains and asks.
 
+### 8.6 Recall during work
+
+An agent gets Brain items in the brief at session start. In a long session, it can need an item again. `brain recall <words>` gives it the matching items during work (E20-S2, owner approval 2026-10-07). It is a small CLI command, not an MCP server: the MCP gateway (§10.2) stays deferred (#151, #172).
+- **Where:** only in a live herdr pane. `brain recall` uses the resolver of §8.3, as `brain remember` does: the pane, its workspace and its store come from the herdr env, and herdr confirms the pane. Outside herdr, or with no store, it prints one line and exits 1 (§1.2).
+- **Which items:** only the items that the brief of this pane can deliver, with the same selection as the built parts: the active and disputed global items, and the active and disputed items of the pane's workspace. A pane of an unmapped workspace, or of a workspace whose root check failed, gets global items only (§8.3 step 4). No item of another workspace, and no draft, pending, rejected or retired item. A skill, a tool and an automation are not brief items, so recall does not return them.
+- **Match:** an item gets one point for each word of the query that starts a word of its text, case aside. More points come first, then the lower item id. An item with no point does not show. At most 10 items show [NEW].
+- **Form:** one heading line, then each item as the brief shows it, with the same marks: exception, conflict and dispute (§7.4, §9.1).
+- **Record:** a recall writes one `recalls` row on the newest receipt of the pane in its binding. When herdr shows the agent session of the pane, the receipt must name it. The row holds the item revisions that the recall printed and the time. A recall with no match, or with no such receipt, writes no row; the second case prints one warning line.
+- **Outcomes:** the receipt that a session ties to (§5.4) also names the revisions that recalls on it returned before the observation. A later recall can name a newer revision than the brief. So outcomes count a recalled revision as delivered to that session.
+- **Brief line:** the brief header has one fixed line after the remember line: `To find more Brain items on a topic during work, run: brain recall <words>` [NEW]. Its characters count in the global part budget.
+- Recall reads only the local store. No `brained`, no network, no LLM.
+
 ---
 
 ## 9. Upkeep
