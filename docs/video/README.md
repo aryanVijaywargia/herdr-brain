@@ -80,5 +80,5 @@ python3 make-webp.py ../../assets/herdr-brain-launch.mp4 ../../assets/herdr-brai
 ```
 
 Lint shows 1 warning: the file has more than 300 lines. One file is easier to keep true, so the warning stays.
-Keep the MP4 and the WebP each under 3.5 MB. The current render is 2.9 MB and 3.3 MB.
+Keep the MP4 and the WebP each under 3.5 MB. The current render is 3.1 MB and 3.3 MB.
 `node_modules/`, `out/` and `snapshots/` stay out of git (`.gitignore`).
