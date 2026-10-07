@@ -678,7 +678,7 @@ func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
 		s.w.printf("  waiting: none\n")
 	}
 	for _, w := range ws {
-		s.w.printf("  waiting in workspace %s: %d batches, the oldest %s old; %s\n", w.WorkspaceKey, w.Batches,
+		s.w.printf("  waiting in workspace %s: %s, the oldest %s old; %s\n", w.WorkspaceKey, batches(w.Batches),
 			age(s.Now().Sub(w.Oldest)), cmp.Or(w.Why, "the next pass takes them"))
 	}
 	bs, err := store.FailedBatches(ctx, tx)
@@ -695,6 +695,14 @@ func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
 			b.Status, b.Reason, age(s.Now().Sub(b.At)))
 	}
 	return nil
+}
+
+// batches returns "1 batch" or "n batches".
+func batches(n int) string {
+	if n == 1 {
+		return "1 batch"
+	}
+	return fmt.Sprintf("%d batches", n)
 }
 
 // extractor prints the extraction line: the chosen CLI and the switches. Extraction off is

@@ -147,7 +147,7 @@ func TestNoCLIWaits(t *testing.T) {
 	f.signalSession(t, "ws_a14", "a1")
 	status := f.mustStatus(t)
 	for _, want := range []string{"extraction: no extractor CLI is chosen, so Brain makes no extractor call; run brain setup\n",
-		"  waiting in workspace ws_a14: 1 batches, the oldest 3h old; no extractor CLI is chosen; run brain setup\n"} {
+		"  waiting in workspace ws_a14: 1 batch, the oldest 3h old; no extractor CLI is chosen; run brain setup\n"} {
 		if !strings.Contains(status, want) {
 			t.Errorf("brain status:\n%s\nwant %q", status, want)
 		}
@@ -172,7 +172,7 @@ func TestSignedOutExtractor(t *testing.T) {
 	s := openStore(t, f.store)
 	cli := &failingCLI{}
 	p := extract.Pass{Store: s, Runner: cli, HerdrSession: "default", DefaultOn: true,
-		Now: func() time.Time { return testNow.Add(2 * time.Hour) }}
+		Now: func() time.Time { return testNow.Add(150 * time.Minute) }}
 	if err := p.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -180,12 +180,58 @@ func TestSignedOutExtractor(t *testing.T) {
 	if cli.calls != 1 {
 		t.Fatalf("calls = %d, want 1", cli.calls)
 	}
-	want := "  waiting in workspace ws_a14: 1 batches, the oldest 3h old; the last claude call failed: claude: exit status 1\n"
+	want := "  waiting in workspace ws_a14: 1 batch, the oldest 3h old; the last claude call failed: claude: exit status 1\n"
 	if status := f.mustStatus(t); !strings.Contains(status, want) {
 		t.Errorf("brain status:\n%s\nwant %q", status, want)
 	}
 	f.failed(t, "", "extraction: the last extractor call for workspace ws_a14 failed (claude: exit status 1), so its signals wait; "+
 		"fix: run claude in a terminal and check that it works and is signed in")
+}
+
+// noClaimsCLI is an extractor CLI that works and finds no claim.
+type noClaimsCLI struct{}
+
+func (noClaimsCLI) Run(context.Context, extract.Command) ([]byte, error) {
+	return []byte(`{"type":"result","is_error":false,"structured_output":{"claims":[]}}`), nil
+}
+
+// AC #263: after a failed call, a later call that works: status and doctor no longer say that
+// the last call failed. The failed batch stays in the failed batches, with its time.
+func TestExtractorWorksAfterFailure(t *testing.T) {
+	f := newDoctorFixture(t)
+	f.setClaude(t)
+	f.signalSession(t, "ws_a14", "a1")
+	s := openStore(t, f.store)
+	run := func(r extract.Runner, at time.Time) {
+		t.Helper()
+		p := extract.Pass{Store: s, Runner: r, HerdrSession: "default", DefaultOn: true, Now: func() time.Time { return at }}
+		if err := p.Run(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run(&failingCLI{}, testNow.Add(150*time.Minute))
+	closeStore(t, s)
+	f.signalSession(t, "ws_b14", "b1")
+	s = openStore(t, f.store)
+	run(noClaimsCLI{}, testNow.Add(151*time.Minute))
+	closeStore(t, s)
+	status := f.mustStatus(t)
+	for _, want := range []string{
+		"  waiting in workspace ws_a14: 1 batch, the oldest 3h old; the next pass takes them\n",
+		"  failed batches: 1; their evidence waits for the next pass\n",
+		"workspace ws_a14: failed, claude: exit status 1, 30m ago\n",
+	} {
+		if !strings.Contains(status, want) {
+			t.Errorf("brain status:\n%s\nwant %q", status, want)
+		}
+	}
+	if strings.Contains(status, "call failed") {
+		t.Errorf("brain status:\n%s\nwant no failed last call", status)
+	}
+	out, _ := f.doctor(t, f.sock, "")
+	if strings.Contains(out, "last extractor call") {
+		t.Errorf("brain doctor:\n%s\nwant no failed last call", out)
+	}
 }
 
 // The review queue line of status counts only what the default brain review lists: a

@@ -31,17 +31,21 @@ type change struct {
 }
 
 // requests returns the change requests to draft again now, as jobs of the queue (§7.3). A
-// request waits while extraction or learning is off for its scope, and for retryAfter after a
-// failed or invalid call. A request of another herdr session's workspace waits for that pass;
-// a global one goes to any pass. A request that is no longer current is discarded here.
+// request waits while extraction or learning is off for its scope, and after a failed or
+// invalid call until its retry (waits). A request of another herdr session's workspace waits
+// for that pass; a global one goes to any pass. A request that is no longer current is discarded here.
 func (p Pass) requests(ctx context.Context, tx *sql.Tx) ([]job, error) {
 	rs, err := store.OpenChangeRequests(ctx, tx)
 	if err != nil {
 		return nil, err
 	}
+	worked, err := store.LastWorkedCall(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
 	var jobs []job
 	for _, r := range rs {
-		if (r.Status == store.ChangeFailed || r.Status == store.ChangeInvalid) && p.Now().Sub(r.At) < retryAfter ||
+		if (r.Status == store.ChangeFailed || r.Status == store.ChangeInvalid) && p.waits(r.At, worked) ||
 			r.Status == store.ChangeActive && p.Now().Sub(r.At) < changeStale {
 			continue
 		}
