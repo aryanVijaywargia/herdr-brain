@@ -25,16 +25,22 @@ import (
 // anthropicKey is a fake key in the shape that the secret filter finds.
 var anthropicKey = "sk-" + "ant-api03-" + strings.Repeat("xY9_", 8)
 
-// recordFixture is the fixture with an open capture session and segment of pane w14:p1 in
-// herdr session default, as brained keeps it.
+// recordFixture is the fixture with an open claude capture session and segment of pane w14:p1
+// in herdr session default, as brained keeps it.
 func recordFixture(t *testing.T) *fixture {
+	t.Helper()
+	return recordFixtureOf(t, "claude")
+}
+
+// recordFixtureOf is recordFixture with a capture session of harness.
+func recordFixtureOf(t *testing.T, harness string) *fixture {
 	t.Helper()
 	f := newFixture(t)
 	s := openStore(t, f.mainStore)
 	defer closeStore(t, s)
 	ctx := context.Background()
 	write(t, s, func(tx *sql.Tx) error {
-		key := store.SessionKey{HerdrSession: "default", Harness: "claude", Kind: store.KeyCapture, ID: "cap-1"}
+		key := store.SessionKey{HerdrSession: "default", Harness: harness, Kind: store.KeyCapture, ID: "cap-1"}
 		id, err := store.OpenSession(ctx, tx, key, "w14:p1", "ws_a14", testNow)
 		if err != nil {
 			return err
@@ -140,11 +146,127 @@ func TestRecord(t *testing.T) {
 	}
 }
 
+// AC #285: each codex-cli 0.160.1 payload of the live hook test that reaches `brain hook`
+// (spike/m0/data/e11s1c-codex-hooks.txt), in the order of the test, stores the record that
+// Brain needs. A prompt keeps an @-mention as typed. A command record has the whole command and
+// the turn cwd, also when the command ran in another folder, and no exit status. A stop record
+// has the reply.
+func TestRecordCodex(t *testing.T) {
+	p, err := adapter.Load("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := func(name string) []byte { return codexPayload(t, name) }
+	echo := "Repeat this whole message back to me exactly, character for character, and nothing else. " +
+		"Do not use any tool: qx-4410 blue river 7."
+	want := []struct {
+		event, file string
+		excerpt     string // the stored text; for a tool, also the command of its record
+	}{
+		{adapter.EventPrompt, "prompt.json", echo},
+		{adapter.EventStop, "stop-echo.json", echo},
+		{adapter.EventPrompt, "prompt-mention.json", "Read @notes-zk.txt and quote its marker line. Do not run any shell command."},
+		{adapter.EventStop, "stop-mention.json", "> marker: qz-6612"},
+		{adapter.EventPrompt, "prompt-commands.json", "Run these shell commands, one tool call each, in this order. " +
+			"1: cd sub && pwd && ls nosuchfile-zq . 2: pwd, with the working directory of the tool call set to the sub " +
+			"folder (use the workdir option of the tool, not cd). 3: git status --short. Then reply with the word " +
+			"zr-5531 and one short sentence."},
+		{adapter.EventTool, "tool-cd.json", "cd sub && pwd && ls nosuchfile-zq ."},
+		// pwd ran in the sub folder: the cwd is still the turn cwd.
+		{adapter.EventTool, "tool-workdir.json", "pwd"},
+		{adapter.EventTool, "tool-git-status.json", "git status --short"},
+		// The excerpt drops the blank line of the reply.
+		{adapter.EventStop, "stop-commands.json", "zr-5531\nAll three commands ran in order; the first reported the " +
+			"missing file, and Git status was clean."},
+		{adapter.EventPrompt, "prompt-long.json", "Run this exact shell command as one tool call: sleep 15 && echo " +
+			"long-zq-done . Then reply with only the word zr-6620."},
+		{adapter.EventTool, "tool-long.json", "sleep 15 && echo long-zq-done ."},
+		{adapter.EventStop, "stop-long.json", "zr-6620"},
+		// A turn stopped with Esc: its prompt is the last hook run.
+		{adapter.EventPrompt, "prompt-stopped.json", "Run this exact shell command as one tool call: sleep 40 && echo " +
+			"late-zq . Then reply with only the word zr-7730."},
+	}
+	f := recordFixtureOf(t, "codex")
+	clock := testNow
+	for _, w := range want {
+		if err := runRecord(t, f, p, w.event, "w14:p1", string(payload(w.file)), &clock); err != nil {
+			t.Fatalf("hook --event %s with %s: %v", w.event, w.file, err)
+		}
+	}
+	obs, cmds := recordRows(t, f)
+	if len(obs) != len(want) || len(cmds) != 4 {
+		t.Fatalf("got %d observations and %d command records, want %d and 4:\n%+v\n%+v", len(obs), len(cmds),
+			len(want), obs, cmds)
+	}
+	var tools []store.Observation
+	for i, w := range want {
+		o := obs[i]
+		if o.Source != store.SourceHook || o.Event != w.event || o.Sender != senders[w.event] || !o.Counts ||
+			o.Excerpt != w.excerpt {
+			t.Errorf("%s: observation = %+v, want a hook %s by %s with %q", w.file, o, w.event, senders[w.event], w.excerpt)
+		}
+		if w.event == adapter.EventTool {
+			tools = append(tools, o)
+		}
+	}
+	for i, c := range cmds {
+		if c.Argv != tools[i].Excerpt || c.CWD != "~/brain-eval/t0134/work" || c.ExitStatus != nil || c.Truncated ||
+			c.SecretFound || c.ObservationID != tools[i].ID {
+			t.Errorf("command record %d = %+v, want %q in the turn cwd with no exit status", i, c, tools[i].Excerpt)
+		}
+	}
+
+	// The prompt hook with no output left the prompt unchanged: Codex echoed it word for word.
+	prompt, err := p.ParseRecord(adapter.EventPrompt, payload("prompt.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply, err := p.ParseRecord(adapter.EventStop, payload("stop-echo.json")); err != nil || reply.Text != prompt.Text {
+		t.Errorf("echo reply = %q, %v, want the prompt %q", reply.Text, err, prompt.Text)
+	}
+}
+
+// codexPayload reads the payload file name of the codex-cli 0.160.1 live hook test (#285).
+func codexPayload(t *testing.T, name string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "codex-0.160.1", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// Every Codex tool fires PostToolUse; an MCP tool has no command. So the codex tool entry
+// matches only the shell tool, whose tool_name the profile names (#285).
+func TestCodexToolMatcher(t *testing.T) {
+	p, err := adapter.Load("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := func(name string) []byte { return codexPayload(t, name) }
+	var mcp, shell struct {
+		ToolName string `json:"tool_name"`
+	}
+	if err := json.Unmarshal(payload("tool-mcp.json"), &mcp); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(payload("tool-cd.json"), &shell); err != nil {
+		t.Fatal(err)
+	}
+	if shell.ToolName != p.Events.ToolMatcher || mcp.ToolName == p.Events.ToolMatcher {
+		t.Errorf("tool matcher %q: shell tool %q, MCP tool %q, want only the shell tool", p.Events.ToolMatcher,
+			shell.ToolName, mcp.ToolName)
+	}
+	if _, err := p.ParseRecord(adapter.EventTool, payload("tool-mcp.json")); !errors.Is(err, adapter.ErrRetest) {
+		t.Errorf("MCP tool input = %v, want ErrRetest: it has no command", err)
+	}
+}
+
 // A hook record stores nothing when capture has no open segment of the pane, when learning is
 // off, or when the profile keeps the event off. Input of an unknown shape marks a retest.
 func TestRecordStoresNothing(t *testing.T) {
 	stop := `{"session_id":"s1","last_assistant_message":"ready"}`
-	codex, err := adapter.Load("codex")
+	agy, err := adapter.Load("agy")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +277,7 @@ func TestRecordStoresNothing(t *testing.T) {
 	}{
 		{"no capture segment", "w15:p1", nil, nil},
 		{"pane not live", "w14:p7", nil, nil},
-		{"codex records off", "w14:p1", codex, nil},
+		{"agy stop record off", "w14:p1", agy, nil},
 		{"learning off", "w14:p1", nil, func(t *testing.T, f *fixture) {
 			t.Helper()
 			s := openStore(t, f.mainStore)
