@@ -68,7 +68,8 @@ func TestParseRecord(t *testing.T) {
 	}
 }
 
-// Claude turns on the hook records; Codex keeps them off until its E11-S1 live test.
+// Claude and Codex turn on the hook records, each after its live hook test; Codex has no
+// failure event (#285).
 func TestHooks(t *testing.T) {
 	c, err := Load("claude")
 	if err != nil {
@@ -83,12 +84,14 @@ func TestHooks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := x.Hooks(); len(got) != 1 || got[0].Event != EventStart {
-		t.Errorf("codex Hooks = %+v, want the start hook only", got)
+	want = []Hook{{"SessionStart", EventStart, ""}, {"UserPromptSubmit", EventPrompt, ""},
+		{"PostToolUse", EventTool, "Bash"}, {"Stop", EventStop, ""}}
+	if got := x.Hooks(); !slices.Equal(got, want) {
+		t.Errorf("codex Hooks = %+v, want %+v", got, want)
 	}
 	for _, e := range []string{EventPrompt, EventTool, EventStop} {
-		if !c.On(e) || x.On(e) {
-			t.Errorf("On(%s): claude %v, codex %v, want true, false", e, c.On(e), x.On(e))
+		if !c.On(e) || !x.On(e) {
+			t.Errorf("On(%s): claude %v, codex %v, want true, true", e, c.On(e), x.On(e))
 		}
 	}
 }

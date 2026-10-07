@@ -166,7 +166,7 @@ func TestDoctorClean(t *testing.T) {
 // AC: an untested herdr version is no failure (S54); a herdr that is too old fails with the fix.
 func TestDoctorHerdr(t *testing.T) {
 	f := newDoctorFixture(t)
-	f.herdr.version, f.herdr.untested = "0.9.3", true
+	f.herdr.version, f.herdr.untested = "0.9.4", true
 	if out, err := f.doctor(t, f.sock, ""); err != nil {
 		t.Errorf("Doctor() = %v\n%s\nwant an untested herdr to pass", err, out)
 	}

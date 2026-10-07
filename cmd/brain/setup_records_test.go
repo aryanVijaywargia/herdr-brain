@@ -20,8 +20,8 @@ func fakeClaude(t *testing.T, home, version string) {
 	}
 }
 
-// Setup offers the hook record entries of Claude after its start entry, with one question
-// (E11-S5). Codex keeps them off. A CLI version newer than tested still gets them (D13, #251).
+// Setup offers the hook record entries of Claude and Codex after their start entries, with
+// one question (E11-S5, #285). A CLI version newer than tested still gets them (D13, #251).
 func TestSetupHookRecords(t *testing.T) {
 	p, err := adapter.Load("claude")
 	if err != nil {
@@ -43,8 +43,14 @@ func TestSetupHookRecords(t *testing.T) {
 				t.Errorf("settings.json does not contain %q:\n%s", want, settings(home))
 			}
 		}
-		if strings.Contains(codex(home), "--event tool") {
-			t.Errorf("hooks.json holds a Codex hook record entry:\n%s", codex(home))
+		for _, want := range []string{"--profile codex --event prompt", "--profile codex --event tool",
+			"--profile codex --event stop", `{"matcher":"Bash","hooks":[`} {
+			if !strings.Contains(codex(home), want) {
+				t.Errorf("hooks.json does not contain %q:\n%s", want, codex(home))
+			}
+		}
+		if strings.Contains(codex(home), "PostToolUseFailure") {
+			t.Errorf("hooks.json holds a PostToolUseFailure entry, an event that Codex does not have:\n%s", codex(home))
 		}
 		// #249: setup records the install time of each start entry it adds.
 		for _, kind := range []string{"claude", "codex"} {
@@ -53,7 +59,7 @@ func TestSetupHookRecords(t *testing.T) {
 			}
 		}
 		for _, want := range []string{"Add these entries to ", "Added the hook record entries for claude",
-			"needs trust again"} {
+			"Added the hook record entries for codex", "needs trust again"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("output does not contain %q:\n%s", want, out)
 			}
