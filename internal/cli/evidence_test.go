@@ -187,9 +187,11 @@ func TestReviewEvidenceArgs(t *testing.T) {
 	}
 	for _, args := range [][]string{{"--evidence"}, {fmt.Sprint(pid), "--evidence", "--approve"},
 		{fmt.Sprint(pid), "--evidence", "--detail"}, {"--all", "--evidence"}} {
-		if _, err := f.review(t, args...); err == nil || !strings.Contains(err.Error(), "goes with a proposal id alone") {
-			t.Errorf("review %q = %v, want the --evidence error", args, err)
-		}
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			if _, err := f.review(t, args...); err == nil || !strings.Contains(err.Error(), "goes with a proposal id alone") {
+				t.Errorf("review %q = %v, want the --evidence error", args, err)
+			}
+		})
 	}
 }
 
@@ -205,5 +207,34 @@ func TestPaneEvidenceDisputeKeys(t *testing.T) {
 	last := screen[strings.LastIndex(screen, clearScreen):]
 	if !strings.Contains(last, evidenceNone) || !strings.HasSuffix(last, "\n"+disputeKeys) {
 		t.Errorf("screen =\n%s\nwant the evidence view with the dispute keys", last)
+	}
+}
+
+// Sol review of PR #295: a tab shows as spaces, so the pane counts the rows of a line by its
+// runes and the view stays in the pane height.
+func TestPaneEvidenceTabs(t *testing.T) {
+	f := newFixture(t)
+	pid, _ := f.extractorProposal(t)
+	f.around(t, lines(strings.Repeat("field\t", 12), 20), nil)
+	screen := f.paneScreen(t, pid, "vq", 16, 80)
+	last := strings.TrimPrefix(screen[strings.LastIndex(screen, clearScreen):], clearScreen)
+	if strings.Contains(last, "\t") {
+		t.Errorf("screen =\n%s\nwant no tab", last)
+	}
+	if n := screenRows(last, 80); n > 16 {
+		t.Errorf("screen takes %d rows, want at most 16:\n%s", n, last)
+	}
+}
+
+// Sol review of PR #295: stored text that only another workspace sees is not called gone.
+func TestEvidenceElsewhere(t *testing.T) {
+	f := newFixture(t)
+	pid, _ := f.extractorProposal(t)
+	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE evidence_links SET workspace_key = 'ws_other'`)
+		return err
+	})
+	if out := f.mustReview(t, fmt.Sprint(pid), "--evidence"); !strings.HasSuffix(out, "\n"+evidenceElsewhere) {
+		t.Errorf("evidence view = %q, want %q", out, evidenceElsewhere)
 	}
 }

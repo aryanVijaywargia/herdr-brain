@@ -19,7 +19,13 @@ const evidenceLines = 20
 const (
 	evidenceGone = "evidence: the stored text of the source excerpts is gone (forgotten, or past retention)\n"
 	evidenceNone = "evidence: none: this proposal has no captured source text\n"
+	// The stored text is in workspaces that the caller does not see: show hides it too.
+	evidenceElsewhere = "evidence: the stored text of the source excerpts is in another workspace\n"
 )
+
+// tabWidth is the spaces that the evidence view shows for a tab, so that the pane counts the
+// rows of a line by its runes (#254). [NEW] 4.
+const tabWidth = 4
 
 // view shows proposal r.id: its evidence view with --evidence, else the proposal.
 func (cl caller) view(ctx context.Context, r review) error {
@@ -67,8 +73,10 @@ func (cl caller) showEvidence(ctx context.Context, id int64) error {
 		switch {
 		case !ok:
 			b.WriteString(evidenceNone)
-		case len(shown) == 0:
+		case len(es) == 0:
 			b.WriteString(evidenceGone)
+		case len(shown) == 0:
+			b.WriteString(evidenceElsewhere)
 		}
 		for i, e := range shown {
 			before, after, err := store.Around(ctx, tx, e.ObservationID, evidenceLines)
@@ -104,9 +112,11 @@ func textLines(obs []store.Observation) []string {
 	return lines
 }
 
-// storedLines are the lines of stored text, through the secret filter.
+// storedLines are the lines of stored text, through the secret filter, with each tab as
+// tabWidth spaces.
 func storedLines(text string) []string {
-	return strings.Split(strings.TrimRight(extract.Redact(text), "\n"), "\n")
+	text = strings.ReplaceAll(extract.Redact(text), "\t", strings.Repeat(" ", tabWidth))
+	return strings.Split(strings.TrimRight(text, "\n"), "\n")
 }
 
 func lastLines(lines []string, n int) []string { return lines[max(0, len(lines)-n):] }
