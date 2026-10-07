@@ -69,7 +69,7 @@
         font-size: 34px;
         line-height: 1.12;
         font-weight: 700;
-        color: #26262f;
+        color: #32323d;
         white-space: pre;
         transform-origin: 30% 60%;
       }
@@ -78,7 +78,7 @@
         opacity: 0.55;
       }
       #mascot .mouth {
-        color: #3a3a45;
+        color: #4a4a57;
       }
 
       /* Header: product mark and version. */
@@ -302,9 +302,9 @@
 <span class="st">claude · no memory</span></div>
         <div class="chip" id="c2" style="left: 640px; top: 176px"><span class="name"><span class="dot"></span>notes-api</span>
 <span class="st">codex · no memory</span></div>
-        <div class="chip" id="c3" style="left: 96px; top: 744px"><span class="name"><span class="dot"></span>billing-page</span>
+        <div class="chip" id="c3" style="left: 70px; top: 712px"><span class="name"><span class="dot"></span>billing-page</span>
 <span class="st">claude · no memory</span></div>
-        <div class="chip" id="c4" style="left: 560px; top: 820px"><span class="name"><span class="dot"></span>docs</span>
+        <div class="chip" id="c4" style="left: 170px; top: 880px"><span class="name"><span class="dot"></span>docs</span>
 <span class="st">codex · no memory</span></div>
       </div>
 
@@ -392,16 +392,16 @@ l later   q close</div>
 
       <!-- 6. End card. -->
       <div id="s6" class="clip" data-start="13.5" data-duration="2.5" data-track-index="1">
-        <div class="label" id="s6-label" style="position: absolute; left: 60px; top: 300px">A plugin for herdr</div>
-        <div class="headline" id="s6-head" style="top: 360px; font-size: 176px; line-height: 0.96">
+        <div class="label" id="s6-label" style="position: absolute; left: 60px; top: 240px">A plugin for herdr</div>
+        <div class="headline" id="s6-head" style="top: 300px; font-size: 176px; line-height: 0.96">
           <span class="ln">Herdr</span>
           <span class="ln accent">Brain.</span>
         </div>
-        <div class="pane" id="s6-cmd" style="left: 60px; top: 760px; width: 960px; height: 92px; padding: 22px 28px; font-size: 26px; line-height: 44px">
+        <div class="pane" id="s6-cmd" style="left: 60px; top: 690px; width: 960px; height: 92px; padding: 22px 28px; font-size: 26px; line-height: 44px">
           <div class="tx"><span class="muted">$ </span><span id="s6-type"></span><span class="cursor" id="s6-cursor"></span></div>
         </div>
-        <div id="s6-foot" style="position: absolute; left: 60px; top: 892px; font-family: var(--mono); font-size: 23px; color: var(--dim)">
-          claude code · codex · global and workspace memory · local store
+        <div id="s6-foot" style="position: absolute; left: 60px; top: 818px; font-family: var(--mono); font-size: 23px; color: var(--dim)">
+          claude code · codex · local store
         </div>
       </div>
 
@@ -435,11 +435,12 @@ l later   q close</div>
       const inn = "power3.out";
 
       // Mascot and header: a slow drift for the whole video.
-      tl.fromTo("#mascot", { y: 40, rotation: -4 }, { y: 0, rotation: -1, duration: 16, ease: "sine.inOut" }, 0);
+      tl.fromTo("#mascot", { y: 40, rotation: -4 }, { y: 0, rotation: -1, duration: 13.4, ease: "sine.inOut" }, 0);
+      tl.to("#mascot", { y: 80, rotation: 0, duration: 0.8, ease: inn }, 13.5);
       tl.fromTo("#header", { opacity: 0, y: -12 }, { opacity: 1, y: 0, duration: 0.5, ease: inn }, 0);
       tl.to("#mascot .eye", { opacity: 1, duration: 0.3 }, 12.1);
       tl.to("#mascot .eye", { opacity: 0.55, duration: 0.3 }, 13.2);
-      tl.to("#mascot", { color: "#30303b", duration: 0.6 }, 13.6);
+      tl.to("#mascot", { color: "#3e3e4b", duration: 0.6 }, 13.6);
       tl.to("#mascot .eye", { opacity: 1, duration: 0.2, repeat: 1, yoyo: true }, 15.3);
 
       // 1. Problem.
@@ -484,7 +485,7 @@ l later   q close</div>
       // 5. It learns more (short).
       tl.from("#s5-head .ln", { opacity: 0, y: 40, duration: 0.4, ease: inn, stagger: 0.18 }, 12.12);
       tl.from("#s5 .c5", { opacity: 0, scale: 0.85, duration: 0.3, ease: "back.out(1.6)", stagger: 0.1 }, 12.45);
-      tl.from("#s5-label", { opacity: 0, x: -24, duration: 0.35, ease: inn }, 12.85);
+      tl.from("#s5-label", { opacity: 0, x: -24, duration: 0.35, ease: inn }, 12.7);
 
       // Wipe into the end card.
       tl.fromTo("#wipe", { x: -1700, skewX: -14 }, { x: 1500, skewX: -14, duration: 0.75, ease: "power2.inOut" }, 13.15);

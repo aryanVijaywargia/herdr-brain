@@ -17,6 +17,8 @@
 A herdr plugin that gives every coding agent in herdr the same global and workspace memory.
 The name is temporary.
 
+<p align="center"><a href="assets/herdr-brain-launch.mp4"><img src="assets/herdr-brain-launch.webp" width="88%" alt="Animation: every new agent session starts cold. You tell a Claude session once, in plain words, to run lint and tests before each commit. Brain shows the draft in a review pane beside the session, and you approve it. New Claude Code and Codex sessions in the workspace get the item at start. Brain also learns from your corrections and suggests skills, tools and automations for you to review. The end card shows the install command: herdr plugin install aryanVijaywargia/herdr-brain" /></a></p>
+
 Status: M1 to M4 are built. The repo is private, so there is no release binary yet. Design: [`docs/design/HLD.md`](docs/design/HLD.md). M0 spike results: [`spike/m0/FINDINGS.md`](spike/m0/FINDINGS.md).
 
 ## What Brain does
