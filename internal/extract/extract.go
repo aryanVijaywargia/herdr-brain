@@ -533,13 +533,15 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	if err != nil {
 		return Suggestion{}, err
 	}
+	// Each outcome names its failure: the claim that got the evidence, after a merge (E20-S5).
 	// The skill link comes first: an unconfirmed same_as link to the same skill adds no
 	// uncertain outcome over its comeback.
-	covered, err := p.skillOutcomes(ctx, tx, j, c.CoveredBy, failures(kind, accepted), now)
+	base := store.Outcome{SessionID: j.session.ID, ClaimID: into, At: now}
+	covered, err := skillOutcomes(ctx, tx, j, c.CoveredBy, failures(kind, accepted, c.Refs), base)
 	if err != nil {
 		return Suggestion{}, err
 	}
-	if err := p.outcomes(ctx, tx, j, claim, corrections(kind, accepted), now); err != nil {
+	if err := outcomes(ctx, tx, j, claim, corrections(kind, accepted), base); err != nil {
 		return Suggestion{}, err
 	}
 	if id == 0 || covered {
@@ -654,21 +656,25 @@ func corrections(kind store.CandidateKind, refs []ref) []ref {
 	return slices.DeleteFunc(slices.Clone(refs), func(r ref) bool { return r.kind != signal.Correction })
 }
 
-// failures returns the new failures of refs, the evidence that Attach accepted for a candidate
-// of kind, for the skill that covers them (E20-S5): all of refs for a correction candidate,
-// else the refs of a correction or of the failure output of a tool.
-func failures(kind store.CandidateKind, refs []ref) []ref {
-	if kind == store.CandidateCorrection {
-		return refs
+// failures returns the new failures of a claim for the skill that covers it (E20-S5): its
+// corrections in accepted, the evidence that Attach accepted for its candidate of kind, and each
+// tool failure in refs, the checked refs of the claim. A correction candidate refuses tool
+// output (§6.5), but a tool failure in the steps of a skill is a failure of the skill.
+func failures(kind store.CandidateKind, accepted, refs []ref) []ref {
+	fs := corrections(kind, accepted)
+	for _, r := range refs {
+		if r.kind == signal.Failure && !slices.ContainsFunc(fs, func(f ref) bool { return f.obs == r.obs }) {
+			fs = append(fs, r)
+		}
 	}
-	return slices.DeleteFunc(slices.Clone(refs), func(r ref) bool { return r.kind != signal.Correction && r.kind != signal.Failure })
+	return fs
 }
 
 // skillOutcomes records an outcome of each new failure in refs for each active item of skill,
 // the claim of the skill that covers them, in the scope of batch j (E20-S5): the skill gets the
-// comeback of the revision that the session got, as an item of the claim does (§5.4). It
-// reports whether such a skill exists.
-func (p Pass) skillOutcomes(ctx context.Context, tx *sql.Tx, j job, skill string, refs []ref, now time.Time) (bool, error) {
+// comeback of the revision that the session got, as an item of the claim does (§5.4). base
+// holds the session, the failure claim and the time. It reports whether such a skill exists.
+func skillOutcomes(ctx context.Context, tx *sql.Tx, j job, skill string, refs []ref, base store.Outcome) (bool, error) {
 	if skill == "" {
 		return false, nil
 	}
@@ -682,7 +688,9 @@ func (p Pass) skillOutcomes(ctx context.Context, tx *sql.Tx, j job, skill string
 			return false, err
 		}
 		for _, it := range items {
-			if err := p.outcome(ctx, tx, j, it, r, d, ok, false, now); err != nil {
+			o := base
+			o.ItemID, o.ObservationID = it, r.obs
+			if err := outcome(ctx, tx, o, d, ok, false); err != nil {
 				return false, err
 			}
 		}
@@ -693,8 +701,9 @@ func (p Pass) skillOutcomes(ctx context.Context, tx *sql.Tx, j job, skill string
 // outcomes records an outcome of each new correction in refs of claim, for each active item of the claim in the scope of batch j, after the evidence (§5.4, §7.3
 // order for a known claim). An active item of the claim that an unconfirmed same_as link of
 // claim names gets an uncertain outcome instead of a comeback. A second comeback on one
-// revision queues the change request of that revision (outcome).
-func (p Pass) outcomes(ctx context.Context, tx *sql.Tx, j job, claim string, refs []ref, now time.Time) error {
+// revision queues the change request of that revision (outcome). base holds the session, the
+// failure claim and the time.
+func outcomes(ctx context.Context, tx *sql.Tx, j job, claim string, refs []ref, base store.Outcome) error {
 	key := j.batch.WorkspaceKey
 	items, err := store.ActiveClaimItems(ctx, tx, claim, key)
 	if err != nil {
@@ -715,8 +724,11 @@ func (p Pass) outcomes(ctx context.Context, tx *sql.Tx, j job, claim string, ref
 		if err != nil {
 			return err
 		}
+		o := base
+		o.ObservationID = r.obs
 		for _, it := range items {
-			if err := p.outcome(ctx, tx, j, it, r, d, ok, false, now); err != nil {
+			o.ItemID = it
+			if err := outcome(ctx, tx, o, d, ok, false); err != nil {
 				return err
 			}
 		}
@@ -724,7 +736,8 @@ func (p Pass) outcomes(ctx context.Context, tx *sql.Tx, j job, claim string, ref
 			if slices.Contains(items, it) {
 				continue
 			}
-			if err := p.outcome(ctx, tx, j, it, r, d, ok, true, now); err != nil {
+			o.ItemID = it
+			if err := outcome(ctx, tx, o, d, ok, true); err != nil {
 				return err
 			}
 		}
@@ -732,36 +745,39 @@ func (p Pass) outcomes(ctx context.Context, tx *sql.Tx, j job, claim string, ref
 	return nil
 }
 
-// outcome records the outcome of correction r for item from receipt d (ok is false for no
-// tied receipt): uncertain replaces a comeback when the match is a guess. The second comeback
-// on one revision queues its change request. A skill counts sessions, not flags: two flags in
-// one session queue nothing (E20-S5).
-func (p Pass) outcome(ctx context.Context, tx *sql.Tx, j job, item int64, r ref, d store.Delivery, ok, guess bool, now time.Time) error {
-	kind, rev, write := outcomeOf(d, ok, item)
+// outcome records outcome o of a correction for item o.ItemID from receipt d (ok is false for
+// no tied receipt): d gives its kind and revision, and uncertain replaces a comeback when the
+// match is a guess. The second comeback on one revision queues its change request. A skill
+// counts the sessions of one failure, not flags: two flags in one session, or two failures in
+// two sessions, queue nothing (E20-S5).
+func outcome(ctx context.Context, tx *sql.Tx, o store.Outcome, d store.Delivery, ok, guess bool) error {
+	kind, rev, write := outcomeOf(d, ok, o.ItemID)
 	if !write {
 		return nil
 	}
 	if kind == store.OutcomeComeback && guess {
 		kind = store.OutcomeUncertain
 	}
-	added, err := store.AddOutcome(ctx, tx, store.Outcome{ItemID: item, Revision: rev, SessionID: j.session.ID, Kind: kind,
-		ObservationID: r.obs, At: now})
+	o.Kind, o.Revision = kind, rev
+	added, err := store.AddOutcome(ctx, tx, o)
 	if err != nil || !added || kind != store.OutcomeComeback {
 		return err
 	}
-	it, err := store.ItemByID(ctx, tx, item)
+	it, err := store.ItemByID(ctx, tx, o.ItemID)
 	if err != nil {
 		return err
 	}
-	count := store.Comebacks
-	if it.Kind == store.KindSkill {
-		count = store.ComebackSessions
+	var n int
+	switch it.Kind {
+	case store.KindSkill:
+		n, err = store.FailureSessions(ctx, tx, o.ItemID, rev, o.ClaimID)
+	default:
+		n, err = store.Comebacks(ctx, tx, o.ItemID, rev)
 	}
-	n, err := count(ctx, tx, item, rev)
 	if err != nil || n < 2 {
 		return err
 	}
-	return store.QueueItemChange(ctx, tx, item, rev, now)
+	return store.QueueItemChange(ctx, tx, o.ItemID, rev, o.At)
 }
 
 // outcomeOf is the outcome for item of a session whose last receipt before the observation is

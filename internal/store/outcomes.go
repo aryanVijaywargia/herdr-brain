@@ -25,16 +25,17 @@ type Outcome struct {
 	SessionID     int64 // the sessions row, which holds the session key
 	Kind          OutcomeKind
 	ObservationID int64
+	ClaimID       string // the claim of the failure: the claim whose evidence the observation is (E20-S5)
 	At            time.Time
 }
 
 // AddOutcome adds o. It returns false when the observation already has an outcome for the
 // item: a retry adds nothing.
 func AddOutcome(ctx context.Context, tx *sql.Tx, o Outcome) (bool, error) {
-	res, err := tx.ExecContext(ctx, `INSERT INTO outcomes (item_id, revision, session_id, kind, observation_id, at)
-		VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (item_id, observation_id) DO NOTHING`,
+	res, err := tx.ExecContext(ctx, `INSERT INTO outcomes (item_id, revision, session_id, kind, observation_id, claim_id,
+		at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (item_id, observation_id) DO NOTHING`,
 		o.ItemID, sql.NullInt64{Int64: o.Revision, Valid: o.Revision != 0}, o.SessionID, o.Kind, o.ObservationID,
-		timeArg(o.At))
+		nullText(o.ClaimID), timeArg(o.At))
 	if err != nil {
 		return false, fmt.Errorf("add outcome of item %d: %w", o.ItemID, err)
 	}
@@ -53,8 +54,21 @@ func Comebacks(ctx context.Context, tx *sql.Tx, item, revision int64) (int, erro
 	return n, nil
 }
 
-// ComebackSessions counts the sessions with a comeback on revision of item: two flags in one
-// session are one. A skill counts sessions, not flags (E20-S5).
+// FailureSessions counts the sessions with a comeback of the failure of claim on revision of
+// item: two flags in one session are one, and another failure counts apart. A skill counts the
+// sessions of one failure, not flags (E20-S5).
+func FailureSessions(ctx context.Context, tx *sql.Tx, item, revision int64, claim string) (int, error) {
+	var n int
+	err := tx.QueryRowContext(ctx, `SELECT count(DISTINCT session_id) FROM outcomes
+		WHERE item_id = ? AND revision = ? AND kind = ? AND claim_id = ?`, item, revision, OutcomeComeback, claim).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count failure sessions of item %d revision %d: %w", item, revision, err)
+	}
+	return n, nil
+}
+
+// ComebackSessions counts the sessions with a comeback on revision of item, of any failure:
+// two flags in one session are one. The review shows it (E20-S5).
 func ComebackSessions(ctx context.Context, tx *sql.Tx, item, revision int64) (int, error) {
 	var n int
 	err := tx.QueryRowContext(ctx, `SELECT count(DISTINCT session_id) FROM outcomes

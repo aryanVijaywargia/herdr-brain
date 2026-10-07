@@ -22,10 +22,26 @@ var releaseFailures = []string{
 // coveredReply answers each prompt with one correction of a release step, with each ref of the
 // prompt as evidence, that skill (a claim id, or nil) covers.
 func coveredReply(skill any) func(context.Context, string) ([]byte, error) {
+	return coveredRule(skill, "update the changelog before the tag")
+}
+
+// coveredRule is coveredReply with the rule of the failure.
+func coveredRule(skill any, rule string) func(context.Context, string) ([]byte, error) {
 	return func(_ context.Context, prompt string) ([]byte, error) {
 		return claudeReply(map[string]any{"claims": []any{replyOf(map[string]any{"situation": "releasing a version",
-			"rule": "update the changelog before the tag", "evidence_refs": promptRefs(prompt), "covered_by": skill})}})
+			"rule": rule, "evidence_refs": promptRefs(prompt), "covered_by": skill})}})
 	}
+}
+
+// skillSession stores ended session agent in ws-A at t0 plus i hours, with a receipt of
+// revision 2 of skill item and the one line text, and returns the observation id.
+func (f *fixture) skillSession(item int64, agent string, i int, text string) int64 {
+	f.t.Helper()
+	at := t0.Add(time.Duration(i) * time.Hour)
+	f.deliver(receiptOf("default", agent, store.ResultEmitted, at.Add(-time.Minute), store.RevisionRef{Item: item, Revision: 2}))
+	_, obs := f.session(agent, true, line{"ws-A", text, at})
+	f.now = at.Add(time.Hour)
+	return obs[0]
 }
 
 // claimOfItem returns the claim id of item.
@@ -197,8 +213,8 @@ func TestSkillFailurePatch(t *testing.T) {
 }
 
 // AC E20-S5 #270 5: the extractor caps still apply to the request of a skill. Under a full
-// call cap the request waits, with no call; the next day it drafts. Under the input cap, its
-// input holds the newest failure only.
+// call cap or proposal cap the request waits, with no call; the next day it drafts. Under the
+// input cap, its input holds the newest failure only.
 func TestSkillComebackCaps(t *testing.T) {
 	t.Run("call cap", func(t *testing.T) {
 		f := newFixture(t)
@@ -221,6 +237,40 @@ func TestSkillComebackCaps(t *testing.T) {
 			t.Errorf("the next day: calls = %d, proposals = %d, want %d and 1", f.cli.calls(), len(f.proposals()), calls+1)
 		}
 	})
+	// Review of PR #303: a skill patch counts under the daily proposal cap. You ask for a
+	// change of the first patch: under a cap of 1 proposal its redraft waits, then drafts the
+	// next day.
+	t.Run("proposal cap", func(t *testing.T) {
+		f := newFixture(t)
+		item := f.skillItem()
+		f.skillFailures(item, failed{2, 1}, failed{2, 1})
+		f.cli.reply = skillReply(map[string]any{"steps": patchedSteps})
+		f.mustRun()
+		ps := f.proposals()
+		if len(ps) != 1 {
+			t.Fatalf("proposals = %+v, want the first patch", ps)
+		}
+		f.write(func(ctx context.Context, tx *sql.Tx) error {
+			_, err := store.AskItemChange(ctx, tx, ps[0].ID, "keep the tag step", store.SurfaceCLI, f.now)
+			return err
+		})
+		calls := f.cli.calls()
+		pass := f.pass()
+		pass.Caps = Caps{Calls: 10, Proposals: 1, InputBytes: 32 << 10} // [NEW] test limits: a cap of 1 proposal
+		if err := pass.Run(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if f.cli.calls() != calls || len(f.proposals()) != 1 {
+			t.Fatalf("calls = %d, proposals = %d, want %d and 1 under the full proposal cap", f.cli.calls(), len(f.proposals()), calls)
+		}
+		f.now = f.now.Add(day + time.Minute)
+		if err := pass.Run(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if f.cli.calls() != calls+1 || len(f.proposals()) != 2 {
+			t.Errorf("the next day: calls = %d, proposals = %d, want %d and 2", f.cli.calls(), len(f.proposals()), calls+1)
+		}
+	})
 	t.Run("input cap", func(t *testing.T) {
 		f := newFixture(t)
 		item := f.skillItem()
@@ -236,6 +286,58 @@ func TestSkillComebackCaps(t *testing.T) {
 			t.Errorf("redraft prompt holds more than the newest failure:\n%s", prompt)
 		}
 	})
+}
+
+// Review of PR #303: a tool failure reaches the skill, though the correction candidate of its
+// claim refuses tool output (§6.5). The first session corrects the agent; the second shows the
+// same failure as tool output. The two sessions queue one request.
+func TestSkillToolFailure(t *testing.T) {
+	f := newFixture(t)
+	item := f.skillItem()
+	f.cli.reply = coveredReply(f.claimOfItem(item))
+	f.skillSession(item, "s0", 0, releaseFailures[0])
+	f.mustRun()
+	tool := f.skillSession(item, "s1", 1, "error: tag v1.2.0 has no changelog entry")
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE observations SET sender = 'tool' WHERE id = ?`, tool)
+		return err
+	})
+	f.mustRun()
+	if got, want := f.outcomes(), []string{"comeback 2", "comeback 2"}; !slices.Equal(got, want) {
+		t.Fatalf("outcomes = %v, want %v", got, want)
+	}
+	if n := f.count(`SELECT COUNT(*) FROM evidence_links WHERE observation_id = ` + fmt.Sprint(tool)); n != 0 {
+		t.Errorf("evidence links of the tool output = %d, want 0: the correction refuses it", n)
+	}
+	if n := f.count(`SELECT COUNT(*) FROM change_requests WHERE source = 'item' AND revision = 2`); n != 1 {
+		t.Errorf("change requests = %d, want 1", n)
+	}
+}
+
+// AC E20-S5 #270 2, review of PR #303: a skill counts the sessions of the same failure. Two
+// different failures in two sessions queue nothing; the first failure again in a third session
+// queues one request.
+func TestSkillDifferentFailures(t *testing.T) {
+	f := newFixture(t)
+	item := f.skillItem()
+	skill := f.claimOfItem(item)
+	for i, rule := range []string{"update the changelog before the tag", "run the tests before the tag"} {
+		f.cli.reply = coveredRule(skill, rule)
+		f.skillSession(item, fmt.Sprintf("s%d", i), i, releaseFailures[i])
+		f.mustRun()
+	}
+	if got, want := f.outcomes(), []string{"comeback 2", "comeback 2"}; !slices.Equal(got, want) {
+		t.Fatalf("outcomes = %v, want %v", got, want)
+	}
+	if n := f.count(`SELECT COUNT(*) FROM change_requests`); n != 0 {
+		t.Fatalf("change requests = %d, want 0: no failure came back", n)
+	}
+	f.cli.reply = coveredReply(skill)
+	f.skillSession(item, "s2", 2, releaseFailures[0])
+	f.mustRun()
+	if n := f.count(`SELECT COUNT(*) FROM change_requests WHERE source = 'item' AND revision = 2`); n != 1 {
+		t.Errorf("change requests = %d, want 1", n)
+	}
 }
 
 // A covered_by that names a known claim that is no skill, or a claim that is not in the input,
@@ -261,10 +363,13 @@ func TestSkillCoveredByRefused(t *testing.T) {
 	}
 }
 
-// failures keeps the corrections and the tool failures of a candidate that is no correction,
-// and all refs of a correction candidate (E20-S5).
+// failures keeps the accepted corrections of a claim and each tool failure of its refs, also
+// one that its correction candidate refused, once (E20-S5).
 func TestFailures(t *testing.T) {
-	refs := []ref{{id: "e1", kind: signal.Correction}, {id: "e2", kind: signal.Failure}, {id: "e3", kind: signal.Procedure}}
+	e1 := ref{id: "e1", obs: 1, kind: signal.Correction}
+	e2 := ref{id: "e2", obs: 2, kind: signal.Failure}
+	e3 := ref{id: "e3", obs: 3, kind: signal.Procedure}
+	refs := []ref{e1, e2, e3}
 	ids := func(rs []ref) []string {
 		var out []string
 		for _, r := range rs {
@@ -272,12 +377,17 @@ func TestFailures(t *testing.T) {
 		}
 		return out
 	}
-	for kind, want := range map[store.CandidateKind][]string{
-		store.CandidateCorrection: {"e1", "e2", "e3"},
-		store.CandidateProcedure:  {"e1", "e2"},
+	for _, c := range []struct {
+		kind     store.CandidateKind
+		accepted []ref
+		want     []string
+	}{
+		{store.CandidateCorrection, []ref{e1, e3}, []string{"e1", "e3", "e2"}},
+		{store.CandidateProcedure, []ref{e1, e3}, []string{"e1", "e2"}},
+		{store.CandidateFailure, []ref{e2}, []string{"e2"}},
 	} {
-		if got := ids(failures(kind, refs)); !slices.Equal(got, want) {
-			t.Errorf("failures(%s) = %v, want %v", kind, got, want)
+		if got := ids(failures(c.kind, c.accepted, refs)); !slices.Equal(got, c.want) {
+			t.Errorf("failures(%s, %v) = %v, want %v", c.kind, ids(c.accepted), got, c.want)
 		}
 	}
 }
