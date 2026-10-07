@@ -133,9 +133,15 @@ func (p Pass) changeJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) 
 const comebackRequest = "This lesson came back in two sessions that got it. Propose a better wording, or a stronger " +
 	"place, for example a skill instead of a fact. Keep its meaning."
 
+// skillRequest is the request text of a change request of a skill revision [NEW] (E20-S5): a
+// failure that the skill covers came back, so Brain asks for a patch of the skill, not a second
+// skill.
+const skillRequest = "A failure that this skill covers came back in two sessions that got it. Propose a small change " +
+	"of its steps that stops the failure. Keep its name and its purpose."
+
 // itemJob returns the job of change request r of an item revision: two comebacks on that
-// revision (§5.4). Its base is that revision, and its input is the text of the revision and the
-// allowed comeback excerpts. A request that you queued again on its draft (store.AskItemChange)
+// revision (§5.4), for a skill in two sessions (E20-S5). Its base is that revision, and its
+// input is the text of the revision and the allowed comeback excerpts. A request that you queued again on its draft (store.AskItemChange)
 // redrafts that draft with your text. It returns why r is no longer current instead, or "": the item
 // moved to another revision or is no longer active, or its claim is rejected or forgotten in its
 // scope. Its candidate stands for the scope of the item; the item needs none.
@@ -167,6 +173,9 @@ func (p Pass) itemJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) (j
 		return job{}, "", err
 	}
 	text := comebackRequest
+	if it.Kind == store.KindSkill {
+		text = skillRequest
+	}
 	pr := store.Proposal{ItemID: &it.ID, Text: cur.Text, Scope: it.Scope, Target: tg, ChangeRequest: &text}
 	if r.NewProposalID != nil {
 		// You asked for a change of the last draft (§7.4): redraft it with your text.

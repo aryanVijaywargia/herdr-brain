@@ -394,7 +394,7 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	var excerpts, conflicts []string
 	var changeable bool
 	var others int // the workspaces of the "also seen" hint of a promotion; -1 for none
-	var binding string
+	var binding, from string
 	var claim string          // the claim of a script proposal
 	var sibs []store.Proposal // the proposals that you pick between with p
 	// The review pane shows a pending proposal only: it closes on one that another surface
@@ -408,6 +408,9 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 			return err
 		}
 		if excerpts, changeable, err = cl.excerpts(ctx, tx, p); err != nil {
+			return err
+		}
+		if from, err = origin(ctx, tx, p, it, cur); err != nil {
 			return err
 		}
 		if others, err = hint(ctx, tx, p, it); err != nil {
@@ -450,7 +453,7 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	if len(excerpts) > 0 {
 		fmt.Fprintf(&b, "excerpts:\n  %s\n", strings.Join(excerpts, "\n  "))
 	}
-	fmt.Fprintf(&b, "source:   %s, %s\n", source(p, it, cur), localTime(p.Created))
+	fmt.Fprintf(&b, "source:   %s, %s\n", from, localTime(p.Created))
 	if p.ChangeRequest != nil {
 		fmt.Fprintf(&b, "change:   %s\n", oneLine(*p.ChangeRequest))
 	}
@@ -660,6 +663,24 @@ func source(p store.Proposal, it store.Item, cur store.ItemRevision) string {
 	return fmt.Sprintf("%s, sender unconfirmed", cur.Origin)
 }
 
+// origin says where proposal p of item it, at revision cur, comes from: for the draft of the
+// change request of an item revision, its comebacks and their sessions (E20-S5), else source.
+func origin(ctx context.Context, tx *sql.Tx, p store.Proposal, it store.Item, cur store.ItemRevision) (string, error) {
+	r, ok, err := store.ItemChangeOf(ctx, tx, p.ID)
+	if err != nil || !ok {
+		return source(p, it, cur), err
+	}
+	n, err := store.ComebackSessions(ctx, tx, r.SourceID, r.Revision)
+	if err != nil {
+		return "", err
+	}
+	unit := "sessions"
+	if n == 1 {
+		unit = "session"
+	}
+	return fmt.Sprintf("the comebacks of revision %d in %d %s that got it", r.Revision, n, unit), nil
+}
+
 // gone is the text of the anchors of dispute p, each moved or deleted (§9.1), as the brief mark
 // says it.
 func gone(p store.Proposal) string {
@@ -726,8 +747,9 @@ func (cl caller) excerptHead(e store.Excerpt) string {
 
 // evidence returns the evidence observations of p that are still in the store, the newest
 // first: the evidence of its candidate, or the comebacks of the item revision whose draft p is
-// (E15-S1). The draft of an item revision has no candidate, so a reject of it rejects no claim.
-// ok is false when p has no such evidence: a draft of your own.
+// (E15-S1), the newest of each session first (bySession). The draft of an item revision has no
+// candidate, so a reject of it rejects no claim. ok is false when p has no such evidence: a
+// draft of your own.
 func evidence(ctx context.Context, tx *sql.Tx, p store.Proposal) (es []store.Excerpt, ok bool, err error) {
 	if p.CandidateID != nil {
 		es, err = store.CandidateExcerpts(ctx, tx, *p.CandidateID)
@@ -738,7 +760,24 @@ func evidence(ctx context.Context, tx *sql.Tx, p store.Proposal) (es []store.Exc
 		return nil, false, err
 	}
 	es, err = store.ComebackExcerpts(ctx, tx, r.SourceID, r.Revision)
-	return es, err == nil, err
+	return bySession(es), err == nil, err
+}
+
+// bySession puts the newest excerpt of each session of es first, then the rest, each part in
+// the order of es: the review shows each session of the comebacks as evidence (E20-S5), also
+// when one session has more flags than the review shows.
+func bySession(es []store.Excerpt) []store.Excerpt {
+	seen := map[int64]bool{}
+	var first, rest []store.Excerpt
+	for _, e := range es {
+		if seen[e.SessionID] {
+			rest = append(rest, e)
+			continue
+		}
+		seen[e.SessionID] = true
+		first = append(first, e)
+	}
+	return append(first, rest...)
 }
 
 // conflicts are the lines of the active items that p conflicts with, when the caller sees

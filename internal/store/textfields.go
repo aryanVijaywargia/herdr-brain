@@ -203,6 +203,7 @@ func noItemTextFields() []Field {
 		// An outcome holds ids only (E15-S1, §11).
 		{"outcomes", "kind"},
 		{"outcomes", "at"},
+		{"outcomes", "claim_id"}, // The claim id of the failure holds no text (§7.2, E20-S5).
 		{"tools", "scope"},
 		{"tools", "workspace_key"},
 		{"tools", "contract_hash"},
