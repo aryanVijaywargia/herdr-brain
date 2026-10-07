@@ -12,7 +12,10 @@ import (
 // status lines) and cut the side panel, and keep the real prompts and replies, also those
 // with the words of the chrome. Each testdata/screen/<harness>-<case>.txt is a made screen of
 // the CLI versions of the real-use test (claude 2.1.292, codex 0.160.1), or rows of the
-// recorded reads (claude-logo, claude-tip-nbsp); its .golden holds the kept lines.
+// recorded reads (claude-logo, claude-tip-nbsp); its .golden holds the kept lines. #281: the
+// approval, trust, welcome and diff screens are made from the stored excerpts of the M2 eval
+// run (2026-10-07). claude-approval-top is the dialog of claude-s31-2-blocked at the top of a
+// read: the trust dialog rule keeps it.
 func TestScreen(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join("testdata", "screen", "*.txt"))
 	if err != nil {

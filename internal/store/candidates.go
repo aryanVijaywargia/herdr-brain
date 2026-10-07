@@ -33,6 +33,11 @@ type Claim struct {
 	SameAs       string   // the claim id that the key means the same as; "" for none
 	SameAsStatus SameAsStatus
 	Created      time.Time
+	// Kind is the claim kind of the extractor (#279); "" for a claim made before it was kept.
+	Kind string
+	// TouchesPermission is true once the extractor or the Brain check flagged the claim as a
+	// permission or a safety rule (§7.3).
+	TouchesPermission bool
 }
 
 // ClaimID returns the claim id of key. The same key gives the same id. A key with a confirmed
@@ -72,15 +77,26 @@ func newClaimID() (string, error) {
 // ClaimByID reads claim id.
 func ClaimByID(ctx context.Context, tx *sql.Tx, id string) (Claim, error) {
 	var c Claim
-	var situation, rule, sameAs, status sql.NullString
-	err := tx.QueryRowContext(ctx, `SELECT id, situation, rule, same_as, same_as_status, created FROM claims WHERE id = ?`, id).
-		Scan(&c.ID, &situation, &rule, &sameAs, &status, timeDest{&c.Created})
+	var situation, rule, sameAs, status, kind sql.NullString
+	err := tx.QueryRowContext(ctx, `SELECT id, situation, rule, same_as, same_as_status, created, kind, touches_permission
+		FROM claims WHERE id = ?`, id).
+		Scan(&c.ID, &situation, &rule, &sameAs, &status, timeDest{&c.Created}, &kind, &c.TouchesPermission)
 	if err != nil {
 		return Claim{}, fmt.Errorf("read claim %s: %w", id, err)
 	}
 	c.Key = ClaimKey{situation.String, rule.String}
-	c.SameAs, c.SameAsStatus = sameAs.String, SameAsStatus(status.String)
+	c.SameAs, c.SameAsStatus, c.Kind = sameAs.String, SameAsStatus(status.String), kind.String
 	return c, nil
+}
+
+// MarkClaim records the claim kind of claim id, if it has none yet, and a permission flag: once
+// set, the flag stays (#279). The merge check reads both (§7.2).
+func MarkClaim(ctx context.Context, tx *sql.Tx, id, kind string, permission bool) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE claims SET kind = COALESCE(kind, ?), touches_permission = MAX(touches_permission, ?)
+		WHERE id = ?`, kind, permission, id); err != nil {
+		return fmt.Errorf("mark claim %s: %w", id, err)
+	}
+	return nil
 }
 
 // ScopeClaims returns the claims with a key that are open, active or rejected in the scope of
@@ -185,6 +201,9 @@ type Candidate struct {
 	FirstSeen    time.Time
 	LastSeen     time.Time
 	Status       CandidateStatus
+	// Via is the claim whose key brings new evidence through a same_as link (#279): Attach
+	// records it on each new evidence link only, so the merge can be undone. "" for own evidence.
+	Via string
 }
 
 // Gate is the queue gate of one candidate kind (§7.2).
@@ -279,11 +298,27 @@ func Attach(ctx context.Context, tx *sql.Tx, c Candidate, obs int64, gates Gates
 	if n, err := res.RowsAffected(); err != nil || n == 0 {
 		return id, err
 	}
+	// Only a new link records the merge: evidence that the candidate had already stays its own.
+	if c.Via != "" {
+		if _, err := tx.ExecContext(ctx, `UPDATE evidence_links SET via_claim = ? WHERE candidate_id = ? AND observation_id = ?`,
+			c.Via, id, obs); err != nil {
+			return 0, fmt.Errorf("mark evidence %d of candidate %d as merged: %w", obs, id, err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE candidates SET status = ? WHERE id = ? AND status = ?`,
 		CandidateOpen, id, CandidateExpired); err != nil {
 		return 0, fmt.Errorf("open candidate %d: %w", id, err)
 	}
 	return id, recount(ctx, tx, id, gates)
+}
+
+// SetCandidateKind sets the kind of candidate id and counts its gate again: the kind follows
+// the claim (#280, §7.2).
+func SetCandidateKind(ctx context.Context, tx *sql.Tx, id int64, kind CandidateKind, gates Gates) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE candidates SET kind = ? WHERE id = ?`, kind, id); err != nil {
+		return fmt.Errorf("set kind of candidate %d: %w", id, err)
+	}
+	return recount(ctx, tx, id, gates)
 }
 
 // recount sets the harnesses, counts, times and priority of candidate id from its evidence
