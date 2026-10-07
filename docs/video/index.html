@@ -346,25 +346,63 @@
         color: var(--spot);
       }
 
-      /* The close: the memory settles into the brain of the repo README. */
-      #brain {
+      /* The close: the memory settles into a small graph. Square nodes, thin lines, the lesson at the center. */
+      .gnode {
         position: absolute;
-        left: 220px;
-        top: 130px;
-        font-size: 26px;
-        line-height: 31px;
-        font-weight: 500;
-        white-space: pre;
-        color: var(--dim);
+        left: 0;
+        top: 0;
       }
-      #brain .c {
-        display: inline-block;
+      .gdim {
+        width: 10px;
+        height: 10px;
+        background: #4a4a52;
+      }
+      .gsrc {
+        width: 16px;
+        height: 16px;
+        background: var(--faint2);
+      }
+      .gnew {
+        width: 16px;
+        height: 16px;
+        background: var(--ink);
+      }
+      .glabel {
+        position: absolute;
+        left: 0;
+        top: 0;
+        font-size: 22px;
+        line-height: 26px;
+        white-space: pre;
+        color: var(--faint2);
+      }
+      #glesson {
+        position: absolute;
+        left: 0;
+        top: 0;
+        padding: 8px 18px;
+        background: var(--spot);
+        color: var(--spot-ink);
+        font-size: 23px;
+        line-height: 30px;
+        font-weight: 700;
+        white-space: pre;
+        box-shadow: 0 0 0 8px rgba(203, 166, 247, 0.14), 0 0 60px rgba(203, 166, 247, 0.45);
+      }
+      #gring {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 120px;
+        height: 120px;
+        border-radius: 50%;
+        border: 3px solid var(--spot);
       }
       #name {
         position: absolute;
         left: 0;
         right: 0;
-        top: 520px;
+        top: 540px;
         text-align: center;
         font-family: var(--disp);
         font-weight: 800;
@@ -379,7 +417,7 @@
         position: absolute;
         left: 0;
         right: 0;
-        top: 676px;
+        top: 698px;
         text-align: center;
         font-family: var(--body);
         font-size: 34px;
@@ -389,7 +427,7 @@
         position: absolute;
         left: 0;
         right: 0;
-        top: 790px;
+        top: 800px;
         text-align: center;
         font-size: 27px;
         line-height: 40px;
@@ -410,7 +448,7 @@
         position: absolute;
         left: 0;
         right: 0;
-        top: 880px;
+        top: 884px;
         text-align: center;
         font-family: var(--body);
         font-size: 24px;
@@ -499,18 +537,12 @@ active at revision 1 (workspace w3
       <div class="cap" id="c4">Brain asks you <em>once</em>.</div>
       <div class="cap" id="c5">Every new session starts <em>knowing</em>.</div>
 
-      <!-- The brain from the top of the repo README; the script splits it into characters. -->
-      <pre id="brain">                _.-~~-._  _.-~~-._
-        .-.  .-'  .-.   `'  .-.   `-.
-   .--.( @ ).'  .-'   )  .-.(    `-.  `.
-  / &gt;_ `-.'/   (   .-'  (   `-.    )   \
- (        (  .-.`-'  .-. `-.   )  .-'   ;
-  `.       ) (  `-. (   `-. )-'  (   .-.|
-    `-.__.'   \  `-.  )`-.   ')  .-. `-(;
-               `-. `-'    `-.' .'   `-.'/
-                  `-.____.-~-._  .-(((('
-                     ||  ||    `'  ||  ||
-                     ''  ''        ''  ''</pre>
+      <!-- The close: a small memory graph; the script adds the nodes and the lines. -->
+      <div id="graph">
+        <svg id="gsvg" class="layer" width="1080" height="1080" viewBox="0 0 1080 1080"></svg>
+        <div id="gring"></div>
+        <div id="glesson">Use pnpm, not npm.</div>
+      </div>
       <div id="name">Herdr <span>Brain</span></div>
       <div id="tag">one memory for every agent in herdr</div>
       <div id="cmd"><span class="p">❯</span> <span id="cmd-type"></span><span class="cursor" id="cmd-cursor"></span></div>
@@ -712,32 +744,75 @@ active at revision 1 (workspace w3
       tl.to("#d3", { opacity: 1, duration: 0.2 }, 11.9);
       tl.to("#e3", { opacity: 1, duration: 0.2 }, 12.15);
 
-      // 5. Close: the memory settles into the brain, then the name and the install command.
-      const art = document.getElementById("brain");
-      const text = art.textContent;
-      art.textContent = "";
-      const chars = [];
-      for (const c of text) {
-        if (c === " " || c === "\n") {
-          art.appendChild(document.createTextNode(c));
-          continue;
-        }
-        const s = document.createElement("span");
-        s.className = "c";
-        s.textContent = c;
-        art.appendChild(s);
-        chars.push(s);
+      // 5. Close: the pieces settle into a small memory graph. The lesson is the mauve node at the
+      // center; the two sessions that said it feed it, and light runs to the two new sessions.
+      const graph = document.getElementById("graph");
+      const gsvg = document.getElementById("gsvg");
+      const C = [540, 310];
+      const dims = [[360, 175], [450, 135], [540, 165], [630, 135], [720, 175], [330, 300], [750, 300], [360, 440], [450, 480], [540, 455], [630, 480], [720, 440]];
+      const src = [[230, 210, "claude · api"], [230, 410, "codex · api"]];
+      const fresh = [[850, 210, "claude · deps"], [850, 410, "codex · deps"]];
+      function square(cls, x, y) {
+        const d = document.createElement("div");
+        d.className = "gnode " + cls;
+        graph.insertBefore(d, document.getElementById("gring"));
+        tl.set(d, at(x, y, { opacity: 0 }), 0);
+        return d;
       }
-      chars.forEach((s) => {
+      function label(text, x, y, right) {
+        const d = document.createElement("div");
+        d.className = "glabel";
+        d.textContent = text;
+        graph.appendChild(d);
+        tl.set(d, { x: x, y: y, xPercent: right ? -100 : 0, yPercent: -50, opacity: 0 }, 0);
+        return d;
+      }
+      function line(a, b, stroke, width, t, dur) {
+        const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        l.setAttribute("x1", a[0]);
+        l.setAttribute("y1", a[1]);
+        l.setAttribute("x2", b[0]);
+        l.setAttribute("y2", b[1]);
+        l.setAttribute("stroke", stroke);
+        l.setAttribute("stroke-width", width);
+        gsvg.appendChild(l);
+        const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        tl.set(l, { attr: { "stroke-dasharray": len, "stroke-dashoffset": len } }, 0);
+        tl.to(l, { attr: { "stroke-dashoffset": 0 }, duration: dur, ease: "power1.out" }, t);
+        return [l, len];
+      }
+      // The dim nodes: other memory. They fly in from the scattered pieces and settle.
+      dims.forEach(([x, y]) => {
+        const d = square("gdim", x, y);
         const a = rand() * Math.PI * 2;
-        const r = 260 + rand() * 520;
-        const ink = s.textContent === "@" ? SPOT : "#cdccd2";
-        tl.fromTo(
-          s,
-          { x: Math.cos(a) * r, y: Math.sin(a) * r, opacity: 0, rotation: (rand() - 0.5) * 180, color: SPOT },
-          { x: 0, y: 0, opacity: 1, rotation: 0, color: ink, duration: 1.1, ease: out },
-          13.5 + rand() * 0.9,
-        );
+        const r = 220 + rand() * 360;
+        tl.fromTo(d, { x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, opacity: 0 }, { x: x, y: y, opacity: 1, duration: 0.9, ease: out }, 13.5 + rand() * 0.6);
+      });
+      const web = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [4, 6], [5, 7], [6, 11], [7, 8], [8, 9], [9, 10], [10, 11]];
+      web.forEach(([i, j], k) => line(dims[i], dims[j], "#35353d", 2, 14.3 + k * 0.03, 0.4));
+      [2, 5, 6, 9].forEach((i, k) => line(dims[i], C, "#35353d", 2, 14.45 + k * 0.04, 0.35));
+      // The lesson: the bright node at the center.
+      tl.set("#glesson", at(C[0], C[1], { opacity: 0, scale: 0.6 }), 0);
+      tl.to("#glesson", { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(2)" }, 14.45);
+      tl.set("#gring", at(C[0], C[1], { opacity: 0, scale: 0.4 }), 0);
+      tl.to("#gring", { opacity: 0.9, duration: 0.05 }, 14.45);
+      tl.to("#gring", { scale: 4.5, opacity: 0, duration: 0.6, ease: "power2.out" }, 14.5);
+      // The two sessions that said it: dim, with a line into the lesson.
+      src.forEach(([x, y, name], k) => {
+        const n = square("gsrc", x, y);
+        const l = label(name, x - 20, y, true);
+        tl.to([n, l], { opacity: 1, duration: 0.3 }, 14.7 + k * 0.1);
+        line([x, y], C, "#5c5b62", 2, 14.8 + k * 0.1, 0.45);
+      });
+      // The two new sessions: light runs from the lesson to them.
+      fresh.forEach(([x, y, name], k) => {
+        const n = square("gnew", x, y);
+        const l = label(name, x + 20, y, false);
+        const t = 15.05 + k * 0.15;
+        tl.to([n, l], { opacity: 1, duration: 0.3 }, t);
+        line(C, [x, y], SPOT, 3, t + 0.05, 0.5);
+        tl.to(n, { backgroundColor: SPOT, duration: 0.2 }, t + 0.55);
+        tl.to(l, { color: INK, duration: 0.2 }, t + 0.55);
       });
       tl.from("#name", { opacity: 0, y: 30, duration: 0.7, ease: out }, 15.0);
       tl.from("#tag", { opacity: 0, duration: 0.6 }, 15.4);
