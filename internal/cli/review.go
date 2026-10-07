@@ -544,7 +544,7 @@ func proposalText(p store.Proposal, it store.Item) string {
 	case it.Kind == store.KindSkill || it.Kind == store.KindTool || it.Kind == store.KindAutomation:
 		return "text:\n  " + strings.ReplaceAll(strings.TrimSuffix(p.Text, "\n"), "\n", "\n  ") + "\n"
 	}
-	return fmt.Sprintf("text:     %s\n", p.Text)
+	return fmt.Sprintf("text:     %s\n", brief.Clean(p.Text))
 }
 
 // contractLines are the lines of the contract of tool text in show (§10.1): the command bytes
@@ -1140,7 +1140,7 @@ func claimText(ctx context.Context, tx *sql.Tx, id string) (string, error) {
 	if claim.Key == (store.ClaimKey{}) {
 		return "(text forgotten)", nil
 	}
-	return oneLine(claim.Key.Situation + ": " + claim.Key.Rule), nil
+	return oneLine(brief.ClaimText(claim.Key.Situation, claim.Key.Rule)), nil
 }
 
 // listRejections prints the rejections that the caller sees, with the new evidence since each

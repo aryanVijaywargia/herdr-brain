@@ -499,3 +499,44 @@ func TestLessonKindMigration(t *testing.T) {
 		t.Errorf("evidence_links references candidates %d times, want 1", n)
 	}
 }
+
+// #279: migration 27 gives the old claim keys their normal form with no end punctuation, so
+// the same extraction after the upgrade finds the same claim id. A tool key keeps its text,
+// and a key whose normal form is taken keeps its old text.
+func TestClaimKeyMigration(t *testing.T) {
+	dir := t.TempDir()
+	e := &evidenceStore{Store: openTest(t, dir, migrationsUpTo(t, 26)), sessions: map[string]int64{}}
+	key := func(s, r string) (id string) {
+		write(t, e.Store, func(tx *sql.Tx) (err error) {
+			id, err = ClaimID(context.Background(), tx, ClaimKey{s, r}, testNow)
+			return err
+		})
+		return id
+	}
+	old := key("writing code.", "use src/log.js.")
+	taken, kept := key("taken", "rule"), key("taken.", "rule")
+	tool := key("the agent runs in \"/src\": npm test.", "run npm test.")
+	c := Candidate{ClaimID: tool, Scope: ScopeWorkspace, WorkspaceKey: "ws-a", Kind: CandidateCommandChain}
+	write(t, e.Store, func(tx *sql.Tx) error {
+		_, err := tx.Exec(`INSERT INTO candidates (claim_id, scope, workspace_key, kind, harnesses, count, sessions,
+			priority, first_seen, last_seen, status) VALUES (?, ?, ?, ?, '[]', 0, 0, 0, ?, ?, 'open')`,
+			c.ClaimID, c.Scope, c.WorkspaceKey, c.Kind, timeArg(testNow), timeArg(testNow))
+		return err
+	})
+	closeTest(t, e.Store)
+
+	e.Store = openTest(t, dir, migrationsUpTo(t, 27))
+	defer closeTest(t, e.Store)
+	for _, tc := range []struct {
+		situation, rule, want string
+	}{
+		{"writing code", "use src/log.js", old},
+		{"taken", "rule", taken},
+		{"taken.", "rule", kept},
+		{"the agent runs in \"/src\": npm test.", "run npm test.", tool},
+	} {
+		if got := key(tc.situation, tc.rule); got != tc.want {
+			t.Errorf("claim of (%q, %q) = %s, want %s", tc.situation, tc.rule, got, tc.want)
+		}
+	}
+}
