@@ -16,6 +16,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/brief"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
 )
 
 // hook is a fake Brain: a setup step builds generation 1 of the test store with the global
@@ -50,8 +51,13 @@ func (e *env) hookText(t *testing.T, res store.Result, hash string, text func() 
 			h = hex.EncodeToString(sum[:])
 		}
 		sess, gen, version := session, int64(1), "2.1.0"
+		result := res
+		// As the hook: a workspace with no map entry gets an unmapped receipt (S48).
+		if ws, _, _ := strings.Cut(pane, ":"); result == store.ResultEmitted && e.lookup(t, ws).State == workspace.Unmapped {
+			result = store.ResultUnmapped
+		}
 		d := store.Delivery{Profile: kind, HerdrSession: &sess, PaneID: pane, BriefHash: &h, OutputGeneration: &gen,
-			ItemRevisions: []store.RevisionRef{{Item: 1, Revision: 2}}, CLIVersion: &version, Result: res, At: time.Now()}
+			ItemRevisions: []store.RevisionRef{{Item: 1, Revision: 2}}, CLIVersion: &version, Result: result, At: time.Now()}
 		s, err := store.Open(context.Background(), e.testStore, time.Second)
 		if err != nil {
 			t.Fatal(err)
@@ -132,8 +138,8 @@ func TestResultStatus(t *testing.T) {
 			Incomplete, Unsure, "agent_not_idle", Incomplete, Unsure},
 		{"ask scrolled off", "claude", func(_ *testing.T, e *env) { e.fake.scrolled = true },
 			Incomplete, Unsure, "does not show the ask", Incomplete, Unsure},
-		{"not ready: folder-trust dialog", "codex", func(_ *testing.T, e *env) { e.fake.notReady = map[string]bool{"codex": true} },
-			Skipped, "", "folder-trust dialog", Skipped, ""},
+		{"not ready: a dialog", "codex", func(_ *testing.T, e *env) { e.fake.notReady = map[string]bool{"codex": true} },
+			Skipped, "", "did not get ready", Skipped, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
