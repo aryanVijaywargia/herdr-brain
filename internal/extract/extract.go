@@ -499,13 +499,8 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	if ts, err := store.TombstonesByClaim(ctx, tx, claim); err != nil || len(ts) > 0 {
 		return Suggestion{}, err
 	}
-	if c.SameAs != "" && c.SameAs != claim {
-		// The model guess alone is not proof (§5.4, §7.2): the link stays proposed, so an
-		// active item of the other claim gets no comeback from it (outcomes). check found
-		// c.SameAs in the input.
-		if _, err := store.SameAs(ctx, tx, claim, c.SameAs, store.Match{Permissions: c.TouchesPermission}); err != nil {
-			return Suggestion{}, err
-		}
+	if err := link(ctx, tx, claim, c); err != nil {
+		return Suggestion{}, err
 	}
 	key := j.batch.WorkspaceKey
 	if c.Scope == store.ScopeGlobal {
@@ -516,30 +511,67 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	if err != nil {
 		return Suggestion{}, err
 	}
-	switch old, err := store.CandidateOf(ctx, tx, into, key); {
-	case err == nil:
-		kind = old.Kind
-	case !errors.Is(err, sql.ErrNoRows):
+	if kind, err = p.keptKind(ctx, tx, into, key, kind); err != nil {
 		return Suggestion{}, err
 	}
-	cand, accepted, err := p.attach(ctx, tx, store.Candidate{ClaimID: into, Scope: c.Scope, WorkspaceKey: key, Kind: kind},
-		claim, c.Refs)
+	cand := store.Candidate{ClaimID: into, Scope: c.Scope, WorkspaceKey: key, Kind: kind}
+	if into != claim {
+		cand.Via = claim
+	}
+	id, accepted, err := p.attach(ctx, tx, cand, c.Refs)
 	if err != nil {
 		return Suggestion{}, err
 	}
 	if err := p.outcomes(ctx, tx, j, claim, corrections(kind, accepted), now); err != nil {
 		return Suggestion{}, err
 	}
-	if cand == 0 {
+	if id == 0 {
 		return Suggestion{}, nil
 	}
-	return p.propose(ctx, tx, cand, c, now)
+	return p.propose(ctx, tx, id, c, now)
+}
+
+// link records the claim kind and the permission flag of claim c on its claim id claim, and
+// its same_as link. The model guess alone is not proof (§5.4, §7.2): the link stays proposed,
+// so an active item of the other claim gets no comeback from it (outcomes). check found
+// c.SameAs in the input.
+func link(ctx context.Context, tx *sql.Tx, claim string, c Claim) error {
+	if err := store.MarkClaim(ctx, tx, claim, c.Kind, c.TouchesPermission); err != nil {
+		return err
+	}
+	if c.SameAs == "" || c.SameAs == claim {
+		return nil
+	}
+	_, err := store.SameAs(ctx, tx, claim, c.SameAs, store.Match{Permissions: c.TouchesPermission})
+	return err
+}
+
+// keptKind returns the kind of the candidate of claim in the scope with key for new evidence
+// of kind: kind for a new candidate. The kind follows the claim (#280): an explicit lesson
+// turns the candidate into a lesson (#253), and your text turns a candidate of tool output
+// alone into its kind. Else the candidate keeps its kind: a lesson stays a lesson, and tool
+// output alone does not change the kind of your text.
+func (p Pass) keptKind(ctx context.Context, tx *sql.Tx, claim, key string, kind store.CandidateKind) (store.CandidateKind, error) {
+	old, err := store.CandidateOf(ctx, tx, claim, key)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return kind, nil
+	case err != nil:
+		return "", err
+	case old.Kind == kind:
+		return kind, nil
+	}
+	tool := old.Kind == store.CandidateFailure || old.Kind == store.CandidateCommandChain
+	user := kind == store.CandidateCorrection || kind == store.CandidateProcedure
+	if kind == store.CandidateLesson || (tool && user) {
+		return kind, store.SetCandidateKind(ctx, tx, old.ID, kind, p.gates())
+	}
+	return old.Kind, nil
 }
 
 // attach adds each of refs as evidence of the candidate of cand, and returns its id (0 when
-// Brain refused every ref) and the accepted refs. Evidence of claim that a merge brought to the
-// candidate of another claim is marked as merged (store.MarkMerged).
-func (p Pass) attach(ctx context.Context, tx *sql.Tx, cand store.Candidate, claim string, refs []ref) (int64, []ref, error) {
+// Brain refused every ref) and the accepted refs. cand.Via marks evidence that a merge brought.
+func (p Pass) attach(ctx context.Context, tx *sql.Tx, cand store.Candidate, refs []ref) (int64, []ref, error) {
 	var id int64
 	var accepted []ref
 	for _, r := range refs {
@@ -550,11 +582,6 @@ func (p Pass) attach(ctx context.Context, tx *sql.Tx, cand store.Candidate, clai
 		case err != nil:
 			return 0, nil, err
 		}
-		if cand.ClaimID != claim {
-			if err := store.MarkMerged(ctx, tx, got, r.obs, claim); err != nil {
-				return 0, nil, err
-			}
-		}
 		id = got
 		accepted = append(accepted, r)
 	}
@@ -562,18 +589,19 @@ func (p Pass) attach(ctx context.Context, tx *sql.Tx, cand store.Candidate, clai
 }
 
 // mergeInto returns the claim whose candidate gets the evidence of claim c with claim id claim,
-// in the scope with key: the claim of its proposed same_as link when that claim has an open
-// candidate of kind in the same scope, else claim (#279, §7.2). Brain keeps both claim ids and
-// the link, and marks the merged evidence (store.MarkMerged). A link that touches a permission
-// or a safety rule, or that names a claim of another kind, stays a proposed link for review
-// and merges nothing.
+// in the scope with key: the claim of its proposed same_as link, else claim (#279, §7.2). The
+// link merges only into an open candidate of kind in the same scope, of a claim of the same
+// claim kind with no item there, and only when neither claim is a permission or a safety rule
+// and the claim of c is not rejected there. Else the link stays a proposed link for review.
+// Brain keeps both claim ids and the link, and marks the merged evidence (store.Candidate.Via).
 func mergeInto(ctx context.Context, tx *sql.Tx, claim string, c Claim, key string, kind store.CandidateKind) (string, error) {
 	cl, err := store.ClaimByID(ctx, tx, claim)
-	if err != nil || cl.SameAs == "" || cl.SameAsStatus != store.SameAsProposed || c.TouchesPermission {
+	if err != nil || cl.SameAs == "" || cl.SameAsStatus != store.SameAsProposed || c.TouchesPermission || cl.TouchesPermission {
 		return claim, err
 	}
 	other, err := store.ClaimByID(ctx, tx, cl.SameAs)
-	if err != nil || store.TouchesPermission(other.Key.Situation+" "+other.Key.Rule) {
+	if err != nil || other.Kind != c.Kind || other.TouchesPermission ||
+		store.TouchesPermission(other.Key.Situation+" "+other.Key.Rule) {
 		return claim, err
 	}
 	cand, err := store.CandidateOf(ctx, tx, other.ID, key)
@@ -582,8 +610,16 @@ func mergeInto(ctx context.Context, tx *sql.Tx, claim string, c Claim, key strin
 		return claim, nil
 	case err != nil:
 		return claim, err
-	case cand.Scope != c.Scope || cand.Kind != kind || cand.Status == store.CandidateExpired:
+	case cand.Scope != c.Scope || cand.Kind != kind || cand.Status != store.CandidateOpen:
 		return claim, nil
+	}
+	for _, held := range []func(context.Context, *sql.Tx, string, string) (bool, error){store.ClaimHasItem, store.Rejected} {
+		if stop, err := held(ctx, tx, other.ID, key); err != nil || stop {
+			return claim, err
+		}
+	}
+	if stop, err := store.Rejected(ctx, tx, claim, key); err != nil || stop {
+		return claim, err
 	}
 	if ts, err := store.TombstonesByClaim(ctx, tx, other.ID); err != nil || len(ts) > 0 {
 		return claim, err

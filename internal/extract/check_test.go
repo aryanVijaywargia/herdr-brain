@@ -261,7 +261,6 @@ func TestSameAsIsProposed(t *testing.T) {
 			f := newFixture(t)
 			f.cli.reply = claimOf(rules[0])
 			f.session("z", true, line{"ws-A", pnpm, t0})
-			f.session("a", true, line{"ws-A", pnpm, t0.Add(time.Minute)})
 			f.mustRun()
 			known := f.count(`SELECT count FROM candidates`)
 			f.cli.reply = func(_ context.Context, prompt string) ([]byte, error) {
@@ -274,8 +273,8 @@ func TestSameAsIsProposed(t *testing.T) {
 			}
 			f.session("b", true, line{"ws-A", pnpm, t0.Add(2 * time.Minute)})
 			f.mustRun()
-			if f.cli.calls() != 3 {
-				t.Fatalf("calls = %d, want 3", f.cli.calls())
+			if f.cli.calls() != 2 {
+				t.Fatalf("calls = %d, want 2", f.cli.calls())
 			}
 			q := `SELECT COUNT(*) FROM claims n JOIN claims o ON o.id = n.same_as WHERE n.rule = '` + rules[1] +
 				`' AND n.same_as_status = 'proposed' AND o.rule = '` + rules[0] + `'`
@@ -298,8 +297,9 @@ func TestSameAsIsProposed(t *testing.T) {
 				rules[1] + `'`); n != 1-wantNew {
 				t.Errorf("merged evidence = %d, want %d", n, 1-wantNew)
 			}
-			if n := f.count(`SELECT COUNT(*) FROM proposals`); n != 1 {
-				t.Errorf("proposals = %d, want 1", n)
+			// The merged candidate reaches the gate of 2.
+			if n := f.count(`SELECT COUNT(*) FROM proposals`); n != 1-wantNew {
+				t.Errorf("proposals = %d, want %d", n, 1-wantNew)
 			}
 		})
 	}

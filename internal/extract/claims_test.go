@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 	"testing"
@@ -172,5 +173,101 @@ func TestKindFollowsClaim(t *testing.T) {
 		if got := candidateKind(tc.claim); got != tc.want {
 			t.Errorf("%s: kind = %s, want %s", name, got, tc.want)
 		}
+	}
+}
+
+// A same_as link merges nothing when the known claim is flagged as a permission rule by the
+// model, is a claim of another claim kind with the same gate, has an item in the scope, or when
+// the new claim is rejected there (#279 review). Each keeps a proposed link and two candidates.
+func TestSameAsMergeStops(t *testing.T) {
+	for name, tc := range map[string]struct {
+		first  map[string]any
+		second map[string]any
+		setup  func(f *fixture)
+	}{
+		"known claim flagged as a permission rule": {first: map[string]any{"touches_permission": true}},
+		"fact and preference":                      {first: map[string]any{"kind": "fact"}, second: map[string]any{"kind": "preference"}},
+		"known claim has an item": {setup: func(f *fixture) {
+			f.write(func(ctx context.Context, tx *sql.Tx) error {
+				var claim string
+				if err := tx.QueryRowContext(ctx, `SELECT id FROM claims`).Scan(&claim); err != nil {
+					return err
+				}
+				key := "ws-A"
+				_, err := store.InsertItem(ctx, tx, store.Item{ClaimID: claim, CurrentRevision: 1, Kind: store.KindPreference,
+					Scope: store.ScopeWorkspace, WorkspaceKey: &key, State: store.StateActive, Created: t0})
+				return err
+			})
+		}},
+		"new claim rejected": {setup: func(f *fixture) {
+			f.write(func(ctx context.Context, tx *sql.Tx) error {
+				claim, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: normal(c2Situation), Rule: normal(logRule)}, t0)
+				if err != nil {
+					return err
+				}
+				_, err = store.Reject(ctx, tx, store.Candidate{ClaimID: claim, Scope: store.ScopeWorkspace, WorkspaceKey: "ws-A"}, "no", t0)
+				return err
+			})
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.cli.reply = func(_ context.Context, prompt string) ([]byte, error) {
+				set := map[string]any{"situation": c1Situation, "rule": logRule, "evidence_refs": promptRefs(prompt)}
+				maps.Copy(set, tc.first)
+				return claudeReply(map[string]any{"claims": []any{replyOf(set)}})
+			}
+			f.session("c1", true, line{"ws-A", logText, t0})
+			f.mustRun()
+			if tc.setup != nil {
+				tc.setup(f)
+			}
+			f.cli.reply = func(_ context.Context, prompt string) ([]byte, error) {
+				m := knownLog.FindStringSubmatch(prompt)
+				if m == nil {
+					return nil, fmt.Errorf("the input has no C1 claim:\n%s", prompt)
+				}
+				set := map[string]any{"situation": c2Situation, "rule": logRule, "evidence_refs": promptRefs(prompt), "same_as": m[1]}
+				maps.Copy(set, tc.second)
+				return claudeReply(map[string]any{"claims": []any{replyOf(set)}})
+			}
+			f.harnessSession("codex", "c2", true, line{"ws-A", logText, t0.Add(time.Minute)})
+			f.mustRun()
+			if n := f.count(`SELECT COUNT(*) FROM evidence_links WHERE via_claim IS NOT NULL`); n != 0 {
+				t.Errorf("merged evidence = %d, want none", n)
+			}
+			if n := f.count(`SELECT COUNT(*) FROM candidates WHERE count = 2`); n != 0 {
+				t.Errorf("candidates with count 2 = %d, want none", n)
+			}
+			if n := f.count(`SELECT COUNT(*) FROM claims WHERE same_as_status = 'proposed'`); n != 1 {
+				t.Errorf("proposed links = %d, want 1", n)
+			}
+		})
+	}
+}
+
+// An explicit lesson turns a candidate of tool output alone into a lesson, and the lesson
+// proposal comes (#280, #253).
+func TestLessonOverridesOldFailureKind(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = kindOf("lesson", "every exported function gets a one-line JSDoc comment")
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		claim, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: "exported functions in src/math.js",
+			Rule: "every exported function gets a one-line jsdoc comment"}, t0)
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO candidates (claim_id, scope, workspace_key, kind, harnesses, count,
+			sessions, priority, first_seen, last_seen, status) VALUES (?, 'workspace', 'ws-A', 'failure', '[]', 0, 0, 0, ?, ?, 'open')`,
+			claim, t0.Format(time.RFC3339Nano), t0.Format(time.RFC3339Nano))
+		return err
+	})
+	f.capturedSession("s1", m2Lesson)
+	f.mustRun()
+	if cs := f.candidates(); len(cs) != 1 || cs[0].Kind != store.CandidateLesson || cs[0].Count != 1 {
+		t.Errorf("candidates = %+v, want one lesson with count 1", cs)
+	}
+	if n := f.count(`SELECT COUNT(*) FROM proposals`); n != 1 {
+		t.Errorf("proposals = %d, want 1", n)
 	}
 }
