@@ -422,7 +422,7 @@ if [ "${HERDR_ENV-}" = 1 ]; then cat print.txt; fi
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	for k, v := range map[string]string{"HERDR_ENV": "1", "HERDR_PANE_ID": "w1:p1", "HERDR_WORKSPACE_ID": "w1",
-		"HERDR_SOCKET_PATH": evalSocket, "HERDR_BIN_PATH": "/opt/herdr"} {
+		"HERDR_SOCKET_PATH": filepath.Join(bin, "herdr.sock"), "HERDR_BIN_PATH": "/opt/herdr"} {
 		t.Setenv(k, v)
 	}
 	return log

@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,10 +25,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 )
 
-const (
-	evalSocket = "/tmp/brain-eval-fake/herdr.sock"
-	mainSocket = "/tmp/brain-main-fake/herdr.sock"
-)
+const mainSocket = "/tmp/brain-main-fake/herdr.sock"
 
 // fakePane is a pane of the fake herdr.
 type fakePane struct {
@@ -64,10 +63,37 @@ type fakeHerdr struct {
 	scrolled bool                    // the ask scrolled off the screen of a read
 	badAsk   string                  // the agent kind whose prompt fails
 	visible  int                     // the count of visible reads
+	// session is herdr's session.json, with the root of each saved workspace. herdr saves a
+	// new workspace late: after saveAfter calls of Workspaces, or never with noSave.
+	session   string
+	roots     map[string]string // workspace id to its root folder
+	saveIn    map[string]int    // workspace id to the Workspaces calls before its save
+	saveAfter int
+	noSave    bool
 }
 
-func newFake(store string) *fakeHerdr {
-	return &fakeHerdr{store: store, panes: map[string]*fakePane{}, agents: map[string]string{}, labels: map[string]string{}, alive: map[int]bool{}, nextPID: 1000}
+func newFake(store, session string) *fakeHerdr {
+	return &fakeHerdr{store: store, panes: map[string]*fakePane{}, agents: map[string]string{}, labels: map[string]string{},
+		alive: map[int]bool{}, nextPID: 1000, session: session, roots: map[string]string{}, saveIn: map[string]int{}}
+}
+
+// save writes session.json with each workspace whose save is due.
+func (f *fakeHerdr) save() error {
+	type saved struct {
+		ID          string `json:"id"`
+		IdentityCwd string `json:"identity_cwd"`
+	}
+	ws := []saved{}
+	for _, id := range slices.Sorted(maps.Keys(f.roots)) {
+		if !f.noSave && f.saveIn[id] == 0 {
+			ws = append(ws, saved{id, f.roots[id]})
+		}
+	}
+	data, err := json.Marshal(map[string]any{"version": 3, "workspaces": ws})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(f.session, data, 0o600)
 }
 
 func (f *fakeHerdr) pid() int {
@@ -103,8 +129,14 @@ func (f *fakeHerdr) Panes(context.Context) ([]herdr.Pane, error) {
 }
 
 // Workspaces lists the workspaces with an open pane: herdr closes a workspace with its last
-// pane.
+// pane. Each call brings the late save of a new workspace one call nearer.
 func (f *fakeHerdr) Workspaces(context.Context) ([]herdr.Workspace, error) {
+	for id, n := range f.saveIn {
+		f.saveIn[id] = max(n-1, 0)
+	}
+	if err := f.save(); err != nil {
+		return nil, err
+	}
 	var ws []herdr.Workspace
 	for _, id := range f.order {
 		p := f.panes[id]
@@ -125,8 +157,12 @@ func (f *fakeHerdr) PaneProcessInfo(_ context.Context, id string) (herdr.Process
 
 func (f *fakeHerdr) CreateWorkspace(_ context.Context, cwd, label string) (herdr.Pane, error) {
 	f.nextWS++
-	f.labels[fmt.Sprintf("w%d", f.nextWS)] = label
-	return f.add(fmt.Sprintf("w%d:p1", f.nextWS), cwd).pane, nil
+	id := fmt.Sprintf("w%d", f.nextWS)
+	f.labels[id], f.roots[id], f.saveIn[id] = label, cwd, f.saveAfter
+	if err := f.save(); err != nil {
+		return herdr.Pane{}, err
+	}
+	return f.add(id+":p1", cwd).pane, nil
 }
 
 func (f *fakeHerdr) SplitPane(_ context.Context, id, cwd string) (herdr.Pane, error) {
@@ -265,6 +301,7 @@ func (s *fakeServer) Stop(context.Context) error { s.stopped++; return nil }
 // outside it, and the fake herdr.
 type env struct {
 	home, data, mainStore, testStore string
+	socket                           string // the socket of the brain-eval session
 	fake                             *fakeHerdr
 	targets                          []herdr.Target
 	running                          bool // brain-eval runs before the run
@@ -275,7 +312,8 @@ type env struct {
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	e := &env{home: t.TempDir(), testStore: filepath.Join(t.TempDir(), "store"), running: true, server: &fakeServer{}}
+	e := &env{home: t.TempDir(), testStore: filepath.Join(t.TempDir(), "store"), socket: filepath.Join(t.TempDir(), "herdr.sock"),
+		running: true, server: &fakeServer{}}
 	e.data = filepath.Join(e.home, ".local", "share", "brain")
 	e.mainStore = filepath.Join(e.data, "main")
 	write(t, filepath.Join(e.mainStore, "brain.db"), "real rows")
@@ -284,7 +322,7 @@ func newEnv(t *testing.T) *env {
 	e.install(t, "claude", "codex")
 	write(t, filepath.Join(e.testStore, "brain.db"), "earlier test rows")
 	e.bind(t, bindings.KindTest)
-	e.fake = newFake(e.testStore)
+	e.fake = newFake(e.testStore, filepath.Join(filepath.Dir(e.socket), "session.json"))
 	e.r = &Runner{
 		Bindings:  filepath.Join(e.data, "bindings.json"),
 		Install:   filepath.Join(e.data, "install.json"),
@@ -302,18 +340,19 @@ func newEnv(t *testing.T) *env {
 			e.sessionCalls++
 			return []herdr.Session{
 				{Name: "default", Default: true, Running: true, Socket: mainSocket},
-				{Name: session, Running: e.running, Socket: evalSocket},
+				{Name: session, Running: e.running, Socket: e.socket},
 			}, nil
 		},
 		StartServer: func(context.Context, string) (Server, error) {
 			e.running = true
 			return e.server, nil
 		},
-		Alive:    func(pid int) bool { return e.fake.alive[pid] },
-		Timeouts: Timeouts{Call: 5 * time.Second, Start: 5 * time.Second, Prompt: 5 * time.Second, Step: 5 * time.Second, Exit: 50 * time.Millisecond, Poll: time.Millisecond},
-		Now:      func() time.Time { return time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC) },
-		Version:  func(context.Context, string) (string, error) { return "2.1.283", nil },
-		Stdout:   io.Discard,
+		Alive: func(pid int) bool { return e.fake.alive[pid] },
+		Timeouts: Timeouts{Call: 5 * time.Second, Start: 5 * time.Second, Prompt: 5 * time.Second, Step: 5 * time.Second,
+			Map: 5 * time.Second, Exit: 50 * time.Millisecond, Poll: time.Millisecond},
+		Now:     func() time.Time { return time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC) },
+		Version: func(context.Context, string) (string, error) { return "2.1.283", nil },
+		Stdout:  io.Discard,
 	}
 	return e
 }
@@ -343,7 +382,7 @@ func (e *env) bind(t *testing.T, k bindings.Kind) {
 	if k == bindings.KindMain {
 		store = e.mainStore
 	}
-	bs := []bindings.Binding{{Session: session, Socket: evalSocket, Store: store, Kind: k, Created: now}}
+	bs := []bindings.Binding{{Session: session, Socket: e.socket, Store: store, Kind: k, Created: now}}
 	if k == bindings.KindTest {
 		bs = append(bs, bindings.Binding{Session: "default", Socket: mainSocket, Store: e.mainStore, Kind: bindings.KindMain, Created: now})
 	}
@@ -421,7 +460,7 @@ func TestS74RealStoreAndPanesUntouched(t *testing.T) {
 		t.Errorf("HOME changed at %v, want only the eval lock", d)
 	}
 	for _, tg := range e.targets {
-		if tg != (herdr.Target{Session: session, Socket: evalSocket}) {
+		if tg != (herdr.Target{Session: session, Socket: e.socket}) {
 			t.Errorf("herdr target %+v, want only the brain-eval session", tg)
 		}
 	}

@@ -21,6 +21,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
 )
 
 // Case is one eval case: a probe of a probe file, or its control.
@@ -89,9 +90,10 @@ var errExitUnconfirmed = errors.New("could not confirm the exit of the last case
 
 // runCase runs one case in a fresh state: it checks that nothing else writes to the test
 // store, resets the store, makes fresh markers, seeds the fixture skills of a skill choice
-// case, makes a fresh scratch git folder, runs the setup steps in a shell pane and each probe
-// in a fresh CLI pane. A probe of a harness in skip is skipped with the reason. At the end it closes the panes that it opened and waits until their
-// processes exit.
+// case, makes a fresh scratch git folder, maps the case workspace, runs the setup steps in a
+// shell pane and each probe in a fresh CLI pane. A probe of a harness in skip is skipped with
+// the reason. At the end it closes the panes that it opened and waits until their processes
+// exit.
 func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]string) (o Outcome, err error) {
 	b, err := r.testBinding() // the binding can change between cases
 	if err != nil {
@@ -120,6 +122,9 @@ func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]s
 		return Outcome{}, err
 	}
 	opened = append(opened, shell.ID)
+	if err := r.mapWorkspace(ctx, h, b, shell.WorkspaceID); err != nil {
+		return Outcome{}, err
+	}
 	o = Outcome{CaseID: c.ID, Marker: marker, Markers: markers, Session: b.Session, Store: b.Store}
 	skipCase, err := r.setup(ctx, h, shell, dir, c, markers, &opened) // why no probe of the case can run
 	if err != nil {
@@ -145,6 +150,48 @@ func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]s
 		o.Replies = append(o.Replies, rep)
 	}
 	return o, nil
+}
+
+// mapWorkspace maps workspace id in the test store of b, as each `brain` call does, and waits
+// until it is mapped. herdr saves a new workspace about 5 s after it creates it (HLD §11), and
+// no call can map it before that. An unmapped case workspace fails a `brain remember` of a
+// workspace item, and its hook receipt is "unmapped" (#277).
+func (r *Runner) mapWorkspace(ctx context.Context, h Herdr, b bindings.Binding, id string) (err error) {
+	st, err := store.Open(ctx, b.Store, r.Timeouts.Call)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, st.Close()) }()
+	s := workspace.For(b)
+	deadline := time.NewTimer(r.Timeouts.Map)
+	defer deadline.Stop()
+	tick := time.NewTicker(r.Timeouts.Poll)
+	defer tick.Stop()
+	for {
+		ws, err := call(ctx, r.Timeouts.Call, h.Workspaces)
+		if err != nil {
+			return err
+		}
+		if _, err := call(ctx, r.Timeouts.Call, func(ctx context.Context) (struct{}, error) {
+			return struct{}{}, s.Refresh(ctx, r.Environ, st, ws, r.Now())
+		}); err != nil {
+			return fmt.Errorf("map workspace %s: %w", id, err)
+		}
+		m, err := s.Lookup(id)
+		if err != nil {
+			return err
+		}
+		if m.State == workspace.Mapped {
+			return nil
+		}
+		select {
+		case <-deadline.C:
+			return fmt.Errorf("workspace %s is %s after %s: herdr has not saved it", id, m.State, r.Timeouts.Map)
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-tick.C:
+		}
+	}
 }
 
 // fresh resets the test store of b, and returns fresh markers for case c, with its fixture
