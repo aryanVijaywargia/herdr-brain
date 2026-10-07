@@ -144,6 +144,7 @@ func noItemTextFields() []Field {
 		{"claims", "same_as"},
 		{"claims", "same_as_status"},
 		{"claims", "created"},
+		{"claims", "kind"}, // A fixed claim kind of the extractor schema; no model text.
 		{"candidates", "claim_id"},
 		{"candidates", "scope"},
 		{"candidates", "workspace_key"},
@@ -157,6 +158,7 @@ func noItemTextFields() []Field {
 		{"evidence_links", "harness"},
 		{"evidence_links", "sender"},
 		{"evidence_links", "at"},
+		{"evidence_links", "via_claim"}, // A claim id: no text (§7.2).
 		{"rejections", "claim_id"},
 		{"rejections", "scope"},
 		{"rejections", "workspace_key"},

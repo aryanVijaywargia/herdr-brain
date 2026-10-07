@@ -258,10 +258,14 @@ func writeCatalog(b *strings.Builder, tools []Tool) {
 	}
 }
 
-// writeItem writes one item: its id and first line, then up to two more lines, indented. The
+// writeItem writes one item: its id and first line, then up to two more lines, indented. Each
+// line is clean (Clean), so an old item made as "situation.: rule" reads clean (#284). The
 // exception, conflict and dispute marks go at the end of the last line.
 func writeItem(b *strings.Builder, it Item) error {
 	lines := strings.Split(strings.TrimRight(it.Text, "\n"), "\n")
+	for i, l := range lines {
+		lines[i] = Clean(l)
+	}
 	if len(lines) > maxItemLines {
 		return fmt.Errorf("item %d has %d lines, over the brief limit of %d", it.ID, len(lines), maxItemLines)
 	}
