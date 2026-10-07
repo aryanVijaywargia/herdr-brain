@@ -21,12 +21,11 @@ func scriptSummary(p store.Proposal) string {
 // it, and then offers only approve, reject and later.
 const scriptLine = "kind:     script\n"
 
-// scriptLines are the kind line, the text and the claim of script proposal p in show (§10.4):
-// Brain installs no script, so approve records your decision only.
-func scriptLines(p store.Proposal, claim string) string {
-	return scriptLine + "text:\n  " + strings.ReplaceAll(strings.TrimSuffix(p.Text, "\n"), "\n", "\n  ") + "\n" +
-		"install:  Brain writes no file and changes no permission: approve records your decision, and you install the script yourself\n" +
-		fmt.Sprintf("claim:    %s\n", claim)
+// scriptText is the text of script proposal p in show (§10.4): Brain installs no script, so
+// approve records your decision only.
+func scriptText(p store.Proposal) string {
+	return "text:\n  " + strings.ReplaceAll(strings.TrimSuffix(p.Text, "\n"), "\n", "\n  ") + "\n" +
+		"install:  Brain writes no file and changes no permission: approve records your decision, and you install the script yourself\n"
 }
 
 // siblings returns the other pending proposals of the candidate of p that you pick between

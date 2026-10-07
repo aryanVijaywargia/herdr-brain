@@ -1,0 +1,11 @@
+<clear>
+proposal 1 (pending): new item
+text:     use pnpm
+scope:    workspace
+target:   workspace w14 (shop)
+diff:
+  + use pnpm
+source:   remember, sender unconfirmed, 2026-09-28 17:30
+approve with scope: as proposed, pin: no, on a conflict: keep-both
+
+a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  d detail  q close
