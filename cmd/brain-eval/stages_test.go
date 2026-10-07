@@ -41,6 +41,9 @@ func TestStageProbes(t *testing.T) {
 	}
 	for _, h := range []string{"claude", "codex"} {
 		for _, s := range stages {
+			if s == regressionStage {
+				continue // a regression case asks no CLI
+			}
 			if !has(func(c Case) bool { return c.Stage == s }, h) {
 				t.Errorf("stage %s has no %s probe", s, h)
 			}

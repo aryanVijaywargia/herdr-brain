@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -66,6 +68,44 @@ func TestParseFilter(t *testing.T) {
 				t.Errorf("case %s has a %s probe, want codex only", c.ID, p.Harness)
 			}
 		}
+	}
+}
+
+// The regression stage keeps only the regression cases; a harness leaves them out (E20-S1).
+func TestParseRegression(t *testing.T) {
+	cases, err := parse([]string{"--probes", "../../evals/probes", "--stage", "regression"})
+	if err != nil || len(cases) == 0 {
+		t.Fatalf("parse(--stage regression) = %v, %v", cases, err)
+	}
+	for _, c := range cases {
+		if c.Stage != regressionStage || c.Control || len(c.Probes) > 0 || len(c.Tests) == 0 {
+			t.Errorf("case %+v, want a regression case with tests and no probe", c)
+		}
+	}
+	cases, err = parse([]string{"--probes", "../../evals/probes", "--harness", "claude"})
+	if err != nil || slices.ContainsFunc(cases, func(c Case) bool { return c.Stage == regressionStage }) {
+		t.Errorf("parse(--harness claude) = %v; want no regression case", err)
+	}
+	if _, err := parse([]string{"--probes", "../../evals/probes", "--stage", "regression", "--harness", "claude"}); err == nil ||
+		!strings.Contains(err.Error(), "no probe matches") {
+		t.Errorf("parse(--stage regression --harness claude) = %v, want no probe matches", err)
+	}
+}
+
+// AC 3 (E20-S1): a run of regression cases only prints one line for each case and exits 1 when
+// one fails. It needs no Brain setup: with a scratch HOME it reaches no runner check.
+func TestRunRegressionOnly(t *testing.T) {
+	goEnv := goEnv(t) // the Go caches stay where they are, out of the scratch HOME
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "bugs.toml")
+	write(t, path, "[[bug]]\nissue = 9\ntests = [\"no-such-folder:TestGone\"]\n")
+	var out, errOut bytes.Buffer
+	if code := run([]string{"--probes", path, "--stage", "regression"}, append(os.Environ(), goEnv...), &out, &errOut); code != 1 {
+		t.Errorf("run() = %d, want 1 (stderr %q)", code, errOut.String())
+	}
+	if lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n"); len(lines) != 1 ||
+		!strings.HasPrefix(lines[0], "bug-9: fail; no-such-folder TestGone: not run (") || errOut.Len() > 0 {
+		t.Errorf("run() stdout %q, stderr %q; want one fail line of bug-9 and no error", out.String(), errOut.String())
 	}
 }
 
