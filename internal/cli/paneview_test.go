@@ -70,8 +70,8 @@ func (f *fixture) paneGolden(t *testing.T, name, screen string) {
 var claimID = regexp.MustCompile(`cl_[0-9a-f]{16}`)
 
 const (
-	itemKeys    = "a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  d detail  q close\n"
-	disputeKeys = "k keep  e edit  t retire  l later  d detail  q close\n"
+	itemKeys    = "a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  q close\n"
+	disputeKeys = "k keep  e edit  t retire  l later  v evidence  d detail  q close\n"
 )
 
 // AC #254: the pane shows the text, the scope and the effect first, and the source lines
@@ -103,7 +103,7 @@ func TestPaneViewGolden(t *testing.T) {
 		{name: "skill", proposal: func(t *testing.T, f *fixture) int64 { return f.skillDraft(t, skillText("deploy", "one")) }, keys: "q", bottom: itemKeys},
 		// The suggestions of a command chain (E17-S8): the script and the tool draft.
 		{name: "script", proposal: func(t *testing.T, f *fixture) int64 { s, _ := f.chainProposals(t); return s }, keys: "q",
-			bottom: "a approve  r reject  l later  d detail  q close\n"},
+			bottom: "a approve  r reject  l later  v evidence  d detail  q close\n"},
 		{name: "tool-draft", proposal: func(t *testing.T, f *fixture) int64 { _, d := f.chainProposals(t); return d }, keys: "q", bottom: itemKeys},
 		// A pane of 16 rows cuts the skill view and keeps the keys at the bottom.
 		{name: "skill-short-pane", proposal: func(t *testing.T, f *fixture) int64 { return f.skillDraft(t, skillText("deploy", "one")) },
