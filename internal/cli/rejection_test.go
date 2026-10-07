@@ -152,7 +152,7 @@ func TestReviewRejectClaim(t *testing.T) {
 	out = f.mustReview(t, "--rejected")
 	want := "rejection 1  workspace w14 (shop)  rejected " + testNow.Format("2006-01-02 15:04") +
 		"  1 new evidence since (3 now, 2 then)\n" +
-		"  claim " + claim + ": installing packages: use pnpm\n" +
+		"  claim " + claim + ": When installing packages: use pnpm\n" +
 		"  reason: we use npm in shop\n" +
 		"\nreopen one: brain review --reopen <rejection>; count its new evidence from now: brain review --reset <rejection>\n"
 	if out != want {

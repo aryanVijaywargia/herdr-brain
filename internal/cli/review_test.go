@@ -208,6 +208,16 @@ func TestReviewShow(t *testing.T) {
 	}
 }
 
+// An old item text with ".:" shows clean in the review pane (#284).
+func TestReviewShowCleanText(t *testing.T) {
+	f := newFixture(t)
+	id := f.remember(t, "Running the full project check in notes-api.: Run npm run lint..")
+	out := f.mustReview(t, fmt.Sprint(id))
+	if want := "text:     Running the full project check in notes-api: Run npm run lint.\n"; !strings.Contains(out, want) {
+		t.Errorf("show = %q, want %q", out, want)
+	}
+}
+
 // AC: the permission warning shows, and approve needs --confirm.
 func TestPermissionWarning(t *testing.T) {
 	f := newFixture(t)
@@ -765,9 +775,9 @@ func TestReviewAll(t *testing.T) {
 	out := f.mustReview(t, "--all")
 	seen := testNow.Format("2006-01-02 15:04")
 	want := "candidate 2  global  correction  2 occurrences in 2 sessions  claude, codex  last seen " + seen + "  gate reached  open\n" +
-		"  claim " + pnpm + ": installing packages: use pnpm\n" +
+		"  claim " + pnpm + ": When installing packages: use pnpm\n" +
 		"candidate 1  workspace w14 (shop)  failure  1 occurrences in 1 sessions  codex  last seen " + seen + "  below gate (1 of 2 sessions)  open\n" +
-		"  claim " + failure + ": go build: run go mod tidy first\n" +
+		"  claim " + failure + ": When go build: run go mod tidy first\n" +
 		"\nread only: a candidate becomes an item only through a proposal that you approve\n"
 	if out != want {
 		t.Errorf("--all printed\n%s\nwant\n%s", out, want)
