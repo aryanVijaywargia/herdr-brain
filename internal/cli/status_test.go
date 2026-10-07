@@ -267,8 +267,8 @@ func TestStatusPaneListFails(t *testing.T) {
 // AC S54: an untested herdr version shows the warning.
 func TestStatusUntestedHerdr(t *testing.T) {
 	f := newStatusFixture(t)
-	f.herdr.version, f.herdr.untested = "0.9.3", true
-	if out := f.mustStatus(t); !strings.Contains(out, "herdr 0.9.3: not tested with Brain yet; Brain keeps working\n") {
+	f.herdr.version, f.herdr.untested = "0.9.4", true
+	if out := f.mustStatus(t); !strings.Contains(out, "herdr 0.9.4: not tested with Brain yet; Brain keeps working\n") {
 		t.Errorf("status:\n%s\nwant the S54 warning", out)
 	}
 }

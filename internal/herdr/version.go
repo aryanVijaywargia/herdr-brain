@@ -16,6 +16,7 @@ const minVersion = "0.9.1"
 func tested(v string) bool {
 	return slices.Contains([]string{
 		"0.9.1",
+		"0.9.3", // #256, PR #297
 	}, v)
 }
 
