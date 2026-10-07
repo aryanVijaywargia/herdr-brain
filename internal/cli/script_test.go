@@ -113,8 +113,11 @@ func TestScriptReview(t *testing.T) {
 			t.Errorf("review show =\n%s\nwant %q", show, want)
 		}
 	}
-	if strings.Contains(show, "revision:") || strings.Contains(show, "--change") {
-		t.Errorf("review show =\n%s\nwant no revision line and no change action", show)
+	if strings.Contains(show, "revision:") || strings.Contains(show, "claim:") || strings.Contains(show, "--change") {
+		t.Errorf("review show =\n%s\nwant no revision line, no claim and no change action", show)
+	}
+	if show := f.mustReview(t, fmt.Sprint(script.ID), "--detail"); !strings.Contains(show, "\nclaim:    cl_") || strings.Contains(show, "revision:") {
+		t.Errorf("review show --detail =\n%s\nwant the claim and no revision line", show)
 	}
 	if show := f.mustReview(t, fmt.Sprint(tool.ID)); !strings.Contains(show,
 		fmt.Sprintf("pick one: proposal %d is a script of the same command chain", script.ID)) {
@@ -240,7 +243,7 @@ func TestScriptPane(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pane = %v\n%s", err, screen)
 	}
-	if !strings.Contains(screen, "a approve  r reject  l later  q close\n") || strings.Contains(screen, "p pin") {
+	if !strings.Contains(screen, "a approve  r reject  l later  d detail  q close\n") || strings.Contains(screen, "p pin") {
 		t.Errorf("pane =\n%s\nwant the script keys only", screen)
 	}
 	if script, _ = scriptAndTool(t, f.rows(t)); script.Status != store.ProposalApproved {

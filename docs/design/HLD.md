@@ -764,7 +764,7 @@ The rules are wide on purpose. The extractor removes the false positives.
 ### 7.4 Proposal and review
 
 - A proposal shows:
-  - the item text, the claim id and the revision it will create;
+  - first, what you decide on: the item text, the scope and the effect (the target and the expected benefit); the source lines come after. A new item says "new item", a change "changes item <id>", and times are local. The claim id and the revision it will create are in the detail view (key `d` in the review pane, `brain review <id> --detail`);
   - the scope (the source workspace by default);
   - the target and the diff;
   - 1-3 source excerpts with sender, session, workspace and date;

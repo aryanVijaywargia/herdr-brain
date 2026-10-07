@@ -1,0 +1,32 @@
+<clear>
+proposal 2 (pending): new script
+kind:     script
+scope:    workspace
+target:   a script that you install yourself
+benefit:  runs these commands with one call of your own script
+text:
+  #!/bin/sh
+  # go-vet: run go vet ./..., then go test ./...
+  # Brain does not install this script: save it where you want it and make it executable.
+  set -e
+  cd '/src/shop'
+  go vet ./...
+  go test ./...
+install:  Brain writes no file and changes no permission: approve records your decision, and you install the script yourself
+diff:
+  @@ line 1
+  + #!/bin/sh
+  + # go-vet: run go vet ./..., then go test ./...
+  + # Brain does not install this script: save it where you want it and make it executable.
+  + set -e
+  + cd '/src/shop'
+  + go vet ./...
+  + go test ./...
+excerpts:
+  tool, session 3 (claude), workspace shop, 2026-09-28 17:32: go test ./...
+  tool, session 2 (claude), workspace shop, 2026-09-28 17:32: go test ./...
+  tool, session 1 (claude), workspace shop, 2026-09-28 17:32: go test ./...
+source:   the exact repeats of a command chain, sender unconfirmed, 2026-09-28 18:30
+pick one: proposal 1 is a tool draft of the same command chain; approve one, and the other is superseded
+
+a approve  r reject  l later  d detail  q close
