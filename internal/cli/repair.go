@@ -27,7 +27,7 @@ func Repair(ctx context.Context, e Env, args []string) (err error) {
 	if fs.NArg() != 0 {
 		return fmt.Errorf("want no arguments, got %q\n%s", fs.Args(), repairUsage)
 	}
-	c, err := e.open(ctx, false)
+	c, err := e.open(ctx, openNoRepair)
 	if err != nil {
 		return err
 	}

@@ -69,6 +69,23 @@ title = "Brain review"
 placement = "split"
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" pane review --proposal \"$BRAIN_PROPOSAL_ID\""]
 
+# E20-S3: the recall popup searches the approved items of the focused pane's workspace and the
+# global items, as `brain recall` does, and shows one item with its source excerpts. It only
+# reads. Also: `herdr plugin action invoke brain.recall`.
+[[actions]]
+id = "recall"
+title = "Brain: recall"
+contexts = ["workspace", "pane"]
+command = ["sh", "-c", "exec \"$HERDR_BIN_PATH\" plugin pane open --plugin brain --entrypoint recall"]
+
+# A popup has no HERDR_PANE_ID (D6), so `brain pane recall` takes the focused pane and its
+# workspace from HERDR_PLUGIN_CONTEXT_JSON, and herdr confirms that pane as for any call.
+[[panes]]
+id = "recall"
+title = "Brain recall"
+placement = "popup"
+command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" pane recall"]
+
 # D4 (E2-S6): a close marks the workspace closed, because herdr reuses a closed id after a
 # restart. herdr runs the command once for each event; there is no listener process.
 [[events]]

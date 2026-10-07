@@ -43,16 +43,27 @@ func Recall(ctx context.Context, e Env, args []string) (err error) {
 		if err := e.recheck(ctx, c); err != nil {
 			return err
 		}
-		key, err := briefKey(c)
+		items, revision, err := recallItems(ctx, tx, c, words)
 		if err != nil {
 			return err
 		}
-		items, revision, err := output.Items(ctx, tx, key)
-		if err != nil {
-			return err
-		}
-		return printRecall(ctx, tx, e, c, bestMatches(items, words), revision, strings.Join(words, " "))
+		return printRecall(ctx, tx, e, c, items, revision, strings.Join(words, " "))
 	})
+}
+
+// recallItems returns the items that the brief of c's pane can deliver and that match words,
+// best match first, and the revision of each delivered item. brain recall and the recall
+// popup (E20-S3) both search with it.
+func recallItems(ctx context.Context, tx *sql.Tx, c *Call, words []string) ([]brief.Item, map[int64]int64, error) {
+	key, err := briefKey(c)
+	if err != nil {
+		return nil, nil, err
+	}
+	items, revision, err := output.Items(ctx, tx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	return bestMatches(items, words), revision, nil
 }
 
 // printRecall prints items, the recall result of query, and then records it in tx: a failed

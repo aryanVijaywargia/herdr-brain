@@ -130,3 +130,38 @@ func TestManifestStartAction(t *testing.T) {
 		t.Errorf("start action command = %s, want it to run bin/brain start", action["command"])
 	}
 }
+
+// E20-S3 AC 1: the recall action opens the recall popup for the focused pane's workspace, and
+// the popup runs `brain pane recall`, which takes that pane from the action context.
+func TestManifestRecallAction(t *testing.T) {
+	action := findTable(manifestTables(t, "actions"), "recall")
+	if action == nil {
+		t.Fatal("no [[actions]] with id recall")
+	}
+	if action["contexts"] != `["workspace", "pane"]` {
+		t.Errorf("recall action contexts = %s, want [\"workspace\", \"pane\"]", action["contexts"])
+	}
+	if !strings.Contains(action["command"], `plugin pane open --plugin brain --entrypoint recall`) {
+		t.Errorf("recall action command = %s, want it to open the recall pane", action["command"])
+	}
+	pane := findTable(manifestTables(t, "panes"), "recall")
+	if pane == nil {
+		t.Fatal("no [[panes]] with id recall")
+	}
+	if pane["placement"] != `"popup"` || !strings.Contains(pane["command"], `exec \"$HERDR_PLUGIN_ROOT/bin/brain\" pane recall"`) {
+		t.Errorf("recall pane = %v, want a popup that runs bin/brain pane recall", pane)
+	}
+}
+
+// E20-S3 AC 5: HLD §4.1 lists the recall popup as a surface, with its action.
+func TestHLDRecallPopup(t *testing.T) {
+	b, err := os.ReadFile("../../docs/design/HLD.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, sec, _ := strings.Cut(string(b), "### 4.1 Components\n")
+	sec, _, _ = strings.Cut(sec, "\n### ")
+	if !strings.Contains(sec, "\n| Recall popup | The plugin action `brain.recall` opens a herdr popup") {
+		t.Errorf("HLD §4.1 =\n%s\nwant the Recall popup row", sec)
+	}
+}
