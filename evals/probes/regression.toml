@@ -1,0 +1,228 @@
+# Regression cases (HLD §12.1, E20-S1 #265): each bug that real use found gets its own case,
+# named with its issue number (bug-<issue>), so one fix cannot hide another failure and a bug
+# cannot come back in silence. The bugs come from the M2 real-use test and the M2 eval run
+# (2026-10-07).
+#
+# A case runs the Go tests that hold the fixture of its bug: the made screens, hook inputs,
+# fake herdr replies and stores that the fix added. brain-eval runs them with go test in the
+# repo and prints one pass or fail line for the case. A case needs no herdr, no CLI and no
+# model, so it has no control: go run ./cmd/brain-eval --probes evals/probes --stage regression
+#
+# tests: "<package folder>:<test name>", the name as `go test -v` prints it, with its subtests.
+# The comment above each case names the bug and the pull request of its fix.
+
+# Workspace ids with letters (w1N) break every Brain command. Fix: PR #248.
+[[bug]]
+issue = 247
+tests = ["internal/herdr:TestLetterIDs", "internal/cli:TestStatusLetterWorkspaceID"]
+
+# doctor fails on agent sessions that started before the install, so brain update exits 1.
+# Fix: PR #262.
+[[bug]]
+issue = 249
+tests = [
+  "internal/harness:TestStartedBefore",
+  "internal/cli:TestStatusM2",
+  "internal/cli:TestDoctorNoReceiptAfterInstall",
+  "cmd/brain:TestAddStartInstallTime",
+]
+
+# status shows agy retest when agy is not installed. Fix: PR #262.
+[[bug]]
+issue = 250
+tests = ["internal/cli:TestStatusNotInstalled", "internal/harness:TestVersionFailure/no_CLI"]
+
+# Retest gate after a CLI update fails doctor and turns off hook records. Fix: PR #262.
+[[bug]]
+issue = 251
+tests = [
+  "internal/harness:TestNewerThanTested",
+  "internal/cli:TestDoctorM2",
+  "cmd/brain:TestSetupHookRecords/newer_than_tested",
+]
+
+# A normal edit of a file named in a rule makes the rule disputed. Fix: PR #268.
+[[bug]]
+issue = 252
+tests = [
+  "internal/cli:TestDisputeEdited",
+  "internal/brained:TestStaleDeletedAndEdited",
+  "internal/brained:TestStaleOldEditDispute",
+  "internal/signal:TestCheckAnchorsRenamed",
+]
+
+# A plain-words "remember this" lesson makes no proposal. Fix: PR #261.
+[[bug]]
+issue = 253
+tests = [
+  "internal/signal:TestLesson",
+  "internal/store:TestLessonGate",
+  "internal/extract:TestLessonProposal",
+  "internal/brief:TestRememberLine",
+  "internal/cli:TestLessonOpensReviewPane",
+]
+
+# Review pane text for a new item: revision wording, claim id, UTC time. Fix: PR #293.
+[[bug]]
+issue = 254
+tests = ["internal/cli:TestPaneViewGolden", "internal/cli:TestReviewShowLocalTime", "internal/cli:TestReviewDetail"]
+
+# Setup popup breaks words at the line end. Fix: PR #286.
+[[bug]]
+issue = 255
+tests = ["cmd/brain:TestSetupWrap", "cmd/brain:TestWrapTo"]
+
+# herdr 0.9.3 is not in the tested versions. Fix: PR #297.
+[[bug]]
+issue = 256
+tests = ["internal/herdr:TestCheckVersion/0.9.3"]
+
+# status gives no cause when the herdr codex hook is off. Fix: PR #262.
+[[bug]]
+issue = 257
+tests = ["internal/cli:TestStatusCodexNoSessionID"]
+
+# Screen capture stores CLI tips, banners and side-panel text as observations. Fix: PR #260.
+[[bug]]
+issue = 258
+tests = [
+  "internal/adapter:TestScreen/claude-banner",
+  "internal/adapter:TestScreen/claude-combining",
+  "internal/adapter:TestScreen/claude-divider",
+  "internal/adapter:TestScreen/claude-gap-keep",
+  "internal/adapter:TestScreen/claude-keep",
+  "internal/adapter:TestScreen/claude-logo",
+  "internal/adapter:TestScreen/claude-panel",
+  "internal/adapter:TestScreen/claude-tip",
+  "internal/adapter:TestScreen/claude-tip-inside",
+  "internal/adapter:TestScreen/claude-tip-nbsp",
+  "internal/adapter:TestScreen/codex-banner",
+  "internal/adapter:TestScreen/codex-inside",
+  "internal/adapter:TestScreen/codex-keep",
+  "internal/adapter:TestScreenRules",
+  "internal/brained:TestCaptureScreenChrome",
+]
+
+# status and doctor keep "last extractor call failed" after later calls work. Fix: PR #292.
+[[bug]]
+issue = 263
+tests = [
+  "internal/cli:TestExtractorWorksAfterFailure",
+  "internal/extract:TestRetryAfterWorkedCall",
+  "internal/store:TestLastWorkedCall",
+]
+
+# brain-eval: the claude delivery stage cannot pass (folder trust in each fresh git folder).
+# Fix: PR #290.
+[[bug]]
+issue = 276
+tests = ["cmd/brain-eval:TestTrustDialog"]
+
+# brain-eval: the codex delivery stage fails on a fresh test session. Fix: PR #290.
+[[bug]]
+issue = 277
+tests = ["cmd/brain-eval:TestCaseWorkspaceMapped"]
+
+# Codex screen capture counts one prompt 2 to 4 times, so the gates fire in one session.
+# Fix: PR #288.
+[[bug]]
+issue = 278
+tests = [
+  "internal/brained:TestCaptureCodexPromptCopies",
+  "internal/brained:TestCapturePromptNewTurn",
+  "internal/brained:TestCaptureClaudePromptCopies",
+  "internal/brained:TestCapturePromptTurns",
+]
+
+# Claim keys hold session details, so the same lesson never adds up across sessions.
+# Fix: PR #287.
+[[bug]]
+issue = 279
+tests = [
+  "internal/extract:TestSameLessonAddsUpAcrossSessions",
+  "internal/extract:TestNormalKeySameClaim",
+  "internal/extract:TestPromptAsksForGeneralSituation",
+  "internal/store:TestClaimKeyMigration",
+]
+
+# The candidate kind comes from the first signal, so lessons get the wrong gate. Fix: PR #287.
+[[bug]]
+issue = 280
+tests = ["internal/extract:TestKindFollowsClaim", "internal/extract:TestLessonOverridesOldFailureKind"]
+
+# Approval dialogs, approval echo lines and code diff lines are stored as user text.
+# Fix: PR #288.
+[[bug]]
+issue = 281
+tests = [
+  "internal/adapter:TestScreen/claude-approval-top",
+  "internal/adapter:TestScreen/claude-diff",
+  "internal/adapter:TestScreen/claude-trust",
+  "internal/adapter:TestScreen/codex-approval",
+  "internal/adapter:TestScreen/codex-trust",
+  "internal/adapter:TestScreen/codex-welcome",
+  "internal/brained:TestCaptureDialogLines",
+  "internal/brained:TestSendersApproval",
+]
+
+# Rejected proposals keep using the daily proposal cap, and a full cap stops all extraction.
+# The fix makes the gates and caps a config (HLD §7.2); rejected proposals still count.
+# Fix: PR #292.
+[[bug]]
+issue = 282
+tests = [
+  "internal/extract:TestReadConfig",
+  "internal/extract:TestConfigGate",
+  "internal/cli:TestExtractionConfig",
+  "internal/cli:TestStatusQueueConfigGate",
+]
+
+# Revert signal is not wired. Fix: PR #294.
+[[bug]]
+issue = 283
+tests = [
+  "internal/brained:TestRevertCommit",
+  "internal/brained:TestRevertCheckoutS7",
+  "internal/brained:TestRevertAloneBelowGate",
+  "internal/signal:TestWorkChanges",
+  "internal/signal:TestFindRevert",
+]
+
+# Item text joins situation and rule with ".:". Fix: PR #287.
+[[bug]]
+issue = 284
+tests = [
+  "internal/brief:TestClaimText",
+  "internal/brief:TestClean",
+  "internal/brief:TestOldItemTextIsClean",
+  "internal/cli:TestReviewShowCleanText",
+]
+
+# Codex hook records stay off. The hook inputs are those of the live codex 0.160.1 test on the
+# M2 Mac. Fix: PR #297.
+[[bug]]
+issue = 285
+tests = ["internal/hook:TestRecordCodex", "internal/hook:TestCodexToolMatcher", "cmd/brain:TestSetupHookRecords/yes"]
+
+# Capture still stores CLI tips and announcement lines; a wrapped diff line can start a failure
+# signal. Fix: PR #300.
+[[bug]]
+issue = 291
+tests = [
+  "internal/adapter:TestScreen/claude-announce",
+  "internal/adapter:TestScreen/claude-diff-blank",
+  "internal/adapter:TestScreen/claude-diff-wrap",
+  "internal/adapter:TestScreen/claude-effort",
+  "internal/adapter:TestScreen/claude-notice-keep",
+  "internal/adapter:TestScreen/claude-placeholder",
+  "internal/adapter:TestScreen/codex-diff-blank",
+  "internal/adapter:TestScreen/codex-diff-wrap",
+  "internal/adapter:TestScreen/codex-tip-tree",
+  "internal/signal:TestFailureDiffWrap",
+]
+
+# brain-eval: claude delivery cases fail at random when the trust-answered claude runs its
+# start hook. Fix: PR #299.
+[[bug]]
+issue = 296
+tests = ["cmd/brain-eval:TestLastSessionLine"]
