@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -275,6 +277,7 @@ func workTree(ctx context.Context, top string) (map[string]string, error) {
 		return nil, err
 	}
 	tree := map[string]string{}
+	links := map[string]bool{}
 	for _, rec := range strings.Split(string(out), "\x00") {
 		info, p, ok := strings.Cut(rec, "\t")
 		f := strings.Fields(info)
@@ -282,6 +285,7 @@ func workTree(ctx context.Context, top string) (map[string]string, error) {
 			continue // a submodule is a commit, not a file
 		}
 		tree[p] = f[1]
+		links[p] = f[0] == symlink
 	}
 	deleted, err := lsFiles(ctx, top, "-d")
 	if err != nil {
@@ -295,6 +299,10 @@ func workTree(ctx context.Context, top string) (map[string]string, error) {
 		return nil, err
 	}
 	modified = slices.DeleteFunc(modified, func(p string) bool { _, ok := tree[p]; return !ok })
+	if err := hashLinks(ctx, top, modified, links, tree); err != nil {
+		return nil, err
+	}
+	modified = slices.DeleteFunc(modified, func(p string) bool { return links[p] })
 	if len(modified) == 0 {
 		return tree, nil
 	}
@@ -313,8 +321,32 @@ func workTree(ctx context.Context, top string) (map[string]string, error) {
 	return tree, nil
 }
 
-// gitlink is the index mode of a submodule.
-const gitlink = "160000"
+// hashLinks sets in tree the blob of each path of modified that is a symlink in links. git
+// stores a symlink as the blob of its link text: hash-object of the path would read the file
+// that it points at, and fail when that file is gone.
+func hashLinks(ctx context.Context, top string, modified []string, links map[string]bool, tree map[string]string) error {
+	for _, p := range modified {
+		if !links[p] {
+			continue
+		}
+		target, err := os.Readlink(filepath.Join(top, filepath.FromSlash(p)))
+		if err != nil {
+			return err
+		}
+		out, err := gitIn(ctx, top, target, "hash-object", "--stdin")
+		if err != nil {
+			return err
+		}
+		tree[p] = strings.TrimSpace(string(out))
+	}
+	return nil
+}
+
+// gitlink is the index mode of a submodule, and symlink the index mode of a symbolic link.
+const (
+	gitlink = "160000"
+	symlink = "120000"
+)
 
 // lsFiles returns the paths that git ls-files flag lists in the repo at top.
 func lsFiles(ctx context.Context, top, flag string) ([]string, error) {

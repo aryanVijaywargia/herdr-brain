@@ -366,3 +366,18 @@ func TestSupports(t *testing.T) {
 		t.Error("Supports: want lessons from unconfirmed text, and none from assistant text (§6.5)")
 	}
 }
+
+// AC #283: a git observation is a revert signal, and only that: its text starts no text
+// signal, and it does not split a command chain.
+func TestFindRevert(t *testing.T) {
+	git := func(id int64, event string) store.SignalInput {
+		return store.SignalInput{Observation: store.Observation{ID: id, Source: store.SourceGit, Event: event,
+			Excerpt: "no, git: src/notes.js is back to its committed content again", Status: store.ObservationComplete,
+			Sender: store.SenderUnconfirmed, Counts: true}, SessionID: 1}
+	}
+	sigs := Find([]store.SignalInput{git(1, RevertEvent), git(2, RevertEvent), git(3, "other")})
+	want := []Signal{{Kind: Revert, Observations: []int64{1}}, {Kind: Revert, Observations: []int64{2}}}
+	if !reflect.DeepEqual(sigs, want) {
+		t.Errorf("Find = %+v, want %+v", sigs, want)
+	}
+}
