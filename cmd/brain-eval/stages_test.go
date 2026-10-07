@@ -18,6 +18,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
 )
 
 // AC 1: each §12.1 stage has a probe for Claude and one for Codex, and each exclusion mode has
@@ -646,5 +647,112 @@ func TestWriteReport(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "report: "+paths.EvalReport(dir)) {
 		t.Errorf("stdout %q, want the report path", out.String())
+	}
+}
+
+// #277: herdr saves a new case workspace about 5 s after it creates it (HLD §11). The runner
+// maps the case workspace before the setup steps, also when herdr saves it late, so a
+// workspace `brain remember` can run and the hook receipt is emitted, not unmapped. A case
+// workspace that herdr does not save in time stops the run before its setup steps.
+func TestCaseWorkspaceMapped(t *testing.T) {
+	tests := []struct {
+		name      string
+		saveAfter int
+		noSave    bool
+		err       string
+	}{
+		{"saved at once", 0, false, ""},
+		{"saved late", 3, false, ""},
+		{"not saved", 0, true, "w1 is unmapped after"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.fake.answer = knows
+			e.fake.saveAfter, e.fake.noSave = tt.saveAfter, tt.noSave
+			e.r.Timeouts.Map = 200 * time.Millisecond
+			e.hook(t, store.ResultEmitted, "")
+			var states []workspace.State // the state of the case workspace at each setup step
+			run := e.fake.onRun
+			e.fake.onRun = func() {
+				states = append(states, e.lookup(t, "w1").State)
+				run()
+			}
+			_, err := e.r.Run(context.Background(), deliveryCase("codex")[:1])
+			if tt.err != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.err) {
+					t.Errorf("Run() = %v, want %q", err, tt.err)
+				}
+				if len(states) != 0 {
+					t.Errorf("setup steps ran at states %v, want none", states)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(states, []workspace.State{workspace.Mapped}) {
+				t.Errorf("case workspace at the setup step: %v, want mapped", states)
+			}
+			if rs := readResults(t, e); len(rs) != 1 || Status(rs[0].Status) != Delivered || rs[0].Label != string(Pass) {
+				t.Errorf("results %+v, want one delivered PASS", rs)
+			}
+		})
+	}
+}
+
+// #276: Claude Code 2.1.292 asks for folder trust in each new git folder. The runner answers
+// that dialog once in the case folder that it made, closes that CLI and starts a fresh one in
+// a new pane, so the probe passes or fails on delivery. A setup agent gets the same answer.
+// The runner answers no dialog of another folder or another CLI, and no dialog twice.
+func TestTrustDialog(t *testing.T) {
+	transfer := Case{ID: "transfer", Stage: "transfer", Setup: []string{"agent claude: save {{marker}}", "echo {{marker}} > fact.txt"},
+		Probes: []Probe{{Harness: "codex", Prompt: "What is the deploy code word?"}}, Check: Check{Expect: []string{"{{marker}}"}}}
+	tests := []struct {
+		name     string
+		c        Case
+		set      func(e *env)
+		status   Status
+		answered bool
+	}{
+		{"probe", deliveryCase("claude")[0], func(*env) {}, Delivered, true},
+		{"setup agent", transfer, func(*env) {}, Delivered, true},
+		{"not ready after the answer", deliveryCase("claude")[0], func(e *env) { e.fake.notReady = map[string]bool{"claude": true} }, Skipped, true},
+		{"dialog of another folder", deliveryCase("claude")[0], func(e *env) { e.fake.dialogDir = "/private/tmp/other" }, Skipped, false},
+		{"dialog of another CLI", deliveryCase("codex")[0], func(e *env) { e.fake.trust = map[string]bool{"codex": true} }, Skipped, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.fake.answer = knows
+			e.fake.trust = map[string]bool{"claude": true}
+			e.hook(t, store.ResultEmitted, "")
+			tt.set(e)
+			if _, err := e.r.Run(context.Background(), []Case{tt.c}); err != nil {
+				t.Fatal(err)
+			}
+			if rs := readResults(t, e); len(rs) != 1 || Status(rs[0].Status) != tt.status {
+				t.Errorf("results %+v, want one %s", rs, tt.status)
+			}
+			var keyed []string // the panes that got keys
+			for _, id := range e.fake.order {
+				p := e.fake.panes[id]
+				if len(p.keys) == 0 {
+					continue
+				}
+				keyed = append(keyed, id)
+				if !slices.Equal(p.keys, []string{"Down", "Enter"}) || len(p.prompts) != 0 || !p.closed {
+					t.Errorf("pane %s: keys %v, prompts %v, closed %v; want the trust answer only, then a close", id, p.keys, p.prompts, p.closed)
+				}
+			}
+			if (len(keyed) == 1) != tt.answered || len(keyed) > 1 {
+				t.Errorf("panes with keys %v, want an answer: %v", keyed, tt.answered)
+			}
+			for dir, ok := range e.fake.trusted {
+				if !tt.answered || !ok || filepath.Dir(dir) != e.r.Scratch {
+					t.Errorf("trusted folder %s (%v), want only the case folder in %s after an answer", dir, ok, e.r.Scratch)
+				}
+			}
+		})
 	}
 }

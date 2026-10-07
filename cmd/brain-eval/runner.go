@@ -34,6 +34,7 @@ type Herdr interface {
 	WaitOutput(ctx context.Context, id, re string, timeout time.Duration) (string, error)
 	// StartAgent starts agent name of kind in pane id with the CLI arguments args.
 	StartAgent(ctx context.Context, name, kind, id string, args []string) error
+	SendKeys(ctx context.Context, id string, keys ...string) error
 	PromptAgent(ctx context.Context, target, text string, timeout time.Duration) error
 	ReadAgent(ctx context.Context, target string, lines int) (string, error)
 	ReadAgentVisible(ctx context.Context, target string) (string, error)

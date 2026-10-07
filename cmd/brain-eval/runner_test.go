@@ -23,6 +23,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
+	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
 )
 
 const mainSocket = "/tmp/brain-main-fake/herdr.sock"
@@ -38,6 +39,25 @@ type fakePane struct {
 	ran     []string // the commands typed into the pane
 	prompts []string // the prompts sent to its agent
 	args    []string // the CLI arguments of its agent
+	keys    []string // the keys pressed in the pane
+	asking  bool     // its agent shows the folder-trust dialog
+	choice  int      // the selected answer of that dialog: 0 "No, exit", 1 "Yes, I trust this folder"
+}
+
+// trustScreen is the folder-trust dialog of Claude Code 2.1.292 in folder dir, as herdr reads it
+// on the M2 test Mac.
+func (p *fakePane) trustScreen(dir string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "claude\n Accessing workspace:\n\n %s\n\n Quick safety check: Is this a project you created or one you trust?\n\n", dir)
+	for i, a := range []string{"No, exit", "Yes, I trust this folder"} {
+		mark := "  "
+		if i == p.choice {
+			mark = "❯ "
+		}
+		fmt.Fprintf(&b, " %s%s\n", mark, a)
+	}
+	b.WriteString("\n Enter to confirm · Esc to cancel\n")
+	return b.String()
 }
 
 // fakeHerdr is the brain-eval session in memory. RunInPane runs the command with sh in the
@@ -59,10 +79,15 @@ type fakeHerdr struct {
 	onStart  func(pane, kind string) // runs when an agent starts: its hook
 	onRun    func()                  // runs when a pane runs a command: a Brain call of a step
 	notReady map[string]bool         // agent kinds that do not get ready
-	notIdle  bool                    // a read finds the agent still working
-	scrolled bool                    // the ask scrolled off the screen of a read
-	badAsk   string                  // the agent kind whose prompt fails
-	visible  int                     // the count of visible reads
+	// trust holds the agent kinds that ask for folder trust at start in a folder that is not in
+	// trusted. The dialog names dialogDir, or else the real folder of the pane.
+	trust     map[string]bool
+	trusted   map[string]bool
+	dialogDir string
+	notIdle   bool   // a read finds the agent still working
+	scrolled  bool   // the ask scrolled off the screen of a read
+	badAsk    string // the agent kind whose prompt fails
+	visible   int    // the count of visible reads
 	// session is herdr's session.json, with the root of each saved workspace. herdr saves a
 	// new workspace late: after saveAfter calls of Workspaces, or never with noSave.
 	session   string
@@ -74,7 +99,8 @@ type fakeHerdr struct {
 
 func newFake(store, session string) *fakeHerdr {
 	return &fakeHerdr{store: store, panes: map[string]*fakePane{}, agents: map[string]string{}, labels: map[string]string{},
-		alive: map[int]bool{}, nextPID: 1000, session: session, roots: map[string]string{}, saveIn: map[string]int{}}
+		alive: map[int]bool{}, nextPID: 1000, session: session, roots: map[string]string{}, saveIn: map[string]int{},
+		trusted: map[string]bool{}}
 }
 
 // save writes session.json with each workspace whose save is due.
@@ -226,7 +252,15 @@ func (f *fakeHerdr) StartAgent(_ context.Context, name, kind, id string, args []
 	if err != nil {
 		return err
 	}
+	if f.trust[kind] && !f.trusted[p.cwd] {
+		// herdr keeps the blocked agent: a read of it shows the dialog.
+		p.asking, p.choice = true, 0
+		p.fg = append(p.fg, herdr.Process{Name: kind, PID: f.pid()})
+		f.agents[name] = id
+		return fmt.Errorf("agent start: agent %s is blocked during startup and is not ready for prompts (agent_not_ready)", name)
+	}
 	if f.notReady[kind] {
+		f.agents[name] = id // herdr keeps the blocked agent
 		return errors.New("agent start: the agent did not get ready (agent_not_ready)")
 	}
 	if f.onStart != nil {
@@ -260,6 +294,9 @@ func (f *fakeHerdr) ReadAgent(_ context.Context, target string, _ int) (string, 
 		return "", errors.New("agent read: the agent is working (agent_not_idle)")
 	}
 	if f.answer != nil {
+		if len(p.prompts) == 0 {
+			return "> \n", nil // a CLI at its empty prompt
+		}
 		last := p.prompts[len(p.prompts)-1]
 		if f.scrolled {
 			return f.answer(p, last) + "\n", nil
@@ -271,7 +308,37 @@ func (f *fakeHerdr) ReadAgent(_ context.Context, target string, _ int) (string, 
 
 func (f *fakeHerdr) ReadAgentVisible(ctx context.Context, target string) (string, error) {
 	f.visible++
+	if p, err := f.get(f.agents[target]); err == nil && p.asking {
+		dir, err := filepath.EvalSymlinks(p.cwd)
+		if f.dialogDir != "" {
+			dir = f.dialogDir
+		}
+		return p.trustScreen(dir), err
+	}
 	return f.ReadAgent(ctx, target, 0)
+}
+
+// SendKeys presses keys in pane id. In the folder-trust dialog, Down and Up move the
+// selection, and Enter takes the selected answer.
+func (f *fakeHerdr) SendKeys(_ context.Context, id string, keys ...string) error {
+	p, err := f.get(id)
+	if err != nil {
+		return err
+	}
+	p.keys = append(p.keys, keys...)
+	for _, k := range keys {
+		switch {
+		case !p.asking:
+		case k == "Down":
+			p.choice = min(p.choice+1, 1)
+		case k == "Up":
+			p.choice = max(p.choice-1, 0)
+		case k == "Enter":
+			p.asking = false
+			f.trusted[p.cwd] = p.choice == 1
+		}
+	}
+	return nil
 }
 
 // dump lists the files under dir with their text, except .git.
@@ -355,6 +422,17 @@ func newEnv(t *testing.T) *env {
 		Stdout:  io.Discard,
 	}
 	return e
+}
+
+// lookup is the mapping of workspace ws in the workspace map of the test store, as a Brain call
+// or the hook sees it.
+func (e *env) lookup(t *testing.T, ws string) workspace.Mapping {
+	t.Helper()
+	m, err := workspace.For(bindings.Binding{Session: session, Socket: e.socket, Store: e.testStore}).Lookup(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
 }
 
 // install adds the Brain hook of each harness to its hook file in the scratch HOME, as

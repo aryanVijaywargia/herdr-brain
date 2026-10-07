@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/brief"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
@@ -243,13 +242,8 @@ func (sb *skillBrain) open() *store.Store {
 // read returns the brief of workspace ws in the test store, as the hook reads it: with the
 // workspace part of a mapped workspace. It returns "" when the store has none.
 func (sb *skillBrain) read(ws string) string {
-	b := bindings.Binding{Session: session, Socket: sb.e.socket, Store: sb.e.testStore}
-	m, err := workspace.For(b).Lookup(ws)
-	if err != nil {
-		sb.t.Fatal(err)
-	}
 	var key string
-	if m.State == workspace.Mapped {
+	if m := sb.e.lookup(sb.t, ws); m.State == workspace.Mapped {
 		key = m.Entry.Key
 	}
 	br, err := output.Read(filepath.Join(sb.e.testStore, outDir), key)
