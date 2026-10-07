@@ -282,7 +282,7 @@ func TestPaneDispute(t *testing.T) {
 			if err != nil {
 				t.Fatalf("pane = %v", err)
 			}
-			if !strings.Contains(screen, "k keep  e edit  t retire  l later  d detail  q close") || strings.Contains(screen, "r reject") {
+			if !strings.Contains(screen, "k keep  e edit  t retire  l later  v evidence  d detail  q close") || strings.Contains(screen, "r reject") {
 				t.Errorf("screen = %q, want the dispute keys and no reject", screen)
 			}
 			if !strings.Contains(screen, c.screen) {

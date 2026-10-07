@@ -768,6 +768,7 @@ The rules are wide on purpose. The extractor removes the false positives.
   - the scope (the source workspace by default);
   - the target and the diff;
   - 1-3 source excerpts with sender, session, workspace and date;
+  - the evidence view (key `v` in the review pane, `brain review <id> --evidence`, E20-S4): the text that Brain stores around each source excerpt, at most 20 lines before and 20 after, through the secret filter, and no transcript; when that text is gone, one line says so;
   - one sentence of expected benefit ("stops the npm lockfile mistake").
 - **Permission warning:** if the item changes a permission, an allow rule or a safety rule, the proposal shows a warning line. It needs an explicit confirm.
 - Actions: **approve**, **edit then approve**, **ask for a change** (Brain drafts again in the background), **change scope**, **pin**, **reject**, **later**.
