@@ -1,0 +1,9 @@
+user@host notes-api % codex
+  >_ OpenAI Codex (v0.160.1)
+     ~/work/notes-api
+  Welcome to the part where the idea gets interesting.
+                                                      ⣀⣤⣤⣤⣀⣀
+                                                   ⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣦⣤⣤⣤⣤⣤⣤⡀
+
+  GPT-6.1-Sol high · ~/work/notes-api
+  ? for shortcuts                                                                             ⚠ 1 warning · f2 to view

@@ -308,7 +308,7 @@ func TestCaptureS34(t *testing.T) {
 func TestCaptureReplay(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
 	k.pane("w1:p1", "claude", "")
-	k.raw("⏺ a\n  1\n  2\n", "  3\n  4\n", "  9\n", "  3\n  4\n")
+	k.raw("⏺ a\n  1\n  2\n", "⏺ 3\n  4\n", "⏺ 9\n", "⏺ 3\n  4\n")
 	k.must(t, Baseline, "w1:p1", "", GapNone)
 	for range 3 {
 		k.must(t, Change, "w1:p1", "idle", GapNone)
