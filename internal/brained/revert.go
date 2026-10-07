@@ -3,6 +3,7 @@ package brained
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -22,28 +23,39 @@ const shortCommit = 7
 // start (§6.2 step 8): Brain does not invent what it missed.
 type Reverts struct {
 	since   time.Time
-	changes map[string]signal.Changes // by workspace key
+	changes map[string]signal.Changes           // by workspace key
+	owners  map[string]map[string]store.Segment // by workspace key and path: the segment when the change was first seen
+	done    map[string]bool                     // the capture identities of the revert commits that a pass stored or skipped
 }
 
 // NewReverts returns the revert rule of a brained that starts at since.
 func NewReverts(since time.Time) *Reverts {
-	return &Reverts{since: since, changes: map[string]signal.Changes{}}
+	return &Reverts{since: since.Truncate(time.Second), changes: map[string]signal.Changes{},
+		owners: map[string]map[string]store.Segment{}, done: map[string]bool{}}
 }
 
-// gitWorkspace is one rooted workspace with its segments, newest first.
+// gitWorkspace is one rooted workspace with its segments, newest first, and what git shows in
+// it at this pass.
 type gitWorkspace struct {
-	ws   store.Workspace
-	segs []store.Segment
+	ws      store.Workspace
+	segs    []store.Segment
+	obs     []gitObs
+	commits []string // the capture identities of the new revert commits
+	changes signal.Changes
+	owners  map[string]store.Segment
 }
 
 // Pass stores the reverts of each live workspace of binding herdrSession that has a root
 // folder and a capture segment. A revert commit goes into the newest segment that started
-// before the commit; a file that goes back goes into the newest segment. Its capture identity
-// holds the commit, or the time of the pass, so a revert counts once (§6.4). A workspace with
-// learning off for the pane of that segment gets nothing (§6.7). defaultOn is the learning
-// state with no store setting (§12.1). git runs outside the transactions.
+// before the commit; a file that goes back goes into the segment that was the newest when
+// its change was first seen. Its capture identity holds the commit, or the time of the pass,
+// so a revert counts once (§6.4). A revert that a new revert commit of the pass shows is not a
+// second one. With learning off for the pane of that segment, the revert is dropped for good,
+// and the work-tree changes of the workspace start again from a baseline (§6.7). defaultOn is
+// the learning state with no store setting (§12.1). git runs outside the transactions. A git
+// failure in one workspace does not stop the others.
 func (r *Reverts) Pass(ctx context.Context, st *store.Store, herdrSession string, defaultOn bool, now time.Time) error {
-	var wss []gitWorkspace
+	var wss []*gitWorkspace
 	err := st.Write(ctx, func(tx *sql.Tx) error {
 		rooted, err := store.RootedWorkspaces(ctx, tx, herdrSession)
 		if err != nil {
@@ -56,7 +68,7 @@ func (r *Reverts) Pass(ctx context.Context, st *store.Store, herdrSession string
 				return err
 			}
 			if len(segs) > 0 {
-				wss = append(wss, gitWorkspace{ws: w, segs: segs})
+				wss = append(wss, &gitWorkspace{ws: w, segs: segs})
 			}
 		}
 		return nil
@@ -64,48 +76,104 @@ func (r *Reverts) Pass(ctx context.Context, st *store.Store, herdrSession string
 	if err != nil {
 		return err
 	}
-	var obs []gitObs
-	changes := map[string]signal.Changes{}
+	var errs []error
+	ok := wss[:0]
 	for _, w := range wss {
-		root := *w.ws.RootFolder
-		rs, err := signal.Reverts(ctx, root)
-		if err != nil {
-			return fmt.Errorf("reverts of workspace %s: %w", w.ws.Key, err)
+		if err := r.find(ctx, w, now); err != nil {
+			errs = append(errs, fmt.Errorf("workspace %s: %w", w.ws.Key, err))
+			continue
 		}
-		for _, c := range rs {
-			if seg, ok := segmentAt(w.segs, c.At); ok && !c.At.Before(r.since) {
-				obs = append(obs, gitObservation(fmt.Sprintf("git/%s/revert/%s", w.ws.Key, c.Commit), seg, commitExcerpt(c), now))
-			}
-		}
-		cur, back, err := signal.WorkChanges(ctx, root, r.changes[w.ws.Key])
-		if err != nil {
-			return fmt.Errorf("work tree of workspace %s: %w", w.ws.Key, err)
-		}
-		changes[w.ws.Key] = cur
-		if len(back) > 0 {
-			obs = append(obs, gitObservation(fmt.Sprintf("git/%s/back/%d", w.ws.Key, now.UnixNano()), w.segs[0],
-				"git: the work-tree change of "+strings.Join(back, ", ")+" went back to the committed content, with no commit", now))
-		}
+		ok = append(ok, w)
 	}
 	err = st.Write(ctx, func(tx *sql.Tx) error {
-		for _, o := range obs {
-			on, err := store.LearningOn(ctx, tx, defaultOn, herdrSession, o.workspace, o.pane)
+		for _, w := range ok {
+			on, err := store.LearningOn(ctx, tx, defaultOn, herdrSession, w.ws.Key, w.segs[0].PaneID)
 			if err != nil {
 				return err
 			}
 			if !on {
-				continue
+				w.changes, w.owners = nil, nil
 			}
-			if _, err := store.AddObservation(ctx, tx, o.Observation); err != nil {
-				return err
+			for _, o := range w.obs {
+				if on, err := store.LearningOn(ctx, tx, defaultOn, herdrSession, o.workspace, o.pane); err != nil || !on {
+					if err != nil {
+						return err
+					}
+					continue
+				}
+				if _, err := store.AddObservation(ctx, tx, o.Observation); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
 	})
 	if err != nil {
+		return errors.Join(append(errs, err)...)
+	}
+	for _, w := range ok {
+		r.changes[w.ws.Key], r.owners[w.ws.Key] = w.changes, w.owners
+		for _, id := range w.commits {
+			r.done[id] = true
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// find reads git in workspace w and fills in its observations and its work-tree changes.
+func (r *Reverts) find(ctx context.Context, w *gitWorkspace, now time.Time) error {
+	root := *w.ws.RootFolder
+	rs, err := signal.Reverts(ctx, root)
+	if err != nil {
 		return err
 	}
-	r.changes = changes
+	undone := map[string]bool{} // the paths of the new revert commits
+	for _, c := range rs {
+		id := fmt.Sprintf("git/%s/revert/%s", w.ws.Key, c.Commit)
+		seg, found := segmentAt(w.segs, c.At)
+		if r.done[id] || !found || c.At.Before(r.since) {
+			continue
+		}
+		w.commits = append(w.commits, id)
+		w.obs = append(w.obs, gitObservation(id, seg, commitExcerpt(c), now))
+		for _, p := range c.Paths {
+			undone[p] = true
+		}
+	}
+	before := r.owners[w.ws.Key]
+	cur, back, err := signal.WorkChanges(ctx, root, r.changes[w.ws.Key])
+	if err != nil {
+		return err
+	}
+	w.changes, w.owners = cur, map[string]store.Segment{}
+	for p := range cur {
+		seg, seen := before[p]
+		if !seen {
+			seg = w.segs[0]
+		}
+		w.owners[p] = seg
+	}
+	// One observation for each segment, with its paths in path order.
+	var segs []store.Segment
+	paths := map[int64][]string{}
+	for _, p := range back {
+		if undone[p] {
+			continue
+		}
+		seg, seen := before[p]
+		if !seen {
+			seg = w.segs[0]
+		}
+		if paths[seg.ID] == nil {
+			segs = append(segs, seg)
+		}
+		paths[seg.ID] = append(paths[seg.ID], p)
+	}
+	for _, seg := range segs {
+		w.obs = append(w.obs, gitObservation(fmt.Sprintf("git/%s/back/%d/%d", w.ws.Key, now.UnixNano(), seg.ID), seg,
+			"git: the work-tree change of "+strings.Join(paths[seg.ID], ", ")+
+				" went back to the committed content, with no commit", now))
+	}
 	return nil
 }
 
@@ -115,10 +183,11 @@ type gitObs struct {
 	workspace, pane string
 }
 
-// segmentAt returns the newest segment of segs, newest first, that started at or before at.
+// segmentAt returns the newest segment of segs, newest first, that started at or before at, a
+// git commit time. git keeps whole seconds, so the start counts in whole seconds too.
 func segmentAt(segs []store.Segment, at time.Time) (store.Segment, bool) {
 	for _, s := range segs {
-		if !s.Started.After(at) {
+		if !s.Started.Truncate(time.Second).After(at) {
 			return s, true
 		}
 	}

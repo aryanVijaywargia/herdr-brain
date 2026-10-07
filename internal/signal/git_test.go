@@ -195,3 +195,38 @@ func writeIn(t *testing.T, dir, name, content string) {
 		t.Fatal(err)
 	}
 }
+
+// A modified symlink has the blob of its link text, as git stores it, also when the file that
+// it points at is gone (Sol review of #283).
+func TestWorkChangesSymlink(t *testing.T) {
+	gitEnv(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	run(t, dir, "init", "-q")
+	writeIn(t, dir, "a.txt", "a")
+	if err := os.Symlink("a.txt", filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	run(t, dir, "add", ".")
+	run(t, dir, "commit", "-q", "-m", "init")
+	head := run(t, dir, "rev-parse", "HEAD:link")
+	if err := os.Remove(filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("gone.txt", filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	now, _, err := WorkChanges(ctx, dir, nil)
+	if err != nil || now["link"] != head {
+		t.Fatalf("WorkChanges(dangling link) = %v, %v, want link with HEAD blob %s", now, err, head)
+	}
+	if err := os.Remove(filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("a.txt", filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if _, back, err := WorkChanges(ctx, dir, now); err != nil || len(back) != 1 || back[0] != "link" {
+		t.Errorf("WorkChanges(link back) = %v, %v, want [link]", back, err)
+	}
+}

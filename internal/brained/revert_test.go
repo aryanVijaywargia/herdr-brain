@@ -271,3 +271,93 @@ func (c *revertCLI) Run(_ context.Context, cmd extract.Command) ([]byte, error) 
 			"scope_guess": "workspace", "evidence_refs": refs, "same_as": nil, "conflicts_with": nil,
 			"touches_permission": false, "expected_benefit": "no cache that you revert"}}}})
 }
+
+// Sol review of #283: a file that goes back goes into the segment of the agent whose change it
+// was, also when a newer agent started in the workspace since.
+func TestRevertBackOwner(t *testing.T) {
+	gitEnv(t)
+	ctx := context.Background()
+	root := repo(t, "notes.js")
+	st := revertStore(t, &root, "")
+	r := NewReverts(revertNow)
+	editFile(t, root, "notes.js", "agent change")
+	if err := r.Pass(ctx, st, "s1", true, revertNow); err != nil {
+		t.Fatal(err)
+	}
+	var newer int64
+	err := st.Write(ctx, func(tx *sql.Tx) error {
+		key := store.SessionKey{HerdrSession: "s1", Harness: "claude", Kind: store.KeyAgent, ID: "b1"}
+		sid, err := store.OpenSession(ctx, tx, key, "w1:p2", "ws_1", revertNow)
+		if err != nil {
+			return err
+		}
+		newer, err = store.StartSegment(ctx, tx, sid, "w1:p2", "ws_1", "visible", revertNow)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	git(t, root, "checkout", "--", "notes.js")
+	if err := r.Pass(ctx, st, "s1", true, revertNow.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	obs := gitObservations(t, st)
+	if len(obs) != 1 || obs[0].SegmentID == newer {
+		t.Errorf("git observations = %+v, want one in the segment of the first agent, not %d", obs, newer)
+	}
+}
+
+// Sol review of #283: a change that is committed and then reverted with a revert commit
+// between two passes is one revert, not two.
+func TestRevertCommitThenRevert(t *testing.T) {
+	gitEnv(t)
+	ctx := context.Background()
+	root := repo(t, "notes.js")
+	st := revertStore(t, &root, "")
+	r := NewReverts(revertNow.Add(-2 * time.Hour))
+	editFile(t, root, "notes.js", "agent change")
+	if err := r.Pass(ctx, st, "s1", true, revertNow); err != nil {
+		t.Fatal(err)
+	}
+	git(t, root, "commit", "-q", "-am", "cache")
+	git(t, root, "revert", "--no-edit", "HEAD")
+	if err := r.Pass(ctx, st, "s1", true, revertNow.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if obs := gitObservations(t, st); len(obs) != 1 || !strings.HasPrefix(obs[0].Excerpt, "git revert:") {
+		t.Errorf("git observations = %+v, want the revert commit only", obs)
+	}
+}
+
+// Sol review of #283: a revert commit made while learning is off never comes back, and the
+// work tree starts from a baseline after learning is on again (§6.7).
+func TestRevertLearningOffDropped(t *testing.T) {
+	gitEnv(t)
+	ctx := context.Background()
+	root := repo(t, "notes.js")
+	st := revertStore(t, &root, "")
+	r := NewReverts(revertNow.Add(-2 * time.Hour))
+	editFile(t, root, "notes.js", "agent change")
+	git(t, root, "commit", "-q", "-am", "cache")
+	git(t, root, "revert", "--no-edit", "HEAD")
+	editFile(t, root, "notes.js", "agent change again")
+	if err := r.Pass(ctx, st, "s1", false, revertNow); err != nil {
+		t.Fatal(err)
+	}
+	git(t, root, "checkout", "--", "notes.js")
+	if err := r.Pass(ctx, st, "s1", true, revertNow.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if obs := gitObservations(t, st); len(obs) != 0 {
+		t.Errorf("git observations = %+v, want none", obs)
+	}
+}
+
+// Sol review of #283: git keeps whole seconds, so a commit in the start second of a segment
+// belongs to it.
+func TestSegmentAtSecond(t *testing.T) {
+	start := revertNow.Add(300 * time.Millisecond)
+	if _, ok := segmentAt([]store.Segment{{ID: 1, Started: start}}, revertNow); !ok {
+		t.Error("segmentAt(commit in the start second) = none, want the segment")
+	}
+}
