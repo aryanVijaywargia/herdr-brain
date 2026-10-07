@@ -25,6 +25,7 @@ import (
 const reviewUsage = `usage:
   brain review                                   list the proposals that wait for you
   brain review <id> [--detail]                   show one proposal; --detail adds its claim id and revision
+  brain review <id> --evidence                   show the stored text around each source excerpt
   brain review <id> --approve [--edit "<text>"] [--scope global|workspace] [--pin] [--confirm]
                              [--replace | --exception | --keep-both]   for a proposal with a conflict
   brain review <id> --reject [--reason "<text>"] | --later
@@ -57,6 +58,7 @@ type review struct {
 	scope                  store.Scope
 	pin, confirm           bool
 	detail                 bool // show adds the claim id and the revision (#254)
+	evidence               bool // show the stored text around each source excerpt (E20-S4)
 	retired                bool
 	all                    bool  // list the candidates (E12-S2)
 	makeTool               int64 // the command candidate to make a tool draft of (E17-S6)
@@ -120,6 +122,8 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 			return err
 		}
 		return cl.closeReviewPanes(ctx, r.id)
+	case r.evidence:
+		return cl.showEvidence(ctx, r.id)
 	case r.id != 0:
 		return cl.show(ctx, r.id, r.detail)
 	}
@@ -167,6 +171,7 @@ func parseReview(args []string) (review, error) {
 	fs.BoolVar(&r.pin, "pin", false, "")
 	fs.BoolVar(&r.confirm, "confirm", false, "")
 	fs.BoolVar(&r.detail, "detail", false, "")
+	fs.BoolVar(&r.evidence, "evidence", false, "")
 	queueFlags(fs, &r)
 	fs.Int64Var(&r.item, "item", 0, "")
 	fs.BoolVar(&r.retire, "retire", false, "")
@@ -197,6 +202,9 @@ func parseReview(args []string) (review, error) {
 	}
 	if r.detail && (r.id == 0 || r != review{id: r.id, detail: true}) {
 		return review{}, fmt.Errorf("--detail goes with a proposal id alone\n%s", reviewUsage)
+	}
+	if r.evidence && (r.id == 0 || r != review{id: r.id, evidence: true}) {
+		return review{}, fmt.Errorf("--evidence goes with a proposal id alone\n%s", reviewUsage)
 	}
 	if err := r.check(); err != nil {
 		return review{}, fmt.Errorf("%w\n%s", err, reviewUsage)
@@ -699,17 +707,29 @@ func (cl caller) excerpts(ctx context.Context, tx *sql.Tx, p store.Proposal) (li
 	if err != nil {
 		return nil, false, err
 	}
-	for _, e := range es {
-		if len(lines) == excerptsShown {
-			break
-		}
-		if e.WorkspaceKey == "" || !cl.sees(&e.WorkspaceKey) {
-			continue
-		}
-		lines = append(lines, fmt.Sprintf("%s, session %d (%s), workspace %s, %s: %s", e.Sender, e.SessionID, e.Harness,
-			cl.label, localTime(e.At), extract.Redact(oneLine(e.Excerpt))))
+	for _, e := range cl.shown(es) {
+		lines = append(lines, cl.excerptHead(e)+": "+extract.Redact(oneLine(e.Excerpt)))
 	}
 	return lines, changeable, nil
+}
+
+// shown are the first excerptsShown excerpts of es in a scope that the caller sees.
+func (cl caller) shown(es []store.Excerpt) []store.Excerpt {
+	var shown []store.Excerpt
+	for _, e := range es {
+		if len(shown) == excerptsShown {
+			break
+		}
+		if e.WorkspaceKey != "" && cl.sees(&e.WorkspaceKey) {
+			shown = append(shown, e)
+		}
+	}
+	return shown
+}
+
+// excerptHead says where excerpt e comes from: its sender, session, workspace and local date.
+func (cl caller) excerptHead(e store.Excerpt) string {
+	return fmt.Sprintf("%s, session %d (%s), workspace %s, %s", e.Sender, e.SessionID, e.Harness, cl.label, localTime(e.At))
 }
 
 // evidence returns the evidence observations of p that are still in the store, the newest
