@@ -573,13 +573,18 @@ func (h herdrState) noReceipt(ctx context.Context, kind string, p herdr.Pane) st
 }
 
 // queue prints the count and the oldest age of the pending proposals that the caller sees in
-// the default brain review list: a proposal of a candidate below its gate is not counted.
+// the default brain review list: a proposal of a candidate below its gate in the config
+// (§7.2) is not counted.
 func (s *statusCall) queue(ctx context.Context, tx *sql.Tx) error {
+	gates, _, err := extract.ReadConfig(s.Config)
+	if err != nil {
+		s.w.printf("\nreview queue: unknown: %v\n", err)
+		return nil
+	}
 	ids, err := store.PendingProposalIDs(ctx, tx)
 	if err != nil {
 		return err
 	}
-	gates := store.DefaultGates()
 	n := 0
 	var oldest time.Time
 	for _, id := range ids {

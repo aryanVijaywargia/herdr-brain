@@ -313,6 +313,21 @@ func TestProposalCap(t *testing.T) {
 	if f.cli.calls() != 1 || f.calls("ws-B") != 0 {
 		t.Errorf("calls = %d, calls of ws-B = %d, want 1 and 0", f.cli.calls(), f.calls("ws-B"))
 	}
+	// AC #282: a rejected proposal still counts toward the daily proposal cap (§7.3).
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		return store.DecideProposal(ctx, tx, 1, store.ProposalRejected, store.SurfaceCLI, f.now)
+	})
+	if err := p.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var d Day
+	f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
+		d, err = p.Day(ctx, tx)
+		return err
+	})
+	if d.Proposals != 2 || d.Full() == "" || f.calls("ws-B") != 0 {
+		t.Errorf("day = %+v, calls of ws-B = %d, want 2 proposals, a full cap and no call", d, f.calls("ws-B"))
+	}
 	f.now = f.now.Add(day + time.Minute)
 	if err := p.Run(context.Background()); err != nil {
 		t.Fatal(err)

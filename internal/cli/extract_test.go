@@ -229,9 +229,8 @@ func TestExtractorWorksAfterFailure(t *testing.T) {
 	if strings.Contains(status, "call failed") {
 		t.Errorf("brain status:\n%s\nwant no failed last call", status)
 	}
-	out, _ := f.doctor(t, f.sock, "")
-	if strings.Contains(out, "last extractor call") {
-		t.Errorf("brain doctor:\n%s\nwant no failed last call", out)
+	if out, err := f.doctor(t, f.sock, ""); err != nil || out != "all checks passed\n" {
+		t.Errorf("Doctor() = %v\n%s\nwant all checks passed: no failed last call", err, out)
 	}
 }
 
@@ -274,5 +273,19 @@ func TestStatusQueueBelowGate(t *testing.T) {
 	f.correct(t, claim, "ws_a14", "a2")
 	if status := f.mustStatus(t); !strings.Contains(status, "review queue: 1 pending, the oldest 3h old\n") {
 		t.Errorf("brain status:\n%s\nwant 1 pending at the gate", status)
+	}
+}
+
+// AC #282: the review queue line of status uses the gates of the config: with
+// gates.correction = 1, a proposal of one correction is in the queue.
+func TestStatusQueueConfigGate(t *testing.T) {
+	f := newStatusFixture(t)
+	putFile(t, filepath.Join(filepath.Dir(f.store), "config.toml"), "[gates]\ncorrection = 1\n")
+	c := f.correct(t, f.claim(t), "ws_a14", "a1")
+	if _, err := f.propose(t, c, "workspace w14 (shop)"); err != nil {
+		t.Fatal(err)
+	}
+	if status := f.mustStatus(t); !strings.Contains(status, "review queue: 1 pending, the oldest 3h old\n") {
+		t.Errorf("brain status:\n%s\nwant 1 pending at the configured gate", status)
 	}
 }
