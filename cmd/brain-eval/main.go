@@ -43,8 +43,8 @@ run of the delivery stage writes the conformance record of each CLI to conforman
 the data home: pending at the start, then pass, fail or inconclusive when the run completes.
 
 A regression case (bug-<issue>) runs the Go tests of one bug's fixture with go test in the
-current folder, the Brain repo, and prints one pass or fail line. It needs no herdr, no CLI
-and no setup, and --harness leaves it out. So --stage regression runs anywhere in the repo.
+current folder, which must be the root of the Brain repo, and prints one pass or fail line.
+It needs no herdr, no CLI and no setup, and --harness leaves it out.
 
 Else runs one ad-hoc case in the brain-eval test session: each --step in a shell pane of a fresh
 scratch git folder, then --prompt to a fresh CLI of each --probe. "{{marker}}" in a step or the
@@ -76,12 +76,7 @@ func run(args, environ []string, stdout, stderr io.Writer) int {
 	defer stop()
 	code := 0
 	if bugs := slices.DeleteFunc(slices.Clone(cases), func(c Case) bool { return c.Stage != regressionStage }); len(bugs) > 0 {
-		failed, err := runRegression(ctx, ".", environ, bugs, stdout)
-		if err != nil {
-			fmt.Fprintf(stderr, "brain-eval: %v\n", err)
-			return 1
-		}
-		if failed {
+		if runRegression(ctx, ".", environ, bugs, stdout) {
 			code = 1
 		}
 		if cases = slices.DeleteFunc(cases, func(c Case) bool { return c.Stage == regressionStage }); len(cases) == 0 {

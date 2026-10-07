@@ -6,7 +6,8 @@
 # A case runs the Go tests that hold the fixture of its bug: the made screens, hook inputs,
 # fake herdr replies and stores that the fix added. brain-eval runs them with go test in the
 # repo and prints one pass or fail line for the case. A case needs no herdr, no CLI and no
-# model, so it has no control: go run ./cmd/brain-eval --probes evals/probes --stage regression
+# model, so it has no control. Run it from the repo root:
+#   go run ./cmd/brain-eval --probes evals/probes --stage regression
 #
 # tests: "<package folder>:<test name>", the name as `go test -v` prints it, with its subtests.
 # The comment above each case names the bug and the pull request of its fix.
@@ -173,6 +174,7 @@ issue = 282
 tests = [
   "internal/extract:TestReadConfig",
   "internal/extract:TestConfigGate",
+  "internal/extract:TestProposalCap",
   "internal/cli:TestExtractionConfig",
   "internal/cli:TestStatusQueueConfigGate",
 ]
@@ -196,6 +198,7 @@ tests = [
   "internal/brief:TestClean",
   "internal/brief:TestOldItemTextIsClean",
   "internal/cli:TestReviewShowCleanText",
+  "internal/extract:TestNormalKeySameClaim",
 ]
 
 # Codex hook records stay off. The hook inputs are those of the live codex 0.160.1 test on the

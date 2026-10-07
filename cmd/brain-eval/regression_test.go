@@ -82,6 +82,11 @@ func TestSub(t *testing.T) {
 	t.Run("ok", func(t *testing.T) {})
 	t.Run("bad one", func(t *testing.T) { t.Error("broken") })
 }
+
+func TestPartSkip(t *testing.T) {
+	t.Run("ok", func(t *testing.T) {})
+	t.Run("off", func(t *testing.T) { t.Skip("not here") })
+}
 `)
 	write(t, filepath.Join(root, "b", "b_test.go"), "package b\n\nimport \"testing\"\n\nfunc TestBuild(t *testing.T) { missing() }\n")
 	bug := func(id string, tests ...GoTest) Case { return Case{ID: id, Stage: regressionStage, Tests: tests} }
@@ -92,11 +97,11 @@ func TestSub(t *testing.T) {
 		bug("bug-3", a("TestSkip")),
 		bug("bug-4", a("TestGone")),
 		bug("bug-5", GoTest{Package: "b", Name: "TestBuild"}),
+		bug("bug-6", a("TestPartSkip")),
 	}
 	var out bytes.Buffer
-	failed, err := runRegression(context.Background(), root, os.Environ(), cases, &out)
-	if err != nil || !failed {
-		t.Fatalf("runRegression() = %v, %v, want a failed case and no error\n%s", failed, err, out.String())
+	if !runRegression(context.Background(), root, os.Environ(), cases, &out) {
+		t.Fatalf("runRegression() = false, want a failed case\n%s", out.String())
 	}
 	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
 	want := []string{
@@ -105,6 +110,7 @@ func TestSub(t *testing.T) {
 		"bug-3: fail; a TestSkip: skip",
 		"bug-4: fail; a TestGone: not run",
 		"bug-5: fail; b TestBuild: not run (",
+		"bug-6: fail; a TestPartSkip: skip", // go test passes a test whose subtest skips
 	}
 	if len(lines) != len(want) {
 		t.Fatalf("runRegression() printed %d lines, want one for each of %d cases:\n%s", len(lines), len(cases), out.String())
@@ -118,9 +124,26 @@ func TestSub(t *testing.T) {
 		t.Errorf("line 5 = %q, want the build error", lines[4])
 	}
 	out.Reset()
-	if failed, err := runRegression(context.Background(), root, os.Environ(), cases[:1], &out); err != nil || failed ||
-		out.String() != "bug-1: pass\n" {
-		t.Errorf("runRegression(bug-1) = %v, %v, %q; want a pass", failed, err, out.String())
+	if failed := runRegression(context.Background(), root, os.Environ(), cases[:1], &out); failed || out.String() != "bug-1: pass\n" {
+		t.Errorf("runRegression(bug-1) = %v, %q; want a pass", failed, out.String())
+	}
+}
+
+// AC 3 (Sol review): when go cannot start, each case still gets its fail line, with the error.
+func TestRunRegressionNoGo(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	cases := []Case{
+		{ID: "bug-1", Stage: regressionStage, Tests: []GoTest{{Package: "a", Name: "TestPass"}}},
+		{ID: "bug-2", Stage: regressionStage, Tests: []GoTest{{Package: "b", Name: "TestBuild"}}},
+	}
+	var out bytes.Buffer
+	if !runRegression(context.Background(), t.TempDir(), os.Environ(), cases, &out) {
+		t.Errorf("runRegression() = false, want a failed case")
+	}
+	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "bug-1: fail; a TestPass: not run (") ||
+		!strings.HasPrefix(lines[1], "bug-2: fail; b TestBuild: not run (") || !strings.Contains(lines[1], "executable file not found") {
+		t.Errorf("runRegression() printed %q, want a fail line with the exec error for each case", out.String())
 	}
 }
 

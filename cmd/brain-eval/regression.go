@@ -81,9 +81,10 @@ func (e bugEntry) check() ([]GoTest, error) {
 
 // runRegression runs the tests of the regression cases with `go test` in the repo folder
 // root, once for each package, and prints one pass or fail line for each case. A case passes
-// when each of its tests passed; a skipped test or one that did not run is no pass. It
-// reports whether a case failed.
-func runRegression(ctx context.Context, root string, environ []string, cases []Case, w io.Writer) (failed bool, err error) {
+// when each of its tests passed; a skipped test or one that did not run is no pass. A go test
+// that cannot run fails the cases of its package with its error. It reports whether a case
+// failed.
+func runRegression(ctx context.Context, root string, environ []string, cases []Case, w io.Writer) (failed bool) {
 	tops := map[string][]string{} // each package folder to the top-level tests that its cases name
 	for _, c := range cases {
 		for _, t := range c.Tests {
@@ -96,10 +97,7 @@ func runRegression(ctx context.Context, root string, environ []string, cases []C
 	got := map[GoTest]string{} // each test that ran to its action: pass, fail or skip
 	why := map[string]string{} // each package folder to the first error line of its run
 	for _, pkg := range slices.Sorted(maps.Keys(tops)) {
-		actions, line, err := goTest(ctx, root, environ, pkg, tops[pkg])
-		if err != nil {
-			return false, err
-		}
+		actions, line := goTest(ctx, root, environ, pkg, tops[pkg])
 		for name, a := range actions {
 			got[GoTest{Package: pkg, Name: name}] = a
 		}
@@ -110,7 +108,7 @@ func runRegression(ctx context.Context, root string, environ []string, cases []C
 		fmt.Fprintln(w, line)
 		failed = failed || !ok
 	}
-	return failed, nil
+	return failed
 }
 
 // testEvent is one event of `go test -json` (go doc test2json). Go 1.24 and later give a
@@ -124,8 +122,9 @@ type testEvent struct {
 // goTest runs the top-level tests tops of package folder pkg, with their subtests, and
 // returns the action of each test and subtest that ran: pass, fail or skip. line is the first
 // error line of the build or of go test, so that a test that did not run has a reason; "" when
-// there is none. A test failure is no error.
-func goTest(ctx context.Context, root string, environ []string, pkg string, tops []string) (actions map[string]string, line string, err error) {
+// there is none. A go test that cannot start, or whose output cannot be read, gives no
+// actions and its error as line.
+func goTest(ctx context.Context, root string, environ []string, pkg string, tops []string) (actions map[string]string, line string) {
 	cmd := exec.CommandContext(ctx, "go", "test", "-json", "-count=1", "-run", "^("+strings.Join(tops, "|")+")$", "./"+pkg)
 	cmd.Dir, cmd.Env = root, environ
 	var stderr bytes.Buffer
@@ -133,7 +132,7 @@ func goTest(ctx context.Context, root string, environ []string, pkg string, tops
 	out, err := cmd.Output()
 	var exit *exec.ExitError
 	if err != nil && !errors.As(err, &exit) {
-		return nil, "", fmt.Errorf("go test ./%s: %w", pkg, err)
+		return nil, err.Error()
 	}
 	actions = map[string]string{}
 	var build strings.Builder
@@ -143,7 +142,7 @@ func goTest(ctx context.Context, root string, environ []string, pkg string, tops
 		if err := dec.Decode(&e); errors.Is(err, io.EOF) {
 			break
 		} else if err != nil {
-			return nil, "", fmt.Errorf("go test ./%s: read its output: %w", pkg, err)
+			return nil, "read the go test output: " + err.Error()
 		}
 		switch {
 		case e.Action == "build-output":
@@ -155,10 +154,10 @@ func goTest(ctx context.Context, root string, environ []string, pkg string, tops
 	for _, l := range strings.Split(build.String()+stderr.String(), "\n") {
 		// A line that starts with "#" names the package of the build errors under it.
 		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
-			return actions, l, nil
+			return actions, l
 		}
 	}
-	return actions, "", nil
+	return actions, ""
 }
 
 // regressionLine is the line of regression case c, from the actions got of the tests that ran
@@ -167,7 +166,7 @@ func goTest(ctx context.Context, root string, environ []string, pkg string, tops
 func regressionLine(c Case, got map[GoTest]string, why map[string]string) (line string, ok bool) {
 	var bad []string
 	for _, t := range c.Tests {
-		switch a := got[t]; {
+		switch a := result(got, t); {
 		case a == "pass":
 		case a != "":
 			bad = append(bad, fmt.Sprintf("%s %s: %s", t.Package, t.Name, a))
@@ -181,4 +180,19 @@ func regressionLine(c Case, got map[GoTest]string, why map[string]string) (line 
 		return c.ID + ": fail; " + strings.Join(bad, "; "), false
 	}
 	return c.ID + ": pass", true
+}
+
+// result is the action of test t in got. A pass with a skipped subtest is a skip: go test
+// passes a test whose subtest skips, but that part of the fixture tested nothing.
+func result(got map[GoTest]string, t GoTest) string {
+	a := got[t]
+	if a != "pass" {
+		return a
+	}
+	for o, oa := range got {
+		if oa == "skip" && o.Package == t.Package && strings.HasPrefix(o.Name, t.Name+"/") {
+			return "skip"
+		}
+	}
+	return a
 }
