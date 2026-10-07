@@ -157,6 +157,7 @@ func noItemTextFields() []Field {
 		{"evidence_links", "harness"},
 		{"evidence_links", "sender"},
 		{"evidence_links", "at"},
+		{"evidence_links", "via_claim"}, // A claim id: no text (§7.2).
 		{"rejections", "claim_id"},
 		{"rejections", "scope"},
 		{"rejections", "workspace_key"},

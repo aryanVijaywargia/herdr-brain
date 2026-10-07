@@ -286,6 +286,17 @@ func Attach(ctx context.Context, tx *sql.Tx, c Candidate, obs int64, gates Gates
 	return id, recount(ctx, tx, id, gates)
 }
 
+// MarkMerged marks the evidence link of observation obs in candidate id as evidence that the key
+// of claim via brought through a same_as link (#279, §7.2). Brain keeps both claim ids and the
+// link, so the merge can be undone.
+func MarkMerged(ctx context.Context, tx *sql.Tx, id, obs int64, via string) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE evidence_links SET via_claim = ? WHERE candidate_id = ? AND observation_id = ?`,
+		via, id, obs); err != nil {
+		return fmt.Errorf("mark evidence %d of candidate %d as merged: %w", obs, id, err)
+	}
+	return nil
+}
+
 // recount sets the harnesses, counts, times and priority of candidate id from its evidence
 // links. It deletes a candidate that has no evidence left, after dropScripts.
 func recount(ctx context.Context, tx *sql.Tx, id int64, gates Gates) error {

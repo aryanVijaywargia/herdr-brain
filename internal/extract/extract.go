@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/brief"
 	"github.com/aryanVijaywargia/herdr-brain/internal/secret"
 	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -479,7 +480,8 @@ func untombstoned(ctx context.Context, tx *sql.Tx, refs []ref) ([]ref, error) {
 // evidence of the candidate of the claim in its scope. A tombstoned claim or ref adds nothing
 // (§6.7): a forget erases the claim key, so the tombstone source keys stop the same evidence.
 // A known claim (the same claim id) gets the evidence first; propose then drops the duplicate
-// proposal (§7.3). A candidate that reaches its gate gets a proposal.
+// proposal (§7.3). A same_as link to an open claim of the same kind in the same scope adds the
+// evidence to that claim's candidate (merge). A candidate that reaches its gate gets a proposal.
 func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Time) (Suggestion, error) {
 	kept, err := untombstoned(ctx, tx, c.Refs)
 	if c.Refs = kept; err != nil || len(kept) == 0 {
@@ -498,9 +500,9 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 		return Suggestion{}, err
 	}
 	if c.SameAs != "" && c.SameAs != claim {
-		// The model guess alone is not proof (§5.4): the link is proposed and waits for review,
-		// and the evidence stays with the claim's own candidate (§7.2). check found c.SameAs in
-		// the input.
+		// The model guess alone is not proof (§5.4, §7.2): the link stays proposed, so an
+		// active item of the other claim gets no comeback from it (outcomes). check found
+		// c.SameAs in the input.
 		if _, err := store.SameAs(ctx, tx, claim, c.SameAs, store.Match{Permissions: c.TouchesPermission}); err != nil {
 			return Suggestion{}, err
 		}
@@ -510,7 +512,11 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 		key = ""
 	}
 	kind := candidateKind(c)
-	switch old, err := store.CandidateOf(ctx, tx, claim, key); {
+	into, err := mergeInto(ctx, tx, claim, c, key, kind)
+	if err != nil {
+		return Suggestion{}, err
+	}
+	switch old, err := store.CandidateOf(ctx, tx, into, key); {
 	case err == nil:
 		kind = old.Kind
 	case !errors.Is(err, sql.ErrNoRows):
@@ -519,13 +525,18 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	var cand int64
 	var accepted []ref
 	for _, r := range c.Refs {
-		id, err := store.Attach(ctx, tx, store.Candidate{ClaimID: claim, Scope: c.Scope, WorkspaceKey: key, Kind: kind},
+		id, err := store.Attach(ctx, tx, store.Candidate{ClaimID: into, Scope: c.Scope, WorkspaceKey: key, Kind: kind},
 			r.obs, p.gates(), signal.Supports)
 		switch {
 		case errors.Is(err, store.ErrEvidenceRefused):
 			continue
 		case err != nil:
 			return Suggestion{}, err
+		}
+		if into != claim {
+			if err := store.MarkMerged(ctx, tx, id, r.obs, claim); err != nil {
+				return Suggestion{}, err
+			}
 		}
 		cand = id
 		accepted = append(accepted, r)
@@ -537,6 +548,36 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 		return Suggestion{}, nil
 	}
 	return p.propose(ctx, tx, cand, c, now)
+}
+
+// mergeInto returns the claim whose candidate gets the evidence of claim c with claim id claim,
+// in the scope with key: the claim of its proposed same_as link when that claim has an open
+// candidate of kind in the same scope, else claim (#279, §7.2). Brain keeps both claim ids and
+// the link, and marks the merged evidence (store.MarkMerged). A link that touches a permission
+// or a safety rule, or that names a claim of another kind, stays a proposed link for review
+// and merges nothing.
+func mergeInto(ctx context.Context, tx *sql.Tx, claim string, c Claim, key string, kind store.CandidateKind) (string, error) {
+	cl, err := store.ClaimByID(ctx, tx, claim)
+	if err != nil || cl.SameAs == "" || cl.SameAsStatus != store.SameAsProposed || c.TouchesPermission {
+		return claim, err
+	}
+	other, err := store.ClaimByID(ctx, tx, cl.SameAs)
+	if err != nil || store.TouchesPermission(other.Key.Situation+" "+other.Key.Rule) {
+		return claim, err
+	}
+	cand, err := store.CandidateOf(ctx, tx, other.ID, key)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return claim, nil
+	case err != nil:
+		return claim, err
+	case cand.Scope != c.Scope || cand.Kind != kind || cand.Status == store.CandidateExpired:
+		return claim, nil
+	}
+	if ts, err := store.TombstonesByClaim(ctx, tx, other.ID); err != nil || len(ts) > 0 {
+		return claim, err
+	}
+	return other.ID, nil
 }
 
 // corrections returns the new corrections of refs, the evidence that Attach accepted for a
@@ -631,28 +672,37 @@ func outcomeOf(d store.Delivery, ok bool, item int64) (store.OutcomeKind, int64,
 	return "", 0, false
 }
 
-// candidateKind is the candidate kind of claim c: a command chain for a tool, a lesson for a
-// lesson claim with lesson evidence, else the kind of the first signal of its evidence that is
-// a candidate kind. Else [NEW] a procedure claim is a procedure, and any other claim a
-// correction. A lesson needs both the local rule and the extractor (§7.1): lesson evidence of
-// any other claim kind is a false positive, and a lesson claim with no lesson evidence keeps
-// the gate of its evidence.
+// candidateKind is the candidate kind of claim c: the kind follows the claim, not the first
+// signal of its evidence (#280, §7.2). A tool is a command chain. A lesson claim with lesson
+// evidence is a lesson, as a lesson needs both the local rule and the extractor (§7.1); any
+// other lesson and a correction is a correction. A procedure or a skill is a procedure. A
+// preference or a fact is a correction. Only tool output can support a failure or a command
+// chain (§6.5), so a claim with no text of yours keeps that kind of its evidence: a skill of a
+// command chain that needs judgment (§10.3) or a preference from failure output alone.
 func candidateKind(c Claim) store.CandidateKind {
 	if c.Tool != "" {
 		return store.CandidateCommandChain
 	}
-	lesson := slices.ContainsFunc(c.Refs, func(r ref) bool { return r.lesson })
-	if c.Kind == kindLesson && lesson {
-		return store.CandidateLesson
-	}
-	for _, r := range c.Refs {
-		switch r.kind {
-		case signal.Correction, signal.Procedure, signal.Failure, signal.CommandChain:
-			return store.CandidateKind(r.kind)
+	has := func(k signal.Kind) bool { return slices.ContainsFunc(c.Refs, func(r ref) bool { return r.kind == k }) }
+	yours := slices.ContainsFunc(c.Refs, func(r ref) bool {
+		return r.sender == store.SenderYou || r.sender == store.SenderUnconfirmed
+	})
+	switch c.Kind {
+	case kindLesson:
+		if slices.ContainsFunc(c.Refs, func(r ref) bool { return r.lesson }) {
+			return store.CandidateLesson
 		}
-	}
-	if c.Kind == "procedure" || c.Kind == kindSkill {
+		return store.CandidateCorrection
+	case "correction":
+		return store.CandidateCorrection
+	case "procedure", kindSkill:
+		if !yours && has(signal.CommandChain) {
+			return store.CandidateCommandChain
+		}
 		return store.CandidateProcedure
+	}
+	if !yours && has(signal.Failure) {
+		return store.CandidateFailure
 	}
 	return store.CandidateCorrection
 }
@@ -760,8 +810,8 @@ func claimKey(c Claim) store.ClaimKey {
 	return store.ClaimKey{Situation: normal(c.Situation), Rule: normal(c.Rule)}
 }
 
-// claimText is the item text of claim c [NEW]: "situation: rule".
-func claimText(c Claim) string { return c.Situation + ": " + c.Rule }
+// claimText is the item text of claim c (#284): "When <situation>: <rule>" (brief.ClaimText).
+func claimText(c Claim) string { return brief.ClaimText(c.Situation, c.Rule) }
 
 // draft is the text and the diff of a new item of claim c: the skill text for a skill (the
 // review shows the whole file, S8), the tool text for a tool (the whole contract, E17-S3), else
@@ -828,5 +878,8 @@ func Redact(s string) string {
 	return b.String()
 }
 
-// normal is the normal form of a claim key text [NEW]: lower case with single spaces.
-func normal(s string) string { return strings.Join(strings.Fields(strings.ToLower(s)), " ") }
+// normal is the normal form of a claim key text (§7.2) [NEW]: lower case with single spaces and
+// no end punctuation (#279), so "Writing code." and "writing  code" are one key.
+func normal(s string) string {
+	return strings.TrimRight(strings.Join(strings.Fields(strings.ToLower(s)), " "), ".!?;:, ")
+}

@@ -243,15 +243,21 @@ func TestKnownClaim(t *testing.T) {
 	}
 }
 
-// A same_as reply is a proposal, never a silent merge (§5.4, §7.2, S23): the link is
-// proposed, both claim ids stay, and the evidence goes to the candidate of the new claim. The
-// known candidate keeps its count. Two permission claims link the same way.
+// A same_as reply keeps a proposed link and both claim ids (§5.4, §7.2, S23). A link to an
+// open claim of the same kind in the same scope merges: the evidence goes to the known
+// candidate, marked with the new claim id, so the merge can be undone (#279). A link of two
+// permission rules merges nothing: the evidence goes to the candidate of the new claim, and
+// the known candidate keeps its count.
 func TestSameAsIsProposed(t *testing.T) {
-	for name, rules := range map[string][2]string{
-		"reworded":         {"use pnpm", "always pick pnpm"},
-		"permission rules": {"always allow pnpm", "always allow pnpm installs"},
+	for name, tc := range map[string]struct {
+		rules  [2]string
+		merged bool
+	}{
+		"reworded":         {[2]string{"use pnpm", "always pick pnpm"}, true},
+		"permission rules": {[2]string{"always allow pnpm", "always allow pnpm installs"}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
+			rules := tc.rules
 			f := newFixture(t)
 			f.cli.reply = claimOf(rules[0])
 			f.session("z", true, line{"ws-A", pnpm, t0})
@@ -276,13 +282,24 @@ func TestSameAsIsProposed(t *testing.T) {
 			if n := f.count(q); n != 1 {
 				t.Errorf("proposed links = %d, want 1", n)
 			}
-			if n := f.count(`SELECT c.count FROM candidates c JOIN claims k ON k.id = c.claim_id WHERE k.rule = '` +
-				rules[0] + `'`); n != known {
-				t.Errorf("known candidate count = %d, want %d", n, known)
+			wantKnown, wantNew := known, 1
+			if tc.merged {
+				wantKnown, wantNew = known+1, 0
 			}
 			if n := f.count(`SELECT c.count FROM candidates c JOIN claims k ON k.id = c.claim_id WHERE k.rule = '` +
-				rules[1] + `'`); n != 1 {
-				t.Errorf("new candidate count = %d, want 1", n)
+				rules[0] + `'`); n != wantKnown {
+				t.Errorf("known candidate count = %d, want %d", n, wantKnown)
+			}
+			if n := f.count(`SELECT COALESCE(SUM(c.count), 0) FROM candidates c JOIN claims k ON k.id = c.claim_id
+				WHERE k.rule = '` + rules[1] + `'`); n != wantNew {
+				t.Errorf("new candidate count = %d, want %d", n, wantNew)
+			}
+			if n := f.count(`SELECT COUNT(*) FROM evidence_links e JOIN claims k ON k.id = e.via_claim WHERE k.rule = '` +
+				rules[1] + `'`); n != 1-wantNew {
+				t.Errorf("merged evidence = %d, want %d", n, 1-wantNew)
+			}
+			if n := f.count(`SELECT COUNT(*) FROM proposals`); n != 1 {
+				t.Errorf("proposals = %d, want 1", n)
 			}
 		})
 	}
