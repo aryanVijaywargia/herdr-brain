@@ -1,6 +1,7 @@
 package brained
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 
@@ -43,6 +44,11 @@ var marks = map[string][]mark{
 	"codex":  {{"› ", store.SenderUnconfirmed}, {"• ", store.SenderAssistant}, {"  └", store.SenderTool}},
 }
 
+// approval matches the question of an approval dialog [the recorded reads in testdata, and
+// the M2 eval run]: the CLI asks it for the agent, so it starts a block of the assistant, also
+// under a prompt line, and the dialog is no user text (#281).
+var approval = regexp.MustCompile(`^\s+(?:Would you like to|Do you want to) .+\?$`)
+
 // senders returns the sender of each line of a read of harness.
 func senders(harness string, lines []string) []store.Sender {
 	ss := make([]store.Sender, len(lines))
@@ -55,7 +61,10 @@ func senders(harness string, lines []string) []store.Sender {
 				break
 			}
 		}
-		if !found && !strings.HasPrefix(l, " ") {
+		switch {
+		case !found && approval.MatchString(l):
+			sender = store.SenderAssistant
+		case !found && !strings.HasPrefix(l, " "):
 			sender = store.SenderUnconfirmed
 		}
 		ss[i] = sender

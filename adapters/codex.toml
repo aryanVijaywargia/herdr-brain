@@ -42,15 +42,18 @@ noise_lines = ['› Ask Codex to do anything', '\s*.* · Context \d+% (?:used|le
 # number, then +, - or a space) with its fold hints. A diff line after a prompt line was
 # stored as user text, and "don't" in an approval made a correction signal.
   '✔ You approved codex to .*', '  \S+ (?:minimal|low|medium|high|xhigh) · [~/].*', '\s*\? for shortcuts.*',
-  '\s{4,}\d+ [-+ ].*', '\s+\+ Show details', '\s+\+ \d+ lines? \(ctrl\+t to expand\)', '\s+⋮']
+  '\s{4,}\d+ [-+ ].*', '\s+\+ Show details', '\s+\+ \d+ lines? \(ctrl\+t to expand\)', '\s+⋮',
+# The choices of an approval dialog: the first one has the prompt mark, and "don't" made a
+# correction signal. The question, the reason and the command stay: the blocked approval
+# signal reads them (§7.1).
+  '(?:›| ) \d\. (?:Yes, proceed|Yes, and don.t ask again|No, and tell Codex) .*', '  Press enter to confirm or esc to cancel']
 # The start banner (#258): the box with the version, model and folder, and the tip lines under
 # it, also when a tip wraps. A tip line at another place is text of a reply.
 # Codex 0.160.1 (#278, #281, M2 eval run): the start banner with no box (the version, the folder,
-# a welcome line and the logo), an approval dialog with its command and its options, and the
-# folder trust dialog. Each runs to the next line at column 0 that is not one of its options.
+# a welcome line and the logo), and the folder trust dialog. Each runs to the next line at
+# column 0 that is not one of its options.
 noise_blocks = [
   { start = '╭─+╮', next = '[│╰].*|  \S.*' },
   { start = '\s*>_ OpenAI Codex \(v\S+\)', next = '  .*' },
-  { start = '\s*Would you like to .+\?', next = '  .*|› \d\. (?:Yes|No)\b.*' },
   { start = '  Folder access', next = '  .*|› \d\. Trust .*' },
 ]
