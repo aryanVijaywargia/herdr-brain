@@ -1274,6 +1274,8 @@ harnesses = ["claude", "codex"]
 | Undo and forget | M1 | Undo or forget the item. Ask in a fresh session. | After undo: the older revision. After forget: the marker is in no reply and in no Brain output or text field. |
 | Usefulness | M1 | A small task from one real mistake of the look-back, in a scratch copy of a repo | A record of the result (for example, which lockfile changed). A review prompt, not a gate. |
 
+- **Regression cases** (E20-S1, owner 2026-10-07): each real-use bug gets its own regression case, named with its issue number, that fails before its fix and passes after it: a fixture case of stage `regression` (`evals/probes/regression.toml`, Go tests with no CLI), or a probe in the live stages when the bug needs a live CLI.
+
 **Labeled prompt set** (M2, before close matches)
 - `evals/prompts.toml` holds prompts with a label each: the expected proposal id, or "no match".
 - It has positive cases (a real repeat, also in another language or with Unicode) and negative cases (everyday requests, unrelated Unicode text).

@@ -75,6 +75,16 @@ setup = [""]
 		{"no harness", strings.Replace(goodProbe, `harnesses = ["claude", "codex"]`, "", 1), []string{"harnesses is empty"}},
 		{"bad placeholder", strings.Replace(goodProbe, "{{marker2}}", "{{name}}", 1), []string{"placeholder {{name}}"}},
 		{"duplicate id", goodProbe + goodProbe, []string{`id "pm-update" is also in`}},
+		{"bad bug", `
+[[bug]]
+issue = 0
+tests = ["internal/herdr", "./internal/herdr:TestA", "internal/herdr:Check", "internal/herdr:TestA", "internal/herdr:TestA"]
+`, []string{"bug 1 (issue 0)", "issue 0: want", `test "internal/herdr": want`, `test "./internal/herdr:TestA": want`,
+			`test "internal/herdr:Check": want`, `test "internal/herdr:TestA" is listed twice`}},
+		{"bug with no test", "[[bug]]\nissue = 7\n", []string{"tests is empty"}},
+		{"duplicate bug", strings.Repeat("[[bug]]\nissue = 7\ntests = [\"internal/herdr:TestA\"]\n", 2), []string{`id "bug-7" is also in`}},
+		{"regression probe", strings.Replace(goodProbe, `stage = "update"`, `stage = "regression"`, 1),
+			[]string{"stage regression: give its cases as [[bug]]"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
