@@ -168,7 +168,7 @@ func (p *recallPane) searchKey(ctx context.Context, k rune) (done bool) {
 		return false
 	case k == '\r' || k == '\n':
 		if len(p.hits) > 0 {
-			p.view, p.msg = p.show(ctx, p.hits[p.sel].item.ID)
+			p.view, p.msg = p.show(ctx, p.hits[p.sel].item)
 		}
 		return false
 	case k == keyDel || k == keyBS:
@@ -215,40 +215,36 @@ func (p *recallPane) search(ctx context.Context, query string) ([]recallHit, err
 	return hits, err
 }
 
-// show returns the full view of item id, or "" and the error. The view has the item as the
-// brief shows it, its scope and state, the command for a change, and the source excerpts of
-// the proposal that made its newest proposed revision, through the secret filter as in review
-// (§7.4).
-func (p *recallPane) show(ctx context.Context, id int64) (view, msg string) {
+// show returns the full view of item h, or "" and the error. The view has the item as the
+// brief shows it, with its marks, its scope and state, the command for a change, and the source
+// excerpts of the newest proposal of the item that has captured evidence, through the secret
+// filter as in review (§7.4).
+func (p *recallPane) show(ctx context.Context, h brief.Item) (view, msg string) {
 	var b strings.Builder
 	err := p.cl.Store.Write(ctx, func(tx *sql.Tx) error {
-		it, cur, err := p.cl.item(ctx, tx, id)
+		it, cur, err := p.cl.item(ctx, tx, h.ID)
 		if err != nil {
 			return err
 		}
-		text, err := brief.Entries([]brief.Item{{ID: it.ID, Text: cur.Text}})
+		h.Text = cur.Text // the text can have changed since the search
+		text, err := brief.Entries([]brief.Item{h})
 		if err != nil {
 			return err
 		}
 		fmt.Fprintf(&b, "item %d (%s, %s), revision %d, %s\n", it.ID, it.Kind, it.State, cur.Revision, p.cl.target(it.Scope))
 		b.WriteString(text)
 		fmt.Fprintf(&b, "change:   brain review --item %d --edit \"<text>\" | --retire\n", it.ID)
-		pid, err := sourceProposal(ctx, tx, cur)
-		if err != nil || pid == 0 {
-			b.WriteString("excerpts: none: no proposal made this item\n")
-			return err
-		}
-		pr, err := store.ProposalByID(ctx, tx, pid)
+		pid, lines, err := p.sourceExcerpts(ctx, tx, cur)
 		if err != nil {
 			return err
 		}
-		lines, _, err := p.cl.excerpts(ctx, tx, pr)
-		if err != nil {
-			return err
+		if pid == 0 {
+			b.WriteString("excerpts: none: no captured source text made this item\n")
+			return nil
 		}
 		fmt.Fprintf(&b, "proposal: brain review %d (its evidence view: brain review %d --evidence)\n", pid, pid)
 		if len(lines) == 0 {
-			b.WriteString("excerpts: none: the proposal has no source text that this workspace sees\n")
+			b.WriteString("excerpts: none: the source text is gone, or in another workspace\n")
 			return nil
 		}
 		fmt.Fprintf(&b, "excerpts:\n  %s\n", strings.Join(lines, "\n  "))
@@ -260,22 +256,28 @@ func (p *recallPane) show(ctx context.Context, id int64) (view, msg string) {
 	return b.String(), ""
 }
 
-// sourceProposal returns the proposal of the newest revision of an item, up to cur, that a
-// proposal made, or 0 when none did: an edit in review or an undo writes a revision with no
-// proposal.
-func sourceProposal(ctx context.Context, tx *sql.Tx, cur store.ItemRevision) (int64, error) {
-	for r := cur; ; {
-		if r.ProposalID != nil {
-			return *r.ProposalID, nil
+// sourceExcerpts returns the newest proposal of the revisions of an item, up to cur, that has
+// captured evidence, and its excerpt lines as review shows them; 0 when no proposal has. A
+// revision of your own (an edit in review, an undo, brain remember) has none.
+func (p *recallPane) sourceExcerpts(ctx context.Context, tx *sql.Tx, cur store.ItemRevision) (int64, []string, error) {
+	for rev := cur.Revision; rev >= 1; rev-- {
+		r, err := store.ItemRevisionByKey(ctx, tx, cur.ItemID, rev)
+		if err != nil {
+			return 0, nil, err
 		}
-		if r.Revision <= 1 {
-			return 0, nil
+		if r.ProposalID == nil {
+			continue
 		}
-		var err error
-		if r, err = store.ItemRevisionByKey(ctx, tx, cur.ItemID, r.Revision-1); err != nil {
-			return 0, err
+		pr, err := store.ProposalByID(ctx, tx, *r.ProposalID)
+		if err != nil {
+			return 0, nil, err
+		}
+		lines, captured, err := p.cl.excerpts(ctx, tx, pr)
+		if err != nil || captured {
+			return pr.ID, lines, err
 		}
 	}
+	return 0, nil, nil
 }
 
 // draw clears the popup and shows the search or the item view, the last message and the keys.
@@ -329,6 +331,6 @@ func cut(line string, cols int) string {
 // error that run prints to stderr is gone at once. It returns err.
 func (p *recallPane) fail(err error) error {
 	_, _ = fmt.Fprintf(p.out, "%s%v\n\nPress a key to close.", clearScreen, err) // as in reviewPane.draw
-	_, _, _ = p.keys.ReadRune()                                                   // any key, or the end of input, closes
+	_, _, _ = p.keys.ReadRune()                                                  // any key, or the end of input, closes
 	return err
 }
