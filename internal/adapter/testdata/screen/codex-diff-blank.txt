@@ -1,0 +1,7 @@
+• Ran npm test
+  └ not ok 3 - POST /notes without a title
+      58 +return ok();
+
+        error: expected 400, got 500
+
+• One test fails.

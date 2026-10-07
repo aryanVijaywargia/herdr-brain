@@ -161,7 +161,8 @@ func (r *Runner) startCLI(ctx context.Context, h Herdr, shell herdr.Pane, dir, n
 		return pane, err
 	}
 	// The answered CLI goes on with its start: close it and wait for its exit, so that only the
-	// fresh CLI runs in the case.
+	// fresh CLI runs in the case. When its start hook ran first, the brief of the fresh CLI
+	// names its session, and the delivery check expects that line (#296).
 	if err := r.closeAll(ctx, h, []string{pane.ID}); err != nil {
 		return herdr.Pane{}, err
 	}

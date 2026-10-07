@@ -18,6 +18,7 @@ import (
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
+	"github.com/aryanVijaywargia/herdr-brain/internal/brief"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -130,7 +131,7 @@ func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]s
 	if err != nil {
 		return Outcome{}, err
 	}
-	want, err := r.checkOutput(ctx, b, c, shell.WorkspaceID, &o)
+	exp, err := r.checkOutput(ctx, b, c, shell.WorkspaceID, &o)
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -143,7 +144,7 @@ func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]s
 			o.Replies = append(o.Replies, Reply{Harness: p.Harness, Status: Skipped, Why: why})
 			continue
 		}
-		rep, err := r.runProbe(ctx, h, shell, dir, c, p, b, markers, want, i, &opened)
+		rep, err := r.runProbe(ctx, h, shell, dir, c, p, b, markers, exp, i, &opened)
 		if err != nil {
 			return o, fmt.Errorf("probe %d (%s): %w", i+1, p.Harness, err)
 		}
@@ -197,33 +198,33 @@ func (r *Runner) fresh(ctx context.Context, b bindings.Binding, c Case) (map[str
 	return markers, r.seedSkills(ctx, b, c, markers)
 }
 
-// checkOutput returns the hash of the brief that the setup built for workspace wsID. It checks
-// the brief of a full-brief case and the store of a forget case into o.
-func (r *Runner) checkOutput(ctx context.Context, b bindings.Binding, c Case, wsID string, o *Outcome) (want string, err error) {
-	want, text, err := briefHash(b, wsID)
+// checkOutput returns the brief that the setup built for workspace wsID. It checks the brief of
+// a full-brief case and the store of a forget case into o.
+func (r *Runner) checkOutput(ctx context.Context, b bindings.Binding, c Case, wsID string, o *Outcome) (expected, error) {
+	exp, err := expectedBrief(b, wsID)
 	if err != nil {
-		return "", err
+		return expected{}, err
 	}
 	if c.FullBrief && !c.Control {
-		o.BriefCheck = briefCheck(text, o.Marker)
+		o.BriefCheck = briefCheck(brief.Text(exp.global, exp.workspace), o.Marker)
 	}
 	if len(c.Forgotten) > 0 && !c.Control {
 		if o.Leak, err = r.leak(ctx, b, fillAll(c.Forgotten, o.Markers)); err != nil {
-			return "", err
+			return expected{}, err
 		}
 	}
-	return want, nil
+	return exp, nil
 }
 
 // runProbe runs probe i of case c: a hook call for an exclusion case, else a fresh CLI. The
 // reply of a usefulness case gets its record.
-func (r *Runner) runProbe(ctx context.Context, h Herdr, shell herdr.Pane, dir string, c Case, p Probe, b bindings.Binding, markers map[string]string, want string, i int, opened *[]string) (rep Reply, err error) {
+func (r *Runner) runProbe(ctx context.Context, h Herdr, shell herdr.Pane, dir string, c Case, p Probe, b bindings.Binding, markers map[string]string, exp expected, i int, opened *[]string) (rep Reply, err error) {
 	marker := markers["marker"]
 	p.Prompt = fill(p.Prompt, markers)
 	if c.Hook != "" {
 		rep, err = r.hookProbe(ctx, h, shell, dir, c, p, b, marker, i, opened)
 	} else {
-		rep, err = r.probe(ctx, h, shell, dir, fmt.Sprintf("probe-%s-%d", marker, i+1), p, b, want, opened)
+		rep, err = r.probe(ctx, h, shell, dir, fmt.Sprintf("probe-%s-%d", marker, i+1), p, b, exp, opened)
 	}
 	if err == nil && c.Stage == "usefulness" && rep.Status != Skipped {
 		rep.Record = r.record(ctx, dir)
@@ -489,11 +490,11 @@ func (r *Runner) step(ctx context.Context, h Herdr, pane, command, marker string
 
 // probe opens a pane beside the shell pane, starts a fresh official CLI in it, sends the
 // prompt with herdr, reads the reply and its receipt in the test store of binding b, and
-// checks the receipt against want, the expected brief hash. The
+// checks the receipt against exp, the expected brief. The
 // runner never touches the CLI's credentials or native memory. A CLI that herdr cannot start
 // because it is not ready, for example at a dialog that the runner does not answer, is
 // skipped. The runner answers only the folder-trust dialog of trustDialogs (startCLI).
-func (r *Runner) probe(ctx context.Context, h Herdr, shell herdr.Pane, dir, name string, p Probe, b bindings.Binding, want string, opened *[]string) (Reply, error) {
+func (r *Runner) probe(ctx context.Context, h Herdr, shell herdr.Pane, dir, name string, p Probe, b bindings.Binding, exp expected, opened *[]string) (Reply, error) {
 	rep := Reply{Harness: p.Harness}
 	prof, err := adapter.LoadFS(r.Profiles, p.Harness)
 	if err != nil {
@@ -531,8 +532,12 @@ func (r *Runner) probe(ctx context.Context, h Herdr, shell herdr.Pane, dir, name
 	if derr != nil {
 		return Reply{}, derr
 	}
+	var want []string
 	if ok {
 		rep.Receipt = &d
+		if want, derr = r.want(ctx, b, exp, d); derr != nil {
+			return Reply{}, derr
+		}
 	}
 	rep.Status, rep.Why = deliveryStatus(d, ok, want)
 	text, found := replyAfter(rep.Screen, p.Prompt)
