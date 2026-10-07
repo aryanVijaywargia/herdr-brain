@@ -156,14 +156,7 @@ func TestRecordCodex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload := func(name string) []byte {
-		t.Helper()
-		raw, err := os.ReadFile(filepath.Join("testdata", "codex-0.160.1", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		return raw
-	}
+	payload := func(name string) []byte { return codexPayload(t, name) }
 	echo := "Repeat this whole message back to me exactly, character for character, and nothing else. " +
 		"Do not use any tool: qx-4410 blue river 7."
 	want := []struct {
@@ -231,8 +224,26 @@ func TestRecordCodex(t *testing.T) {
 	if reply, err := p.ParseRecord(adapter.EventStop, payload("stop-echo.json")); err != nil || reply.Text != prompt.Text {
 		t.Errorf("echo reply = %q, %v, want the prompt %q", reply.Text, err, prompt.Text)
 	}
-	// Every tool fires PostToolUse; an MCP tool has no command. So the tool entry matches only
-	// the shell tool, whose tool_name the profile names.
+}
+
+// codexPayload reads the payload file name of the codex-cli 0.160.1 live hook test (#285).
+func codexPayload(t *testing.T, name string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "codex-0.160.1", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// Every Codex tool fires PostToolUse; an MCP tool has no command. So the codex tool entry
+// matches only the shell tool, whose tool_name the profile names (#285).
+func TestCodexToolMatcher(t *testing.T) {
+	p, err := adapter.Load("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := func(name string) []byte { return codexPayload(t, name) }
 	var mcp, shell struct {
 		ToolName string `json:"tool_name"`
 	}
