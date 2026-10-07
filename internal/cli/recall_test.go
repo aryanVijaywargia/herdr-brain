@@ -86,8 +86,9 @@ func TestRecallMatch(t *testing.T) {
 	if out, _, err := f.recall(t, "w16:p1", "w16", "pnpm"); err != nil || out != want {
 		t.Errorf("Recall(pnpm) in w16 = %q, %v, want %q", out, err, want)
 	}
-	if _, _, err := f.recall(t, "w14:p1", "w14", " ", "--"); err == nil || !strings.Contains(err.Error(), recallUsage) {
-		t.Errorf("Recall(no words) = %v, want the usage", err)
+	if _, _, err := f.recall(t, "w14:p1", "w14", " ", "--"); err == nil || !strings.Contains(err.Error(), recallUsage) ||
+		strings.Contains(err.Error(), "\n") {
+		t.Errorf("Recall(no words) = %v, want the usage in one line", err)
 	}
 }
 
@@ -244,5 +245,43 @@ func TestRecallOutsideHerdr(t *testing.T) {
 	var ns *noStoreError
 	if !errors.As(err, &ns) || strings.Contains(err.Error(), "\n") || out.Len() != 0 {
 		t.Errorf("Recall() outside herdr = %q, %v, want one error line and no output", out.String(), err)
+	}
+}
+
+// AC E20-S2 #266 2 and 3: a recall checks the pane again under the store lock, so a pane that
+// moved to another workspace gets nothing; and a print that fails records nothing.
+func TestRecallRecheckAndPrint(t *testing.T) {
+	f := newFixture(t)
+	recallItem(t, f, "ws_a14", "use pnpm", store.StateActive, "")
+	s := openStore(t, f.store)
+	write(t, s, func(tx *sql.Tx) error {
+		session, agent := "default", "a"
+		_, err := store.InsertDelivery(context.Background(), tx, store.Delivery{Profile: "claude", HerdrSession: &session,
+			PaneID: "w14:p1", AgentSessionID: &agent, ItemRevisions: []store.RevisionRef{}, Result: store.ResultEmitted, At: testNow})
+		return err
+	})
+	closeStore(t, s)
+
+	var out bytes.Buffer
+	e := f.env(f.sock, "w14:p1", "w14", &out)
+	pane, calls := e.Pane, 0
+	// The resolver and Open check the pane twice; then the pane moves to w15.
+	e.Pane = func(ctx context.Context, tg herdr.Target, id string) (herdr.Pane, error) {
+		if calls++; calls > 2 {
+			return herdr.Pane{ID: id, WorkspaceID: "w15"}, nil
+		}
+		return pane(ctx, tg, id)
+	}
+	if err := Recall(context.Background(), e, []string{"pnpm"}); err == nil || out.Len() != 0 {
+		t.Errorf("Recall() from a moved pane = %q, %v, want a refusal and no output", out.String(), err)
+	}
+
+	e = f.env(f.sock, "w14:p1", "w14", &out)
+	e.Stdout = failWriter{}
+	if err := Recall(context.Background(), e, []string{"pnpm"}); err == nil {
+		t.Error("Recall() with a failed print = nil error, want the write error")
+	}
+	if got := f.recalls(t); len(got) != 0 {
+		t.Errorf("recalls = %v, want none", got)
 	}
 }

@@ -29,47 +29,55 @@ const maxRecall = 10
 func Recall(ctx context.Context, e Env, args []string) (err error) {
 	words := recallWords(strings.Join(args, " "))
 	if len(words) == 0 {
-		return fmt.Errorf("want words to match\n%s", recallUsage)
+		// One line, as every refusal of recall (§1.2).
+		return fmt.Errorf("want words to match; %s", recallUsage)
 	}
 	c, err := e.Open(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, c.Close()) }()
-	key, err := briefKey(c)
-	if err != nil {
-		return err
-	}
-	var text string
-	var recorded bool
-	err = c.Store.Write(ctx, func(tx *sql.Tx) error {
+	return c.Store.Write(ctx, func(tx *sql.Tx) error {
+		// The pane can move to another workspace while the write waits for the store lock, so
+		// check it again under the lock, before the read (§5.1).
+		if err := e.recheck(ctx, c); err != nil {
+			return err
+		}
+		key, err := briefKey(c)
+		if err != nil {
+			return err
+		}
 		items, revision, err := output.Items(ctx, tx, key)
 		if err != nil {
 			return err
 		}
-		items = bestMatches(items, words)
-		if text, err = brief.Entries(items); err != nil || len(items) == 0 {
-			return err
-		}
-		recorded, err = recordRecall(ctx, tx, c, items, revision, e.Now())
-		return err
+		return printRecall(ctx, tx, e, c, bestMatches(items, words), revision, strings.Join(words, " "))
 	})
+}
+
+// printRecall prints items, the recall result of query, and then records it in tx: a failed
+// print rolls the record back, so a revision that the agent did not get never counts.
+func printRecall(ctx context.Context, tx *sql.Tx, e Env, c *Call, items []brief.Item, revision map[int64]int64, query string) error {
+	if len(items) == 0 {
+		// [NEW] the no-match form.
+		_, err := fmt.Fprintf(e.Stdout, "no Brain item matches %q\n", query)
+		return err
+	}
+	text, err := brief.Entries(items)
 	if err != nil {
 		return err
 	}
-	query := strings.Join(words, " ")
-	if text == "" {
-		_, err = fmt.Fprintf(e.Stdout, "no Brain item matches %q\n", query)
+	// [NEW] the output form: one heading line, then the items as the brief shows them.
+	if _, err := fmt.Fprintf(e.Stdout, "Brain items for %q, best match first:\n%s", query, text); err != nil {
 		return err
 	}
-	if !recorded {
-		// No receipt ties the pane's agent session, so no outcome could count the recall.
-		if _, err := fmt.Fprintln(e.Stderr, "brain: warning: no Brain receipt for the agent session of this pane; this recall is not recorded"); err != nil {
-			return err
-		}
+	recorded, err := recordRecall(ctx, tx, c, items, revision, e.Now())
+	if err != nil || recorded {
+		return err
 	}
-	// [NEW] the output form: one heading line, then the items as the brief shows them.
-	_, err = fmt.Fprintf(e.Stdout, "Brain items for %q, best match first:\n%s", query, text)
+	// No receipt ties the pane's agent session, so no outcome could count the recall. [NEW]
+	// the warning form.
+	_, err = fmt.Fprintln(e.Stderr, "brain: warning: no Brain receipt for the agent session of this pane; this recall is not recorded")
 	return err
 }
 

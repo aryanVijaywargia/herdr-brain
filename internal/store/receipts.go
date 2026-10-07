@@ -83,9 +83,9 @@ func LatestPaneReceipt(ctx context.Context, tx *sql.Tx, session, profile, paneID
 // of the pane bounds them: an older receipt of the pane can be another agent's, so no single
 // receipt ties.
 // A pane id never joins across bindings.
-// d.ItemRevisions also names the revisions that brain recall returned to the session on that
-// receipt up to the observation, in front of the receipt's own and the newest recall first:
-// the session got them too, and a later recall can name a newer revision (§8.6, E20-S2).
+// d.Recalled names the revisions that brain recall returned to the session on that receipt up
+// to the observation, the newest recall first: the session got them too, also on a withheld
+// receipt, and a later recall can name a newer revision than the brief (§8.6, E20-S2).
 func TiedReceipt(ctx context.Context, tx *sql.Tx, obs int64) (d Delivery, ok bool, err error) {
 	var s struct {
 		id                        int64
@@ -136,11 +136,9 @@ func TiedReceipt(ctx context.Context, tx *sql.Tx, obs int64) (d Delivery, ok boo
 	if d, err = DeliveryByID(ctx, tx, ids[0]); err != nil {
 		return Delivery{}, false, err
 	}
-	refs, err := recalled(ctx, tx, d.ID, s.observedAt)
-	if err != nil {
+	if d.Recalled, err = recalled(ctx, tx, d.ID, s.observedAt); err != nil {
 		return Delivery{}, false, err
 	}
-	d.ItemRevisions = append(refs, d.ItemRevisions...)
 	return d, true, nil
 }
 

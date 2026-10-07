@@ -37,8 +37,8 @@ func TestRecallReceipt(t *testing.T) {
 }
 
 // AC E20-S2 #266 3: the tied receipt of a session names the revisions that a recall on it
-// returned up to the observation, in front of its own, the newest recall first. A recall after
-// the observation does not count.
+// returned up to the observation, the newest recall first, beside its own. A recall after the
+// observation does not count.
 func TestTiedReceiptRecalls(t *testing.T) {
 	ctx := context.Background()
 	s := openM1(t)
@@ -62,9 +62,10 @@ func TestTiedReceiptRecalls(t *testing.T) {
 			}
 		}
 		got, ok, err := TiedReceipt(ctx, tx, obs)
-		want := []RevisionRef{{Item: 1, Revision: 2}, {Item: 2, Revision: 1}, {Item: 1, Revision: 1}}
-		if err != nil || !ok || got.ID != d || !slices.Equal(got.ItemRevisions, want) {
-			t.Errorf("TiedReceipt() = %+v, %v, %v, want receipt %d with revisions %v", got, ok, err, d, want)
+		want := []RevisionRef{{Item: 1, Revision: 2}, {Item: 2, Revision: 1}}
+		if err != nil || !ok || got.ID != d || !slices.Equal(got.Recalled, want) ||
+			!slices.Equal(got.ItemRevisions, []RevisionRef{{Item: 1, Revision: 1}}) {
+			t.Errorf("TiedReceipt() = %+v, %v, %v, want receipt %d with recalled revisions %v", got, ok, err, d, want)
 		}
 		return nil
 	})

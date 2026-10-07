@@ -344,22 +344,29 @@ func TestComebackOfProcedureItem(t *testing.T) {
 func TestOutcomeRecall(t *testing.T) {
 	rev := func(item, n int64) store.RevisionRef { return store.RevisionRef{Item: item, Revision: n} }
 	for _, c := range []struct {
-		name  string
-		brief func(item int64) []store.RevisionRef
-		at    time.Duration // the recall time from t0
-		want  []string
+		name     string
+		brief    func(item int64) []store.RevisionRef
+		withheld bool
+		at       time.Duration // the recall time from t0
+		want     []string
 	}{
 		{"item not in the brief", func(item int64) []store.RevisionRef { return []store.RevisionRef{rev(item+1, 1)} },
-			-time.Minute, []string{"comeback 3"}},
+			false, -time.Minute, []string{"comeback 3"}},
 		{"newer than the brief", func(item int64) []store.RevisionRef { return []store.RevisionRef{rev(item, 1)} },
-			-time.Minute, []string{"comeback 3"}},
+			false, -time.Minute, []string{"comeback 3"}},
+		// Recall printed the item, so a withheld start receipt is no gap for it.
+		{"withheld receipt", func(int64) []store.RevisionRef { return nil }, true, -time.Minute, []string{"comeback 3"}},
 		{"recall after the observation", func(item int64) []store.RevisionRef { return []store.RevisionRef{rev(item+1, 1)} },
-			time.Minute, nil},
+			false, time.Minute, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f := newFixture(t)
 			item := f.revisedItem(3)
-			f.deliver(receiptOf("default", "a", store.ResultEmitted, t0.Add(-time.Hour), c.brief(item)...))
+			result := store.ResultEmitted
+			if c.withheld {
+				result = store.ResultWithheld
+			}
+			f.deliver(receiptOf("default", "a", result, t0.Add(-time.Hour), c.brief(item)...))
 			f.write(func(ctx context.Context, tx *sql.Tx) error {
 				_, err := store.InsertRecall(ctx, tx, store.Recall{DeliveryID: 1, ItemRevisions: []store.RevisionRef{rev(item, 3)},
 					At: t0.Add(c.at)})
