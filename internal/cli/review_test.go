@@ -196,9 +196,9 @@ func TestReviewShow(t *testing.T) {
 	f := newFixture(t)
 	id := f.remember(t, "use pnpm")
 	out := f.mustReview(t, fmt.Sprint(id))
-	for _, want := range []string{"proposal 1 (pending)", "text:     use pnpm", "scope:    workspace",
-		"target:   workspace w14 (shop)", "revision: item 2 revision 2, from revision 1", "+ use pnpm",
-		"source:   remember, sender unconfirmed", "--approve"} {
+	for _, want := range []string{"proposal 1 (pending): new item", "text:     use pnpm", "scope:    workspace",
+		"target:   workspace w14 (shop)", "+ use pnpm",
+		"source:   remember, sender unconfirmed, " + localTime(testNow), "--approve"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("show = %q, want %q", out, want)
 		}
@@ -773,7 +773,7 @@ func TestReviewAll(t *testing.T) {
 	closeStore(t, s)
 
 	out := f.mustReview(t, "--all")
-	seen := testNow.Format("2006-01-02 15:04")
+	seen := localTime(testNow)
 	want := "candidate 2  global  correction  2 occurrences in 2 sessions  claude, codex  last seen " + seen + "  gate reached  open\n" +
 		"  claim " + pnpm + ": When installing packages: use pnpm\n" +
 		"candidate 1  workspace w14 (shop)  failure  1 occurrences in 1 sessions  codex  last seen " + seen + "  below gate (1 of 2 sessions)  open\n" +

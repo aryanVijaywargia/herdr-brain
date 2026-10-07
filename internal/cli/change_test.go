@@ -40,19 +40,23 @@ func (f *fixture) extractorProposal(t *testing.T, conflicts ...int64) (int64, st
 	return pid, claim
 }
 
-// AC (§7.4): a proposal shows the text, the claim id, the revision, the scope, the target,
-// the diff, 1-3 excerpts with sender, session, workspace and date, the expected benefit and
-// its conflicts; the excerpts of another workspace stay hidden.
+// AC (§7.4): a proposal shows the text, the scope, the target, the diff, 1-3 excerpts with
+// sender, session, workspace and local date, the expected benefit and its conflicts; with
+// --detail the claim id and the revision too (#254); the excerpts of another workspace stay
+// hidden.
 func TestReviewShowFields(t *testing.T) {
 	f := newFixture(t)
 	g := f.addActive(t, nil, "use npm")
 	pid, claim := f.extractorProposal(t, g)
-	out := f.mustReview(t, fmt.Sprint(pid))
+	if out := f.mustReview(t, fmt.Sprint(pid)); strings.Contains(out, "claim:") || strings.Contains(out, "revision:") {
+		t.Errorf("show with no --detail:\n%s\nwant no claim and no revision", out)
+	}
+	out := f.mustReview(t, fmt.Sprint(pid), "--detail")
 	for _, want := range []string{
 		"text:     use pnpm", "claim:    " + claim, "scope:    workspace", "target:   workspace w14 (shop)",
 		"revision: item", "diff:\n  + use pnpm", "benefit:  stops the npm lockfile mistake",
 		fmt.Sprintf("conflict: item %d (global): use npm", g),
-		"excerpts:\n  unconfirmed, session", "(claude), workspace shop, " + testNow.Format("2006-01-02 15:04") + ": text",
+		"excerpts:\n  unconfirmed, session", "(claude), workspace shop, " + localTime(testNow) + ": text",
 		`--change "<text>"`, "--replace", "--keep-both",
 	} {
 		if !strings.Contains(out, want) {

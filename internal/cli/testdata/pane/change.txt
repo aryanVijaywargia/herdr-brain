@@ -1,0 +1,12 @@
+<clear>
+proposal 2 (pending): changes item 2
+text:     use pnpm 9
+scope:    workspace
+target:   workspace w14 (shop)
+diff:
+  - use pnpm
+  + use pnpm 9
+source:   a change to active item 2, asked in review, 2026-09-28 17:30
+approve with scope: as proposed, pin: no, on a conflict: keep-both
+
+a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  d detail  q close

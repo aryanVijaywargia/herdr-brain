@@ -1,0 +1,39 @@
+<clear>
+proposal 1 (pending): new item
+kind:     tool
+scope:    workspace
+target:   workspace w14 ()
+benefit:  runs these commands with one reviewed contract
+text:
+  name = "go-vet"
+  description = "Run go vet ./..., then go test ./..."
+  cwd = "/src/shop"
+  timeout_s = 600
+  effects = "runs the recorded commands as the agent ran them; edit this line to say what they change"
+  read_only = false
+  steps = [["go", "vet", "./..."], ["go", "test", "./..."]]
+contract:
+  step 1:    "go" "vet" "./..."
+  step 2:    "go" "test" "./..."
+  cwd:       /src/shop
+  timeout:   600 s
+  effects:   runs the recorded commands as the agent ran them; edit this line to say what they change
+  read-only: no
+diff:
+  @@ line 1
+  + name = "go-vet"
+  + description = "Run go vet ./..., then go test ./..."
+  + cwd = "/src/shop"
+  + timeout_s = 600
+  + effects = "runs the recorded commands as the agent ran them; edit this line to say what they change"
+  + read_only = false
+  + steps = [["go", "vet", "./..."], ["go", "test", "./..."]]
+excerpts:
+  tool, session 3 (claude), workspace shop, 2026-09-28 17:32: go test ./...
+  tool, session 2 (claude), workspace shop, 2026-09-28 17:32: go test ./...
+  tool, session 1 (claude), workspace shop, 2026-09-28 17:32: go test ./...
+source:   extractor, sender unconfirmed, 2026-09-28 18:30
+pick one: proposal 2 is a script of the same command chain; approve one, and the other is superseded
+approve with scope: as proposed, pin: no, on a conflict: keep-both
+
+a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  d detail  q close

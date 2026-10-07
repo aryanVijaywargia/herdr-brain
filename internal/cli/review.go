@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/brief"
 	"github.com/aryanVijaywargia/herdr-brain/internal/extract"
@@ -23,7 +24,7 @@ import (
 
 const reviewUsage = `usage:
   brain review                                   list the proposals that wait for you
-  brain review <id>                              show one proposal
+  brain review <id> [--detail]                   show one proposal; --detail adds its claim id and revision
   brain review <id> --approve [--edit "<text>"] [--scope global|workspace] [--pin] [--confirm]
                              [--replace | --exception | --keep-both]   for a proposal with a conflict
   brain review <id> --reject [--reason "<text>"] | --later
@@ -55,6 +56,7 @@ type review struct {
 	reason                 *string // your reason for a reject; nil for none
 	scope                  store.Scope
 	pin, confirm           bool
+	detail                 bool // show adds the claim id and the revision (#254)
 	retired                bool
 	all                    bool  // list the candidates (E12-S2)
 	makeTool               int64 // the command candidate to make a tool draft of (E17-S6)
@@ -119,7 +121,7 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 		}
 		return cl.closeReviewPanes(ctx, r.id)
 	case r.id != 0:
-		return cl.show(ctx, r.id)
+		return cl.show(ctx, r.id, r.detail)
 	}
 	return cl.list(ctx)
 }
@@ -164,6 +166,7 @@ func parseReview(args []string) (review, error) {
 	scope := fs.String("scope", "", "")
 	fs.BoolVar(&r.pin, "pin", false, "")
 	fs.BoolVar(&r.confirm, "confirm", false, "")
+	fs.BoolVar(&r.detail, "detail", false, "")
 	queueFlags(fs, &r)
 	fs.Int64Var(&r.item, "item", 0, "")
 	fs.BoolVar(&r.retire, "retire", false, "")
@@ -225,6 +228,8 @@ func (r review) check() error {
 	switch {
 	case actions > 1:
 		return errors.New("give one action")
+	case r.detail && (r.id == 0 || actions > 0 || modifiers || r.edit != nil || r.reason != nil):
+		return errors.New("--detail goes with a proposal id alone")
 	case r.reason != nil && !r.reject:
 		return errors.New("--reason goes with --reject")
 	case r.scope != "" && r.scope != store.ScopeGlobal && r.scope != store.ScopeWorkspace:
@@ -363,11 +368,12 @@ func warns(p store.Proposal) bool { return p.PermissionWarning || permissionWord
 // excerptsShown is the most excerpts that a proposal shows (§7.4: 1-3).
 const excerptsShown = 3
 
-// show prints one proposal with the §7.4 fields: the text, the claim id, the revision it
-// creates, the scope, the target, the diff, the expected benefit, the items it conflicts with,
-// and 1-3 source excerpts with sender, session, workspace and date. The excerpts come from the
+// show prints one proposal with the §7.4 fields. What you decide on comes first: the text, the
+// scope and the effect (the target and the expected benefit); then the diff, the items it
+// conflicts with, and 1-3 source excerpts with sender, session, workspace and local date. The
+// claim id and the revision it creates show with detail only (#254). The excerpts come from the
 // evidence links at show time, through the secret filter: the proposal holds no copy.
-func (cl caller) show(ctx context.Context, id int64) error {
+func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	var p store.Proposal
 	var it store.Item
 	var cur store.ItemRevision
@@ -414,22 +420,22 @@ func (cl caller) show(ctx context.Context, id int64) error {
 		return err
 	}
 	var b strings.Builder
-	showHead(&b, p, it, binding, claim)
+	showHead(&b, p, it, binding)
 	fmt.Fprintf(&b, "diff:\n  %s\n", strings.ReplaceAll(p.Diff, "\n", "\n  "))
 	if len(p.Dispute) > 0 {
 		b.WriteString(disputeLine)
 	}
 	b.WriteString(promotionLines(others))
-	if p.ExpectedBenefit != "" {
-		fmt.Fprintf(&b, "benefit:  %s\n", oneLine(p.ExpectedBenefit))
-	}
 	for _, c := range conflicts {
 		fmt.Fprintf(&b, "conflict: %s\n", c)
 	}
 	if len(excerpts) > 0 {
 		fmt.Fprintf(&b, "excerpts:\n  %s\n", strings.Join(excerpts, "\n  "))
 	}
-	fmt.Fprintf(&b, "source:   %s, %s\n", source(p, it, cur), p.Created.Format("2006-01-02 15:04"))
+	fmt.Fprintf(&b, "source:   %s, %s\n", source(p, it, cur), localTime(p.Created))
+	if detail {
+		detailLines(&b, p, it, claim)
+	}
 	if p.ChangeRequest != nil {
 		fmt.Fprintf(&b, "change:   %s\n", oneLine(*p.ChangeRequest))
 	}
@@ -446,41 +452,76 @@ func (cl caller) show(ctx context.Context, id int64) error {
 	return err
 }
 
-// showHead writes the first lines of p in show: the status, the text, the claim, the scope,
-// the target and the revision. A script proposal has no item: claim is its claim, and it has no
-// revision (E17-S8). binding holds the lines of an automation.
-func showHead(b *strings.Builder, p store.Proposal, it store.Item, binding, claim string) {
-	fmt.Fprintf(b, "proposal %d (%s)\n", p.ID, p.Status)
+// showHead writes the first lines of p in show, what you decide on (§7.4): the status and what
+// p does, the kind, the text, the scope and the effect, the target and the expected benefit. A
+// text of many lines (a skill, a tool, an automation, a script) comes after the scope and the
+// effect, so that a short pane shows them too (#254). binding holds the lines of an automation.
+func showHead(b *strings.Builder, p store.Proposal, it store.Item, binding string) {
+	fmt.Fprintf(b, "proposal %d (%s): %s\n", p.ID, p.Status, what(p, it))
+	var text string
 	if p.Script() {
-		b.WriteString(scriptLines(p, claim))
+		b.WriteString(scriptLine)
+		text = scriptText(p)
 	} else {
-		b.WriteString(itemText(p, it))
-		b.WriteString(binding)
+		b.WriteString(kindLine(it))
+		text = itemText(p, it) + binding
 	}
-	if it.ClaimID != "" {
-		fmt.Fprintf(b, "claim:    %s\n", it.ClaimID)
+	effect := fmt.Sprintf("scope:    %s\ntarget:   %s\n", p.Scope, p.Target)
+	if p.ExpectedBenefit != "" {
+		effect += fmt.Sprintf("benefit:  %s\n", oneLine(p.ExpectedBenefit))
 	}
-	fmt.Fprintf(b, "scope:    %s\ntarget:   %s\n", p.Scope, p.Target)
+	if strings.Count(text, "\n") > 1 {
+		text, effect = effect, text
+	}
+	b.WriteString(text + effect)
+}
+
+// what says what p does to its item: a draft item is new, any other item changes. A script
+// proposal has no item (E17-S8).
+func what(p store.Proposal, it store.Item) string {
+	switch {
+	case p.Script():
+		return "new script"
+	case it.State == store.StateDraft:
+		return "new item"
+	}
+	return fmt.Sprintf("changes item %d", it.ID)
+}
+
+// detailLines writes the detail of p in show (#254): the claim id and the revision it creates.
+// A script proposal has no item: claim is its claim, and it has no revision (E17-S8).
+func detailLines(b *strings.Builder, p store.Proposal, it store.Item, claim string) {
+	if c := cmp.Or(it.ClaimID, claim); c != "" {
+		fmt.Fprintf(b, "claim:    %s\n", c)
+	}
 	if !p.Script() {
 		fmt.Fprintf(b, "revision: item %d revision %d, from revision %d (now %d)\n", it.ID, *p.BaseRevision+1, *p.BaseRevision, it.CurrentRevision)
 	}
 }
 
+// localTime is t in local time, to the minute, as review shows times (#254).
+func localTime(t time.Time) string { return t.Local().Format("2006-01-02 15:04") }
+
 // skillLine is the line of a skill proposal in show. The review pane finds a skill by it: its
 // one-line edit cannot hold a skill file.
 const skillLine = "kind:     skill\n"
 
-// itemText is the kind line, the text line and, for a tool, the contract lines of p in show.
-func itemText(p store.Proposal, it store.Item) string {
-	var b strings.Builder
+// kindLine is the kind line of item it in show; a fact has none.
+func kindLine(it store.Item) string {
 	switch it.Kind {
 	case store.KindSkill:
-		b.WriteString(skillLine)
+		return skillLine
 	case store.KindTool:
-		b.WriteString(toolLine)
+		return toolLine
 	case store.KindAutomation:
-		b.WriteString(automationLine)
+		return automationLine
 	}
+	return ""
+}
+
+// itemText is the text line and, for a tool, the contract lines of p in show.
+func itemText(p store.Proposal, it store.Item) string {
+	var b strings.Builder
 	b.WriteString(proposalText(p, it))
 	if it.Kind == store.KindTool && p.Text != "" {
 		b.WriteString(contractLines(p.Text))
@@ -647,7 +688,7 @@ func (cl caller) excerpts(ctx context.Context, tx *sql.Tx, p store.Proposal) (li
 			continue
 		}
 		lines = append(lines, fmt.Sprintf("%s, session %d (%s), workspace %s, %s: %s", e.Sender, e.SessionID, e.Harness,
-			cl.label, e.At.Format("2006-01-02 15:04"), extract.Redact(oneLine(e.Excerpt))))
+			cl.label, localTime(e.At), extract.Redact(oneLine(e.Excerpt))))
 	}
 	return lines, changeable, nil
 }
@@ -1047,7 +1088,7 @@ func (cl caller) listCandidates(ctx context.Context) error {
 			}
 			lines = append(lines, fmt.Sprintf("candidate %d  %s  %s  %d occurrences in %d sessions  %s  last seen %s  %s  %s\n  claim %s: %s",
 				c.ID, cl.target(c.Scope), c.Kind, c.Count, c.Sessions, strings.Join(c.Harnesses, ", "),
-				c.LastSeen.Format("2006-01-02 15:04"), gateLabel(gates, c), c.Status, c.ClaimID, text))
+				localTime(c.LastSeen), gateLabel(gates, c), c.Status, c.ClaimID, text))
 			ps, err := cl.candidateProposals(ctx, tx, c.ID)
 			if err != nil {
 				return err
@@ -1165,7 +1206,7 @@ func (cl caller) listRejections(ctx context.Context) error {
 				reason = "(none)"
 			}
 			lines = append(lines, fmt.Sprintf("rejection %d  %s  rejected %s  %d new evidence since (%d now, %d then)\n  claim %s: %s\n  reason: %s",
-				r.ID, cl.target(r.Scope), r.At.Format("2006-01-02 15:04"), r.New, r.Evidence, r.EvidenceCount, r.ClaimID, text, reason))
+				r.ID, cl.target(r.Scope), localTime(r.At), r.New, r.Evidence, r.EvidenceCount, r.ClaimID, text, reason))
 		}
 		return nil
 	})

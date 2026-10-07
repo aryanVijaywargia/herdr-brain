@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/secret"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -45,7 +46,8 @@ func Pane(ctx context.Context, e Env, args []string) error {
 		return err
 	}
 	defer restore()
-	return (&reviewPane{Env: e, id: id, keys: bufio.NewReader(os.Stdin), linger: linger}).run(ctx)
+	return (&reviewPane{Env: e, id: id, keys: bufio.NewReader(os.Stdin), linger: linger,
+		size: func() (int, int) { return termSize(os.Stdin) }}).run(ctx)
 }
 
 func parsePane(args []string) (int64, error) {
@@ -83,6 +85,20 @@ func cbreak(f *os.File) (func(), error) {
 	return func() { _, _ = stty(strings.TrimSpace(string(old))) }, nil
 }
 
+// termSize returns the rows and the columns of terminal f, or 0, 0 when stty cannot tell.
+func termSize(f *os.File) (rows, cols int) {
+	c := exec.Command("stty", "size")
+	c.Stdin = f
+	out, err := c.Output()
+	if err != nil {
+		return 0, 0
+	}
+	if _, err := fmt.Sscan(string(out), &rows, &cols); err != nil {
+		return 0, 0
+	}
+	return rows, cols
+}
+
 // reviewPane is the screen of one proposal. Each key runs `brain review` args with surface
 // pane, so the pane has the E4 checks and nothing else: the edit, the scope and the pin are
 // only arguments of the approve.
@@ -101,6 +117,10 @@ type reviewPane struct {
 	dispute  bool   // the proposal is a dispute (§9.1): the pane offers keep, edit and retire
 	skill    bool   // the proposal is a skill: its file does not fit the one-line edit
 	script   bool   // the proposal is a script (E17-S8): approve takes it as it is
+	detail   bool   // show the claim id and the revision too (#254)
+	// size returns the rows and the columns of the pane, read before each screen; nil or 0 rows
+	// shows the whole view.
+	size func() (rows, cols int)
 }
 
 // run shows the proposal and reads keys until a decision, q or the end of input. It reads
@@ -108,7 +128,7 @@ type reviewPane struct {
 // the pane waits for a key never shows the old text again (E5-S1).
 func (p *reviewPane) run(ctx context.Context) error {
 	for {
-		view, err := p.review(ctx)
+		view, err := p.show(ctx)
 		if err != nil {
 			return p.close(ctx, err)
 		}
@@ -129,10 +149,22 @@ func (p *reviewPane) run(ctx context.Context) error {
 	}
 }
 
+// show returns the view of the proposal, with its detail when p.detail is on.
+func (p *reviewPane) show(ctx context.Context) (string, error) {
+	if p.detail {
+		return p.review(ctx, "--detail")
+	}
+	return p.review(ctx)
+}
+
 // key runs the action of key k. done is true when the proposal is decided, or stays in the
-// queue with later. Any other error is on the screen, and the pane goes on.
+// queue with later. Any other error is on the screen, and the pane goes on. d turns the detail
+// view on and off for every kind [NEW key d].
 func (p *reviewPane) key(ctx context.Context, k rune) (done bool, err error) {
 	switch {
+	case k == 'd':
+		p.detail, p.msg = !p.detail, ""
+		return false, nil
 	case p.dispute:
 		return p.disputeKey(ctx, k)
 	case p.script && !strings.ContainsRune("arl", k):
@@ -179,11 +211,11 @@ func (p *reviewPane) disputeKey(ctx context.Context, k rune) (done bool, err err
 
 // decide runs `brain review <id> args` and shows its output, or its error.
 func (p *reviewPane) decide(ctx context.Context, args ...string) (bool, error) {
-	return p.show(p.review(ctx, args...))
+	return p.result(p.review(ctx, args...))
 }
 
-// show shows out, or err, and reports whether the call is done.
-func (p *reviewPane) show(out string, err error) (bool, error) {
+// result shows out, or err, and reports whether the call is done.
+func (p *reviewPane) result(out string, err error) (bool, error) {
 	p.msg = out
 	if err != nil {
 		p.msg = err.Error()
@@ -219,7 +251,7 @@ func (p *reviewPane) approve(ctx context.Context, edit *string) (done bool, err 
 	}
 	out, err := p.review(ctx, args...)
 	if !errors.Is(err, errConfirm) {
-		return p.show(out, err)
+		return p.result(out, err)
 	}
 	p.draw("this may change a permission, an allow rule or a safety rule: press y to approve, another key to go back")
 	k, _, rerr := p.keys.ReadRune()
@@ -299,34 +331,72 @@ func (p *reviewPane) line(prompt, empty string) (s string, ok bool, err error) {
 	}
 }
 
-// draw clears the pane and shows the proposal, the approve options, the keys, the last
-// message and prompt.
+// draw clears the pane and shows the proposal, the approve options, the last message, the keys
+// and prompt. The keys stay at the bottom of the pane (#254): a view that does not fit shows
+// its first lines, which hold what you decide on.
 func (p *reviewPane) draw(prompt string) {
-	scope := "as proposed"
-	if p.scope != "" {
-		scope = string(p.scope)
-	}
-	pin := map[bool]string{true: "yes", false: "no"}[p.pin]
-	conflict := cmp.Or(p.conflict, conflictKeep)
-	var b strings.Builder
+	var foot strings.Builder
+	keys := "a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  d detail  q close"
 	switch {
 	case p.dispute:
-		fmt.Fprintf(&b, "%s%s\n", clearScreen, p.view)
-		b.WriteString("k keep  e edit  t retire  l later  q close\n")
+		keys = "k keep  e edit  t retire  l later  d detail  q close"
 	case p.script:
-		fmt.Fprintf(&b, "%s%s\n", clearScreen, p.view)
-		b.WriteString("a approve  r reject  l later  q close\n")
+		keys = "a approve  r reject  l later  d detail  q close"
 	default:
-		fmt.Fprintf(&b, "%s%s\napprove with scope: %s, pin: %s, on a conflict: %s\n\n", clearScreen, p.view, scope, pin, conflict)
-		b.WriteString("a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  q close\n")
+		scope := "as proposed"
+		if p.scope != "" {
+			scope = string(p.scope)
+		}
+		pin := map[bool]string{true: "yes", false: "no"}[p.pin]
+		fmt.Fprintf(&foot, "approve with scope: %s, pin: %s, on a conflict: %s\n", scope, pin, cmp.Or(p.conflict, conflictKeep))
 	}
 	if p.msg != "" {
-		fmt.Fprintf(&b, "\n%s\n", strings.TrimSpace(p.msg))
+		fmt.Fprintf(&foot, "\n%s\n", strings.TrimSpace(p.msg))
 	}
+	fmt.Fprintf(&foot, "\n%s\n", keys)
 	if prompt != "" {
-		fmt.Fprintf(&b, "\n%s", prompt)
+		foot.WriteString(prompt)
 	}
-	_, _ = io.WriteString(p.Stdout, b.String()) // a pane with no screen has no one to tell
+	_, _ = io.WriteString(p.Stdout, clearScreen+p.fit(foot.String())+foot.String()) // a pane with no screen has no one to tell
+}
+
+// fit returns the first lines of the view that fit above foot, and a line that says how many
+// lines it leaves out. A prompt at the end of foot is one row: the text you type. [NEW]: the
+// rows of a long line count at the pane's width.
+func (p *reviewPane) fit(foot string) string {
+	view := strings.TrimSuffix(p.view, "\n") + "\n"
+	if p.size == nil {
+		return view
+	}
+	height, width := p.size()
+	if height <= 0 {
+		return view
+	}
+	rows := func(line string) int {
+		if width <= 0 {
+			return 1
+		}
+		return max(1, (utf8.RuneCountInString(line)+width-1)/width)
+	}
+	free := height
+	for _, l := range strings.Split(strings.TrimSuffix(foot, "\n"), "\n") {
+		free -= rows(l)
+	}
+	lines := strings.SplitAfter(strings.TrimSuffix(view, "\n"), "\n")
+	all := 0
+	for _, l := range lines {
+		all += rows(l)
+	}
+	if all <= free {
+		return view
+	}
+	// The view keeps at least its first line, and the cut line takes one row.
+	n, used := 1, rows(lines[0])
+	for n < len(lines) && used+rows(lines[n])+1 <= free {
+		used += rows(lines[n])
+		n++
+	}
+	return strings.Join(lines[:n], "") + fmt.Sprintf("... %d more lines: brain review %d shows them all\n", len(lines)-n, p.id)
 }
 
 // close shows the last message, or err, for the linger time, and ends the pane. It shows err
