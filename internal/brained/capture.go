@@ -78,6 +78,17 @@ type capturePane struct {
 	ok        bool       // lines is a usable base
 	open      *block     // the injected block that the last read ends in; nil when none
 	reserved  []Dispatch // the suggestions that the write of the current read reserved
+	status    string     // the status of the last step
+	turn      int        // the number of turns that the steps showed: a working or blocked status after another one
+	sent      []sent     // the prompts that the session shows, from its reads
+}
+
+// sent is one prompt that a read of the session showed: its text without the mark and white
+// space, and the turn of that read (#278).
+type sent struct {
+	text  string
+	first string // the text of its first line
+	turn  int
 }
 
 // read is one checked pane read.
@@ -88,6 +99,7 @@ type read struct {
 	lines   []string
 	senders []store.Sender // the sender of each line (§6.5)
 	clean   []string       // lines with the secrets dropped (§6.7)
+	head    int            // the number of lines at the start whose sender is not known
 	full    bool           // the read holds the whole history of the pane
 }
 
@@ -155,6 +167,19 @@ func (c *Capture) baseline(ctx context.Context, s Step, gap string) error {
 	}
 	cp.workspace, cp.base, cp.lines, cp.back, cp.ok, cp.segment = r.pane.WorkspaceID, s.Learning, r.lines, nil, true, 0
 	_, cp.open = parts(r, nil, nil)
+	cp.step(s)
+	all := make([]int, len(r.lines))
+	for i := range all {
+		all[i] = i
+	}
+	// The prompts of the base read are known: a later read that shows one again in the same
+	// turn shows a copy.
+	ps, _ := parts(r, all, nil)
+	for _, p := range ps {
+		if k := keyOf(r.agent, p); k.mark && p.sender == store.SenderUnconfirmed && !p.brain {
+			cp.sent = append(cp.sent, sent{k.text, k.first, cp.turn})
+		}
+	}
 	stale := false
 	err = c.write(ctx, s, func(tx *sql.Tx, now time.Time, learning Learning) error {
 		if old != nil && old.session != 0 && !c.held(old.key, s.PaneID) {
@@ -195,6 +220,8 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 	}
 	added, status := newPart(cp.lines, cp.back, r)
 	ps, open := parts(r, added, cp.open)
+	cp.step(s)
+	ps, fresh := cp.copies(r, added, ps)
 	cp.reserved = nil
 	err = c.write(ctx, s, func(tx *sql.Tx, now time.Time, learning Learning) error {
 		if learning.On && cp.session != 0 {
@@ -252,6 +279,9 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 					squash(strings.Join(p.lines, "")))
 				o.Counts = !seen && !shown
 			}
+			if p.unsure {
+				o.Counts = false // the sender is not known (§6.4, #281)
+			}
 			if err := record(ctx, tx, cp, o, panePrompt(cp.agent, p.lines)); err != nil {
 				return err
 			}
@@ -272,7 +302,131 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 		cp.back = cp.lines
 	}
 	cp.native, cp.lines, cp.open = native, r.lines, open
+	cp.sent = append(cp.sent, fresh...)
 	return c.suggest(ctx, s, cp)
+}
+
+// step notes the status of step s. A working or blocked status after another status starts
+// a new turn: a prompt was sent, or the agent works on its own.
+func (cp *capturePane) step(s Step) {
+	status := eventOf(s)
+	if busy(status) && !busy(cp.status) {
+		cp.turn++
+	}
+	cp.status = status
+}
+
+// busy reports whether status is a status of an agent at work.
+func busy(status string) bool {
+	return status == "working" || status == "blocked"
+}
+
+// copies drops the prompts of ps, the parts of the new lines added of r, that a read showed
+// before: one sent prompt is one occurrence (§6.4, #278). Codex shows a prompt again at later
+// reads, cut to one line, with a banner or an earlier prompt above it, or with another wrap.
+// A prompt that the session shows is a copy when its first line starts the text of a known
+// prompt, or the known first line starts it, and its other lines are text of that prompt. A
+// copy is a new send only when it is the last prompt of the read, with the same text, and a
+// new turn started since, or the read shows the known one too, above it (S40). A part with
+// no prompt mark and the sender of a prompt, as the wrapped end of a prompt, is dropped when
+// all its lines are text of a known prompt. copies returns the parts that stay and the
+// prompts that they send.
+func (cp *capturePane) copies(r read, added []int, ps []part) ([]part, []sent) {
+	last := -1
+	for i, l := range r.lines {
+		if _, ok := promptLine(r.agent, l); ok {
+			last = i
+		}
+	}
+	var kept []part
+	var fresh []sent
+	for _, p := range ps {
+		if p.sender != store.SenderUnconfirmed || p.brain {
+			kept = append(kept, p)
+			continue
+		}
+		k := keyOf(r.agent, p)
+		if !k.mark {
+			if !slices.ContainsFunc(cp.sent, func(s sent) bool { return k.within(s.text) }) {
+				kept = append(kept, p)
+			}
+			continue
+		}
+		var known []sent
+		for _, s := range cp.sent {
+			if k.copyOf(s) {
+				known = append(known, s)
+			}
+		}
+		again := p.at == last && !p.unsure && slices.ContainsFunc(known, func(s sent) bool { return s.text == k.text }) &&
+			(!slices.ContainsFunc(known, func(s sent) bool { return s.turn == cp.turn }) || shownAbove(r, added, k, p.at))
+		if len(known) == 0 || again {
+			kept = append(kept, p)
+			fresh = append(fresh, sent{k.text, k.first, cp.turn})
+		}
+	}
+	return kept, fresh
+}
+
+// shownAbove reports whether a line of r above at, one that the last read holds too, starts
+// a prompt with the text of k.
+func shownAbove(r read, added []int, k promptKey, at int) bool {
+	for i := range at {
+		if _, ok := promptLine(r.agent, r.lines[i]); !ok || slices.Contains(added, i) {
+			continue
+		}
+		end := i + 1
+		for end < len(r.lines) && end < at && strings.HasPrefix(r.lines[end], " ") {
+			end++
+		}
+		if keyOf(r.agent, part{lines: r.clean[i:end]}).text == k.text {
+			return true
+		}
+	}
+	return false
+}
+
+// promptKey is the text of a part without the prompt mark, the white space and the "…" at
+// the end of a cut line: the text of each line, of the first line and of all lines.
+type promptKey struct {
+	mark  bool // the part starts with the prompt mark
+	lines []string
+	first string
+	text  string
+}
+
+func keyOf(harness string, p part) promptKey {
+	var k promptKey
+	for i, l := range p.lines {
+		if i == 0 {
+			l, k.mark = promptLine(harness, l)
+		}
+		k.lines = append(k.lines, strings.TrimSuffix(squash(l), "…"))
+	}
+	if len(k.lines) > 0 {
+		k.first = k.lines[0]
+	}
+	k.text = strings.Join(k.lines, "")
+	return k
+}
+
+// copyOf reports whether k shows known prompt s: its first line starts the text of s, or the
+// cut first line of s starts it, and its other lines are text of s.
+func (k promptKey) copyOf(s sent) bool {
+	if k.first == "" || !strings.HasPrefix(s.text, k.first) && (s.first == s.text || !strings.HasPrefix(k.first, s.first)) {
+		return false
+	}
+	return promptKey{lines: k.lines[1:]}.within(s.text)
+}
+
+// within reports whether each line of k is text of known prompt text.
+func (k promptKey) within(text string) bool {
+	for _, l := range k.lines {
+		if !strings.Contains(text, l) {
+			return false
+		}
+	}
+	return true
 }
 
 // suggest starts the suggestions that the last write of cp reserved, after its commit: the
@@ -493,8 +647,8 @@ func (c *Capture) read(ctx context.Context, id string) (read, error) {
 	all := c.lines(agent, rd.Text)
 	raw := strings.Count(strings.TrimRight(rd.Text, "\n"), "\n") + 1
 	return read{pane: after, agent: agent, read: rd, lines: all, senders: senders(agent, all),
-		clean: redact(agent, all),
-		full:  source == herdr.ReadRecentUnwrapped && raw < lines && !rd.Truncated}, nil
+		clean: redact(agent, all), head: head(agent, all),
+		full: source == herdr.ReadRecentUnwrapped && raw < lines && !rd.Truncated}, nil
 }
 
 // lines splits text into lines without trailing space, and drops blank lines. The screen

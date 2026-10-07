@@ -1,6 +1,7 @@
 package brained
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/secret"
@@ -62,15 +63,40 @@ func senders(harness string, lines []string) []store.Sender {
 	return ss
 }
 
+// head returns the number of lines at the start of a read of harness that continue a block
+// whose first line is above the read: lines that start with a space and no sender mark. Their
+// sender is not known (§6.5): a diff line or the rest of a reply, not only user text (#281).
+func head(harness string, lines []string) int {
+	for i, l := range lines {
+		if !strings.HasPrefix(l, " ") || slices.ContainsFunc(marks[harness], func(m mark) bool { return strings.HasPrefix(l, m.prefix) }) {
+			return i
+		}
+	}
+	return len(lines)
+}
+
+// promptLine returns line l of harness without its prompt mark, and whether l starts with it.
+func promptLine(harness, l string) (string, bool) {
+	for _, m := range marks[harness] {
+		if m.sender == store.SenderUnconfirmed && strings.HasPrefix(l, m.prefix) {
+			return l[len(m.prefix):], true
+		}
+	}
+	return l, false
+}
+
 // part is one run of new lines with one sender: one observation.
 type part struct {
 	sender store.Sender
 	lines  []string
 	brain  bool // the part holds a Brain block, so its text after the block is Brain-origin
+	at     int  // the line of the read where the part starts
+	unsure bool // the part is in the head of the read, so its sender is not known
 }
 
 // parts drops the injected text from the new lines idx of r and groups the rest into runs of
-// one sender. open is the block that the last read ended in: the scan runs over the whole
+// one sender. A prompt mark starts a new part, so each prompt is one part (#278), and the head
+// of the read is a part of its own. open is the block that the last read ended in: the scan runs over the whole
 // read from it, so a block that opened in old text or in an earlier read still drops its
 // lines. parts returns the block that r ends in. Pane text has no reliable tags: a marker can
 // be lost, and other text can copy it. So the filters lower noise; they do not prove clean
@@ -92,11 +118,14 @@ func parts(r read, idx []int, open *block) ([]part, *block) {
 			starts = in != nil
 		}
 		if added[i] {
-			if len(ps) == 0 || ps[len(ps)-1].sender != r.senders[i] || starts && len(ps[len(ps)-1].lines) > 0 ||
+			_, prompt := promptLine(r.agent, l)
+			unsure := i < r.head
+			if len(ps) == 0 || ps[len(ps)-1].sender != r.senders[i] || ps[len(ps)-1].unsure != unsure ||
+				(starts || prompt) && len(ps[len(ps)-1].lines) > 0 ||
 				in == nil && ps[len(ps)-1].brain && !strings.HasPrefix(l, " ") {
 				// A Brain block starts its own part, and the part ends at the next line at column
 				// 0: the text around it stays genuine.
-				ps = append(ps, part{sender: r.senders[i]})
+				ps = append(ps, part{sender: r.senders[i], at: i, unsure: unsure})
 			}
 			p := &ps[len(ps)-1]
 			switch {

@@ -39,13 +39,20 @@ tested_version = "2.1.283"
 # internal/adapter/testdata/screen): the rows of the start logo (logo, version, model and plan,
 # folder), the mode line of another mode and the shortcut hint.
 noise_lines = ['[·✢✳✶✻✽*] \S+….*', '[·✢✳✶✻✽*] \S+ for .* · done .*', '❯', '─+', '.* \| ctx:.*', '\s*⏸ .*',
-  '\s*[▐▛▜▌▝▘▗▖▙▟▀▄█][▐▛▜▌▝▘▗▖▙▟▀▄█ ]*\s{2,}.*', '\s*⏵⏵ .*', '\s*\? for shortcuts.*']
+  '\s*[▐▛▜▌▝▘▗▖▙▟▀▄█][▐▛▜▌▝▘▗▖▙▟▀▄█ ]*\s{2,}.*', '\s*⏵⏵ .*', '\s*\? for shortcuts.*',
+# Claude Code 2.1.292 (#281, M2 eval run 2026-10-07): the lines of a code diff in the agent
+# output (a line number, then +, - or a space), the cut mark of a diff, and the folded shell
+# commands. Under a prompt they were stored as user text.
+  '\s{4,}\d+ [-+ ].*', '\s{4,}\.\.\.', '  Ran \d+ shell commands?(?:, .*)?']
 # The screen parts of more than one line (#258): a tip, also when it wraps in a narrow column,
 # and the welcome box with its two columns. Claude 2.1.284 puts a no-break space before "Tip:"
 # (internal/brained/testdata/claude-s31-0-base.txt).
 noise_blocks = [
   { start = '\s*⎿[\s\x{a0}]+Tip: .*', next = '\s{5}\S.*' },
   { start = '\s*╭─+ Claude Code .*╮', next = '\s*[│╰].*' },
+  # The folder trust dialog of Claude Code 2.1.292 (#281, M2 eval run): its lines start with
+  # one space, and its choices come after the ❯ cursor or under it.
+  { start = '\s*Accessing workspace:', next = ' \S.*|(?:❯| ) +(?:No, exit|Yes, I trust this folder)' },
 ]
 # The diff panel (/diff, Claude Code 2.1.260 and later) opens beside the conversation in a
 # terminal at least 110 columns wide; its header is "N files changed +A -D" (#258). The header
