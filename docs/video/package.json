@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "lint": "npx --yes hyperframes@0.8.140 lint .",
-    "snapshot": "npx --yes hyperframes@0.8.140 snapshot . --at 1.9,5.5,8.4,10.9,13.1,15.8 --describe false --no-end",
-    "render": "npx --yes hyperframes@0.8.140 render . --quality high --fps 30 -o out/raw.mp4"
+    "snapshot": "npx --yes hyperframes@0.8.140 snapshot . --at 1.5,2.5,4.95,8.7,12.4,17.6 --describe false --no-end",
+    "render": "npx --yes hyperframes@0.8.140 render . --quality high --fps 30 --crf 22 -o out/raw.mp4"
   }
 }
