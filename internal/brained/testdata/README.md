@@ -112,3 +112,18 @@ Files, all at idle:
 The shipped `adapters/codex.toml` and `adapters/claude.toml` carry the `noise_lines` of the
 reads above (E11-S4): the screen lines that change on each read (the spinner, the done line,
 the rules, the tip, the composer or prompt box, and the footer). The capture tests use the shipped profiles.
+
+## M2 eval screens (#278, #281)
+
+- Made, not recorded: the M2 eval run (2026-10-07, herdr 0.9.3, codex-cli 0.160.1, Claude Code
+  2.1.292) kept only the excerpts of its observations, not the pane reads. The files put those
+  excerpts back in the order of the reads of session S1 (codex) and S2 (claude). The project
+  path is `~/work/notes-api`, and the shell line is `user@host notes-api % codex`.
+- `codex-i278-*.txt` (`recent_unwrapped`): `0-base` (the start banner of 0.160.1, with no box),
+  `1-working` (the prompt), `2-blocked` (the prompt cut to one line with "…", diff lines and the
+  approval dialog), `3-working` (after the approval: diff lines and the approval echo line),
+  `4-idle` (Codex draws the banner and the whole prompt again), `5-working` (the next prompt
+  under the cut first prompt).
+- `codex-i281-trust.txt`, `claude-i281-trust.txt`: the folder trust dialogs.
+- `claude-i281-diff.txt` (`visible`): diff lines at the top of the screen, and the folded
+  "Ran 2 shell commands" line under a prompt.

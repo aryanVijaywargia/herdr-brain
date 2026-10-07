@@ -1,0 +1,13 @@
+      59 +        body = JSON.parse(text);
+      60        } catch {
+      61          return badRequest(req, res, 'body must be valid JSON');
+      62        }
+     ...
+
+⏺ Both cases now return a 400 with a JSON error, and the tests pass.
+
+❯ Run the full check now: lint, then tests, then build, in one chained command, and tell me what fails.
+
+  Ran 2 shell commands
+
+⏺ Nothing fails. Lint, tests and build pass.
