@@ -49,12 +49,12 @@ func wrapTo(w io.Writer, width int) io.Writer {
 func (x *wrapWriter) Write(p []byte) (int, error) {
 	var b strings.Builder
 	for s := string(p); s != ""; {
-		switch {
-		case s[0] == '\n':
+		switch s[0] {
+		case '\n':
 			b.WriteByte('\n')
 			x.col, x.spaces, x.indent, x.start = 0, 0, 0, true
 			s = s[1:]
-		case s[0] == ' ':
+		case ' ':
 			n := len(s) - len(strings.TrimLeft(s, " "))
 			x.spaces += n
 			if x.start {
