@@ -372,13 +372,7 @@ func Segments(ctx context.Context, tx *sql.Tx) ([]Segment, error) {
 // Observations returns every observation, by id.
 func Observations(ctx context.Context, tx *sql.Tx) ([]Observation, error) {
 	return query(ctx, tx, `SELECT id, capture_identity, source, segment_id, event, excerpt, truncated, status,
-		sender, counts, brain_origin, at, COALESCE(enriched_by, 0) FROM observations ORDER BY id`,
-		func(rows *sql.Rows) (Observation, error) {
-			var o Observation
-			err := rows.Scan(&o.ID, &o.CaptureIdentity, &o.Source, &o.SegmentID, &o.Event, &o.Excerpt,
-				&o.Truncated, &o.Status, &o.Sender, &o.Counts, &o.BrainOrigin, timeDest{&o.At}, &o.EnrichedBy)
-			return o, err
-		})
+		sender, counts, brain_origin, at, COALESCE(enriched_by, 0) FROM observations ORDER BY id`, scanObservation)
 }
 
 func query[T any](ctx context.Context, tx *sql.Tx, q string, scan func(*sql.Rows) (T, error), args ...any) ([]T, error) {
