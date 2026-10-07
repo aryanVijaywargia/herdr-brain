@@ -1,0 +1,15 @@
+⏺ Update(src/server.js)
+  ⎿  Updated src/server.js with 2 additions
+      57      if (!body.title) {
+      58 +      return badRequest(req, res, 'error: missing title in the
+         + request body');
+      59 +    } else if (typeof body.title !== 'string') { // error: a
+            title that is not a string
+     ...
+
+⏺ Bash(npm test)
+  ⎿  Error: Exit code 1
+     not ok 3 - POST /notes without a title
+       error: expected 400, got 500
+
+⏺ One test fails.

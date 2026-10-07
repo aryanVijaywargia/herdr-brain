@@ -67,7 +67,8 @@ func (p *Profile) Noise(line string) bool {
 // the side panel off each line, and drops blank lines and the noise of the profile: the
 // noise lines and the noise blocks (§6.2, #258). A read can start inside a block, as a
 // bounded read after the start line left it, so the lines at the start of the read that a
-// block's Next matches are dropped too.
+// block's Next matches are dropped too. A blank line ends the open block, unless its Next
+// matches the empty line (#291).
 func (p *Profile) Screen(text string) []string {
 	rows := strings.Split(text, "\n")
 	col := p.panelColumn(rows)
@@ -78,6 +79,9 @@ func (p *Profile) Screen(text string) []string {
 		l := strings.TrimRightFunc(cut(row, col), unicode.IsSpace)
 		switch {
 		case strings.TrimSpace(l) == "":
+			if next != nil && !next.MatchString("") {
+				next = nil
+			}
 			continue
 		case next != nil && next.MatchString(l), head && p.blockNext(l):
 			continue
