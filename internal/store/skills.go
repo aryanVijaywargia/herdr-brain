@@ -94,6 +94,45 @@ func ActiveSkills(ctx context.Context, tx *sql.Tx) ([]ItemRevision, error) {
 	return activeOfKind(ctx, tx, KindSkill)
 }
 
+// ScopeSkills returns the name of each active skill in the scope with key workspaceKey, by its
+// claim id: the global skills and the skills of that workspace ("" for global only). A failure
+// that one of them covers comes back to it (E20-S5).
+func ScopeSkills(ctx context.Context, tx *sql.Tx, workspaceKey string) (map[string]string, error) {
+	rs, err := query(ctx, tx, `SELECT i.claim_id, r.text FROM items i
+		JOIN item_revisions r ON r.item_id = i.id AND r.revision = i.current_revision
+		WHERE i.kind = ? AND i.state = ? AND COALESCE(i.workspace_key, '') IN (?, '') ORDER BY i.id`,
+		func(rows *sql.Rows) ([2]string, error) {
+			var r [2]string
+			err := rows.Scan(&r[0], &r[1])
+			return r, err
+		}, KindSkill, StateActive, workspaceKey)
+	if err != nil {
+		return nil, err
+	}
+	skills := make(map[string]string, len(rs))
+	for _, r := range rs {
+		sk, err := ParseSkill(r[1])
+		if err != nil {
+			return nil, err
+		}
+		skills[r[0]] = sk.Name
+	}
+	return skills, nil
+}
+
+// ActiveClaimSkills returns the ids of the active skill items of claim claimID in the scope
+// with key workspaceKey, as ActiveClaimItems does: the skills that a failure of the claim comes
+// back to (E20-S5).
+func ActiveClaimSkills(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string) ([]int64, error) {
+	return query(ctx, tx, `SELECT id FROM items WHERE claim_id = ? AND state = ? AND kind = ?
+		AND (workspace_key IS NULL OR workspace_key = ?) ORDER BY id`,
+		func(rows *sql.Rows) (int64, error) {
+			var id int64
+			err := rows.Scan(&id)
+			return id, err
+		}, claimID, StateActive, KindSkill, workspaceKey)
+}
+
 // activeOfKind reads the current revision of each active or disputed item of kind, in item id
 // order.
 func activeOfKind(ctx context.Context, tx *sql.Tx, kind Kind) ([]ItemRevision, error) {

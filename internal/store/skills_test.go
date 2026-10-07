@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"maps"
+	"slices"
 	"testing"
 	"time"
 )
@@ -130,4 +132,61 @@ func TestSkillDiff(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ScopeSkills gives the active skills of one workspace and the global ones by claim id, with
+// their names; ActiveClaimSkills gives the active skill items of a claim in that scope (E20-S5).
+// A draft, a skill of another workspace and an item of another kind are not there.
+func TestScopeSkills(t *testing.T) {
+	s := openM1(t)
+	ctx := context.Background()
+	now := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
+	k1, k2 := "k1", "k2"
+	write(t, s, func(tx *sql.Tx) error {
+		for _, k := range []string{k1, k2} {
+			if err := InsertWorkspace(ctx, tx, Workspace{Key: k, HerdrSession: "default", HerdrWorkspaceID: k,
+				Label: k, Status: WorkspaceLive, LastSeen: now}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	add := func(claim string, kind Kind, key *string, state State, text string) int64 {
+		t.Helper()
+		r := ItemRevision{Text: text, Scope: ScopeGlobal, WorkspaceKey: key, State: state, Author: AuthorYou,
+			Origin: OriginReview, Created: now}
+		if key != nil {
+			r.Scope = ScopeWorkspace
+		}
+		var id int64
+		write(t, s, func(tx *sql.Tx) (err error) {
+			id, _, err = CreateItem(ctx, tx, Item{ClaimID: claim, Kind: kind, Created: now}, r)
+			return err
+		})
+		return id
+	}
+	add("cl_global", KindSkill, nil, StateActive, skillText("deploy"))
+	docs := add("cl_docs", KindSkill, &k1, StateActive, skillText("docs"))
+	add("cl_draft", KindSkill, &k1, StateDraft, skillText("draft"))
+	add("cl_other", KindSkill, &k2, StateActive, skillText("other"))
+	add("cl_fact", KindFact, &k1, StateActive, "use pnpm")
+	write(t, s, func(tx *sql.Tx) error {
+		got, err := ScopeSkills(ctx, tx, k1)
+		if err != nil {
+			return err
+		}
+		if want := map[string]string{"cl_global": "deploy", "cl_docs": "docs"}; !maps.Equal(got, want) {
+			t.Errorf("ScopeSkills(k1) = %v, want %v", got, want)
+		}
+		for claim, want := range map[string][]int64{"cl_docs": {docs}, "cl_other": nil, "cl_fact": nil, "cl_draft": nil} {
+			got, err := ActiveClaimSkills(ctx, tx, claim, k1)
+			if err != nil {
+				return err
+			}
+			if !slices.Equal(got, want) {
+				t.Errorf("ActiveClaimSkills(%s, k1) = %v, want %v", claim, got, want)
+			}
+		}
+		return nil
+	})
 }

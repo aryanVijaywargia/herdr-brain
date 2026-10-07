@@ -532,6 +532,7 @@ sequenceDiagram
 - Global items go through the same hook, so their receipts name their revisions too.
 - After a resume or a compaction, a session can have several receipts. Brain uses the last receipt before the observation.
 - Two comebacks on one revision: Brain proposes a better wording or a stronger place, for example a skill instead of a fact.
+- A skill (E20-S5): the extractor links a correction or a tool failure to the active skill that covers it (`covered_by`). It is a comeback of the skill revision that the session got, and it makes no item of its own. Brain counts sessions, not flags: the same failure in two sessions makes one change request, a patch of the skill with a diff (§9.2), not a second skill.
 - Delivery does not prove that the agent used the item. Brain does not change the item by itself.
 
 ### 5.5 A suggestion at a repeated prompt (M2)

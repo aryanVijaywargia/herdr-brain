@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
@@ -137,4 +138,46 @@ func TestItemDraftReject(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+// AC E20-S5 #270 4: the review shows the sessions of the comebacks as evidence. The source line
+// counts the sessions, and the excerpts and the evidence view show each session first, though
+// session a1 has more new flags than the review shows.
+func TestItemDraftShowsSessions(t *testing.T) {
+	f := newFixture(t)
+	item, draft := f.itemDraft(t)
+	s := openStore(t, f.store)
+	write(t, s, func(tx *sql.Tx) error {
+		ctx := context.Background()
+		var seg, sid int64
+		if err := tx.QueryRowContext(ctx, `SELECT g.id, g.session_id FROM observations o JOIN segments g ON g.id = o.segment_id
+			WHERE o.capture_identity = 'a1'`).Scan(&seg, &sid); err != nil {
+			return err
+		}
+		for i := range 3 {
+			at := testNow.Add(time.Duration(i+1) * time.Minute)
+			o, err := store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: fmt.Sprintf("a1/%d", i),
+				Source: store.SourceHerdr, SegmentID: seg, Event: "idle", Excerpt: fmt.Sprintf("no, pnpm again %d", i),
+				Status: store.ObservationComplete, Sender: store.SenderUnconfirmed, Counts: true, At: at})
+			if err != nil {
+				return err
+			}
+			if _, err := store.AddOutcome(ctx, tx, store.Outcome{ItemID: item, Revision: 1, SessionID: sid,
+				Kind: store.OutcomeComeback, ObservationID: o, At: at}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	closeStore(t, s)
+	out := f.mustReview(t, fmt.Sprint(draft))
+	for _, want := range []string{"source:   the comebacks of revision 1 in 2 sessions that got it, ", "no, pnpm again 2",
+		"no, use pnpm in a2"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("show lacks %q:\n%s", want, out)
+		}
+	}
+	if out := f.mustReview(t, fmt.Sprint(draft), "--evidence"); !strings.Contains(out, "no, use pnpm in a2") {
+		t.Errorf("evidence view lacks session a2:\n%s", out)
+	}
 }

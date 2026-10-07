@@ -351,12 +351,13 @@ func CallsSince(ctx context.Context, tx *sql.Tx, since time.Time) (int, error) {
 	return n, nil
 }
 
-// ExtractorProposalsSince returns the proposals made since since from a candidate: only the
-// extractor makes them (§7.3 caps).
+// ExtractorProposalsSince returns the proposals made since since from a candidate, and the
+// drafts of the change requests of item revisions (E15-S1, a skill patch of E20-S5): only the
+// extractor makes them (§7.3 caps). Your own edit in review has neither.
 func ExtractorProposalsSince(ctx context.Context, tx *sql.Tx, since time.Time) (int, error) {
 	var n int
-	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM proposals WHERE candidate_id IS NOT NULL AND created >= ?`,
-		timeArg(since)).Scan(&n)
+	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM proposals WHERE created >= ? AND (candidate_id IS NOT NULL
+		OR id IN (SELECT new_proposal_id FROM change_requests WHERE source = ?))`, timeArg(since), ChangeItem).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count extractor proposals: %w", err)
 	}
