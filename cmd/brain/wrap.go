@@ -26,8 +26,10 @@ func termWidth(w io.Writer) int {
 
 // wrapWriter breaks the lines that it writes to w at word ends, so that no line is wider than
 // width columns (#255). A pane breaks a long line at its edge, in the middle of a word. A
-// continuation line keeps the indent of its line. A word wider than width stays whole on its
-// own line. Each Write must end at a word end, as each fmt.Fprint call of setup does.
+// continuation line keeps the indent of its line when the word fits with it. A double-quoted
+// string is one word, so a hook entry that setup shows stays valid JSON. A word wider than
+// width stays whole on its own line. Each Write must end at a word end, as each fmt.Fprint
+// call of setup does.
 type wrapWriter struct {
 	w      io.Writer
 	width  int
@@ -62,15 +64,16 @@ func (x *wrapWriter) Write(p []byte) (int, error) {
 			}
 			s = s[n:]
 		default:
-			n := strings.IndexAny(s, " \n")
-			if n < 0 {
-				n = len(s)
-			}
+			n := wordEnd(s)
 			word := s[:n]
 			wide := utf8.RuneCountInString(word)
 			if !x.start && x.col+x.spaces+wide > x.width {
 				b.WriteByte('\n')
 				x.col, x.spaces = 0, x.indent
+			}
+			// An indent that pushes the word past the edge goes.
+			if x.col == 0 && x.spaces+wide > x.width {
+				x.spaces = 0
 			}
 			b.WriteString(strings.Repeat(" ", x.spaces))
 			b.WriteString(word)
@@ -89,4 +92,22 @@ func (x *wrapWriter) Write(p []byte) (int, error) {
 		return 0, err
 	}
 	return len(p), nil
+}
+
+// wordEnd returns the length of the word at the start of s: up to a space or a line end that
+// is not inside a double-quoted string. A backslash in a string escapes the next byte, as in
+// JSON. A string ends at the line end.
+func wordEnd(s string) int {
+	quoted := false
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case c == '\n', c == ' ' && !quoted:
+			return i
+		case c == '"':
+			quoted = !quoted
+		case c == '\\' && quoted && i+1 < len(s) && s[i+1] != '\n':
+			i++
+		}
+	}
+	return len(s)
 }

@@ -7,23 +7,38 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
 )
 
-// checkWrap reports a line of got that is wider than width and holds more than one word, and
-// a word that wrapping broke or changed: got must hold the words of want, in order.
-func checkWrap(t *testing.T, got, want string, width int) {
+// checkWrap reports a line of got that is wider than width, unless it is one word with no
+// indent, and a word that wrapping broke or changed: got must hold the words of want, in
+// order. It returns the count of JSON hook entries of want; each must end a line of got whole.
+func checkWrap(t *testing.T, got, want string, width int) int {
 	t.Helper()
-	for _, line := range strings.Split(got, "\n") {
-		if utf8.RuneCountInString(line) > width && len(strings.Fields(line)) > 1 {
+	lines := strings.Split(got, "\n")
+	for _, line := range lines {
+		if utf8.RuneCountInString(line) > width && (strings.HasPrefix(line, " ") || wordEnd(line) != len(line)) {
 			t.Errorf("width %d: line of %d columns: %q", width, utf8.RuneCountInString(line), line)
 		}
 	}
 	if g, w := strings.Fields(got), strings.Fields(want); !slices.Equal(g, w) {
 		t.Errorf("width %d: the words changed:\n%s\nwant the words of:\n%s", width, got, want)
 	}
+	entries := 0
+	for _, line := range strings.Split(want, "\n") {
+		i := strings.Index(line, `{"`)
+		if i < 0 {
+			continue
+		}
+		entries++
+		if !slices.ContainsFunc(lines, func(l string) bool { return strings.HasSuffix(l, line[i:]) }) {
+			t.Errorf("width %d: the hook entry %s is not whole on one line:\n%s", width, line[i:], got)
+		}
+	}
+	return entries
 }
 
 // AC 2 (#255): the real setup text wraps at word ends at popup widths of 60, 80 and 100
@@ -48,16 +63,20 @@ func TestSetupWrap(t *testing.T) {
 		t.Fatalf("setup does not show the extractor text:\n%s", want)
 	}
 	for _, width := range []int{60, 80, 100} {
-		got := runSetup(func(io.Writer) int { return width })
-		checkWrap(t, got, want, width)
-		// The constant texts too: the Codex trust steps show only for a hook in place.
-		for _, text := range []string{"Step 4: " + codexTrust, firstUse, locality} {
-			var b bytes.Buffer
-			if _, err := io.WriteString(wrapTo(&b, width), text); err != nil {
-				t.Fatal(err)
+		t.Run(strconv.Itoa(width), func(t *testing.T) {
+			got := runSetup(func(io.Writer) int { return width })
+			if n := checkWrap(t, got, want, width); n == 0 {
+				t.Errorf("setup shows no hook entry, so the test checks none:\n%s", want)
 			}
-			checkWrap(t, b.String(), text, width)
-		}
+			// The constant texts too: the Codex trust steps show only for a hook in place.
+			for _, text := range []string{"Step 4: " + codexTrust, firstUse, locality} {
+				var b bytes.Buffer
+				if _, err := io.WriteString(wrapTo(&b, width), text); err != nil {
+					t.Fatal(err)
+				}
+				checkWrap(t, b.String(), text, width)
+			}
+		})
 	}
 }
 
@@ -82,6 +101,19 @@ func TestWrapTo(t *testing.T) {
 	}
 	if want := "a\n" + long + "\nb\n"; b.String() != want {
 		t.Errorf("long word = %q, want %q", b.String(), want)
+	}
+
+	// A quoted JSON string stays whole, and an indent that does not fit with a word goes.
+	b.Reset()
+	entry := `{"command":"/a b/brain hook","timeout":5}`
+	if _, err := io.WriteString(wrapTo(&b, 40), "- Add: "+entry+"\n    "+long+long+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	if want := "- Add:\n" + entry + "\n" + long + long + "\n"; b.String() != want {
+		t.Errorf("quoted = %q, want %q", b.String(), want)
+	}
+	if n := wordEnd(`"a \" b" c`); n != 8 {
+		t.Errorf(`wordEnd of an escaped quote = %d, want 8`, n)
 	}
 
 	if w := wrapTo(&b, 0); w != io.Writer(&b) {
