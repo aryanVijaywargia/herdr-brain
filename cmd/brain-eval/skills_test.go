@@ -20,6 +20,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
 )
 
 // skillFile is a probe file with two fixture skills and one negative prompt.
@@ -238,9 +239,14 @@ func (sb *skillBrain) open() *store.Store {
 	return s
 }
 
-// read returns the brief of the test store; "" when it has none.
-func (sb *skillBrain) read() string {
-	br, err := output.Read(filepath.Join(sb.e.testStore, outDir), "")
+// read returns the brief of workspace ws in the test store, as the hook reads it: with the
+// workspace part of a mapped workspace. It returns "" when the store has none.
+func (sb *skillBrain) read(ws string) string {
+	var key string
+	if m := sb.e.lookup(sb.t, ws); m.State == workspace.Mapped {
+		key = m.Entry.Key
+	}
+	br, err := output.Read(filepath.Join(sb.e.testStore, outDir), key)
 	if errors.Is(err, fs.ErrNotExist) {
 		return ""
 	}
@@ -259,7 +265,8 @@ func (sb *skillBrain) build() {
 }
 
 func (sb *skillBrain) receipt(pane, kind string) {
-	text := sb.read()
+	ws, _, _ := strings.Cut(pane, ":")
+	text := sb.read(ws)
 	if text == "" {
 		return // an empty store: the hook writes no receipt
 	}
@@ -277,8 +284,8 @@ func (sb *skillBrain) receipt(pane, kind string) {
 	}
 }
 
-func (sb *skillBrain) answer(_ *fakePane, prompt string) string {
-	text := sb.read()
+func (sb *skillBrain) answer(p *fakePane, prompt string) string {
+	text := sb.read(p.pane.WorkspaceID)
 	sb.briefs = append(sb.briefs, text)
 	s := sb.open()
 	err := s.Write(context.Background(), func(tx *sql.Tx) error {

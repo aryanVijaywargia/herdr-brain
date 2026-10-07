@@ -21,6 +21,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
 )
 
 // Case is one eval case: a probe of a probe file, or its control.
@@ -89,9 +90,10 @@ var errExitUnconfirmed = errors.New("could not confirm the exit of the last case
 
 // runCase runs one case in a fresh state: it checks that nothing else writes to the test
 // store, resets the store, makes fresh markers, seeds the fixture skills of a skill choice
-// case, makes a fresh scratch git folder, runs the setup steps in a shell pane and each probe
-// in a fresh CLI pane. A probe of a harness in skip is skipped with the reason. At the end it closes the panes that it opened and waits until their
-// processes exit.
+// case, makes a fresh scratch git folder, maps the case workspace, runs the setup steps in a
+// shell pane and each probe in a fresh CLI pane. A probe of a harness in skip is skipped with
+// the reason. At the end it closes the panes that it opened and waits until their processes
+// exit.
 func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]string) (o Outcome, err error) {
 	b, err := r.testBinding() // the binding can change between cases
 	if err != nil {
@@ -120,6 +122,9 @@ func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]s
 		return Outcome{}, err
 	}
 	opened = append(opened, shell.ID)
+	if err := r.mapWorkspace(ctx, h, b, shell.WorkspaceID); err != nil {
+		return Outcome{}, err
+	}
 	o = Outcome{CaseID: c.ID, Marker: marker, Markers: markers, Session: b.Session, Store: b.Store}
 	skipCase, err := r.setup(ctx, h, shell, dir, c, markers, &opened) // why no probe of the case can run
 	if err != nil {
@@ -145,6 +150,38 @@ func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]s
 		o.Replies = append(o.Replies, rep)
 	}
 	return o, nil
+}
+
+// mapWorkspace maps workspace id in the test store of b, as each `brain` call does, and waits
+// until it is mapped. herdr saves a new workspace about 5 s after it creates it (HLD §11), and
+// no call can map it before that. An unmapped case workspace fails a `brain remember` of a
+// workspace item, and its hook receipt is "unmapped" (#277).
+func (r *Runner) mapWorkspace(ctx context.Context, h Herdr, b bindings.Binding, id string) (err error) {
+	st, err := store.Open(ctx, b.Store, r.Timeouts.Call)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, st.Close()) }()
+	s := workspace.For(b)
+	var state workspace.State
+	err = r.poll(ctx, r.Timeouts.Map, func() (bool, error) {
+		ws, err := call(ctx, r.Timeouts.Call, h.Workspaces)
+		if err != nil {
+			return false, err
+		}
+		if _, err := call(ctx, r.Timeouts.Call, func(ctx context.Context) (struct{}, error) {
+			return struct{}{}, s.Refresh(ctx, r.Environ, st, ws, r.Now())
+		}); err != nil {
+			return false, fmt.Errorf("map workspace %s: %w", id, err)
+		}
+		m, err := s.Lookup(id)
+		state = m.State
+		return state == workspace.Mapped, err
+	})
+	if errors.Is(err, errWaitTimeout) {
+		return fmt.Errorf("workspace %s is %s after %s: herdr has not saved it", id, state, r.Timeouts.Map)
+	}
+	return err
 }
 
 // fresh resets the test store of b, and returns fresh markers for case c, with its fixture
@@ -454,18 +491,10 @@ func (r *Runner) step(ctx context.Context, h Herdr, pane, command, marker string
 // prompt with herdr, reads the reply and its receipt in the test store of binding b, and
 // checks the receipt against want, the expected brief hash. The
 // runner never touches the CLI's credentials or native memory. A CLI that herdr cannot start
-// because it is not ready, such as Codex at its folder-trust dialog, is skipped: the runner
-// never answers that dialog.
+// because it is not ready, for example at a dialog that the runner does not answer, is
+// skipped. The runner answers only the folder-trust dialog of trustDialogs (startCLI).
 func (r *Runner) probe(ctx context.Context, h Herdr, shell herdr.Pane, dir, name string, p Probe, b bindings.Binding, want string, opened *[]string) (Reply, error) {
 	rep := Reply{Harness: p.Harness}
-	pane, err := call(ctx, r.Timeouts.Call, func(ctx context.Context) (herdr.Pane, error) {
-		return h.SplitPane(ctx, shell.ID, dir)
-	})
-	if err != nil {
-		return Reply{}, err
-	}
-	*opened = append(*opened, pane.ID)
-	rep.Pane = pane.ID
 	prof, err := adapter.LoadFS(r.Profiles, p.Harness)
 	if err != nil {
 		return Reply{}, err
@@ -474,13 +503,13 @@ func (r *Runner) probe(ctx context.Context, h Herdr, shell herdr.Pane, dir, name
 	if err != nil {
 		return Reply{}, err
 	}
-	if _, err := call(ctx, r.Timeouts.Start, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, h.StartAgent(ctx, name, p.Harness, pane.ID, args)
-	}); err != nil {
-		if hasCode(err, "agent_not_ready") {
-			rep.Status, rep.Why = Skipped, fmt.Sprintf("the CLI did not get ready, for example at its folder-trust dialog, which the runner does not answer: %v", err)
-			return rep, nil
-		}
+	pane, err := r.startCLI(ctx, h, shell, dir, name, p.Harness, args, opened)
+	rep.Pane = pane.ID
+	if hasCode(err, "agent_not_ready") {
+		rep.Status, rep.Why = Skipped, fmt.Sprintf("the CLI did not get ready, for example at a dialog that the runner does not answer: %v", err)
+		return rep, nil
+	}
+	if err != nil {
 		return Reply{}, err
 	}
 	if _, err := call(ctx, r.Timeouts.Prompt+r.Timeouts.Call, func(ctx context.Context) (struct{}, error) {
@@ -583,20 +612,38 @@ func (r *Runner) closeAll(ctx context.Context, h Herdr, opened []string) error {
 
 // waitExit waits until no process in pids runs, for at most the exit timeout.
 func (r *Runner) waitExit(ctx context.Context, pids []int) error {
-	deadline := time.NewTimer(r.Timeouts.Exit)
+	err := r.poll(ctx, r.Timeouts.Exit, func() (bool, error) {
+		pids = slices.DeleteFunc(pids, func(pid int) bool { return !r.Alive(pid) })
+		return len(pids) == 0, nil
+	})
+	switch {
+	case errors.Is(err, errWaitTimeout):
+		return fmt.Errorf("%w: pids %v still run", errExitUnconfirmed, pids)
+	case err != nil:
+		return fmt.Errorf("%w: %w", errExitUnconfirmed, err)
+	}
+	return nil
+}
+
+// errWaitTimeout is the error of a poll whose wait ends first.
+var errWaitTimeout = errors.New("the wait timed out")
+
+// poll runs check at once and then at each poll interval until it reports done, for at most d.
+func (r *Runner) poll(ctx context.Context, d time.Duration, check func() (done bool, err error)) error {
+	deadline := time.NewTimer(d)
 	defer deadline.Stop()
 	tick := time.NewTicker(r.Timeouts.Poll)
 	defer tick.Stop()
 	for {
-		pids = slices.DeleteFunc(pids, func(pid int) bool { return !r.Alive(pid) })
-		if len(pids) == 0 {
-			return nil
+		done, err := check()
+		if err != nil || done {
+			return err
 		}
 		select {
 		case <-deadline.C:
-			return fmt.Errorf("%w: pids %v still run", errExitUnconfirmed, pids)
+			return errWaitTimeout
 		case <-ctx.Done():
-			return fmt.Errorf("%w: %w", errExitUnconfirmed, ctx.Err())
+			return ctx.Err()
 		case <-tick.C:
 		}
 	}

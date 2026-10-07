@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,12 +23,10 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
+	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
 )
 
-const (
-	evalSocket = "/tmp/brain-eval-fake/herdr.sock"
-	mainSocket = "/tmp/brain-main-fake/herdr.sock"
-)
+const mainSocket = "/tmp/brain-main-fake/herdr.sock"
 
 // fakePane is a pane of the fake herdr.
 type fakePane struct {
@@ -39,6 +39,25 @@ type fakePane struct {
 	ran     []string // the commands typed into the pane
 	prompts []string // the prompts sent to its agent
 	args    []string // the CLI arguments of its agent
+	keys    []string // the keys pressed in the pane
+	asking  bool     // its agent shows the folder-trust dialog
+	choice  int      // the selected answer of that dialog: 0 "No, exit", 1 "Yes, I trust this folder"
+}
+
+// trustScreen is the folder-trust dialog of Claude Code 2.1.292 in folder dir, as herdr reads it
+// on the M2 test Mac.
+func (p *fakePane) trustScreen(dir string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "claude\n Accessing workspace:\n\n %s\n\n Quick safety check: Is this a project you created or one you trust?\n\n", dir)
+	for i, a := range []string{"No, exit", "Yes, I trust this folder"} {
+		mark := "  "
+		if i == p.choice {
+			mark = "❯ "
+		}
+		fmt.Fprintf(&b, " %s%s\n", mark, a)
+	}
+	b.WriteString("\n Enter to confirm · Esc to cancel\n")
+	return b.String()
 }
 
 // fakeHerdr is the brain-eval session in memory. RunInPane runs the command with sh in the
@@ -60,14 +79,47 @@ type fakeHerdr struct {
 	onStart  func(pane, kind string) // runs when an agent starts: its hook
 	onRun    func()                  // runs when a pane runs a command: a Brain call of a step
 	notReady map[string]bool         // agent kinds that do not get ready
-	notIdle  bool                    // a read finds the agent still working
-	scrolled bool                    // the ask scrolled off the screen of a read
-	badAsk   string                  // the agent kind whose prompt fails
-	visible  int                     // the count of visible reads
+	// trust holds the agent kinds that ask for folder trust at start in a folder that is not in
+	// trusted. The dialog names dialogDir, or else the real folder of the pane.
+	trust     map[string]bool
+	trusted   map[string]bool
+	dialogDir string
+	notIdle   bool   // a read finds the agent still working
+	scrolled  bool   // the ask scrolled off the screen of a read
+	badAsk    string // the agent kind whose prompt fails
+	visible   int    // the count of visible reads
+	// session is herdr's session.json, with the root of each saved workspace. herdr saves a
+	// new workspace late: after saveAfter calls of Workspaces, or never with noSave.
+	session   string
+	roots     map[string]string // workspace id to its root folder
+	saveIn    map[string]int    // workspace id to the Workspaces calls before its save
+	saveAfter int
+	noSave    bool
 }
 
-func newFake(store string) *fakeHerdr {
-	return &fakeHerdr{store: store, panes: map[string]*fakePane{}, agents: map[string]string{}, labels: map[string]string{}, alive: map[int]bool{}, nextPID: 1000}
+func newFake(store, session string) *fakeHerdr {
+	return &fakeHerdr{store: store, panes: map[string]*fakePane{}, agents: map[string]string{}, labels: map[string]string{},
+		alive: map[int]bool{}, nextPID: 1000, session: session, roots: map[string]string{}, saveIn: map[string]int{},
+		trusted: map[string]bool{}}
+}
+
+// save writes session.json with each workspace whose save is due.
+func (f *fakeHerdr) save() error {
+	type saved struct {
+		ID          string `json:"id"`
+		IdentityCwd string `json:"identity_cwd"`
+	}
+	ws := []saved{}
+	for _, id := range slices.Sorted(maps.Keys(f.roots)) {
+		if !f.noSave && f.saveIn[id] == 0 {
+			ws = append(ws, saved{id, f.roots[id]})
+		}
+	}
+	data, err := json.Marshal(map[string]any{"version": 3, "workspaces": ws})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(f.session, data, 0o600)
 }
 
 func (f *fakeHerdr) pid() int {
@@ -103,8 +155,14 @@ func (f *fakeHerdr) Panes(context.Context) ([]herdr.Pane, error) {
 }
 
 // Workspaces lists the workspaces with an open pane: herdr closes a workspace with its last
-// pane.
+// pane. Each call brings the late save of a new workspace one call nearer.
 func (f *fakeHerdr) Workspaces(context.Context) ([]herdr.Workspace, error) {
+	for id, n := range f.saveIn {
+		f.saveIn[id] = max(n-1, 0)
+	}
+	if err := f.save(); err != nil {
+		return nil, err
+	}
 	var ws []herdr.Workspace
 	for _, id := range f.order {
 		p := f.panes[id]
@@ -125,8 +183,12 @@ func (f *fakeHerdr) PaneProcessInfo(_ context.Context, id string) (herdr.Process
 
 func (f *fakeHerdr) CreateWorkspace(_ context.Context, cwd, label string) (herdr.Pane, error) {
 	f.nextWS++
-	f.labels[fmt.Sprintf("w%d", f.nextWS)] = label
-	return f.add(fmt.Sprintf("w%d:p1", f.nextWS), cwd).pane, nil
+	id := fmt.Sprintf("w%d", f.nextWS)
+	f.labels[id], f.roots[id], f.saveIn[id] = label, cwd, f.saveAfter
+	if err := f.save(); err != nil {
+		return herdr.Pane{}, err
+	}
+	return f.add(id+":p1", cwd).pane, nil
 }
 
 func (f *fakeHerdr) SplitPane(_ context.Context, id, cwd string) (herdr.Pane, error) {
@@ -190,7 +252,15 @@ func (f *fakeHerdr) StartAgent(_ context.Context, name, kind, id string, args []
 	if err != nil {
 		return err
 	}
+	if f.trust[kind] && !f.trusted[p.cwd] {
+		// herdr keeps the blocked agent: a read of it shows the dialog.
+		p.asking, p.choice = true, 0
+		p.fg = append(p.fg, herdr.Process{Name: kind, PID: f.pid()})
+		f.agents[name] = id
+		return fmt.Errorf("agent start: agent %s is blocked during startup and is not ready for prompts (agent_not_ready)", name)
+	}
 	if f.notReady[kind] {
+		f.agents[name] = id // herdr keeps the blocked agent
 		return errors.New("agent start: the agent did not get ready (agent_not_ready)")
 	}
 	if f.onStart != nil {
@@ -224,6 +294,9 @@ func (f *fakeHerdr) ReadAgent(_ context.Context, target string, _ int) (string, 
 		return "", errors.New("agent read: the agent is working (agent_not_idle)")
 	}
 	if f.answer != nil {
+		if len(p.prompts) == 0 {
+			return "> \n", nil // a CLI at its empty prompt
+		}
 		last := p.prompts[len(p.prompts)-1]
 		if f.scrolled {
 			return f.answer(p, last) + "\n", nil
@@ -235,7 +308,37 @@ func (f *fakeHerdr) ReadAgent(_ context.Context, target string, _ int) (string, 
 
 func (f *fakeHerdr) ReadAgentVisible(ctx context.Context, target string) (string, error) {
 	f.visible++
+	if p, err := f.get(f.agents[target]); err == nil && p.asking {
+		dir, err := filepath.EvalSymlinks(p.cwd)
+		if f.dialogDir != "" {
+			dir = f.dialogDir
+		}
+		return p.trustScreen(dir), err
+	}
 	return f.ReadAgent(ctx, target, 0)
+}
+
+// SendKeys presses keys in pane id. In the folder-trust dialog, Down and Up move the
+// selection, and Enter takes the selected answer.
+func (f *fakeHerdr) SendKeys(_ context.Context, id string, keys ...string) error {
+	p, err := f.get(id)
+	if err != nil {
+		return err
+	}
+	p.keys = append(p.keys, keys...)
+	for _, k := range keys {
+		switch {
+		case !p.asking:
+		case k == "Down":
+			p.choice = min(p.choice+1, 1)
+		case k == "Up":
+			p.choice = max(p.choice-1, 0)
+		case k == "Enter":
+			p.asking = false
+			f.trusted[p.cwd] = p.choice == 1
+		}
+	}
+	return nil
 }
 
 // dump lists the files under dir with their text, except .git.
@@ -265,6 +368,7 @@ func (s *fakeServer) Stop(context.Context) error { s.stopped++; return nil }
 // outside it, and the fake herdr.
 type env struct {
 	home, data, mainStore, testStore string
+	socket                           string // the socket of the brain-eval session
 	fake                             *fakeHerdr
 	targets                          []herdr.Target
 	running                          bool // brain-eval runs before the run
@@ -275,7 +379,8 @@ type env struct {
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	e := &env{home: t.TempDir(), testStore: filepath.Join(t.TempDir(), "store"), running: true, server: &fakeServer{}}
+	e := &env{home: t.TempDir(), testStore: filepath.Join(t.TempDir(), "store"), socket: filepath.Join(t.TempDir(), "herdr.sock"),
+		running: true, server: &fakeServer{}}
 	e.data = filepath.Join(e.home, ".local", "share", "brain")
 	e.mainStore = filepath.Join(e.data, "main")
 	write(t, filepath.Join(e.mainStore, "brain.db"), "real rows")
@@ -284,7 +389,7 @@ func newEnv(t *testing.T) *env {
 	e.install(t, "claude", "codex")
 	write(t, filepath.Join(e.testStore, "brain.db"), "earlier test rows")
 	e.bind(t, bindings.KindTest)
-	e.fake = newFake(e.testStore)
+	e.fake = newFake(e.testStore, filepath.Join(filepath.Dir(e.socket), "session.json"))
 	e.r = &Runner{
 		Bindings:  filepath.Join(e.data, "bindings.json"),
 		Install:   filepath.Join(e.data, "install.json"),
@@ -302,20 +407,32 @@ func newEnv(t *testing.T) *env {
 			e.sessionCalls++
 			return []herdr.Session{
 				{Name: "default", Default: true, Running: true, Socket: mainSocket},
-				{Name: session, Running: e.running, Socket: evalSocket},
+				{Name: session, Running: e.running, Socket: e.socket},
 			}, nil
 		},
 		StartServer: func(context.Context, string) (Server, error) {
 			e.running = true
 			return e.server, nil
 		},
-		Alive:    func(pid int) bool { return e.fake.alive[pid] },
-		Timeouts: Timeouts{Call: 5 * time.Second, Start: 5 * time.Second, Prompt: 5 * time.Second, Step: 5 * time.Second, Exit: 50 * time.Millisecond, Poll: time.Millisecond},
-		Now:      func() time.Time { return time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC) },
-		Version:  func(context.Context, string) (string, error) { return "2.1.283", nil },
-		Stdout:   io.Discard,
+		Alive: func(pid int) bool { return e.fake.alive[pid] },
+		Timeouts: Timeouts{Call: 5 * time.Second, Start: 5 * time.Second, Prompt: 5 * time.Second, Step: 5 * time.Second,
+			Map: 5 * time.Second, Exit: 50 * time.Millisecond, Poll: time.Millisecond},
+		Now:     func() time.Time { return time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC) },
+		Version: func(context.Context, string) (string, error) { return "2.1.283", nil },
+		Stdout:  io.Discard,
 	}
 	return e
+}
+
+// lookup is the mapping of workspace ws in the workspace map of the test store, as a Brain call
+// or the hook sees it.
+func (e *env) lookup(t *testing.T, ws string) workspace.Mapping {
+	t.Helper()
+	m, err := workspace.For(bindings.Binding{Session: session, Socket: e.socket, Store: e.testStore}).Lookup(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
 }
 
 // install adds the Brain hook of each harness to its hook file in the scratch HOME, as
@@ -343,7 +460,7 @@ func (e *env) bind(t *testing.T, k bindings.Kind) {
 	if k == bindings.KindMain {
 		store = e.mainStore
 	}
-	bs := []bindings.Binding{{Session: session, Socket: evalSocket, Store: store, Kind: k, Created: now}}
+	bs := []bindings.Binding{{Session: session, Socket: e.socket, Store: store, Kind: k, Created: now}}
 	if k == bindings.KindTest {
 		bs = append(bs, bindings.Binding{Session: "default", Socket: mainSocket, Store: e.mainStore, Kind: bindings.KindMain, Created: now})
 	}
@@ -421,7 +538,7 @@ func TestS74RealStoreAndPanesUntouched(t *testing.T) {
 		t.Errorf("HOME changed at %v, want only the eval lock", d)
 	}
 	for _, tg := range e.targets {
-		if tg != (herdr.Target{Session: session, Socket: evalSocket}) {
+		if tg != (herdr.Target{Session: session, Socket: e.socket}) {
 			t.Errorf("herdr target %+v, want only the brain-eval session", tg)
 		}
 	}
