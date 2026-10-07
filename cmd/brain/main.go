@@ -38,7 +38,7 @@ commands:
   workspace link <old> <new> [--confirm]: move the items of an old workspace key to this workspace
   forget    <item> | --session <id>: remove the text of an item, or the capture evidence of a session
   repair    [--confirm]: repair the output and list its conflicts; --confirm deletes them
-  pane      review --proposal <id>: the review pane of one proposal (herdr runs it)
+  pane      review --proposal <id> | recall: the review pane of one proposal, or the recall popup (herdr runs them)
   event     workspace-closed: herdr's workspace.closed event (D4); marks the workspace closed
   learn     on|off [--workspace <id> | --pane <id>]: record the learning switch; delivery stays on
   extract   on|off [--workspace <id>]: record the extraction switch; capture and rules keep running

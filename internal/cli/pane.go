@@ -21,7 +21,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-const paneUsage = `usage: brain pane review --proposal <id>`
+const paneUsage = `usage: brain pane review --proposal <id> | brain pane recall`
 
 // linger is how long the pane shows its last message before it exits, and herdr closes it.
 // [NEW] 2 s.
@@ -34,9 +34,13 @@ const (
 	keyBS       = 0x08
 )
 
-// Pane runs `brain pane` with args after "pane" (E5-S1): the review pane of one proposal.
-// herdr runs it in a plugin pane, and the proposal id comes from the pane's --env (§5.1).
+// Pane runs `brain pane` with args after "pane" (E5-S1): the review pane of one proposal, or
+// the recall popup (E20-S3). herdr runs it in a plugin pane, and the proposal id comes from the
+// pane's --env (§5.1).
 func Pane(ctx context.Context, e Env, args []string) error {
+	if len(args) == 1 && args[0] == "recall" {
+		return paneRecall(ctx, e)
+	}
 	id, err := parsePane(args)
 	if err != nil {
 		return err
@@ -393,11 +397,19 @@ func (p *reviewPane) draw(prompt string) {
 }
 
 // fit returns the first lines of the view that fit above foot, and a line that says how many
-// lines it leaves out. The cursor row at the end of foot holds the prompt, if any: line keeps
-// the text you type on it. [NEW]: the rows of a long line count at the pane's width.
+// lines it leaves out and the command that shows them all.
 func (p *reviewPane) fit(foot string) string {
-	view := strings.TrimSuffix(p.view, "\n") + "\n"
 	height, width := p.dims()
+	cmd := strings.Join(append([]string{"brain review", strconv.FormatInt(p.id, 10)}, p.viewArgs()...), " ")
+	return fitView(p.view, foot, height, width, ": "+cmd+" shows them all")
+}
+
+// fitView returns the first lines of view that fit above foot in a pane of height rows and
+// width columns, and a line "... <n> more lines<more>" when it leaves lines out. 0 rows shows
+// the whole view. The cursor row at the end of foot holds the prompt, if any: line keeps the
+// text you type on it. [NEW]: the rows of a long line count at the pane's width.
+func fitView(view, foot string, height, width int, more string) string {
+	view = strings.TrimSuffix(view, "\n") + "\n"
 	if height <= 0 {
 		return view
 	}
@@ -421,10 +433,9 @@ func (p *reviewPane) fit(foot string) string {
 	if all <= free {
 		return view
 	}
-	cmd := strings.Join(append([]string{"brain review", strconv.FormatInt(p.id, 10)}, p.viewArgs()...), " ")
 	n, used := 0, 0
 	for {
-		cut := fmt.Sprintf("... %d more lines: %s shows them all\n", len(lines)-n, cmd)
+		cut := fmt.Sprintf("... %d more lines%s\n", len(lines)-n, more)
 		if n == len(lines) || used+rows(lines[n])+rows(cut) > free {
 			return strings.Join(lines[:n], "") + cut
 		}
