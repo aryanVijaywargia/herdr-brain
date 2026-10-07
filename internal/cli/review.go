@@ -195,6 +195,9 @@ func parseReview(args []string) (review, error) {
 		}
 		r.id = id
 	}
+	if r.detail && (r.id == 0 || r != review{id: r.id, detail: true}) {
+		return review{}, fmt.Errorf("--detail goes with a proposal id alone\n%s", reviewUsage)
+	}
 	if err := r.check(); err != nil {
 		return review{}, fmt.Errorf("%w\n%s", err, reviewUsage)
 	}
@@ -228,8 +231,6 @@ func (r review) check() error {
 	switch {
 	case actions > 1:
 		return errors.New("give one action")
-	case r.detail && (r.id == 0 || actions > 0 || modifiers || r.edit != nil || r.reason != nil):
-		return errors.New("--detail goes with a proposal id alone")
 	case r.reason != nil && !r.reject:
 		return errors.New("--reason goes with --reject")
 	case r.scope != "" && r.scope != store.ScopeGlobal && r.scope != store.ScopeWorkspace:
