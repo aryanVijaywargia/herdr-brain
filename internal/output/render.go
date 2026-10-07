@@ -130,19 +130,7 @@ func CheckGlobal(ctx context.Context, tx *sql.Tx, out string) error {
 // not a brief item: its text is its contract, and the catalog of each workspace part lists it
 // (§10.1, E17-S5). An automation is not one either: its text is its binding (§10.4).
 func (st state) render(dir string) (parts []part, files []revFile, err error) {
-	own := make(map[int64]bool, len(st.skills)+len(st.tools)+len(st.automations))
-	for _, r := range slices.Concat(st.skills, st.tools) {
-		own[r.ItemID] = true
-	}
-	for _, a := range st.automations {
-		own[a.ID] = true
-	}
-	revs := slices.DeleteFunc(st.revs, func(r store.ItemRevision) bool { return own[r.ItemID] })
-	global, byKey := split(revs, st.m)
-	revision := make(map[int64]int64, len(revs))
-	for _, r := range revs {
-		revision[r.ItemID] = r.Revision
-	}
+	global, byKey, revision := st.items()
 	globalSkills, skillsByKey, files, err := splitSkills(st.skills, st.m, st.rows, dir)
 	if err != nil {
 		return nil, nil, err
@@ -167,6 +155,42 @@ func (st state) render(dir string) (parts []part, files []revFile, err error) {
 		parts = append(parts, p)
 	}
 	return parts, files, nil
+}
+
+// items sorts the active brief items of st into the global items and the items of each
+// workspace, with their marks, and maps each item to its revision. A skill, a tool or an
+// automation is not a brief item.
+func (st state) items() (global []brief.Item, byKey map[string][]brief.Item, revision map[int64]int64) {
+	own := make(map[int64]bool, len(st.skills)+len(st.tools)+len(st.automations))
+	for _, r := range slices.Concat(st.skills, st.tools) {
+		own[r.ItemID] = true
+	}
+	for _, a := range st.automations {
+		own[a.ID] = true
+	}
+	revs := slices.DeleteFunc(st.revs, func(r store.ItemRevision) bool { return own[r.ItemID] })
+	global, byKey = split(revs, st.m)
+	revision = make(map[int64]int64, len(revs))
+	for _, r := range revs {
+		revision[r.ItemID] = r.Revision
+	}
+	return global, byKey, revision
+}
+
+// Items reads, in tx, the items that the brief of a pane of workspace key delivers, with the
+// same selection and the same marks as the built parts: the global items, and the items of key
+// when key is not "" (§8.6, E20-S2). A pane of an unmapped or withheld workspace passes "": its
+// brief has the global part only (§8.3 step 4). revision maps each item to its revision.
+func Items(ctx context.Context, tx *sql.Tx, key string) (items []brief.Item, revision map[int64]int64, err error) {
+	st, err := read(ctx, tx)
+	if err != nil {
+		return nil, nil, err
+	}
+	global, byKey, revision := st.items()
+	if key == "" {
+		return global, revision, nil
+	}
+	return append(global, byKey[key]...), revision, nil
 }
 
 // toolRows are the tools rows, in approval order (store.Tools).
