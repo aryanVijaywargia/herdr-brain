@@ -54,14 +54,9 @@ Codex runs a new hook only after you trust it:
   Run ` + "`brain doctor`" + ` to check.
 `
 
-// locality explains where the excerpts of an extractor call go (§7.3 D9, D4).
-const locality = `Brain learns lessons from your finished sessions with one headless call of an official CLI
-that you choose: claude -p or codex exec, with no tools. Each call sends short excerpts of your
-sessions, after the secret filter, to the provider that this CLI is set up for, with the CLI's own
-sign-in. Brain never reads its tokens. Your agents already send their sessions to their provider
-the same way. Extraction is on after this step. To stop the calls for one workspace or for all:
-brain extract off [--workspace <id>]. Capture and the signal rules keep running then.
-Brain never picks or switches the extractor CLI by itself.
+// locality explains where the excerpts of an extractor call go (§7.3 D9, D4). It is one
+// paragraph with no line breaks: setup wraps it at the pane width (#255).
+const locality = `Brain learns lessons from your finished sessions with one headless call of an official CLI that you choose: claude -p or codex exec, with no tools. Each call sends short excerpts of your sessions, after the secret filter, to the provider that this CLI is set up for, with the CLI's own sign-in. Brain never reads its tokens. Your agents already send their sessions to their provider the same way. Extraction is on after this step. To stop the calls for one workspace or for all: brain extract off [--workspace <id>]. Capture and the signal rules keep running then. Brain never picks or switches the extractor CLI by itself.
 `
 
 const firstUse = `First use:
@@ -86,6 +81,9 @@ type setupDeps struct {
 	// profiles holds the profiles of the CLIs that setup offers to hook (adapter.LoadAll); nil
 	// is the embedded set.
 	profiles fs.FS
+	// width returns the column count of the terminal of stdout, or 0 when it is unknown
+	// (termWidth). Nil is unknown.
+	width func(w io.Writer) int
 }
 
 func osSetupDeps(environ []string) setupDeps {
@@ -101,6 +99,7 @@ func osSetupDeps(environ []string) setupDeps {
 		},
 		lookPath: exec.LookPath,
 		now:      time.Now,
+		width:    termWidth,
 	}
 }
 
@@ -117,6 +116,10 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 	name, test, again, err := setupFlags(d, args)
 	if err != nil {
 		return err
+	}
+	// The pane breaks a line that is wider than the pane in the middle of a word (#255).
+	if d.width != nil {
+		stdout = wrapTo(stdout, d.width(stdout))
 	}
 	fmt.Fprintf(stdout, "Step 1: check the herdr version of session %q.\n", name)
 	sess, err := herdrSession(ctx, d, name, stdout)
