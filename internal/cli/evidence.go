@@ -21,6 +21,27 @@ const (
 	evidenceNone = "evidence: none: this proposal has no captured source text\n"
 )
 
+// view shows proposal r.id: its evidence view with --evidence, else the proposal.
+func (cl caller) view(ctx context.Context, r review) error {
+	if r.evidence {
+		return cl.showEvidence(ctx, r.id)
+	}
+	return cl.show(ctx, r.id, r.detail)
+}
+
+// views refuses --detail (#254) or --evidence with anything else than a proposal id.
+func (r review) views() error {
+	for _, v := range []struct {
+		on   bool
+		name string
+	}{{r.detail, "--detail"}, {r.evidence, "--evidence"}} {
+		if v.on && (r.id == 0 || r.detail == r.evidence || r != review{id: r.id, detail: r.detail, evidence: r.evidence}) {
+			return fmt.Errorf("%s goes with a proposal id alone", v.name)
+		}
+	}
+	return nil
+}
+
 // showEvidence prints the evidence view of proposal id (E20-S4, §7.4): for each source excerpt
 // that show lists, the stored text of its capture segment around it, up to evidenceLines lines
 // before and after, through the secret filter. It reads only the observations that Brain

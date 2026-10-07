@@ -122,10 +122,8 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 			return err
 		}
 		return cl.closeReviewPanes(ctx, r.id)
-	case r.evidence:
-		return cl.showEvidence(ctx, r.id)
 	case r.id != 0:
-		return cl.show(ctx, r.id, r.detail)
+		return cl.view(ctx, r)
 	}
 	return cl.list(ctx)
 }
@@ -200,13 +198,7 @@ func parseReview(args []string) (review, error) {
 		}
 		r.id = id
 	}
-	if r.detail && (r.id == 0 || r != review{id: r.id, detail: true}) {
-		return review{}, fmt.Errorf("--detail goes with a proposal id alone\n%s", reviewUsage)
-	}
-	if r.evidence && (r.id == 0 || r != review{id: r.id, evidence: true}) {
-		return review{}, fmt.Errorf("--evidence goes with a proposal id alone\n%s", reviewUsage)
-	}
-	if err := r.check(); err != nil {
+	if err := cmp.Or(r.views(), r.check()); err != nil {
 		return review{}, fmt.Errorf("%w\n%s", err, reviewUsage)
 	}
 	return r, nil

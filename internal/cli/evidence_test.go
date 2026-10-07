@@ -12,11 +12,12 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// around adds stored text to the capture segment of the observation with capture identity name:
+// around adds stored text to the capture segment of a1, the older excerpt of extractorProposal:
 // one observation for each text of before, in order, just before it, and of after just after
 // it. A text "<gap>" adds a gap.
-func (f *fixture) around(t *testing.T, name string, before, after []string) {
+func (f *fixture) around(t *testing.T, before, after []string) {
 	t.Helper()
+	const name = "a1"
 	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
 		var seg int64
 		var at time.Time
@@ -59,7 +60,7 @@ func TestPaneEvidenceGolden(t *testing.T) {
 	inZone(t)
 	f := newFixture(t)
 	pid, _ := f.extractorProposal(t)
-	f.around(t, "a1", []string{"$ npm install", "added 3 packages"}, []string{"<gap>", "ok,\nusing pnpm now"})
+	f.around(t, []string{"$ npm install", "added 3 packages"}, []string{"<gap>", "ok,\nusing pnpm now"})
 	screen := f.paneScreen(t, pid, "vvq", 0, 0)
 	if !strings.HasSuffix(screen, "\n"+itemKeys) {
 		t.Errorf("screen =\n%s\nwant it to end with the keys %q", screen, itemKeys)
@@ -76,7 +77,7 @@ func TestPaneEvidenceGolden(t *testing.T) {
 func TestPaneEvidenceCut(t *testing.T) {
 	f := newFixture(t)
 	pid, _ := f.extractorProposal(t)
-	f.around(t, "a1", lines("before", 20), lines("after", 20))
+	f.around(t, lines("before", 20), lines("after", 20))
 	screen := f.paneScreen(t, pid, "vq", 16, 80)
 	last := strings.TrimPrefix(screen[strings.LastIndex(screen, clearScreen):], clearScreen)
 	if n := screenRows(last, 80); n > 16 {
@@ -103,11 +104,11 @@ func lines(prefix string, n int) []string {
 func TestEvidenceLineBound(t *testing.T) {
 	f := newFixture(t)
 	pid, _ := f.extractorProposal(t)
-	f.around(t, "a1", append(lines("old", 25), strings.Join(lines("before", 5), "\n")),
+	f.around(t, append(lines("old", 25), strings.Join(lines("before", 5), "\n")),
 		append(lines("after", 15), strings.Join(lines("late", 10), "\n")))
 	out := f.mustReview(t, fmt.Sprint(pid), "--evidence")
 	// a1 is the older of the two excerpts: excerpt 2.
-	view := out[strings.Index(out, "excerpt 2:"):]
+	_, view, _ := strings.Cut(out, "excerpt 2:")
 	var marks []string
 	for _, l := range strings.Split(strings.TrimSpace(view), "\n")[1:] {
 		marks = append(marks, l[:4])
@@ -133,7 +134,7 @@ func TestEvidenceSecret(t *testing.T) {
 	f := newFixture(t)
 	pid, _ := f.extractorProposal(t)
 	const key = "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUv"
-	f.around(t, "a1", []string{"export API_TOKEN=hunter2hunter2", "PASSWORD=x9y8z7"}, []string{"the key is " + key})
+	f.around(t, []string{"export API_TOKEN=hunter2hunter2", "PASSWORD=x9y8z7"}, []string{"the key is " + key})
 	out := f.mustReview(t, fmt.Sprint(pid), "--evidence")
 	for _, s := range []string{"hunter2", "x9y8z7", key} {
 		if strings.Contains(out, s) {
