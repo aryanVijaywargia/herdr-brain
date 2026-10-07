@@ -136,15 +136,7 @@ func TestWorkChanges(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	run(t, dir, "init", "-q")
-	write := func(name, content string) {
-		t.Helper()
-		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
+	write := func(name, content string) { writeIn(t, dir, name, content) }
 	write("src/notes.js", "slow")
 	write("src/edit.js", "e1")
 	write("src/commit.js", "c1")
@@ -190,5 +182,16 @@ func TestWorkChanges(t *testing.T) {
 	// The next call finds the same revert no more.
 	if _, back, err := WorkChanges(ctx, dir, now); err != nil || back != nil {
 		t.Errorf("WorkChanges(again) = %v, %v, want no back", back, err)
+	}
+}
+
+// writeIn writes content to name in dir, with its folders.
+func writeIn(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
