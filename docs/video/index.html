@@ -1,30 +1,36 @@
 <!doctype html>
-<!-- Herdr Brain launch animation: a memory forming. 1080x1080, 30 fps, 18 s. Render steps: README.md here. -->
+<!-- Herdr Brain launch animation: a memory forming, in herdr's ink theme. 1080x1080, 30 fps, 18 s. Render steps: README.md here. -->
 <html lang="en" data-resolution="square">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=1080, height=1080" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!-- Instrument Serif and IBM Plex Mono: SIL Open Font License, from Google Fonts. -->
+    <!-- JetBrains Mono, Inter and Archivo, the fonts of herdr.dev: SIL Open Font License, from Google Fonts. -->
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=block"
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=block"
       rel="stylesheet"
     />
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
     <style>
+      /* herdr's ink theme (herdr.dev). */
       :root {
-        --paper: #f3ecdd;
-        --paper-edge: #ebe2cd;
-        --card: #fcf8f0;
-        --ink: #1e2230;
-        --graphite: #6c655a;
-        --thread: #b9ae97;
-        --accent: #d9452b;
-        --claude: #b0683a;
-        --codex: #3d6288;
-        --serif: "Instrument Serif", Georgia, serif;
-        --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+        --bg: #17171a;
+        --panel: #1e1e22;
+        --side: #1a1a1d;
+        --mass: #26262b;
+        --ink: #eae8ee;
+        --dim: #cdccd2;
+        --faint: #b0afb6;
+        --faint2: #908f96;
+        --line2: #35353d;
+        --spot: #cba6f7;
+        --spot-ink: #17171a;
+        --working: #e6b84a;
+        --idle: #52c97a;
+        --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+        --body: "Inter", system-ui, sans-serif;
+        --disp: "Archivo", system-ui, sans-serif;
       }
       * {
         margin: 0;
@@ -36,7 +42,7 @@
         width: 1080px;
         height: 1080px;
         overflow: hidden;
-        background: var(--paper);
+        background: var(--bg);
       }
       #root {
         position: relative;
@@ -44,7 +50,8 @@
         height: 1080px;
         overflow: hidden;
         color: var(--ink);
-        background: radial-gradient(circle at 50% 45%, var(--paper) 0%, var(--paper) 55%, var(--paper-edge) 100%);
+        background: var(--bg);
+        font-family: var(--mono);
       }
 
       /* The world: everything that the camera moves over. */
@@ -52,68 +59,187 @@
         position: absolute;
         left: 0;
         top: 0;
-        width: 2600px;
-        height: 2400px;
+        width: 1600px;
+        height: 1100px;
         transform-origin: 0 0;
       }
       .dust {
         position: absolute;
         border-radius: 50%;
-        background: var(--ink);
+        background: var(--line2);
       }
-      #syn {
+      .layer {
         position: absolute;
         left: 0;
         top: 0;
         overflow: visible;
       }
 
-      /* herdr panes: soft paper sheets, with the agent and the workspace on the first row. */
-      .pane {
-        position: absolute;
-        border-radius: 22px;
-        background: var(--card);
-        box-shadow: 0 2px 0 rgba(70, 50, 20, 0.05), 0 26px 50px -16px rgba(70, 50, 20, 0.28);
-        font-family: var(--mono);
-        font-size: 30px;
-        line-height: 48px;
-        padding: 76px 30px 0;
-        white-space: pre;
-      }
-      .pane .ph {
+      /* One herdr window: sidebar, tab bar, panes. Square corners, as herdr. */
+      #win {
         position: absolute;
         left: 30px;
-        top: 20px;
-        font-size: 29px;
-        line-height: 36px;
-        color: var(--graphite);
+        top: 330px;
+        width: 1410px;
+        height: 580px;
+        background: var(--panel);
+        border: 1px solid var(--line2);
+        overflow: hidden;
       }
-      .pane .ph b {
-        font-weight: 600;
+      #side {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 290px;
+        height: 578px;
+        background: var(--side);
+        border-right: 1px solid var(--line2);
+      }
+      .half {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 289px;
+      }
+      #agents {
+        top: 289px;
+        border-top: 1px solid var(--line2);
+      }
+      .stitle {
+        padding: 6px 18px;
+        font-size: 22px;
+        line-height: 30px;
+        font-weight: 700;
+        color: var(--faint2);
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        padding: 4px 18px;
+        height: 62px;
+      }
+      .row.active {
+        background: var(--mass);
+      }
+      .row b {
+        display: block;
+        font-size: 23px;
+        line-height: 28px;
+        font-weight: 700;
         color: var(--ink);
       }
-      .agent-dot {
-        display: inline-block;
-        width: 14px;
-        height: 14px;
+      .row small {
+        display: block;
+        font-size: 22px;
+        line-height: 26px;
+        white-space: pre;
+      }
+      .sdot {
+        width: 12px;
+        height: 12px;
         border-radius: 50%;
-        margin-right: 12px;
-        vertical-align: 2px;
+        margin-top: 9px;
+        background: var(--working);
       }
-      .claude {
-        background: var(--claude);
+      .glyph {
+        width: 16px;
+        font-size: 22px;
+        line-height: 28px;
       }
-      .codex {
-        background: var(--codex);
+      .w {
+        color: var(--working);
+      }
+      .i {
+        color: var(--idle);
+      }
+      .spotc {
+        color: var(--spot);
+      }
+      #main {
+        position: absolute;
+        left: 290px;
+        top: 0;
+        width: 1118px;
+        height: 578px;
+      }
+      #tabs {
+        position: absolute;
+        left: 0;
+        top: 0;
+        right: 0;
+        height: 40px;
+        display: flex;
+        background: var(--mass);
+        font-size: 23px;
+        line-height: 40px;
+        color: var(--faint2);
+      }
+      .tab {
+        min-width: 110px;
+        padding: 0 18px;
+        border-right: 1px solid var(--line2);
+        white-space: pre;
+        overflow: hidden;
+      }
+      .tab.on {
+        background: var(--spot);
+        color: var(--spot-ink);
+        font-weight: 800;
+      }
+      .panes {
+        position: absolute;
+        left: 0;
+        top: 40px;
+        width: 1118px;
+        height: 538px;
+      }
+      .pane {
+        position: absolute;
+        background: var(--panel);
+        overflow: hidden;
+      }
+      /* The border runs through the middle of the edge cell, and the title sits in it, as herdr draws it. */
+      .pane .box {
+        position: absolute;
+        inset: 7px;
+        border: 1px solid var(--line2);
+      }
+      .pane.focus .box {
+        border-color: var(--spot);
+      }
+      .pane .ttl {
+        position: absolute;
+        left: 22px;
+        top: -6px;
+        padding: 0 8px;
+        background: var(--panel);
+        font-size: 22px;
+        line-height: 26px;
+        color: var(--faint2);
+        white-space: pre;
+      }
+      .pane.focus .ttl {
+        color: var(--spot);
+        font-weight: 700;
+      }
+      .tx {
+        position: absolute;
+        left: 27px;
+        top: 34px;
+        font-size: 23px;
+        line-height: 30px;
+        white-space: pre;
+        color: var(--ink);
       }
       .ln {
         display: block;
       }
-      .user {
-        color: var(--ink);
+      .p {
+        color: var(--spot);
+        font-weight: 700;
       }
       .dim {
-        color: var(--graphite);
+        color: var(--faint2);
       }
 
       /* Fragments: what you typed, lifted out of the pane. */
@@ -121,145 +247,115 @@
         position: absolute;
         left: 0;
         top: 0;
-        padding: 6px 16px;
-        border-radius: 30px;
-        background: var(--card);
-        border: 2px solid var(--thread);
-        font-family: var(--mono);
-        font-size: 30px;
-        line-height: 44px;
+        padding: 6px 14px;
+        background: var(--panel);
+        border: 1px solid var(--line2);
+        font-size: 23px;
+        line-height: 30px;
         white-space: pre;
         color: var(--ink);
       }
       .frag .mask {
         display: none;
-        color: var(--accent);
-        font-weight: 600;
+        color: var(--spot);
+        font-weight: 700;
       }
       .scan {
         position: absolute;
-        top: -4px;
-        bottom: -4px;
+        top: -3px;
+        bottom: -3px;
         left: 0;
-        width: 6px;
-        border-radius: 3px;
-        background: var(--accent);
+        width: 5px;
+        background: var(--spot);
       }
       #lesson {
         position: absolute;
         left: 0;
         top: 0;
-        padding: 8px 22px;
-        border-radius: 32px;
-        background: var(--accent);
-        color: var(--card);
-        font-family: var(--mono);
-        font-size: 30px;
-        line-height: 46px;
-        font-weight: 500;
+        padding: 8px 18px;
+        background: var(--spot);
+        color: var(--spot-ink);
+        font-size: 23px;
+        line-height: 30px;
+        font-weight: 700;
         white-space: pre;
-        box-shadow: 0 0 0 10px rgba(217, 69, 43, 0.12), 0 0 60px rgba(217, 69, 43, 0.45);
+        box-shadow: 0 0 0 8px rgba(203, 166, 247, 0.14), 0 0 60px rgba(203, 166, 247, 0.4);
       }
-      #lesson-note {
+      #note {
         position: absolute;
         left: 0;
         top: 0;
-        font-family: var(--mono);
-        font-size: 26px;
-        color: var(--graphite);
+        font-size: 22px;
+        color: var(--faint);
         white-space: pre;
       }
-      .ring {
+      #ring {
         position: absolute;
         left: 0;
         top: 0;
         width: 120px;
         height: 120px;
         border-radius: 50%;
-        border: 3px solid var(--accent);
+        border: 3px solid var(--spot);
       }
       #node {
         position: absolute;
         left: 0;
         top: 0;
-        width: 34px;
-        height: 34px;
+        width: 26px;
+        height: 26px;
         border-radius: 50%;
-        background: var(--accent);
-        box-shadow: 0 0 0 10px rgba(217, 69, 43, 0.15), 0 0 50px rgba(217, 69, 43, 0.6);
+        background: var(--spot);
+        box-shadow: 0 0 0 8px rgba(203, 166, 247, 0.16), 0 0 46px rgba(203, 166, 247, 0.7);
       }
-
-      /* The review pane: a subset of the lines of internal/cli/testdata/pane/new-item.txt. */
-      #card {
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 800px;
-        padding: 26px 40px 30px;
-        border-radius: 26px;
-        background: var(--card);
-        box-shadow: 0 2px 0 rgba(70, 50, 20, 0.05), 0 40px 80px -20px rgba(70, 50, 20, 0.35);
-        font-family: var(--mono);
-        font-size: 30px;
-        line-height: 48px;
-        white-space: pre;
-      }
-      #card .title {
-        font-family: var(--serif);
-        font-style: italic;
-        font-size: 40px;
-        line-height: 56px;
-        color: var(--accent);
-        margin-bottom: 6px;
-      }
-      #card .k {
+      #ka {
         display: inline-block;
-        padding: 0 7px;
-        margin: 0 -7px;
-        border-radius: 8px;
+        padding: 0 5px;
+        margin: 0 -5px;
       }
       #done {
         display: none;
-        color: var(--accent);
-        font-weight: 500;
+        color: var(--spot);
+        font-weight: 700;
       }
 
-      /* Captions: one short line at a time, low in the frame. */
+      /* Captions: Inter, one at a time, low in the frame. */
       #capbed {
         position: absolute;
         left: 0;
         right: 0;
         bottom: 0;
-        height: 230px;
-        background: linear-gradient(to bottom, rgba(243, 236, 221, 0), var(--paper) 55%);
+        height: 150px;
+        background: linear-gradient(to bottom, rgba(23, 23, 26, 0), var(--bg) 40%);
       }
       .cap {
         position: absolute;
         left: 0;
         right: 0;
-        top: 930px;
+        top: 948px;
         text-align: center;
-        font-family: var(--serif);
-        font-style: italic;
-        font-size: 58px;
-        line-height: 72px;
+        font-family: var(--body);
+        font-weight: 500;
+        font-size: 44px;
+        line-height: 56px;
+        letter-spacing: -0.01em;
         color: var(--ink);
       }
       .cap em {
-        color: var(--accent);
+        font-style: normal;
+        color: var(--spot);
       }
 
       /* The close: the memory settles into the brain of the repo README. */
       #brain {
         position: absolute;
         left: 220px;
-        top: 120px;
-        font-family: var(--mono);
+        top: 130px;
         font-size: 26px;
         line-height: 31px;
         font-weight: 500;
         white-space: pre;
-        color: var(--ink);
+        color: var(--dim);
       }
       #brain .c {
         display: inline-block;
@@ -268,40 +364,35 @@
         position: absolute;
         left: 0;
         right: 0;
-        top: 500px;
+        top: 520px;
         text-align: center;
-        font-family: var(--serif);
-        font-size: 150px;
-        line-height: 160px;
-        letter-spacing: -0.01em;
+        font-family: var(--disp);
+        font-weight: 800;
+        font-size: 124px;
+        line-height: 136px;
+        letter-spacing: -0.03em;
       }
-      #name i {
-        color: var(--accent);
+      #name span {
+        color: var(--spot);
       }
       #tag {
         position: absolute;
         left: 0;
         right: 0;
-        top: 672px;
+        top: 676px;
         text-align: center;
-        font-family: var(--serif);
-        font-style: italic;
-        font-size: 44px;
-        color: var(--graphite);
+        font-family: var(--body);
+        font-size: 34px;
+        color: var(--faint);
       }
       #cmd {
         position: absolute;
-        left: 90px;
-        width: 900px;
-        top: 778px;
-        height: 76px;
-        padding: 0 30px;
-        border-radius: 38px;
-        background: var(--card);
-        box-shadow: 0 18px 40px -18px rgba(70, 50, 20, 0.35);
-        font-family: var(--mono);
-        font-size: 28px;
-        line-height: 76px;
+        left: 0;
+        right: 0;
+        top: 790px;
+        text-align: center;
+        font-size: 27px;
+        line-height: 40px;
         white-space: pre;
       }
       .ch {
@@ -309,21 +400,21 @@
       }
       .cursor {
         display: inline-block;
-        width: 0.55em;
-        height: 1.05em;
+        width: 0.6em;
+        height: 1.1em;
         margin-left: 2px;
-        background: var(--accent);
-        vertical-align: -0.18em;
+        background: var(--spot);
+        vertical-align: -0.2em;
       }
       #foot {
         position: absolute;
         left: 0;
         right: 0;
-        top: 892px;
+        top: 880px;
         text-align: center;
-        font-family: var(--mono);
+        font-family: var(--body);
         font-size: 24px;
-        color: var(--graphite);
+        color: var(--faint2);
       }
     </style>
   </head>
@@ -337,43 +428,68 @@
       data-height="1080"
     >
       <div id="world">
-        <svg id="syn" width="2600" height="2400" viewBox="0 0 2600 2400">
-          <line id="s14" x1="580" y1="1000" x2="900" y2="1260" stroke="#b9ae97" stroke-width="3" />
-          <line id="s34" x1="580" y1="1150" x2="900" y2="1260" stroke="#b9ae97" stroke-width="3" />
-          <line id="s25" x1="1400" y1="940" x2="1250" y2="1080" stroke="#b9ae97" stroke-width="3" />
-          <line id="s45" x1="900" y1="1260" x2="1250" y2="1080" stroke="#b9ae97" stroke-width="3" />
-          <path id="beamD" d="M1060 1130 C 1300 1130, 1420 976, 1660 976" fill="none" stroke="#d9452b" stroke-width="5" stroke-linecap="round" />
-          <path id="beamE" d="M1060 1130 C 1300 1130, 1420 1356, 1660 1356" fill="none" stroke="#d9452b" stroke-width="5" stroke-linecap="round" />
-          <path id="headD" d="M1060 1130 C 1300 1130, 1420 976, 1660 976" fill="none" stroke="#ffd2c4" stroke-width="9" stroke-linecap="round" />
-          <path id="headE" d="M1060 1130 C 1300 1130, 1420 1356, 1660 1356" fill="none" stroke="#ffd2c4" stroke-width="9" stroke-linecap="round" />
+        <svg id="syn" class="layer" width="1600" height="1100" viewBox="0 0 1600 1100">
+          <line id="s14" x1="260" y1="90" x2="420" y2="290" stroke="#908f96" stroke-width="2" />
+          <line id="s34" x1="199" y1="200" x2="420" y2="290" stroke="#908f96" stroke-width="2" />
+          <line id="s25" x1="790" y1="90" x2="840" y2="215" stroke="#908f96" stroke-width="2" />
+          <line id="s45" x1="420" y1="290" x2="840" y2="215" stroke="#908f96" stroke-width="2" />
         </svg>
 
-        <!-- Two agents in one herdr workspace, "api". -->
-        <div class="pane" id="paneA" style="left: 380px; top: 1480px; width: 600px; height: 300px"><div class="ph"><span class="agent-dot claude"></span><b>claude</b>  api</div><span class="ln user" id="a0">› add a health check</span><span class="ln dim" id="a1">● Added GET /health.</span><span class="ln user" id="a2">› staging password=hunter2</span><span class="ln user" id="a3">› no, use pnpm, not npm</span></div>
-        <div class="pane" id="paneB" style="left: 1060px; top: 1540px; width: 600px; height: 252px"><div class="ph"><span class="agent-dot codex"></span><b>codex</b>  api</div><span class="ln user" id="b0">› fix the flaky login test</span><span class="ln dim" id="b1">• Fixed the retry wait.</span><span class="ln user" id="b2">› no, use pnpm, not npm</span></div>
+        <div id="win">
+          <div id="side">
+            <div class="half" id="spaces">
+              <div class="stitle">spaces</div>
+              <div class="row active"><div class="sdot" id="sdot"></div><div><b>api</b><small class="spotc">main</small></div></div>
+            </div>
+            <div class="half" id="agents">
+              <div class="stitle">agents</div>
+              <div class="row active" id="ag1"><div class="glyph"><span class="w g-w">●</span><span class="i g-i">○</span></div><div><b>api</b><small><span class="w g-w">working · claude</span><span class="i g-i">idle · claude</span></small></div></div>
+              <div class="row" id="ag2"><div class="glyph"><span class="w g-w">●</span><span class="i g-i">○</span></div><div><b>api</b><small><span class="w g-w">working · codex</span><span class="i g-i">idle · codex</span></small></div></div>
+              <div class="row" id="ag3"><div class="glyph"><span class="w">●</span></div><div><b>deps</b><small class="w">working · claude</small></div></div>
+              <div class="row" id="ag4"><div class="glyph"><span class="w">●</span></div><div><b>deps</b><small class="w">working · codex</small></div></div>
+            </div>
+          </div>
+          <div id="main">
+            <div id="tabs"><div class="tab on" id="tabA">api</div><div class="tab" id="tabB">deps</div><div class="tab" style="min-width: 54px">+</div></div>
 
-        <div class="frag" id="f1">› add a health check</div>
-        <div class="frag" id="f2">› fix the flaky login test</div>
-        <div class="frag" id="f3">› staging <span class="raw">password=hunter2</span><span class="mask">[secret]</span><div class="scan" id="scan"></div></div>
-        <div class="frag" id="f4">› no, use pnpm, not npm</div>
-        <div class="frag" id="f5">› no, use pnpm, not npm</div>
-
-        <div class="ring" id="ring"></div>
-        <div id="lesson">no, use pnpm, not npm</div>
-        <div id="lesson-note">2 sessions · claude + codex</div>
-
-        <div id="card"><div class="title">Brain review</div><span id="body">proposal 7 (pending): new item
+            <!-- Tab "api": claude above codex. Brain's review pane splits right of claude. -->
+            <div class="panes" id="panesA">
+              <div class="pane focus" id="pc" style="left: 0; top: 0; width: 1118px; height: 269px"><div class="box"><span class="ttl">claude</span></div><div class="tx"><span class="ln" id="a0"><span class="p">❯</span> add a health check</span><span class="ln dim" id="a1">● Added GET /health.</span><span class="ln" id="a2"><span class="p">❯</span> staging password=hunter2</span><span class="ln" id="a3"><span class="p">❯</span> no, use pnpm, not npm</span></div></div>
+              <div class="pane" id="px" style="left: 0; top: 269px; width: 1118px; height: 269px"><div class="box"><span class="ttl">codex</span></div><div class="tx"><span class="ln" id="b0"><span class="p">›</span> fix the flaky login test</span><span class="ln dim" id="b1">• Fixed the retry wait.</span><span class="ln" id="b2"><span class="p">›</span> no, use pnpm, not npm</span></div></div>
+              <div class="pane" id="pr" style="left: 559px; top: 0; width: 559px; height: 269px"><div class="box"><span class="ttl">Brain review</span></div><div class="tx" id="rv"><span id="body">proposal 7 (pending): new item
 <span class="dim">text:</span>     Use pnpm, not npm.
 <span class="dim">scope:</span>    workspace
 <span class="dim">target:</span>   workspace w3 (api)</span>
-<span id="keys"><span class="k" id="ka">a</span> approve  e edit  r reject  l later</span><span id="done">proposal 7 approved: item 4 is active
-at revision 1 (workspace w3 (api))</span></div>
+<span id="keys"><span id="ka">a</span> approve  e edit  r reject  l later</span><span id="done">proposal 7 approved: item 4 is
+active at revision 1 (workspace w3
+(api))</span></div></div>
+            </div>
 
+            <!-- Tab "deps": new sessions in the same workspace get the item in their start brief. -->
+            <div class="panes" id="panesB">
+              <div class="pane focus" id="pd" style="left: 0; top: 0; width: 1118px; height: 269px"><div class="box"><span class="ttl">claude</span></div><div class="tx"><span class="ln dim" id="d0">## This workspace</span><span class="ln" id="d1">- [4] Use pnpm, not npm.</span><span class="ln" id="d2"><span class="p">❯</span> install the deps</span><span class="ln dim" id="d3">● Bash(pnpm install)</span></div></div>
+              <div class="pane" id="pe" style="left: 0; top: 269px; width: 1118px; height: 269px"><div class="box"><span class="ttl">codex</span></div><div class="tx"><span class="ln dim" id="e0">## This workspace</span><span class="ln" id="e1">- [4] Use pnpm, not npm.</span><span class="ln" id="e2"><span class="p">›</span> run the tests</span><span class="ln dim" id="e3">• Running pnpm test.</span></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="frag" id="f1"><span class="p">❯</span> add a health check</div>
+        <div class="frag" id="f2"><span class="p">›</span> fix the flaky login test</div>
+        <div class="frag" id="f3"><span class="p">❯</span> staging <span class="raw">password=hunter2</span><span class="mask">[secret]</span><div class="scan" id="scan"></div></div>
+        <div class="frag" id="f4"><span class="p">❯</span> no, use pnpm, not npm</div>
+        <div class="frag" id="f5"><span class="p">›</span> no, use pnpm, not npm</div>
+
+        <div id="ring"></div>
+        <div id="lesson">no, use pnpm, not npm</div>
+        <div id="note">2 sessions · claude + codex</div>
         <div id="node"></div>
 
-        <!-- New sessions in the same workspace get the item in their start brief. -->
-        <div class="pane" id="paneD" style="left: 1660px; top: 830px; width: 540px; height: 292px"><div class="ph"><span class="agent-dot claude"></span><b>claude</b>  api · new session</div><span class="ln dim" id="d0">## This workspace</span><span class="ln" id="d1">- [4] Use pnpm, not npm.</span><span class="ln user" id="d2">› install the deps</span><span class="ln dim" id="d3">● Bash(pnpm install)</span></div>
-        <div class="pane" id="paneE" style="left: 1660px; top: 1210px; width: 540px; height: 292px"><div class="ph"><span class="agent-dot codex"></span><b>codex</b>  api · new session</div><span class="ln dim" id="e0">## This workspace</span><span class="ln" id="e1">- [4] Use pnpm, not npm.</span><span class="ln user" id="e2">› run the tests</span><span class="ln dim" id="e3">• Running pnpm test.</span></div>
+        <svg id="beams" class="layer" width="1600" height="1100" viewBox="0 0 1600 1100">
+          <path id="beamD" d="M900 230 C 900 340, 800 450, 690 450" fill="none" stroke="#cba6f7" stroke-width="4" stroke-linecap="square" />
+          <path id="beamE" d="M900 230 C 1010 430, 860 719, 690 719" fill="none" stroke="#cba6f7" stroke-width="4" stroke-linecap="square" />
+          <path id="headD" d="M900 230 C 900 340, 800 450, 690 450" fill="none" stroke="#f1e6ff" stroke-width="8" stroke-linecap="round" />
+          <path id="headE" d="M900 230 C 1010 430, 860 719, 690 719" fill="none" stroke="#f1e6ff" stroke-width="8" stroke-linecap="round" />
+        </svg>
       </div>
 
       <div id="capbed"></div>
@@ -395,9 +511,9 @@ at revision 1 (workspace w3 (api))</span></div>
                   `-.____.-~-._  .-(((('
                      ||  ||    `'  ||  ||
                      ''  ''        ''  ''</pre>
-      <div id="name">Herdr <i>Brain</i></div>
+      <div id="name">Herdr <span>Brain</span></div>
       <div id="tag">one memory for every agent in herdr</div>
-      <div id="cmd"><span style="color: var(--graphite)">$ </span><span id="cmd-type"></span><span class="cursor" id="cmd-cursor"></span></div>
+      <div id="cmd"><span class="p">❯</span> <span id="cmd-type"></span><span class="cursor" id="cmd-cursor"></span></div>
       <div id="foot">herdr 0.9.1+ · claude code · codex · local store</div>
     </div>
 
@@ -433,35 +549,40 @@ at revision 1 (workspace w3 (api))</span></div>
       const tl = gsap.timeline({ paused: true });
       const soft = "sine.inOut";
       const out = "power3.out";
+      const SPOT = "#cba6f7";
+      const INK = "#eae8ee";
+      const FAINT = "#5c5b62";
 
       // Dust: old memory in the background, with a slow drift.
       const world = document.getElementById("world");
-      for (let i = 0; i < 80; i++) {
+      for (let i = 0; i < 70; i++) {
         const d = document.createElement("div");
-        const r = 3 + Math.round(rand() * 6);
+        const r = 3 + Math.round(rand() * 4);
         d.className = "dust";
         d.style.width = d.style.height = r + "px";
-        d.style.left = Math.round(rand() * 2600) + "px";
-        d.style.top = Math.round(rand() * 2400) + "px";
-        d.style.opacity = (0.08 + rand() * 0.16).toFixed(2);
+        d.style.left = Math.round(rand() * 1600) + "px";
+        d.style.top = Math.round(rand() * 1100) + "px";
+        d.style.opacity = (0.4 + rand() * 0.5).toFixed(2);
         world.insertBefore(d, world.firstChild);
-        tl.to(d, { y: -40 - rand() * 60, x: (rand() - 0.5) * 40, duration: 18, ease: "none" }, 0);
+        tl.to(d, { y: -30 - rand() * 50, x: (rand() - 0.5) * 30, duration: 18, ease: "none" }, 0);
       }
 
       // One camera, no cuts.
-      tl.set("#world", cam(1017, 1450, 0.78), 0);
-      tl.to("#world", cam(1017, 1340, 0.79, { duration: 4.3, ease: soft }), 0);
-      tl.to("#world", cam(1060, 1130, 1, { duration: 1.3, ease: soft }), 4.3);
-      tl.to("#world", cam(1060, 1140, 1.03, { duration: 3.4, ease: "none" }), 5.6);
-      tl.to("#world", cam(1600, 1160, 0.86, { duration: 1.5, ease: soft }), 9.1);
-      tl.to("#world", cam(1620, 1170, 0.88, { duration: 2.5, ease: "none" }), 10.6);
-      tl.to("#world", cam(1300, 1250, 0.42, { duration: 1.8, ease: "power2.inOut" }), 13.1);
+      tl.set("#world", cam(540, 540, 1), 0);
+      tl.to("#world", cam(560, 520, 1.02, { duration: 4.3, ease: soft }), 0);
+      tl.to("#world", cam(610, 240, 1.2, { duration: 1.2, ease: soft }), 4.3);
+      tl.to("#world", cam(630, 250, 1.24, { duration: 0.9, ease: "none" }), 5.5);
+      tl.to("#world", cam(880, 610, 0.96, { duration: 1.1, ease: soft }), 6.35);
+      tl.to("#world", cam(890, 610, 0.97, { duration: 1.6, ease: "none" }), 7.45);
+      tl.to("#world", cam(560, 555, 1, { duration: 1.2, ease: soft }), 9.1);
+      tl.to("#world", cam(565, 560, 1.02, { duration: 2.8, ease: "none" }), 10.3);
+      tl.to("#world", cam(700, 560, 0.5, { duration: 1.8, ease: "power2.inOut" }), 13.1);
       tl.to("#world", { opacity: 0, duration: 0.8, ease: "power1.in" }, 13.3);
 
       // Captions.
       function caption(id, a, b) {
-        tl.fromTo(id, { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.45, ease: out }, a);
-        tl.to(id, { opacity: 0, y: -10, duration: 0.35, ease: "power1.in" }, b);
+        tl.fromTo(id, { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.45, ease: out }, a);
+        tl.to(id, { opacity: 0, y: -8, duration: 0.35, ease: "power1.in" }, b);
       }
       caption("#c1", 0.35, 1.75);
       caption("#c2", 2.15, 3.85);
@@ -470,39 +591,45 @@ at revision 1 (workspace w3 (api))</span></div>
       caption("#c5", 10.3, 12.9);
       tl.to("#capbed", { opacity: 0, duration: 0.5 }, 13.0);
 
-      // 1. The panes fill with what you type; each line that you send lifts out as a fragment.
-      tl.from(["#paneA", "#paneB"], { y: 60, opacity: 0, duration: 0.6, ease: out, stagger: 0.12 }, 0);
+      // 1. The herdr window. You type in two agents; each line that you send lifts out.
+      tl.from("#win", { opacity: 0, y: 30, duration: 0.5, ease: out }, 0);
+      tl.set(["#tabB", "#ag3", "#ag4", "#panesB", ".g-i"], { display: "none" }, 0);
       const lines = { a0: 0.15, a1: 0.5, b0: 0.35, b1: 0.85, a2: 1.25, a3: 2.3, b2: 2.9 };
       for (const [id, t] of Object.entries(lines)) {
-        tl.fromTo("#" + id, { opacity: 0 }, { opacity: 1, duration: 0.25 }, t);
+        tl.fromTo("#" + id, { opacity: 0 }, { opacity: 1, duration: 0.2 }, t);
       }
-      // Start: the center of the line in its pane (30px mono: 18px a character).
+      // Start: the center of the line in its pane (23px mono: 13.8px a character, text at x 348).
       const frags = [
-        ["#f1", 590, 1580, 580, 1000, 0.8],
-        ["#f2", 1324, 1640, 1400, 940, 1.2],
-        ["#f4", 617, 1724, 900, 1260, 2.75],
-        ["#f5", 1297, 1736, 1250, 1080, 3.3],
+        ["#f1", 486, 420, 260, 90, 0.8],
+        ["#f2", 527, 689, 790, 90, 1.2],
+        ["#f4", 507, 510, 420, 290, 2.75],
+        ["#f5", 507, 749, 840, 215, 3.3],
       ];
       for (const [id, sx, sy, tx, ty, t] of frags) {
         tl.set(id, at(sx, sy, { opacity: 0 }), 0);
-        tl.to(id, { opacity: 1, duration: 0.2 }, t);
+        tl.to(id, { opacity: 1, duration: 0.15 }, t);
         tl.to(id, { x: tx, y: ty, duration: 1.1, ease: "power2.out" }, t + 0.1);
       }
-      tl.to(["#a0", "#b0", "#a3", "#b2"], { color: "#b9ae97", duration: 0.4 }, 3.6);
+      tl.to(["#a0", "#b0", "#a3", "#b2"], { color: FAINT, duration: 0.4 }, 3.6);
 
-      // The secret: the filter masks it while it is still at the pane, then it lifts.
-      // 26 characters of 18px, plus padding and border; the masked text has 18 characters.
-      tl.set("#f3", { x: 392, y: 1676, xPercent: 0, yPercent: -50, opacity: 0, width: 504 }, 0);
-      tl.to("#f3", { opacity: 1, duration: 0.2 }, 1.7);
+      // The secret: the filter masks it while it is still on its pane line, then it lifts.
+      // 26 characters of 13.8px plus padding and border; the masked text has 18 characters.
+      tl.set("#f3", { x: 333, y: 480, xPercent: 0, yPercent: -50, opacity: 0, width: 389 }, 0);
+      tl.to("#f3", { opacity: 1, duration: 0.15 }, 1.7);
       tl.set("#scan", { opacity: 0, x: 0 }, 0);
       tl.to("#scan", { opacity: 1, duration: 0.1 }, 1.95);
-      tl.to("#scan", { x: 300, duration: 0.35, ease: "power1.inOut" }, 1.95);
+      tl.to("#scan", { x: 230, duration: 0.35, ease: "power1.inOut" }, 1.95);
       tl.set("#f3 .raw", { display: "none" }, 2.3);
       tl.set("#f3 .mask", { display: "inline" }, 2.3);
-      tl.set("#f3", { borderColor: "#d9452b" }, 2.3);
+      tl.set("#f3", { borderColor: SPOT }, 2.3);
       tl.to("#scan", { opacity: 0, duration: 0.08 }, 2.3);
-      tl.to("#f3", { x: 400, y: 1150, width: 360, duration: 1.1, ease: "power2.out" }, 2.6);
-      tl.to("#a2", { color: "#b9ae97", duration: 0.3 }, 2.6);
+      tl.to("#f3", { x: 60, y: 200, width: 278, duration: 1.1, ease: "power2.out" }, 2.6);
+      tl.to("#a2", { color: FAINT, duration: 0.3 }, 2.6);
+
+      // The agents go idle: Brain reads their panes then.
+      tl.set("#ag1 .g-w, #ag2 .g-w", { display: "none" }, 3.65);
+      tl.set("#ag1 .g-i, #ag2 .g-i", { display: "inline" }, 3.65);
+      tl.to("#sdot", { backgroundColor: "#52c97a", duration: 0.2 }, 3.65);
 
       // Synapses between the fragments, drawn as the fragments arrive.
       for (const [id, t] of [["#s14", 3.75], ["#s34", 3.85], ["#s25", 4.25], ["#s45", 4.35]]) {
@@ -513,55 +640,73 @@ at revision 1 (workspace w3 (api))</span></div>
       }
 
       // 2. The same correction in two sessions: the two fragments find each other and fuse.
-      tl.to("#s45", { attr: { stroke: "#d9452b", "stroke-width": 5 }, duration: 0.2 }, 4.75);
-      tl.to(["#f4", "#f5"], { borderColor: "#d9452b", duration: 0.3 }, 4.75);
+      tl.to("#s45", { attr: { stroke: SPOT, "stroke-width": 4 }, duration: 0.2 }, 4.75);
+      tl.to(["#f4", "#f5"], { borderColor: SPOT, duration: 0.3 }, 4.75);
       tl.to(["#s14", "#s34", "#s25"], { opacity: 0, duration: 0.5 }, 4.9);
       tl.to(["#f1", "#f2", "#f3"], { opacity: 0, scale: 0.9, duration: 0.7 }, 5.0);
-      tl.to(["#paneA", "#paneB"], { opacity: 0, duration: 0.5 }, 4.4);
-      tl.to(["#f4", "#f5"], { x: 1060, y: 1130, duration: 0.6, ease: "power2.in" }, 5.0);
-      tl.to("#s45", { attr: { x1: 1060, y1: 1130, x2: 1060, y2: 1130, "stroke-dasharray": "none" }, duration: 0.6, ease: "power2.in" }, 5.0);
+      tl.to(["#f4", "#f5"], { x: 630, y: 250, duration: 0.6, ease: "power2.in" }, 5.0);
+      tl.to("#s45", { attr: { x1: 630, y1: 250, x2: 630, y2: 250, "stroke-dasharray": "none" }, duration: 0.6, ease: "power2.in" }, 5.0);
       tl.to(["#f4", "#f5"], { opacity: 0, duration: 0.15 }, 5.55);
       tl.set("#s45", { opacity: 0 }, 5.6);
-      tl.set("#lesson", at(1060, 1130, { opacity: 0, scale: 0.6 }), 0);
+      tl.set("#lesson", at(630, 250, { opacity: 0, scale: 0.6 }), 0);
       tl.to("#lesson", { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(2)" }, 5.55);
-      tl.set("#ring", at(1060, 1130, { opacity: 0, scale: 0.4 }), 0);
+      tl.set("#ring", at(630, 250, { opacity: 0, scale: 0.4 }), 0);
       tl.to("#ring", { opacity: 0.9, duration: 0.05 }, 5.55);
       tl.to("#ring", { scale: 5, opacity: 0, duration: 0.55, ease: "power2.out" }, 5.6);
-      tl.set("#lesson-note", at(1060, 1205, { opacity: 0 }), 0);
-      tl.to("#lesson-note", { opacity: 1, duration: 0.3 }, 5.95);
+      tl.set("#note", at(630, 305, { opacity: 0 }), 0);
+      tl.to("#note", { opacity: 1, duration: 0.3 }, 5.95);
 
-      // 3. Brain asks you once: the review pane, approved with one key.
-      tl.to(["#lesson", "#lesson-note"], { opacity: 0, scale: 0.9, duration: 0.3 }, 6.45);
-      tl.set("#card", at(1060, 1130, { opacity: 0, scale: 0.2 }), 0);
-      tl.to("#card", { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(1.4)" }, 6.5);
-      tl.to("#ka", { backgroundColor: "#d9452b", color: "#fcf8f0", duration: 0.12 }, 8.0);
+      // 3. Brain asks you once: its review pane splits beside claude; the agents do not change.
+      tl.set("#pr", { width: 0, opacity: 0 }, 0);
+      tl.set("#rv", { opacity: 0 }, 0);
+      tl.to("#note", { opacity: 0, duration: 0.25 }, 6.4);
+      tl.to("#lesson", { x: 1160, y: 420, scale: 0.7, opacity: 0, duration: 0.7, ease: "power2.in" }, 6.45);
+      tl.to("#pc", { width: 559, duration: 0.45, ease: "power2.inOut" }, 6.9);
+      tl.to("#pr", { width: 559, opacity: 1, duration: 0.45, ease: "power2.inOut" }, 6.9);
+      tl.to("#rv", { opacity: 1, duration: 0.3 }, 7.25);
+      tl.to("#ka", { backgroundColor: SPOT, color: "#17171a", duration: 0.12 }, 8.0);
       tl.set("#keys", { display: "none" }, 8.3);
       tl.set("#done", { display: "inline" }, 8.3);
-      tl.to("#body", { opacity: 0.35, duration: 0.3 }, 8.3); // the real pane clears and shows only the result
       tl.fromTo("#done", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 8.3);
+      tl.to("#body", { opacity: 0.35, duration: 0.3 }, 8.3); // the real pane clears and shows only the result
 
-      // 4. The item travels to new sessions as a line of light.
-      tl.set("#node", at(1060, 1130, { opacity: 0, scale: 0.3 }), 0);
-      tl.to("#card", { scale: 0.04, opacity: 0, duration: 0.45, ease: "power3.in" }, 9.05);
-      tl.to("#node", { opacity: 1, scale: 1, duration: 0.3, ease: "back.out(2)" }, 9.35);
-      tl.from(["#paneD", "#paneE"], { opacity: 0, y: 40, duration: 0.6, ease: out, stagger: 0.15 }, 9.4);
-      for (const [id, head, t] of [["#beamD", "#headD", 9.8], ["#beamE", "#headE", 9.95]]) {
+      // 4. Brain closes its pane; the item travels into new sessions as a line of light.
+      tl.set("#node", at(1160, 470, { opacity: 0, scale: 0.3 }), 0);
+      tl.to("#pr", { width: 0, opacity: 0, duration: 0.35, ease: "power2.in" }, 9.0);
+      tl.to("#pc", { width: 1118, duration: 0.35, ease: "power2.in" }, 9.0);
+      tl.to("#node", { opacity: 1, scale: 1, duration: 0.25, ease: "back.out(2)" }, 9.05);
+      tl.to("#node", { x: 900, y: 230, duration: 0.7, ease: "power2.inOut" }, 9.3);
+      tl.set("#tabB", { display: "block" }, 9.5);
+      tl.set("#tabA", { className: "tab" }, 9.5);
+      tl.set("#tabB", { className: "tab on" }, 9.5);
+      tl.from("#tabB", { width: 0, minWidth: 0, duration: 0.25 }, 9.5);
+      tl.set("#panesA", { display: "none" }, 9.6);
+      tl.set("#panesB", { display: "block" }, 9.6);
+      tl.from(["#pd", "#pe"], { opacity: 0, duration: 0.3, stagger: 0.12 }, 9.6);
+      tl.set("#ag1", { className: "row" }, 9.6);
+      tl.set("#ag3", { display: "flex", className: "row active" }, 9.65);
+      tl.from("#ag3", { opacity: 0, x: -20, duration: 0.3 }, 9.65);
+      tl.set("#ag4", { display: "flex" }, 9.8);
+      tl.from("#ag4", { opacity: 0, x: -20, duration: 0.3 }, 9.8);
+      tl.to("#sdot", { backgroundColor: "#e6b84a", duration: 0.2 }, 9.65);
+      for (const [id, head, t] of [["#beamD", "#headD", 9.95], ["#beamE", "#headE", 10.1]]) {
         const len = document.querySelector(id).getTotalLength();
         tl.set(id, { attr: { "stroke-dasharray": len, "stroke-dashoffset": len } }, 0);
-        tl.to(id, { attr: { "stroke-dashoffset": 0 }, duration: 0.7, ease: "power1.inOut" }, t);
-        tl.set(head, { attr: { "stroke-dasharray": "36 " + len, "stroke-dashoffset": 36 }, opacity: 0 }, 0);
+        tl.to(id, { attr: { "stroke-dashoffset": 0 }, duration: 0.6, ease: "power1.inOut" }, t);
+        tl.set(head, { attr: { "stroke-dasharray": "30 " + len, "stroke-dashoffset": 30 }, opacity: 0 }, 0);
         tl.to(head, { opacity: 1, duration: 0.05 }, t);
-        tl.to(head, { attr: { "stroke-dashoffset": -len }, duration: 0.7, ease: "power1.inOut" }, t);
-        tl.to(head, { opacity: 0, duration: 0.1 }, t + 0.7);
+        tl.to(head, { attr: { "stroke-dashoffset": -len }, duration: 0.6, ease: "power1.inOut" }, t);
+        tl.to(head, { opacity: 0, duration: 0.1 }, t + 0.6);
+        tl.to(id, { opacity: 0.35, duration: 0.8 }, t + 1.4);
       }
       tl.set(["#d0", "#d1", "#d2", "#d3", "#e0", "#e1", "#e2", "#e3"], { opacity: 0 }, 0);
       tl.to(["#d0", "#d1"], { opacity: 1, duration: 0.3 }, 10.5);
       tl.to(["#e0", "#e1"], { opacity: 1, duration: 0.3 }, 10.65);
-      tl.fromTo(["#d1", "#e1"], { color: "#d9452b" }, { color: "#1e2230", duration: 1.6, ease: "power1.in" }, 10.6);
-      tl.to("#d2", { opacity: 1, duration: 0.25 }, 11.35);
-      tl.to("#e2", { opacity: 1, duration: 0.25 }, 11.6);
-      tl.to("#d3", { opacity: 1, duration: 0.25 }, 11.9);
-      tl.to("#e3", { opacity: 1, duration: 0.25 }, 12.15);
+      tl.fromTo(["#d1", "#e1"], { color: SPOT }, { color: INK, duration: 1.6, ease: "power1.in" }, 10.6);
+      tl.to("#d2", { opacity: 1, duration: 0.2 }, 11.35);
+      tl.to("#e2", { opacity: 1, duration: 0.2 }, 11.6);
+      tl.to("#d3", { opacity: 1, duration: 0.2 }, 11.9);
+      tl.to("#e3", { opacity: 1, duration: 0.2 }, 12.15);
 
       // 5. Close: the memory settles into the brain, then the name and the install command.
       const art = document.getElementById("brain");
@@ -582,17 +727,17 @@ at revision 1 (workspace w3 (api))</span></div>
       chars.forEach((s) => {
         const a = rand() * Math.PI * 2;
         const r = 260 + rand() * 520;
-        const ink = s.textContent === "@" ? "#d9452b" : "#1e2230";
+        const ink = s.textContent === "@" ? SPOT : "#cdccd2";
         tl.fromTo(
           s,
-          { x: Math.cos(a) * r, y: Math.sin(a) * r, opacity: 0, rotation: (rand() - 0.5) * 180, color: "#d9452b" },
+          { x: Math.cos(a) * r, y: Math.sin(a) * r, opacity: 0, rotation: (rand() - 0.5) * 180, color: SPOT },
           { x: 0, y: 0, opacity: 1, rotation: 0, color: ink, duration: 1.1, ease: out },
           13.5 + rand() * 0.9,
         );
       });
       tl.from("#name", { opacity: 0, y: 30, duration: 0.7, ease: out }, 15.0);
       tl.from("#tag", { opacity: 0, duration: 0.6 }, 15.4);
-      tl.from("#cmd", { opacity: 0, y: 16, duration: 0.4, ease: out }, 15.7);
+      tl.from("#cmd", { opacity: 0, y: 12, duration: 0.4, ease: out }, 15.7);
       const cmdEnd = typed(tl, document.getElementById("cmd-type"), "herdr plugin install aryanVijaywargia/herdr-brain", 15.95, 50);
       tl.from("#foot", { opacity: 0, duration: 0.5 }, cmdEnd + 0.1);
       tl.set("#cmd-cursor", { opacity: 0 }, 0);
