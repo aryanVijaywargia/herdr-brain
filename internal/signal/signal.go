@@ -31,6 +31,9 @@ const (
 	BlockedApproval Kind = "blocked_approval"
 )
 
+// RevertEvent is the event of a git observation: a revert that git shows (#283).
+const RevertEvent = "revert"
+
 // Signal is one signal. It holds ids and a hash, no text.
 type Signal struct {
 	Kind Kind
@@ -42,14 +45,13 @@ type Signal struct {
 	// two signals with the same key are the same failure, chain or screen. E12-S2 counts the
 	// sessions by key (§7.2). It is "" for the other kinds.
 	Key string
-	// Commits are the revert commit and, when its message names it, the reverted commit.
-	Commits []string
 }
 
 // senders lists the senders whose observations can start a signal of each kind (§6.5).
 // Assistant text is context only: it starts none. Tool output starts only failures, and a
 // command chain comes only from command records, which are tool hook records. A blocked
 // approval is not listed: herdr's blocked state starts it, not the sender of the screen text.
+// A revert has no confirmed sender: you or the agent can run git.
 var senders = map[Kind][]store.Sender{
 	Correction:     {store.SenderYou, store.SenderUnconfirmed},
 	Lesson:         {store.SenderYou, store.SenderUnconfirmed},
@@ -57,6 +59,7 @@ var senders = map[Kind][]store.Sender{
 	RepeatedPrompt: {store.SenderYou, store.SenderUnconfirmed},
 	Failure:        {store.SenderTool},
 	CommandChain:   {store.SenderTool},
+	Revert:         {store.SenderUnconfirmed},
 }
 
 // eligible reports whether an observation of sender s can start a signal of kind k.
@@ -70,12 +73,20 @@ func Supports(k store.CandidateKind, s store.Sender) bool { return eligible(Kind
 
 // Find returns the signals in ins, the observations in time order (store.SignalInputs). It
 // skips gaps and Brain-origin text. The text rules also skip observations that do not count
-// (§6.4): a replay, or a hook record that only adds detail to a pane read.
+// (§6.4): a replay, or a hook record that only adds detail to a pane read. A git observation
+// is a revert only: its text is Brain's own line, not text of a pane.
 func Find(ins []store.SignalInput) []Signal {
 	var kept []store.SignalInput
 	var texts []text
+	var sigs []Signal
 	for _, in := range ins {
 		if in.Status == store.ObservationGap || in.BrainOrigin {
+			continue
+		}
+		if in.Source == store.SourceGit {
+			if in.Event == RevertEvent && in.Counts && eligible(Revert, in.Sender) {
+				sigs = append(sigs, Signal{Kind: Revert, Observations: []int64{in.ID}})
+			}
 			continue
 		}
 		kept = append(kept, in)
@@ -83,7 +94,6 @@ func Find(ins []store.SignalInput) []Signal {
 			texts = append(texts, newText(in))
 		}
 	}
-	var sigs []Signal
 	sigs = append(sigs, corrections(texts)...)
 	sigs = append(sigs, procedures(texts)...)
 	sigs = append(sigs, repeatedPrompts(texts)...)

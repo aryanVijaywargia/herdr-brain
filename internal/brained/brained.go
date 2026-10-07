@@ -112,12 +112,13 @@ func serve(ctx context.Context, environ []string, log io.Writer, moved func() bo
 	defer unlock()
 	t := time.NewTicker(checkEvery)
 	defer t.Stop()
+	reverts := NewReverts(time.Now())
 	d := &daemon{
 		env: e, sock: herdr.Socket{Path: e.socket}, bindingsFile: bf,
 		handler: NewCapture(herdr.Socket{Path: e.socket}, environ), log: log, tick: t.C,
 		environ: environ, launch: StartLaunch, now: time.Now, moved: moved,
 		tries: connectTries, pause: connectPause, queue: queueSize,
-		extract: func(ctx context.Context, g Gate) error { return extractPass(ctx, g, config, environ, Start) },
+		extract: func(ctx context.Context, g Gate) error { return extractPass(ctx, g, config, environ, reverts, Start) },
 		stale:   func(ctx context.Context, g Gate) error { return Stale(ctx, g, "", time.Now) },
 	}
 	return d.run(ctx)
@@ -127,7 +128,8 @@ func serve(ctx context.Context, environ []string, log io.Writer, moved func() bo
 // gates and caps of the config file config, read at each pass so an edit needs no restart. start
 // starts `brain suggest` for each new lesson proposal (Start), with the herdr variables of the
 // agent pane where you said the lesson, so the process resolves that pane again (#253, §7.2).
-func extractPass(ctx context.Context, g Gate, config string, environ []string,
+// The revert rule r runs first, so the pass sees the reverts that git shows (#283).
+func extractPass(ctx context.Context, g Gate, config string, environ []string, r *Reverts,
 	start func(ctx context.Context, environ []string, d Dispatch) error) (err error) {
 	gates, caps, err := extract.ReadConfig(config)
 	if err != nil {
@@ -138,15 +140,21 @@ func extractPass(ctx context.Context, g Gate, config string, environ []string,
 		return err
 	}
 	defer func() { err = errors.Join(err, st.Close()) }()
+	defaultOn := g.Binding.Kind != bindings.KindTest
+	// A git failure does not stop the pass: the other evidence still goes to the extractor.
+	gitErr := r.Pass(ctx, st, g.Binding.Session, defaultOn, time.Now())
+	if gitErr != nil {
+		gitErr = fmt.Errorf("revert rule: %w", gitErr)
+	}
 	p := extract.Pass{Store: st, Runner: extract.ExecRunner{}, HerdrSession: g.Binding.Session,
-		DefaultOn: g.Binding.Kind != bindings.KindTest, Now: time.Now, Gates: gates, Caps: caps,
+		DefaultOn: defaultOn, Now: time.Now, Gates: gates, Caps: caps,
 		Suggest: func(ctx context.Context, s extract.Suggestion) error {
 			return start(ctx, paneEnv(environ, g.Binding, s.AgentPaneID, s.WorkspaceID), LessonDispatch(g.Binding.Store, s))
 		}}
 	if err := p.Run(ctx); err != nil {
-		return fmt.Errorf("extract: %w", err)
+		return errors.Join(gitErr, fmt.Errorf("extract: %w", err))
 	}
-	return nil
+	return gitErr
 }
 
 // LessonDispatch is the Dispatch of the suggestion s of a lesson proposal in the store folder
