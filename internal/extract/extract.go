@@ -522,24 +522,10 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	case !errors.Is(err, sql.ErrNoRows):
 		return Suggestion{}, err
 	}
-	var cand int64
-	var accepted []ref
-	for _, r := range c.Refs {
-		id, err := store.Attach(ctx, tx, store.Candidate{ClaimID: into, Scope: c.Scope, WorkspaceKey: key, Kind: kind},
-			r.obs, p.gates(), signal.Supports)
-		switch {
-		case errors.Is(err, store.ErrEvidenceRefused):
-			continue
-		case err != nil:
-			return Suggestion{}, err
-		}
-		if into != claim {
-			if err := store.MarkMerged(ctx, tx, id, r.obs, claim); err != nil {
-				return Suggestion{}, err
-			}
-		}
-		cand = id
-		accepted = append(accepted, r)
+	cand, accepted, err := p.attach(ctx, tx, store.Candidate{ClaimID: into, Scope: c.Scope, WorkspaceKey: key, Kind: kind},
+		claim, c.Refs)
+	if err != nil {
+		return Suggestion{}, err
 	}
 	if err := p.outcomes(ctx, tx, j, claim, corrections(kind, accepted), now); err != nil {
 		return Suggestion{}, err
@@ -548,6 +534,31 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 		return Suggestion{}, nil
 	}
 	return p.propose(ctx, tx, cand, c, now)
+}
+
+// attach adds each of refs as evidence of the candidate of cand, and returns its id (0 when
+// Brain refused every ref) and the accepted refs. Evidence of claim that a merge brought to the
+// candidate of another claim is marked as merged (store.MarkMerged).
+func (p Pass) attach(ctx context.Context, tx *sql.Tx, cand store.Candidate, claim string, refs []ref) (int64, []ref, error) {
+	var id int64
+	var accepted []ref
+	for _, r := range refs {
+		got, err := store.Attach(ctx, tx, cand, r.obs, p.gates(), signal.Supports)
+		switch {
+		case errors.Is(err, store.ErrEvidenceRefused):
+			continue
+		case err != nil:
+			return 0, nil, err
+		}
+		if cand.ClaimID != claim {
+			if err := store.MarkMerged(ctx, tx, got, r.obs, claim); err != nil {
+				return 0, nil, err
+			}
+		}
+		id = got
+		accepted = append(accepted, r)
+	}
+	return id, accepted, nil
 }
 
 // mergeInto returns the claim whose candidate gets the evidence of claim c with claim id claim,
