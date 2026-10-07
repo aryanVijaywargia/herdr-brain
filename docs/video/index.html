@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- Herdr Brain launch animation: a memory forming, in herdr's ink theme. 1080x1080, 30 fps, 18 s. Render steps: README.md here. -->
+<!-- Herdr Brain launch animation: a memory forming, in herdr's ink theme. 1080x1080, 30 fps, 22 s. Render steps: README.md here. -->
 <html lang="en" data-resolution="square">
   <head>
     <meta charset="UTF-8" />
@@ -402,7 +402,7 @@
         position: absolute;
         left: 0;
         right: 0;
-        top: 540px;
+        top: 575px;
         text-align: center;
         font-family: var(--disp);
         font-weight: 800;
@@ -417,7 +417,7 @@
         position: absolute;
         left: 0;
         right: 0;
-        top: 698px;
+        top: 733px;
         text-align: center;
         font-family: var(--body);
         font-size: 34px;
@@ -427,7 +427,7 @@
         position: absolute;
         left: 0;
         right: 0;
-        top: 800px;
+        top: 835px;
         text-align: center;
         font-size: 27px;
         line-height: 40px;
@@ -448,7 +448,7 @@
         position: absolute;
         left: 0;
         right: 0;
-        top: 884px;
+        top: 919px;
         text-align: center;
         font-family: var(--body);
         font-size: 24px;
@@ -461,7 +461,7 @@
       id="root"
       data-composition-id="main"
       data-start="0"
-      data-duration="18"
+      data-duration="22"
       data-width="1080"
       data-height="1080"
     >
@@ -505,8 +505,17 @@ active at revision 1 (workspace w3
 
             <!-- Tab "deps": new sessions in the same workspace get the item in their start brief. -->
             <div class="panes" id="panesB">
-              <div class="pane focus" id="pd" style="left: 0; top: 0; width: 1118px; height: 269px"><div class="box"><span class="ttl">claude</span></div><div class="tx"><span class="ln dim" id="d0">## This workspace</span><span class="ln" id="d1">- [4] Use pnpm, not npm.</span><span class="ln" id="d2"><span class="p">❯</span> install the deps</span><span class="ln dim" id="d3">● Bash(pnpm install)</span></div></div>
-              <div class="pane" id="pe" style="left: 0; top: 269px; width: 1118px; height: 269px"><div class="box"><span class="ttl">codex</span></div><div class="tx"><span class="ln dim" id="e0">## This workspace</span><span class="ln" id="e1">- [4] Use pnpm, not npm.</span><span class="ln" id="e2"><span class="p">›</span> run the tests</span><span class="ln dim" id="e3">• Running pnpm test.</span></div></div>
+              <div class="pane focus" id="pd" style="left: 0; top: 0; width: 1118px; height: 330px"><div class="box"><span class="ttl">claude</span></div><div class="tx"><span class="ln dim" id="d0">## This workspace</span><span class="ln" id="d1">- [4] Use pnpm, not npm.</span><span class="ln" id="d2"><span class="p">❯</span> install the deps</span><span class="ln dim" id="d3">● Bash(pnpm install)</span><span class="ln" id="d4"><span class="p">❯</span> run lint and tests</span></div></div>
+              <div class="pane" id="ps" style="left: 559px; top: 0; width: 559px; height: 330px"><div class="box"><span class="ttl">Brain review</span></div><div class="tx" id="sv">proposal 9 (pending): new item
+<span class="dim">kind:</span>     tool
+<span class="dim">target:</span>   workspace w3 (api)
+<span class="dim">benefit:</span>  runs these commands with
+          one reviewed contract
+<span class="dim">contract:</span>
+  <span class="dim">step 1:</span>    "pnpm" "lint"
+  <span class="dim">step 2:</span>    "pnpm" "test"
+a approve  e edit  r reject  l later</div></div>
+              <div class="pane" id="pe" style="left: 0; top: 330px; width: 1118px; height: 208px"><div class="box"><span class="ttl">codex</span></div><div class="tx"><span class="ln dim" id="e0">## This workspace</span><span class="ln" id="e1">- [4] Use pnpm, not npm.</span><span class="ln" id="e2"><span class="p">›</span> run the tests</span><span class="ln dim" id="e3">• Running pnpm test.</span></div></div>
             </div>
           </div>
         </div>
@@ -524,9 +533,9 @@ active at revision 1 (workspace w3
 
         <svg id="beams" class="layer" width="1600" height="1100" viewBox="0 0 1600 1100">
           <path id="beamD" d="M900 230 C 900 340, 800 450, 690 450" fill="none" stroke="#cba6f7" stroke-width="4" stroke-linecap="square" />
-          <path id="beamE" d="M900 230 C 1010 430, 860 719, 690 719" fill="none" stroke="#cba6f7" stroke-width="4" stroke-linecap="square" />
+          <path id="beamE" d="M900 230 C 1010 430, 860 780, 690 780" fill="none" stroke="#cba6f7" stroke-width="4" stroke-linecap="square" />
           <path id="headD" d="M900 230 C 900 340, 800 450, 690 450" fill="none" stroke="#f1e6ff" stroke-width="8" stroke-linecap="round" />
-          <path id="headE" d="M900 230 C 1010 430, 860 719, 690 719" fill="none" stroke="#f1e6ff" stroke-width="8" stroke-linecap="round" />
+          <path id="headE" d="M900 230 C 1010 430, 860 780, 690 780" fill="none" stroke="#f1e6ff" stroke-width="8" stroke-linecap="round" />
         </svg>
       </div>
 
@@ -536,6 +545,8 @@ active at revision 1 (workspace w3
       <div class="cap" id="c3">You said it <em>twice</em>.</div>
       <div class="cap" id="c4">Brain asks you <em>once</em>.</div>
       <div class="cap" id="c5">Every new session starts <em>knowing</em>.</div>
+      <div class="cap" id="c6">Repeat a prompt, and Brain suggests a <em>tool</em>.</div>
+      <div class="cap" id="c7">Lessons, skills, tools and <em>automations</em>.</div>
 
       <!-- The close: a small memory graph; the script adds the nodes and the lines. -->
       <div id="graph">
@@ -596,7 +607,7 @@ active at revision 1 (workspace w3
         d.style.top = Math.round(rand() * 1100) + "px";
         d.style.opacity = (0.4 + rand() * 0.5).toFixed(2);
         world.insertBefore(d, world.firstChild);
-        tl.to(d, { y: -30 - rand() * 50, x: (rand() - 0.5) * 30, duration: 18, ease: "none" }, 0);
+        tl.to(d, { y: -30 - rand() * 50, x: (rand() - 0.5) * 30, duration: 22, ease: "none" }, 0);
       }
 
       // One camera, no cuts.
@@ -608,8 +619,10 @@ active at revision 1 (workspace w3
       tl.to("#world", cam(890, 610, 0.97, { duration: 1.6, ease: "none" }), 7.45);
       tl.to("#world", cam(560, 555, 1, { duration: 1.2, ease: soft }), 9.1);
       tl.to("#world", cam(565, 560, 1.02, { duration: 2.8, ease: "none" }), 10.3);
-      tl.to("#world", cam(700, 560, 0.5, { duration: 1.8, ease: "power2.inOut" }), 13.1);
-      tl.to("#world", { opacity: 0, duration: 0.8, ease: "power1.in" }, 13.3);
+      tl.to("#world", cam(880, 600, 0.96, { duration: 1.0, ease: soft }), 12.95);
+      tl.to("#world", cam(885, 600, 0.97, { duration: 2.3, ease: "none" }), 13.95);
+      tl.to("#world", cam(700, 560, 0.5, { duration: 1.8, ease: "power2.inOut" }), 16.3);
+      tl.to("#world", { opacity: 0, duration: 0.8, ease: "power1.in" }, 16.5);
 
       // Captions.
       function caption(id, a, b) {
@@ -620,8 +633,9 @@ active at revision 1 (workspace w3
       caption("#c2", 2.15, 3.85);
       caption("#c3", 4.6, 6.25);
       caption("#c4", 6.65, 9.0);
-      caption("#c5", 10.3, 12.9);
-      tl.to("#capbed", { opacity: 0, duration: 0.5 }, 13.0);
+      caption("#c5", 10.3, 12.75);
+      caption("#c6", 13.3, 15.85);
+      caption("#c7", 16.9, 18.5);
 
       // 1. The herdr window. You type in two agents; each line that you send lifts out.
       tl.from("#win", { opacity: 0, y: 30, duration: 0.5, ease: out }, 0);
@@ -744,14 +758,32 @@ active at revision 1 (workspace w3
       tl.to("#d3", { opacity: 1, duration: 0.2 }, 11.9);
       tl.to("#e3", { opacity: 1, duration: 0.2 }, 12.15);
 
-      // 5. Close: the pieces settle into a small memory graph. The lesson is the mauve node at the
-      // center; the two sessions that said it feed it, and light runs to the two new sessions.
+      // 5. A repeated prompt: Brain's review pane splits beside the agent with a ready tool proposal
+      // (§5.5). The pane takes no focus.
+      tl.to(["#node", "#beamD", "#beamE"], { opacity: 0, duration: 0.4 }, 12.85);
+      tl.set("#d4", { opacity: 0 }, 0);
+      tl.set("#ps", { width: 0, opacity: 0 }, 0);
+      tl.set("#sv", { opacity: 0 }, 0);
+      tl.to("#d4", { opacity: 1, duration: 0.2 }, 13.25);
+      tl.to("#pd", { width: 559, duration: 0.45, ease: "power2.inOut" }, 13.65);
+      tl.to("#ps", { width: 559, opacity: 1, duration: 0.45, ease: "power2.inOut" }, 13.65);
+      tl.to("#sv", { opacity: 1, duration: 0.3 }, 14.0);
+
+      // 6. Close: the pieces settle into a small memory graph of typed items. The lesson (a
+      // preference) is the mauve node at the center; the sessions that said it feed it, light runs
+      // to the new sessions, and a skill, a tool and an automation sit around it.
       const graph = document.getElementById("graph");
       const gsvg = document.getElementById("gsvg");
-      const C = [540, 310];
-      const dims = [[360, 175], [450, 135], [540, 165], [630, 135], [720, 175], [330, 300], [750, 300], [360, 440], [450, 480], [540, 455], [630, 480], [720, 440]];
-      const src = [[230, 210, "claude · api"], [230, 410, "codex · api"]];
-      const fresh = [[850, 210, "claude · deps"], [850, 410, "codex · deps"]];
+      const C = [540, 340];
+      const T0 = 16.7;
+      const dims = [[440, 240], [660, 250], [345, 340], [470, 435], [630, 475], [760, 335], [200, 505], [880, 505], [250, 130], [900, 145]];
+      const src = [[230, 265, "claude · api"], [230, 415, "codex · api"]];
+      const fresh = [[820, 265, "claude · deps"], [820, 415, "codex · deps"]];
+      const kinds = [
+        [330, 175, "skill", "deploy", -1],
+        [620, 175, "tool", "lint-test", 1],
+        [540, 490, "automation", "lint-test after each stop", 0],
+      ];
       function square(cls, x, y) {
         const d = document.createElement("div");
         d.className = "gnode " + cls;
@@ -759,12 +791,12 @@ active at revision 1 (workspace w3
         tl.set(d, at(x, y, { opacity: 0 }), 0);
         return d;
       }
-      function label(text, x, y, right) {
+      function label(html, x, y, xp, yp) {
         const d = document.createElement("div");
         d.className = "glabel";
-        d.textContent = text;
+        d.innerHTML = html;
         graph.appendChild(d);
-        tl.set(d, { x: x, y: y, xPercent: right ? -100 : 0, yPercent: -50, opacity: 0 }, 0);
+        tl.set(d, { x: x, y: y, xPercent: xp, yPercent: yp, opacity: 0 }, 0);
         return d;
       }
       function line(a, b, stroke, width, t, dur) {
@@ -779,53 +811,66 @@ active at revision 1 (workspace w3
         const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
         tl.set(l, { attr: { "stroke-dasharray": len, "stroke-dashoffset": len } }, 0);
         tl.to(l, { attr: { "stroke-dashoffset": 0 }, duration: dur, ease: "power1.out" }, t);
-        return [l, len];
+        return l;
       }
       // The dim nodes: other memory. They fly in from the scattered pieces and settle.
       dims.forEach(([x, y]) => {
         const d = square("gdim", x, y);
         const a = rand() * Math.PI * 2;
         const r = 220 + rand() * 360;
-        tl.fromTo(d, { x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, opacity: 0 }, { x: x, y: y, opacity: 1, duration: 0.9, ease: out }, 13.5 + rand() * 0.6);
+        tl.fromTo(d, { x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, opacity: 0 }, { x: x, y: y, opacity: 1, duration: 0.9, ease: out }, T0 + rand() * 0.6);
       });
-      const web = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [4, 6], [5, 7], [6, 11], [7, 8], [8, 9], [9, 10], [10, 11]];
-      web.forEach(([i, j], k) => line(dims[i], dims[j], "#35353d", 2, 14.3 + k * 0.03, 0.4));
-      [2, 5, 6, 9].forEach((i, k) => line(dims[i], C, "#35353d", 2, 14.45 + k * 0.04, 0.35));
-      // The lesson: the bright node at the center.
+      [[0, 2], [2, 3], [3, 4], [1, 5], [2, 6], [5, 7]].forEach(([i, j], k) => line(dims[i], dims[j], "#35353d", 2, T0 + 0.8 + k * 0.03, 0.4));
+      line(dims[8], [330, 175], "#35353d", 2, T0 + 0.98, 0.4);
+      line(dims[9], fresh[0], "#35353d", 2, T0 + 1.0, 0.4);
+      [0, 1, 2, 3, 4, 5].forEach((i, k) => line(dims[i], C, "#35353d", 2, T0 + 0.95 + k * 0.03, 0.35));
+      // The lesson: the bright node at the center, with its item kind.
+      const kindTag = label("preference", C[0], C[1] - 46, -50, -50);
       tl.set("#glesson", at(C[0], C[1], { opacity: 0, scale: 0.6 }), 0);
-      tl.to("#glesson", { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(2)" }, 14.45);
+      tl.to("#glesson", { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(2)" }, T0 + 0.95);
+      tl.to(kindTag, { opacity: 1, duration: 0.3 }, T0 + 1.2);
       tl.set("#gring", at(C[0], C[1], { opacity: 0, scale: 0.4 }), 0);
-      tl.to("#gring", { opacity: 0.9, duration: 0.05 }, 14.45);
-      tl.to("#gring", { scale: 4.5, opacity: 0, duration: 0.6, ease: "power2.out" }, 14.5);
+      tl.to("#gring", { opacity: 0.9, duration: 0.05 }, T0 + 0.95);
+      tl.to("#gring", { scale: 4.5, opacity: 0, duration: 0.6, ease: "power2.out" }, T0 + 1.0);
+      // A skill, a tool and an automation: other kinds of item, dim, joined to the memory.
+      kinds.forEach(([x, y, kind, name, side], k) => {
+        const n = square("gsrc", x, y);
+        const html = '<span style="color: #908f96">' + kind + "</span> · " + '<span style="color: #cdccd2">' + name + "</span>";
+        const l = side > 0 ? label(html, x + 18, y, 0, -50) : side < 0 ? label(html, x - 18, y, -100, -50) : label(html, x, y + 32, -50, -50);
+        tl.to([n, l], { opacity: 1, duration: 0.3 }, T0 + 1.25 + k * 0.12);
+        line([x, y], k === 2 ? dims[3] : dims[k], "#5c5b62", 2, T0 + 1.3 + k * 0.12, 0.35);
+      });
       // The two sessions that said it: dim, with a line into the lesson.
       src.forEach(([x, y, name], k) => {
         const n = square("gsrc", x, y);
-        const l = label(name, x - 20, y, true);
-        tl.to([n, l], { opacity: 1, duration: 0.3 }, 14.7 + k * 0.1);
-        line([x, y], C, "#5c5b62", 2, 14.8 + k * 0.1, 0.45);
+        const l = label(name, x - 20, y, -100, -50);
+        tl.to([n, l], { opacity: 1, duration: 0.3 }, T0 + 1.4 + k * 0.1);
+        line([x, y], C, "#5c5b62", 2, T0 + 1.5 + k * 0.1, 0.45);
       });
-      // The two new sessions: light runs from the lesson to them.
+      // The two new sessions: light runs from the lesson to them; codex also recalls it during work.
       fresh.forEach(([x, y, name], k) => {
         const n = square("gnew", x, y);
-        const l = label(name, x + 20, y, false);
-        const t = 15.05 + k * 0.15;
+        const l = label(name, x + 20, y, 0, -50);
+        const t = T0 + 1.7 + k * 0.15;
         tl.to([n, l], { opacity: 1, duration: 0.3 }, t);
         line(C, [x, y], SPOT, 3, t + 0.05, 0.5);
         tl.to(n, { backgroundColor: SPOT, duration: 0.2 }, t + 0.55);
         tl.to(l, { color: INK, duration: 0.2 }, t + 0.55);
       });
-      tl.from("#name", { opacity: 0, y: 30, duration: 0.7, ease: out }, 15.0);
-      tl.from("#tag", { opacity: 0, duration: 0.6 }, 15.4);
-      tl.from("#cmd", { opacity: 0, y: 12, duration: 0.4, ease: out }, 15.7);
-      const cmdEnd = typed(tl, document.getElementById("cmd-type"), "herdr plugin install aryanVijaywargia/herdr-brain", 15.95, 50);
+      const recall = label("brain recall pnpm", 680, 423, -50, 0);
+      tl.to(recall, { opacity: 1, duration: 0.3 }, T0 + 2.5);
+      tl.from("#name", { opacity: 0, y: 30, duration: 0.7, ease: out }, 18.6);
+      tl.from("#tag", { opacity: 0, duration: 0.6 }, 19.0);
+      tl.from("#cmd", { opacity: 0, y: 12, duration: 0.4, ease: out }, 19.3);
+      const cmdEnd = typed(tl, document.getElementById("cmd-type"), "herdr plugin install aryanVijaywargia/herdr-brain", 19.55, 50);
       tl.from("#foot", { opacity: 0, duration: 0.5 }, cmdEnd + 0.1);
       tl.set("#cmd-cursor", { opacity: 0 }, 0);
-      tl.set("#cmd-cursor", { opacity: 1 }, 15.8);
-      for (let t = cmdEnd; t < 18; t += 0.5) {
+      tl.set("#cmd-cursor", { opacity: 1 }, 19.4);
+      for (let t = cmdEnd; t < 22; t += 0.5) {
         tl.set("#cmd-cursor", { opacity: 0 }, t + 0.25);
         tl.set("#cmd-cursor", { opacity: 1 }, t + 0.5);
       }
-      tl.to({}, { duration: 0.01 }, 17.99); // the timeline runs the whole 18 s
+      tl.to({}, { duration: 0.01 }, 21.99); // the timeline runs the whole 22 s
 
       window.__timelines = window.__timelines || {};
       window.__timelines["main"] = tl;

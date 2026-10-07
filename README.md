@@ -1,23 +1,20 @@
 # Herdr Brain
 
-```text
-                _.-~~-._  _.-~~-._
-        .-.  .-'  .-.   `'  .-.   `-.
-   .--.( @ ).'  .-'   )  .-.(    `-.  `.    brain · a herdr plugin
-  / >_ `-.'/   (   .-'  (   `-.    )   \    ──────────────────────
- (        (  .-.`-'  .-. `-.   )  .-'   ;   agents  claude code · codex
-  `.       ) (  `-. (   `-. )-'  (   .-.|   memory  global · workspace
-    `-.__.'   \  `-.  )`-.   ')  .-. `-(;   store   sqlite, local
-               `-. `-'    `-.' .'   `-.'/   needs   herdr 0.9.1+
-                  `-.____.-~-._  .-(((('
-                     ||  ||    `'  ||  ||
-                     ''  ''        ''  ''
-```
-
 A herdr plugin that gives every coding agent in herdr the same global and workspace memory.
 The name is temporary.
 
-<p align="center"><a href="assets/herdr-brain-launch.mp4"><img src="assets/herdr-brain-launch.webp" width="88%" alt="Animation in a herdr window: lines that you type in a Claude Code pane and a Codex pane lift out as fragments, and a password in one of them turns into [secret] first. The same correction, no, use pnpm, not npm, comes from both sessions; the two fragments find each other and fuse into one lesson. Brain's review pane opens beside the Claude Code pane, and you approve. A new tab opens new Claude Code and Codex sessions, a line of light carries the item into their start brief, and the agent runs pnpm install with no correction. The memory settles into the brain of this README, then the install command: herdr plugin install aryanVijaywargia/herdr-brain" /></a></p>
+<p align="center"><a href="assets/herdr-brain-launch.mp4"><img src="assets/herdr-brain-launch.webp" width="88%" alt="Animation in a herdr window: lines that you type in a Claude Code pane and a Codex pane lift out as fragments, and a password in one of them turns into [secret] first. The same correction, no, use pnpm, not npm, comes from both sessions; the two fragments find each other and fuse into one lesson. Brain's review pane opens beside the Claude Code pane, and you approve. A new tab opens new Claude Code and Codex sessions, and a line of light carries the item into their start brief. When you repeat a prompt, Brain's review pane suggests a tool with its contract. At the end, the pieces settle into a small memory graph: the lesson Use pnpm, not npm. at the center, with a skill, a tool, an automation, the sessions and brain recall around it, then the install command: herdr plugin install aryanVijaywargia/herdr-brain" /></a></p>
+
+```text
+  skill ■────────┐       ┌────────■ tool
+                 │       │                  brain · a herdr plugin
+  ■──────────┐ ┌─┴───────┴─┐ ┌──────────■   ──────────────────────
+             ├─┤  lesson   ├─┤              agents  claude code · codex
+  ■──────────┘ └─────┬─────┘ └──────────■   memory  global · workspace
+                     │                      store   sqlite, local
+                     ■                      needs   herdr 0.9.1+
+                automation
+```
 
 Status: M1 to M4 are built. The repo is private, so there is no release binary yet. Design: [`docs/design/HLD.md`](docs/design/HLD.md). M0 spike results: [`spike/m0/FINDINGS.md`](spike/m0/FINDINGS.md).
 
