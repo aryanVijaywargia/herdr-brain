@@ -1,0 +1,505 @@
+<!doctype html>
+<!-- Herdr Brain launch animation: 1080x1080, 30 fps, 16 s. Render steps: README.md here. -->
+<html lang="en" data-resolution="square">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1080" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Archivo and JetBrains Mono: SIL Open Font License, from Google Fonts. -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;600;700&display=block"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      :root {
+        --bg: #111114;
+        --grid: rgba(255, 255, 255, 0.045);
+        --panel: #0c0d12;
+        --line: #2c2d36;
+        --text: #ececf0;
+        --dim: #8c8c98;
+        --faint: #55555f;
+        --accent: #ff8fab;
+        --accent-dim: rgba(255, 143, 171, 0.16);
+        --ok: #86e3a9;
+        --draft: #f4cf7a;
+        --codex: #8fc9f2;
+        --head: "Archivo", "Helvetica Neue", Arial, sans-serif;
+        --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1080px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--bg);
+      }
+      #root {
+        position: relative;
+        width: 1080px;
+        height: 1080px;
+        overflow: hidden;
+        color: var(--text);
+        font-family: var(--head);
+        background-color: var(--bg);
+        background-image:
+          linear-gradient(var(--grid) 1px, transparent 1px),
+          linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+        background-size: 60px 60px;
+        background-position: -1px -1px;
+      }
+      .clip {
+        position: absolute;
+        inset: 0;
+      }
+
+      /* The mascot: the brain from the top of the repo README. */
+      #mascot {
+        position: absolute;
+        right: -250px;
+        bottom: -26px;
+        font-family: var(--mono);
+        font-size: 34px;
+        line-height: 1.12;
+        font-weight: 700;
+        color: #26262f;
+        white-space: pre;
+        transform-origin: 30% 60%;
+      }
+      #mascot .eye {
+        color: var(--accent);
+        opacity: 0.55;
+      }
+      #mascot .mouth {
+        color: #3a3a45;
+      }
+
+      /* Header: product mark and version. */
+      #header {
+        position: absolute;
+        left: 60px;
+        right: 60px;
+        top: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        z-index: 5;
+      }
+      .mark {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-weight: 800;
+        font-size: 30px;
+        letter-spacing: -0.02em;
+        word-spacing: 0.12em;
+      }
+      .mark .glyph {
+        font-family: var(--mono);
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--accent);
+        letter-spacing: 0;
+      }
+      .version {
+        font-family: var(--mono);
+        font-size: 26px;
+        color: var(--dim);
+      }
+
+      .headline {
+        position: absolute;
+        left: 60px;
+        top: 128px;
+        font-weight: 900;
+        font-stretch: 108%;
+        font-size: 116px;
+        line-height: 0.98;
+        letter-spacing: -0.035em;
+      }
+      .headline .ln {
+        display: block;
+      }
+      .accent {
+        color: var(--accent);
+      }
+      .label {
+        font-family: var(--mono);
+        font-size: 24px;
+        letter-spacing: 0.32em;
+        color: var(--accent);
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        text-transform: uppercase;
+      }
+      .label::before {
+        content: "";
+        width: 56px;
+        height: 2px;
+        background: var(--accent);
+      }
+
+      /* Small status chips, as herdr shows agents. */
+      .chip {
+        position: absolute;
+        padding: 14px 22px 16px;
+        background: var(--panel);
+        border: 2px solid var(--line);
+        font-family: var(--mono);
+        font-size: 25px;
+        line-height: 1.45;
+        white-space: pre;
+      }
+      .chip .name {
+        font-weight: 600;
+        color: var(--text);
+      }
+      .chip .dot {
+        display: inline-block;
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+        border: 2px solid var(--dim);
+        margin-right: 14px;
+        transform: translateY(1px);
+      }
+      .chip .st {
+        color: var(--dim);
+        padding-left: 31px;
+      }
+
+      /* Terminal panes with the title set in the top border. */
+      .pane {
+        position: absolute;
+        background: var(--panel);
+        border: 2px solid var(--line);
+        font-family: var(--mono);
+        font-size: 26px;
+        line-height: 1.55;
+        padding: 30px 30px;
+      }
+      .pane > .tx {
+        white-space: pre;
+      }
+      .pane > .title {
+        position: absolute;
+        left: 18px;
+        top: -17px;
+        padding: 0 10px;
+        background: var(--bg);
+        font-size: 20px;
+        line-height: 30px;
+        color: var(--dim);
+        letter-spacing: 0.02em;
+      }
+      .pane > .corner {
+        position: absolute;
+        right: 18px;
+        bottom: -16px;
+        padding: 0 10px;
+        background: var(--bg);
+        font-size: 20px;
+        line-height: 30px;
+        color: var(--dim);
+      }
+      .you {
+        color: var(--accent);
+      }
+      .agent {
+        color: var(--draft);
+      }
+      .muted {
+        color: var(--dim);
+      }
+      .ok {
+        color: var(--ok);
+      }
+      .ch {
+        display: none;
+      }
+      .cursor {
+        display: inline-block;
+        width: 0.55em;
+        height: 1.1em;
+        margin-left: 2px;
+        background: var(--text);
+        vertical-align: -0.18em;
+      }
+      .key {
+        padding: 0 4px;
+        margin: 0 -4px;
+      }
+      .tag {
+        position: absolute;
+        font-family: var(--mono);
+        font-size: 23px;
+        padding: 6px 14px;
+        border: 2px solid var(--line);
+        background: var(--panel);
+        color: var(--dim);
+        white-space: pre;
+      }
+      .tag b {
+        color: var(--ok);
+        font-weight: 600;
+      }
+
+      #wipe {
+        position: absolute;
+        top: -200px;
+        left: 0;
+        width: 1500px;
+        height: 1480px;
+        background: var(--accent);
+        z-index: 20;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="16"
+      data-width="1080"
+      data-height="1080"
+    >
+      <pre id="mascot">                _.-~~-._  _.-~~-._
+        .-.  .-'  .-.   `'  .-.   `-.
+   .--.( <span class="eye">@</span> ).'  .-'   )  .-.(    `-.  `.
+  / <span class="mouth">&gt;_</span> `-.'/   (   .-'  (   `-.    )   \
+ (        (  .-.`-'  .-. `-.   )  .-'   ;
+  `.       ) (  `-. (   `-. )-'  (   .-.|
+    `-.__.'   \  `-.  )`-.   ')  .-. `-(;
+               `-. `-'    `-.' .'   `-.'/
+                  `-.____.-~-._  .-(((('
+                     ||  ||    `'  ||  ||
+                     ''  ''        ''  ''</pre>
+
+      <div id="header">
+        <div class="mark"><span class="glyph">(@)</span>herdr brain</div>
+        <div class="version">v0.0.1</div>
+      </div>
+
+      <!-- 1. The problem: every new session starts cold. -->
+      <div id="s1" class="clip" data-start="0" data-duration="2.9" data-track-index="1">
+        <div class="headline" id="s1-head" style="left: 0; right: 0; top: 330px; text-align: center">
+          <span class="ln">Every session</span>
+          <span class="ln accent">starts cold.</span>
+        </div>
+        <div class="label" id="s1-label" style="position: absolute; left: 0; right: 0; top: 600px; justify-content: center">
+          You say it all again
+        </div>
+        <div class="chip" id="c1" style="left: 74px; top: 150px"><span class="name"><span class="dot"></span>api</span>
+<span class="st">claude · no memory</span></div>
+        <div class="chip" id="c2" style="left: 640px; top: 176px"><span class="name"><span class="dot"></span>notes-api</span>
+<span class="st">codex · no memory</span></div>
+        <div class="chip" id="c3" style="left: 96px; top: 744px"><span class="name"><span class="dot"></span>billing-page</span>
+<span class="st">claude · no memory</span></div>
+        <div class="chip" id="c4" style="left: 560px; top: 820px"><span class="name"><span class="dot"></span>docs</span>
+<span class="st">codex · no memory</span></div>
+      </div>
+
+      <!-- 2. Tell it once, in plain words, in the session. -->
+      <div id="s2" class="clip" data-start="2.9" data-duration="3.1" data-track-index="1">
+        <div class="headline" id="s2-head">
+          <span class="ln">Tell it</span>
+          <span class="ln accent">once.</span>
+        </div>
+        <div class="pane" id="s2-pane" style="left: 60px; top: 420px; width: 960px; height: 250px; font-size: 27px">
+          <span class="title">claude · api</span>
+          <div class="tx"><span id="s2-type" class="you"></span><span class="cursor" id="s2-cursor"></span>
+<span id="s2-reply"><span class="agent">●</span> Got it. Lint and tests before each commit.</span></div>
+          <span class="corner" id="s2-idle">idle</span>
+        </div>
+        <div class="tag" id="s2-tag" style="left: 60px; top: 712px"><span class="accent">(@)</span> brain · 1 draft from your words</div>
+      </div>
+
+      <!-- 3. Review it in a pane beside the session. -->
+      <div id="s3" class="clip" data-start="6" data-duration="3.1" data-track-index="1">
+        <div class="headline" id="s3-head">
+          <span class="ln">Review it</span>
+          <span class="ln accent">beside you.</span>
+        </div>
+        <div class="pane" id="s3-left" style="left: 60px; top: 420px; width: 300px; height: 470px; font-size: 22px; color: var(--dim)">
+          <span class="title">claude · api</span>
+          <div class="tx"><span class="you">› from now on,
+  run npm run
+  lint &amp;&amp; npm test
+  before you
+  commit</span>
+<span class="agent">●</span> Got it.</div>
+          <span class="corner">idle</span>
+        </div>
+        <div class="pane" id="s3-right" style="left: 384px; top: 420px; width: 636px; height: 470px; font-size: 25px; border-color: var(--accent)">
+          <span class="title accent">Brain review</span>
+          <div class="tx" id="s3-body">proposal 12 (pending)
+<span class="muted">text:</span>     Run npm run lint &amp;&amp;
+          npm test before you
+          commit.
+<span class="muted">scope:</span>    workspace
+<span class="muted">source:</span>   extractor
+
+<span class="key" id="s3-a">a</span> approve  e edit  r reject
+l later   q close</div>
+          <span id="s3-done" class="ok" style="position: absolute; left: 30px; bottom: 34px">✓ approved · workspace</span>
+        </div>
+      </div>
+
+      <!-- 4. Every new agent session gets the approved item at start. -->
+      <div id="s4" class="clip" data-start="9.1" data-duration="3" data-track-index="1">
+        <div class="headline" id="s4-head">
+          <span class="ln">Every agent</span>
+          <span class="ln accent">gets it.</span>
+        </div>
+        <div class="tag t4" style="left: 60px; top: 392px"><b>✓</b> claude code</div>
+        <div class="tag t4" style="left: 278px; top: 392px"><b>✓</b> codex</div>
+        <div class="tag t4" style="left: 438px; top: 392px"><b>✓</b> global or workspace</div>
+        <div class="pane card" id="s4-c1" style="left: 60px; top: 500px; width: 960px; height: 150px; font-size: 25px">
+          <span class="title">claude · api · new session</span>
+          <div class="tx"><span class="muted">## This workspace</span>
+<span class="hl">- Run npm run lint &amp;&amp; npm test before you commit.</span></div>
+          <span class="corner ok">brief at start</span>
+        </div>
+        <div class="pane card" id="s4-c2" style="left: 60px; top: 696px; width: 960px; height: 150px; font-size: 25px">
+          <span class="title">codex · api · new session</span>
+          <div class="tx"><span class="muted">## This workspace</span>
+<span class="hl">- Run npm run lint &amp;&amp; npm test before you commit.</span></div>
+          <span class="corner ok">brief at start</span>
+        </div>
+      </div>
+
+      <!-- 5. Short: it also learns, and you review each suggestion. -->
+      <div id="s5" class="clip" data-start="12.1" data-duration="1.6" data-track-index="1">
+        <div class="headline" id="s5-head">
+          <span class="ln">It learns</span>
+          <span class="ln accent">as you work.</span>
+        </div>
+        <div class="chip c5" style="left: 60px; top: 410px"><span class="name"><span class="dot" style="border-color: var(--draft)"></span>from your corrections</span></div>
+        <div class="chip c5" style="left: 60px; top: 500px"><span class="name"><span class="dot" style="border-color: var(--codex)"></span>skills</span></div>
+        <div class="chip c5" style="left: 260px; top: 500px"><span class="name"><span class="dot" style="border-color: var(--ok)"></span>tools</span></div>
+        <div class="chip c5" style="left: 450px; top: 500px"><span class="name"><span class="dot" style="border-color: var(--accent)"></span>automations</span></div>
+        <div class="label" id="s5-label" style="position: absolute; left: 60px; top: 620px">You review each one</div>
+      </div>
+
+      <!-- 6. End card. -->
+      <div id="s6" class="clip" data-start="13.5" data-duration="2.5" data-track-index="1">
+        <div class="label" id="s6-label" style="position: absolute; left: 60px; top: 300px">A plugin for herdr</div>
+        <div class="headline" id="s6-head" style="top: 360px; font-size: 176px; line-height: 0.96">
+          <span class="ln">Herdr</span>
+          <span class="ln accent">Brain.</span>
+        </div>
+        <div class="pane" id="s6-cmd" style="left: 60px; top: 760px; width: 960px; height: 92px; padding: 22px 28px; font-size: 26px; line-height: 44px">
+          <div class="tx"><span class="muted">$ </span><span id="s6-type"></span><span class="cursor" id="s6-cursor"></span></div>
+        </div>
+        <div id="s6-foot" style="position: absolute; left: 60px; top: 892px; font-family: var(--mono); font-size: 23px; color: var(--dim)">
+          claude code · codex · global and workspace memory · local store
+        </div>
+      </div>
+
+      <div id="wipe"></div>
+    </div>
+
+    <script>
+      // typed fills el with one hidden span per character and shows them from start, at cps
+      // characters per second. Only tl.set calls: every frame is a pure function of time.
+      function typed(tl, el, text, start, cps) {
+        const spans = [...text].map((c) => {
+          const s = document.createElement("span");
+          s.className = "ch";
+          s.textContent = c;
+          el.appendChild(s);
+          return s;
+        });
+        spans.forEach((s, i) => tl.set(s, { display: "inline" }, start + i / cps));
+        return start + spans.length / cps;
+      }
+      // blink shows and hides a cursor from a to b, two times a second.
+      function blink(tl, el, a, b) {
+        for (let t = a; t < b; t += 0.5) {
+          tl.set(el, { opacity: 0 }, t + 0.25);
+          tl.set(el, { opacity: 1 }, t + 0.5);
+        }
+      }
+
+      const tl = gsap.timeline({ paused: true });
+      const out = "power2.in";
+      const inn = "power3.out";
+
+      // Mascot and header: a slow drift for the whole video.
+      tl.fromTo("#mascot", { y: 40, rotation: -4 }, { y: 0, rotation: -1, duration: 16, ease: "sine.inOut" }, 0);
+      tl.fromTo("#header", { opacity: 0, y: -12 }, { opacity: 1, y: 0, duration: 0.5, ease: inn }, 0);
+      tl.to("#mascot .eye", { opacity: 1, duration: 0.3 }, 12.1);
+      tl.to("#mascot .eye", { opacity: 0.55, duration: 0.3 }, 13.2);
+      tl.to("#mascot", { color: "#30303b", duration: 0.6 }, 13.6);
+      tl.to("#mascot .eye", { opacity: 1, duration: 0.2, repeat: 1, yoyo: true }, 15.3);
+
+      // 1. Problem.
+      tl.from("#s1-head .ln", { opacity: 0, y: 40, duration: 0.55, ease: inn, stagger: 0.35 }, 0.15);
+      tl.from("#s1 .chip", { opacity: 0, scale: 0.85, duration: 0.4, ease: "back.out(1.6)", stagger: 0.18 }, 0.5);
+      tl.from("#s1-label", { opacity: 0, x: -24, duration: 0.5, ease: inn }, 1.2);
+      tl.to("#s1 .chip .st", { color: "#6a6a75", duration: 0.4 }, 1.6);
+      tl.to("#s1 > *", { opacity: 0, y: -30, duration: 0.3, ease: out, stagger: 0.02 }, 2.55);
+
+      // 2. Tell it once.
+      tl.from("#s2-head .ln", { opacity: 0, y: 40, duration: 0.5, ease: inn, stagger: 0.25 }, 2.95);
+      tl.from("#s2-pane", { opacity: 0, y: 40, duration: 0.45, ease: inn }, 3.2);
+      tl.set("#s2-reply", { opacity: 0 }, 0);
+      tl.set("#s2-idle", { opacity: 0 }, 0);
+      const said = "› from now on, run npm run lint && npm test\n  before you commit";
+      const typedEnd = typed(tl, document.getElementById("s2-type"), said, 3.55, 45);
+      blink(tl, document.getElementById("s2-cursor"), typedEnd, 4.6);
+      tl.set("#s2-cursor", { opacity: 0 }, 4.6);
+      tl.fromTo("#s2-reply", { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.3, ease: inn }, 4.65);
+      tl.fromTo("#s2-idle", { opacity: 0 }, { opacity: 1, duration: 0.2 }, 5.05);
+      tl.from("#s2-tag", { opacity: 0, x: -30, duration: 0.4, ease: inn }, 5.2);
+      tl.to("#s2 > *", { opacity: 0, y: -30, duration: 0.3, ease: out, stagger: 0.03 }, 5.7);
+
+      // 3. Review beside the session: the review pane opens as a split.
+      tl.from("#s3-head .ln", { opacity: 0, y: 40, duration: 0.5, ease: inn, stagger: 0.25 }, 6.05);
+      tl.from("#s3-left", { opacity: 0, y: 30, duration: 0.4, ease: inn }, 6.25);
+      tl.from("#s3-right", { opacity: 0, width: 0, duration: 0.5, ease: inn }, 6.55);
+      tl.from("#s3-body", { opacity: 0, duration: 0.3 }, 6.95);
+      tl.set("#s3-done", { opacity: 0 }, 0);
+      tl.to("#s3-a", { backgroundColor: "#ff8fab", color: "#111114", duration: 0.12 }, 7.9);
+      tl.to("#s3-right", { borderColor: "#86e3a9", duration: 0.25 }, 8.05);
+      tl.fromTo("#s3-done", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.3, ease: inn }, 8.05);
+      tl.to("#s3 > *", { opacity: 0, y: -30, duration: 0.3, ease: out, stagger: 0.03 }, 8.8);
+
+      // 4. Every agent gets it at session start.
+      tl.from("#s4-head .ln", { opacity: 0, y: 40, duration: 0.5, ease: inn, stagger: 0.25 }, 9.15);
+      tl.from("#s4 .t4", { opacity: 0, y: 14, duration: 0.3, ease: inn, stagger: 0.12 }, 9.6);
+      tl.from("#s4 .card", { opacity: 0, x: 120, duration: 0.5, ease: inn, stagger: 0.35 }, 9.95);
+      tl.from("#s4 .card .hl", { color: "#ff8fab", duration: 0.9, stagger: 0.35 }, 10.4);
+      tl.to("#s4 > *", { opacity: 0, y: -30, duration: 0.3, ease: out, stagger: 0.02 }, 11.8);
+
+      // 5. It learns more (short).
+      tl.from("#s5-head .ln", { opacity: 0, y: 40, duration: 0.4, ease: inn, stagger: 0.18 }, 12.12);
+      tl.from("#s5 .c5", { opacity: 0, scale: 0.85, duration: 0.3, ease: "back.out(1.6)", stagger: 0.1 }, 12.45);
+      tl.from("#s5-label", { opacity: 0, x: -24, duration: 0.35, ease: inn }, 12.85);
+
+      // Wipe into the end card.
+      tl.fromTo("#wipe", { x: -1700, skewX: -14 }, { x: 1500, skewX: -14, duration: 0.75, ease: "power2.inOut" }, 13.15);
+
+      // 6. End card.
+      tl.from("#s6-label", { opacity: 0, x: -24, duration: 0.4, ease: inn }, 13.6);
+      tl.from("#s6-head .ln", { opacity: 0, y: 50, duration: 0.5, ease: inn, stagger: 0.2 }, 13.6);
+      tl.from("#s6-cmd", { opacity: 0, y: 20, duration: 0.35, ease: inn }, 14.0);
+      const cmdEnd = typed(tl, document.getElementById("s6-type"), "herdr plugin install aryanVijaywargia/herdr-brain", 14.25, 48);
+      blink(tl, document.getElementById("s6-cursor"), cmdEnd, 16);
+      tl.from("#s6-foot", { opacity: 0, duration: 0.4 }, 15.15);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

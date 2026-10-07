@@ -1,0 +1,9 @@
+{
+  "name": "herdr-brain-launch-video",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "npx --yes hyperframes@0.8.140 check",
+    "render": "npx --yes hyperframes@0.8.140 render --quality high -o out/herdr-brain-launch.raw.mp4"
+  }
+}
