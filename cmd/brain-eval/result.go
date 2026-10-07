@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -38,30 +39,97 @@ const (
 // outDir is the out folder of a store, as the hook reads it (§7.5 step 3).
 const outDir = "out"
 
-// briefHash returns the hash of the brief that the hook of a pane in workspace wsID prints
-// with the test store of b: the runner reads it after the setup steps and before the probes,
-// so a change that a probe makes does not move it. It is "" when the store has no brief. text
-// is the brief.
-func briefHash(b bindings.Binding, wsID string) (hash, text string, err error) {
+// expected is the brief that the hook of a pane in a case workspace prints with the test store,
+// before the hook adds the line of the last session (E15-S4). The runner reads it after the
+// setup steps and before the probes, so a change that a probe makes does not move it.
+type expected struct {
+	found             bool   // false when the store has no brief
+	key               string // the workspace key of the brief; "" when the workspace is not mapped
+	global, workspace string
+}
+
+// expectedBrief reads the brief that the hook of a pane in workspace wsID prints with the test
+// store of b.
+func expectedBrief(b bindings.Binding, wsID string) (expected, error) {
 	// The same key and read as the hook: a workspace part only for a mapped workspace.
 	m, err := workspace.For(b).Lookup(wsID)
 	if err != nil {
-		return "", "", err
+		return expected{}, err
 	}
-	var key string
+	var e expected
 	if m.State == workspace.Mapped {
-		key = m.Entry.Key
+		e.key = m.Entry.Key
 	}
-	br, err := output.Read(filepath.Join(b.Store, outDir), key)
+	br, err := output.Read(filepath.Join(b.Store, outDir), e.key)
 	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, output.ErrInconsistent) {
-		return "", "", nil
+		return expected{}, nil
 	}
 	if err != nil {
-		return "", "", err
+		return expected{}, err
 	}
-	text = brief.Text(br.Global, br.Workspace)
-	sum := sha256.Sum256([]byte(text))
-	return hex.EncodeToString(sum[:]), text, nil
+	e.found, e.global, e.workspace = true, br.Global, br.Workspace
+	return e, nil
+}
+
+// want returns the hashes of the brief that the hook can print with receipt d: brief exp, and for
+// a mapped workspace the line of the last session in it before the agent session of d (E15-S4).
+// An earlier session in the case workspace adds that line, for example an earlier probe, or a CLI
+// whose folder-trust dialog the runner answered and that ran its start hook before its close
+// (#296). The other CLIs of the case are idle or gone when the runner reads it, so the store
+// holds the last session that the hook read. The hook writes the time of the line in the zone of
+// its own clock, from the environment of the CLI, which the runner cannot read: so there is one
+// hash for each UTC offset of a time zone. want is nil when the store has no brief.
+func (r *Runner) want(ctx context.Context, b bindings.Binding, exp expected, d store.Delivery) ([]string, error) {
+	if !exp.found {
+		return nil, nil
+	}
+	var last store.Delivery
+	var ok bool
+	if exp.key != "" {
+		var err error
+		if last, ok, err = r.lastSession(ctx, b, exp.key, deref(d.AgentSessionID)); err != nil {
+			return nil, err
+		}
+	}
+	if !ok {
+		return []string{briefSum(exp.global, exp.workspace)}, nil
+	}
+	var hs []string
+	for off := minOffset; off <= maxOffset; off += offsetStep {
+		at := last.At.In(time.FixedZone("", int(off/time.Second)))
+		hs = append(hs, briefSum(exp.global, brief.LastSession(exp.workspace, last.Profile, at, *last.TranscriptPath)))
+	}
+	return hs, nil
+}
+
+// The UTC offsets of the time zones: from -12:00 to +14:00, each a multiple of 15 minutes. [NEW]
+// the range and the step, from the tz database.
+const (
+	minOffset  = -12 * time.Hour
+	maxOffset  = 14 * time.Hour
+	offsetStep = 15 * time.Minute
+)
+
+// briefSum is the brief hash of the brief with parts global and workspace, as the hook writes it
+// in its receipt.
+func briefSum(global, workspace string) string {
+	sum := sha256.Sum256([]byte(brief.Text(global, workspace)))
+	return hex.EncodeToString(sum[:])
+}
+
+// lastSession reads the last session in workspace key of the test store of b before agent
+// session agentSession, as the hook reads it.
+func (r *Runner) lastSession(ctx context.Context, b bindings.Binding, key, agentSession string) (d store.Delivery, ok bool, err error) {
+	s, err := store.Open(ctx, b.Store, r.Timeouts.Call)
+	if err != nil {
+		return d, false, err
+	}
+	defer s.Close() //nolint:errcheck // read-only use: the read error is the one to report
+	err = s.Write(ctx, func(tx *sql.Tx) error {
+		d, ok, err = store.LastSession(ctx, tx, key, agentSession)
+		return err
+	})
+	return d, ok, err
 }
 
 // receipt reads the newest receipt of pane of harness in the test store of b. ok is false
@@ -134,17 +202,17 @@ func (r *Runner) clis(ctx context.Context, cases []Case, skip map[string]string)
 	return cs, nil
 }
 
-// deliveryStatus is delivered when the store has an emitted receipt of the pane with the
-// expected brief hash, and not delivered with the reason otherwise.
-func deliveryStatus(d store.Delivery, ok bool, want string) (Status, string) {
+// deliveryStatus is delivered when the store has an emitted receipt of the pane with one of the
+// expected brief hashes want, and not delivered with the reason otherwise.
+func deliveryStatus(d store.Delivery, ok bool, want []string) (Status, string) {
 	switch {
 	case !ok:
 		return NotDelivered, "no receipt of the pane"
 	case d.Result != store.ResultEmitted:
 		return NotDelivered, fmt.Sprintf("the receipt is %s", d.Result)
-	case want == "":
+	case len(want) == 0:
 		return NotDelivered, "the store has no brief"
-	case d.BriefHash == nil || *d.BriefHash != want:
+	case d.BriefHash == nil || !slices.Contains(want, *d.BriefHash):
 		return NotDelivered, "the receipt has another brief hash"
 	}
 	return Delivered, ""

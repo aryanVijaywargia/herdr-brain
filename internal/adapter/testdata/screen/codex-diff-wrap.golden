@@ -1,0 +1,6 @@
+• Edited src/server.js (+2 -0)
+  └ src/server.js (+2 -0)
+• Ran npm test
+  └ not ok 3 - POST /notes without a title
+    error: expected 400, got 500
+• One test fails.

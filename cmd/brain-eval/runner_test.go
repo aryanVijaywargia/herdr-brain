@@ -42,6 +42,7 @@ type fakePane struct {
 	keys    []string // the keys pressed in the pane
 	asking  bool     // its agent shows the folder-trust dialog
 	choice  int      // the selected answer of that dialog: 0 "No, exit", 1 "Yes, I trust this folder"
+	kind    string   // the kind of its agent
 }
 
 // trustScreen is the folder-trust dialog of Claude Code 2.1.292 in folder dir, as herdr reads it
@@ -84,10 +85,13 @@ type fakeHerdr struct {
 	trust     map[string]bool
 	trusted   map[string]bool
 	dialogDir string
-	notIdle   bool   // a read finds the agent still working
-	scrolled  bool   // the ask scrolled off the screen of a read
-	badAsk    string // the agent kind whose prompt fails
-	visible   int    // the count of visible reads
+	// hookOnTrust: an agent goes on with its start after the trust answer, and its hook runs
+	// before the runner closes it (#296).
+	hookOnTrust bool
+	notIdle     bool   // a read finds the agent still working
+	scrolled    bool   // the ask scrolled off the screen of a read
+	badAsk      string // the agent kind whose prompt fails
+	visible     int    // the count of visible reads
 	// session is herdr's session.json, with the root of each saved workspace. herdr saves a
 	// new workspace late: after saveAfter calls of Workspaces, or never with noSave.
 	session   string
@@ -252,6 +256,7 @@ func (f *fakeHerdr) StartAgent(_ context.Context, name, kind, id string, args []
 	if err != nil {
 		return err
 	}
+	p.kind = kind
 	if f.trust[kind] && !f.trusted[p.cwd] {
 		// herdr keeps the blocked agent: a read of it shows the dialog.
 		p.asking, p.choice = true, 0
@@ -336,6 +341,9 @@ func (f *fakeHerdr) SendKeys(_ context.Context, id string, keys ...string) error
 		case k == "Enter":
 			p.asking = false
 			f.trusted[p.cwd] = p.choice == 1
+			if f.trusted[p.cwd] && f.hookOnTrust {
+				f.onStart(id, p.kind)
+			}
 		}
 	}
 	return nil
