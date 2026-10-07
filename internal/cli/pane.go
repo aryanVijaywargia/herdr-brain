@@ -118,6 +118,7 @@ type reviewPane struct {
 	skill    bool   // the proposal is a skill: its file does not fit the one-line edit
 	script   bool   // the proposal is a script (E17-S8): approve takes it as it is
 	detail   bool   // show the claim id and the revision too (#254)
+	evidence bool   // show the evidence view instead of the proposal (E20-S4)
 	// size returns the rows and the columns of the pane, read before each screen; nil or 0 rows
 	// shows the whole view.
 	size func() (rows, cols int)
@@ -132,8 +133,12 @@ func (p *reviewPane) run(ctx context.Context) error {
 		if err != nil {
 			return p.close(ctx, err)
 		}
-		p.view, p.dispute, p.skill = view, strings.Contains(view, "\n"+disputeLine), strings.Contains(view, "\n"+skillLine)
-		p.script = strings.Contains(view, "\n"+scriptLine)
+		p.view = view
+		if !p.evidence {
+			// The evidence view has no kind lines: the kind stays as the proposal view found it.
+			p.dispute, p.skill = strings.Contains(view, "\n"+disputeLine), strings.Contains(view, "\n"+skillLine)
+			p.script = strings.Contains(view, "\n"+scriptLine)
+		}
 		p.draw("")
 		k, _, err := p.keys.ReadRune()
 		if errors.Is(err, io.EOF) {
@@ -149,21 +154,34 @@ func (p *reviewPane) run(ctx context.Context) error {
 	}
 }
 
-// show returns the view of the proposal, with its detail when p.detail is on.
+// show returns the view of the proposal: its evidence view, or the proposal with its detail
+// when p.detail is on.
 func (p *reviewPane) show(ctx context.Context) (string, error) {
-	if p.detail {
-		return p.review(ctx, "--detail")
+	return p.review(ctx, p.viewArgs()...)
+}
+
+// viewArgs are the arguments of brain review <id> that show the current view.
+func (p *reviewPane) viewArgs() []string {
+	switch {
+	case p.evidence:
+		return []string{"--evidence"}
+	case p.detail:
+		return []string{"--detail"}
 	}
-	return p.review(ctx)
+	return nil
 }
 
 // key runs the action of key k. done is true when the proposal is decided, or stays in the
 // queue with later. Any other error is on the screen, and the pane goes on. d turns the detail
-// view on and off for every kind [NEW key d].
+// view on and off for every kind [NEW key d], and v the evidence view (E20-S4); each shows the
+// proposal again in place of the other.
 func (p *reviewPane) key(ctx context.Context, k rune) (done bool, err error) {
 	switch {
 	case k == 'd':
-		p.detail, p.msg = !p.detail, ""
+		p.detail, p.evidence, p.msg = !p.detail, false, ""
+		return false, nil
+	case k == 'v':
+		p.evidence, p.detail, p.msg = !p.evidence, false, ""
 		return false, nil
 	case p.dispute:
 		return p.disputeKey(ctx, k)
@@ -350,12 +368,12 @@ func entry(text []rune, n int, p *reviewPane) string {
 // its first lines, which hold what you decide on.
 func (p *reviewPane) draw(prompt string) {
 	var foot strings.Builder
-	keys := "a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  d detail  q close"
+	keys := "a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  q close"
 	switch {
 	case p.dispute:
-		keys = "k keep  e edit  t retire  l later  d detail  q close"
+		keys = "k keep  e edit  t retire  l later  v evidence  d detail  q close"
 	case p.script:
-		keys = "a approve  r reject  l later  d detail  q close"
+		keys = "a approve  r reject  l later  v evidence  d detail  q close"
 	default:
 		scope := "as proposed"
 		if p.scope != "" {
@@ -403,10 +421,7 @@ func (p *reviewPane) fit(foot string) string {
 	if all <= free {
 		return view
 	}
-	cmd := fmt.Sprintf("brain review %d", p.id)
-	if p.detail {
-		cmd += " --detail"
-	}
+	cmd := strings.Join(append([]string{"brain review", strconv.FormatInt(p.id, 10)}, p.viewArgs()...), " ")
 	n, used := 0, 0
 	for {
 		cut := fmt.Sprintf("... %d more lines: %s shows them all\n", len(lines)-n, cmd)

@@ -29,4 +29,4 @@ excerpts:
 source:   the exact repeats of a command chain, sender unconfirmed, 2026-09-28 18:30
 pick one: proposal 1 is a tool draft of the same command chain; approve one, and the other is superseded
 
-a approve  r reject  l later  d detail  q close
+a approve  r reject  l later  v evidence  d detail  q close
