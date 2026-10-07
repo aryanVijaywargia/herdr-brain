@@ -16,7 +16,11 @@ The README shows the WebP and links to the MP4.
 5. It learns as you work: corrections, skills, tools, automations (12.1 to 13.7 s).
 6. End card: "A plugin for herdr", "Herdr Brain.", the install command (13.5 to 16 s).
 
-Show only what Brain does now. The pane text follows the real output: the review pane keys (`internal/cli/pane.go`) and the brief label `## This workspace` (`internal/brief`).
+Show only what Brain does now. The pane text follows the real output:
+
+- The review pane: a subset of the lines and keys of `internal/cli/testdata/pane/new-item.txt`, in the same order. First the head line and what you decide on (text, scope, target, benefit), then the source line.
+- The brief label `## This workspace` (`internal/brief`).
+
 Use neutral example names (`api`, `notes-api`, `billing-page`, `docs`), not real projects or people.
 
 ## Needs
@@ -47,5 +51,5 @@ python3 make-webp.py ../../assets/herdr-brain-launch.mp4 ../../assets/herdr-brai
 ```
 
 Lint shows 7 warnings: it asks for one file per scene. One file is easier to keep true, so the warnings stay.
-Keep the MP4 under 5 MB and the WebP under 3 MB. The first render was 2.7 MB and 2.1 MB.
+Keep the MP4 under 5 MB and the WebP under 3 MB. The current render is 2.8 MB and 2.2 MB.
 `node_modules/`, `out/` and `snapshots/` stay out of git (`.gitignore`).
