@@ -532,7 +532,7 @@ func (r *Runner) probe(ctx context.Context, h Herdr, shell herdr.Pane, dir, name
 	if derr != nil {
 		return Reply{}, derr
 	}
-	var want string
+	var want []string
 	if ok {
 		rep.Receipt = &d
 		if want, derr = r.want(ctx, b, exp, d); derr != nil {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -763,10 +764,10 @@ func TestTrustDialog(t *testing.T) {
 
 // sessionHook is hook with receipts as the real hook writes them in a mapped workspace
 // (E15-S4): each agent start has its own agent session id and transcript path, and the hook
-// adds the line of the last session in the workspace before it. printed makes the brief that
-// the hook prints from the global part, the workspace part, and the workspace part with that
-// line.
-func (e *env) sessionHook(t *testing.T, printed func(global, workspace, withLine string) string) {
+// adds the line of the last session in the workspace before it, with the time in zone, the zone
+// of the hook clock. printed makes the brief that the hook prints from the global part, the
+// workspace part, and the workspace part with that line.
+func (e *env) sessionHook(t *testing.T, zone *time.Location, printed func(global, workspace, withLine string) string) {
 	t.Helper()
 	e.hook(t, store.ResultEmitted, "")
 	starts := 0
@@ -791,7 +792,7 @@ func (e *env) sessionHook(t *testing.T, printed func(global, workspace, withLine
 				return err
 			}
 			if ok {
-				withLine = brief.LastSession(br.Workspace, last.Profile, last.At.In(time.UTC), *last.TranscriptPath)
+				withLine = brief.LastSession(br.Workspace, last.Profile, last.At.In(zone), *last.TranscriptPath)
 			}
 			sum := sha256.Sum256([]byte(printed(br.Global, br.Workspace, withLine)))
 			h, sess := hex.EncodeToString(sum[:]), session
@@ -825,8 +826,9 @@ func receipts(t *testing.T, e *env) int {
 // #296: a claude whose folder-trust dialog the runner answered can run its start hook before
 // its close. Its receipt puts the line of its session into the brief of the fresh claude, and an
 // earlier probe puts its own into the brief of a later probe in the case workspace. A probe is
-// delivered when its receipt has the hash of the brief with that line, and not delivered when
-// its pane got another brief, also the brief without the line.
+// delivered when its receipt has the hash of the brief with that line, also when the hook clock
+// has another zone than the runner clock (UTC here). It is not delivered when its pane got
+// another brief: the brief without the line, or a line whose time is off by no zone offset.
 func TestLastSessionLine(t *testing.T) {
 	honest := func(global, _, withLine string) string { return brief.Text(global, withLine) }
 	both := deliveryCase("claude")[0]
@@ -834,18 +836,21 @@ func TestLastSessionLine(t *testing.T) {
 	tests := []struct {
 		name     string
 		c        Case
+		zone     *time.Location // the zone of the hook clock; nil is UTC
 		printed  func(global, workspace, withLine string) string
 		receipts int // the trust answer, the probes
 		status   Status
 		why      string
 	}{
-		{"no earlier session", deliveryCase("codex")[0], honest, 1, Delivered, ""},
-		{"answered claude ran its hook", deliveryCase("claude")[0], honest, 2, Delivered, ""},
-		{"earlier probe", both, honest, 3, Delivered, ""},
-		{"brief without the line", deliveryCase("claude")[0], func(global, workspace, _ string) string {
+		{"no earlier session", deliveryCase("codex")[0], nil, honest, 1, Delivered, ""},
+		{"answered claude ran its hook", deliveryCase("claude")[0], nil, honest, 2, Delivered, ""},
+		{"earlier probe", both, nil, honest, 3, Delivered, ""},
+		{"hook clock in another zone", deliveryCase("claude")[0], time.FixedZone("IST", 5*3600+30*60), honest, 2, Delivered, ""},
+		{"brief without the line", deliveryCase("claude")[0], nil, func(global, workspace, _ string) string {
 			return brief.Text(global, workspace)
 		}, 2, NotDelivered, "another brief hash"},
-		{"another brief", deliveryCase("claude")[0], func(_, _, withLine string) string {
+		{"line with another time", deliveryCase("claude")[0], time.FixedZone("", 7*60), honest, 2, NotDelivered, "another brief hash"},
+		{"another brief", deliveryCase("claude")[0], nil, func(_, _, withLine string) string {
 			return brief.Text("other facts\n", withLine)
 		}, 2, NotDelivered, "another brief hash"},
 	}
@@ -855,7 +860,7 @@ func TestLastSessionLine(t *testing.T) {
 			e.fake.answer = knows
 			e.fake.trust = map[string]bool{"claude": true}
 			e.fake.hookOnTrust = true
-			e.sessionHook(t, tt.printed)
+			e.sessionHook(t, cmp.Or(tt.zone, time.UTC), tt.printed)
 			if _, err := e.r.Run(context.Background(), []Case{tt.c}); err != nil {
 				t.Fatal(err)
 			}
