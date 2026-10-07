@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // inZone runs the test in a fixed local zone, +05:30, so that the local times are the same on
@@ -79,49 +80,96 @@ const (
 func TestPaneViewGolden(t *testing.T) {
 	cases := []struct {
 		name       string
-		proposal   func(f *fixture) int64
+		proposal   func(t *testing.T, f *fixture) int64
 		keys       string
 		rows, cols int
 		bottom     string // the key line that ends the screen
 	}{
-		{name: "new-item", proposal: func(f *fixture) int64 { return f.remember(t, "use pnpm") }, keys: "q", bottom: itemKeys},
-		{name: "new-item-detail", proposal: func(f *fixture) int64 { return f.remember(t, "use pnpm") }, keys: "dq", bottom: itemKeys},
-		{name: "change", proposal: func(f *fixture) int64 {
+		{name: "new-item", proposal: func(t *testing.T, f *fixture) int64 { return f.remember(t, "use pnpm") }, keys: "q", bottom: itemKeys},
+		{name: "new-item-detail", proposal: func(t *testing.T, f *fixture) int64 { return f.remember(t, "use pnpm") }, keys: "dq", bottom: itemKeys},
+		{name: "change", proposal: func(t *testing.T, f *fixture) int64 {
 			id := f.approved(t, "use pnpm")
 			f.mustReview(t, "--item", fmt.Sprint(id), "--edit", "use pnpm 9")
 			r := f.rows(t)
 			return r.proposals[len(r.proposals)-1].ID
 		}, keys: "q", bottom: itemKeys},
-		{name: "dispute", proposal: func(f *fixture) int64 {
+		{name: "dispute", proposal: func(t *testing.T, f *fixture) int64 {
 			_, git := f.gitRepo(t, "config/load.go")
 			f.approved(t, loaderText)
 			git("mv", "config/load.go", "config/loader.go")
 			f.stale(t)
 			return f.pendingDispute(t).ID
 		}, keys: "q", bottom: disputeKeys},
-		{name: "skill", proposal: func(f *fixture) int64 { return f.skillDraft(t, skillText("deploy", "one")) }, keys: "q", bottom: itemKeys},
+		{name: "skill", proposal: func(t *testing.T, f *fixture) int64 { return f.skillDraft(t, skillText("deploy", "one")) }, keys: "q", bottom: itemKeys},
 		// The suggestions of a command chain (E17-S8): the script and the tool draft.
-		{name: "script", proposal: func(f *fixture) int64 { s, _ := f.chainProposals(t); return s }, keys: "q",
+		{name: "script", proposal: func(t *testing.T, f *fixture) int64 { s, _ := f.chainProposals(t); return s }, keys: "q",
 			bottom: "a approve  r reject  l later  d detail  q close\n"},
-		{name: "tool-draft", proposal: func(f *fixture) int64 { _, d := f.chainProposals(t); return d }, keys: "q", bottom: itemKeys},
+		{name: "tool-draft", proposal: func(t *testing.T, f *fixture) int64 { _, d := f.chainProposals(t); return d }, keys: "q", bottom: itemKeys},
 		// A pane of 16 rows cuts the skill view and keeps the keys at the bottom.
-		{name: "skill-short-pane", proposal: func(f *fixture) int64 { return f.skillDraft(t, skillText("deploy", "one")) },
+		{name: "skill-short-pane", proposal: func(t *testing.T, f *fixture) int64 { return f.skillDraft(t, skillText("deploy", "one")) },
 			keys: "q", rows: 16, cols: 80, bottom: itemKeys},
+		// A narrow pane counts the wrapped rows; d shows the detail above the long text.
+		{name: "skill-narrow-pane-detail", proposal: func(t *testing.T, f *fixture) int64 {
+			return f.skillDraft(t, skillText("deploy", "one"))
+		}, keys: "dq", rows: 16, cols: 40, bottom: itemKeys},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			inZone(t)
 			f := newFixture(t)
-			screen := f.paneScreen(t, c.proposal(f), c.keys, c.rows, c.cols)
+			screen := f.paneScreen(t, c.proposal(t, f), c.keys, c.rows, c.cols)
 			if !strings.HasSuffix(screen, "\n"+c.bottom) {
 				t.Errorf("screen =\n%s\nwant it to end with the keys %q", screen, c.bottom)
 			}
-			last := screen[strings.LastIndex(screen, clearScreen):]
-			if c.rows > 0 && strings.Count(last, "\n") > c.rows {
-				t.Errorf("screen has %d lines, want at most %d:\n%s", strings.Count(last, "\n"), c.rows, last)
+			last := strings.TrimPrefix(screen[strings.LastIndex(screen, clearScreen):], clearScreen)
+			if n := screenRows(last, c.cols); c.rows > 0 && n > c.rows {
+				t.Errorf("screen takes %d rows, want at most %d:\n%s", n, c.rows, last)
 			}
 			f.paneGolden(t, c.name, screen)
 		})
+	}
+}
+
+// screenRows is the rows that screen takes in a terminal of cols columns (0 for no wrap): each
+// line takes one row for each cols runes, and the cursor row after the last newline counts.
+func screenRows(screen string, cols int) int {
+	n := 0
+	for _, l := range strings.Split(screen, "\n") {
+		if cols <= 0 {
+			n++
+			continue
+		}
+		n += max(1, (utf8.RuneCountInString(l)+cols-1)/cols)
+	}
+	return n
+}
+
+// AC #254: the text you type stays on one row of a sized pane, so the keys stay on the screen;
+// a long text shows its end.
+func TestPaneEntryRow(t *testing.T) {
+	f := newFixture(t)
+	id := f.remember(t, "use pnpm")
+	var out bytes.Buffer
+	text := strings.Repeat("x", 60) + "yz"
+	p := &reviewPane{Env: f.env(f.sock, "w14:p1", "w14", &out), id: id, keys: typed("e" + text + "\x1b" + "q"),
+		size: func() (int, int) { return 16, 40 }}
+	if err := p.run(context.Background()); err != nil {
+		t.Fatalf("pane = %v", err)
+	}
+	screen := out.String()
+	const prompt = "new text (Enter approves, Esc goes back): "
+	_, last, _ := strings.Cut(screen[strings.LastIndex(screen, "\x1b8\x1b[J"+prompt):], prompt)
+	last, _, _ = strings.Cut(last, clearScreen)
+	if last != "" {
+		// The prompt is 42 runes: wider than the pane, so no text fits after it.
+		t.Errorf("entry after the prompt = %q, want none in a 40-column pane", last)
+	}
+	p = &reviewPane{size: func() (int, int) { return 16, 80 }}
+	if got := entry([]rune(text), len(prompt), p); got != "..."+text[len(text)-34:] || len(prompt)+utf8.RuneCountInString(got) >= 80 {
+		t.Errorf("entry = %q, want the end of the text on one row", got)
+	}
+	if got := entry([]rune("short"), len(prompt), p); got != "short" {
+		t.Errorf("entry = %q, want short", got)
 	}
 }
 

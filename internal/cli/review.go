@@ -421,7 +421,11 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 		return err
 	}
 	var b strings.Builder
-	showHead(&b, p, it, binding)
+	var more string
+	if detail {
+		more = detailLines(p, it, claim)
+	}
+	showHead(&b, p, it, binding, more)
 	fmt.Fprintf(&b, "diff:\n  %s\n", strings.ReplaceAll(p.Diff, "\n", "\n  "))
 	if len(p.Dispute) > 0 {
 		b.WriteString(disputeLine)
@@ -434,9 +438,6 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 		fmt.Fprintf(&b, "excerpts:\n  %s\n", strings.Join(excerpts, "\n  "))
 	}
 	fmt.Fprintf(&b, "source:   %s, %s\n", source(p, it, cur), localTime(p.Created))
-	if detail {
-		detailLines(&b, p, it, claim)
-	}
 	if p.ChangeRequest != nil {
 		fmt.Fprintf(&b, "change:   %s\n", oneLine(*p.ChangeRequest))
 	}
@@ -456,8 +457,9 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 // showHead writes the first lines of p in show, what you decide on (§7.4): the status and what
 // p does, the kind, the text, the scope and the effect, the target and the expected benefit. A
 // text of many lines (a skill, a tool, an automation, a script) comes after the scope and the
-// effect, so that a short pane shows them too (#254). binding holds the lines of an automation.
-func showHead(b *strings.Builder, p store.Proposal, it store.Item, binding string) {
+// effect, so that a short pane shows them too (#254). binding holds the lines of an automation;
+// detail holds the detail lines, which come after the effect.
+func showHead(b *strings.Builder, p store.Proposal, it store.Item, binding, detail string) {
 	fmt.Fprintf(b, "proposal %d (%s): %s\n", p.ID, p.Status, what(p, it))
 	var text string
 	if p.Script() {
@@ -471,6 +473,7 @@ func showHead(b *strings.Builder, p store.Proposal, it store.Item, binding strin
 	if p.ExpectedBenefit != "" {
 		effect += fmt.Sprintf("benefit:  %s\n", oneLine(p.ExpectedBenefit))
 	}
+	effect += detail
 	if strings.Count(text, "\n") > 1 {
 		text, effect = effect, text
 	}
@@ -489,15 +492,17 @@ func what(p store.Proposal, it store.Item) string {
 	return fmt.Sprintf("changes item %d", it.ID)
 }
 
-// detailLines writes the detail of p in show (#254): the claim id and the revision it creates.
-// A script proposal has no item: claim is its claim, and it has no revision (E17-S8).
-func detailLines(b *strings.Builder, p store.Proposal, it store.Item, claim string) {
+// detailLines are the detail lines of p in show (#254): the claim id and the revision it
+// creates. A script proposal has no item: claim is its claim, and it has no revision (E17-S8).
+func detailLines(p store.Proposal, it store.Item, claim string) string {
+	var b strings.Builder
 	if c := cmp.Or(it.ClaimID, claim); c != "" {
-		fmt.Fprintf(b, "claim:    %s\n", c)
+		fmt.Fprintf(&b, "claim:    %s\n", c)
 	}
 	if !p.Script() {
-		fmt.Fprintf(b, "revision: item %d revision %d, from revision %d (now %d)\n", it.ID, *p.BaseRevision+1, *p.BaseRevision, it.CurrentRevision)
+		fmt.Fprintf(&b, "revision: item %d revision %d, from revision %d (now %d)\n", it.ID, *p.BaseRevision+1, *p.BaseRevision, it.CurrentRevision)
 	}
+	return b.String()
 }
 
 // localTime is t in local time, to the minute, as review shows times (#254).

@@ -300,7 +300,7 @@ func (p *reviewPane) line(prompt, empty string) (s string, ok bool, err error) {
 	// forgotten while you type, and the pane must not show its text again.
 	p.draw("\x1b7")
 	for {
-		_, _ = io.WriteString(p.Stdout, "\x1b8\x1b[J"+prompt+string(text)) // as in draw
+		_, _ = io.WriteString(p.Stdout, "\x1b8\x1b[J"+prompt+entry(text, len(prompt), p)) // as in draw
 		k, _, err := p.keys.ReadRune()
 		if err != nil {
 			return "", false, err
@@ -329,6 +329,20 @@ func (p *reviewPane) line(prompt, empty string) (s string, ok bool, err error) {
 			text = append(text, k)
 		}
 	}
+}
+
+// entry is the end of text that fits on the text-entry row after a prompt of n columns, so the
+// keys above it stay on the screen (#254). A cut text starts with "...".
+func entry(text []rune, n int, p *reviewPane) string {
+	_, width := p.dims()
+	room := width - n - 1 // the cursor takes the last column
+	if width <= 0 || len(text) <= room {
+		return string(text)
+	}
+	if room <= 3 {
+		return ""
+	}
+	return "..." + string(text[len(text)-room+3:])
 }
 
 // draw clears the pane and shows the proposal, the approve options, the last message, the keys
@@ -361,18 +375,16 @@ func (p *reviewPane) draw(prompt string) {
 }
 
 // fit returns the first lines of the view that fit above foot, and a line that says how many
-// lines it leaves out. A prompt at the end of foot is one row: the text you type. [NEW]: the
-// rows of a long line count at the pane's width.
+// lines it leaves out. A prompt at the end of foot is one row: line keeps the text you type on
+// it. [NEW]: the rows of a long line count at the pane's width.
 func (p *reviewPane) fit(foot string) string {
 	view := strings.TrimSuffix(p.view, "\n") + "\n"
-	if p.size == nil {
-		return view
-	}
-	height, width := p.size()
+	height, width := p.dims()
 	if height <= 0 {
 		return view
 	}
 	rows := func(line string) int {
+		line = strings.TrimSuffix(line, "\n")
 		if width <= 0 {
 			return 1
 		}
@@ -390,13 +402,27 @@ func (p *reviewPane) fit(foot string) string {
 	if all <= free {
 		return view
 	}
-	// The view keeps at least its first line, and the cut line takes one row.
-	n, used := 1, rows(lines[0])
-	for n < len(lines) && used+rows(lines[n])+1 <= free {
+	cmd := fmt.Sprintf("brain review %d", p.id)
+	if p.detail {
+		cmd += " --detail"
+	}
+	n, used := 0, 0
+	for {
+		cut := fmt.Sprintf("... %d more lines: %s shows them all\n", len(lines)-n, cmd)
+		if n == len(lines) || used+rows(lines[n])+rows(cut) > free {
+			return strings.Join(lines[:n], "") + cut
+		}
 		used += rows(lines[n])
 		n++
 	}
-	return strings.Join(lines[:n], "") + fmt.Sprintf("... %d more lines: brain review %d shows them all\n", len(lines)-n, p.id)
+}
+
+// dims returns the rows and the columns of the pane, or 0, 0 when the pane has no size.
+func (p *reviewPane) dims() (rows, cols int) {
+	if p.size == nil {
+		return 0, 0
+	}
+	return p.size()
 }
 
 // close shows the last message, or err, for the linger time, and ends the pane. It shows err

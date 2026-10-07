@@ -1,0 +1,25 @@
+<clear>
+proposal 1 (pending): new item
+kind:     skill
+scope:    workspace
+target:   workspace w14 (shop)
+text:
+  ---
+  name: deploy
+  description: Do the deploy task.
+... 20 more lines: brain review 1 shows them all
+approve with scope: as proposed, pin: no, on a conflict: keep-both
+
+a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  d detail  q close
+<clear>
+proposal 1 (pending): new item
+kind:     skill
+scope:    workspace
+target:   workspace w14 (shop)
+claim:    cl_<id>
+revision: item 2 revision 2, from revision 1 (now 1)
+text:
+... 23 more lines: brain review 1 --detail shows them all
+approve with scope: as proposed, pin: no, on a conflict: keep-both
+
+a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  d detail  q close
