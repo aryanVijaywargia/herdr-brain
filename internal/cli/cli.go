@@ -134,6 +134,9 @@ type Call struct {
 	PaneID      string
 	WorkspaceID string // herdr id of the calling pane's workspace
 	Workspace   workspace.Session
+	// AgentSession is the agent session that herdr showed in the calling pane at the last
+	// check, or "" when herdr showed none.
+	AgentSession string
 }
 
 // Close closes the store.
@@ -213,6 +216,9 @@ func (e Env) recheck(ctx context.Context, c *Call) error {
 	}
 	if p.ID != c.PaneID || p.WorkspaceID != c.WorkspaceID {
 		return fmt.Errorf("pane %s moved to workspace %s; nothing was written", c.PaneID, p.WorkspaceID)
+	}
+	if p.AgentSession != nil {
+		c.AgentSession = p.AgentSession.Value
 	}
 	return nil
 }

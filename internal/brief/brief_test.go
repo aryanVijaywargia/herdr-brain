@@ -307,14 +307,58 @@ func TestRememberLine(t *testing.T) {
 			t.Errorf("%s brief has no remember line after the precedence line:\n%s", name, text)
 		}
 	}
-	if size, _ := GlobalSize(""); size != len(beginMarker)+len(precedence)+len(line)+len(endMarker)+2 {
-		t.Errorf("GlobalSize(\"\") = %d, want the frame with the remember line", size)
+	if size, _ := GlobalSize(""); size != len(beginMarker)+len(precedence)+len(line)+len(recall)+len(endMarker)+3 {
+		t.Errorf("GlobalSize(\"\") = %d, want the frame with the remember and recall lines", size)
 	}
 	// A global part that fits without the line is over the budget with it.
 	full := fill(t, len(frame)-len(line)+len(globalLabel), globalBudget)
 	var be *BudgetError
 	if _, err := Global(full); !errors.As(err, &be) || be.Size != globalBudget+len(line) {
 		t.Errorf("Global(full without the line) = %v, want a budget error of %d", err, globalBudget+len(line))
+	}
+}
+
+// AC E20-S2 #266: every brief has one recall line after the remember line, also a brief with
+// no items, and its characters count in the global part budget (§8.6).
+func TestRecallLine(t *testing.T) {
+	const line = "To find more Brain items on a topic during work, run: brain recall <words>\n"
+	g, err := Global([]Item{{ID: 1, Text: "use pnpm"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := Workspace([]Item{{ID: 2, Text: "use make"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, text := range map[string]string{"empty": Text("", ""), "items": Text(g, w)} {
+		if n := strings.Count(text, line); n != 1 {
+			t.Errorf("%s brief has the recall line %d times, want 1", name, n)
+		}
+		if !strings.Contains(text, remember+"\n"+line) {
+			t.Errorf("%s brief has no recall line after the remember line:\n%s", name, text)
+		}
+	}
+	full := fill(t, len(frame)-len(line)+len(globalLabel), globalBudget)
+	var be *BudgetError
+	if _, err := Global(full); !errors.As(err, &be) || be.Size != globalBudget+len(line) {
+		t.Errorf("Global(full without the line) = %v, want a budget error of %d", err, globalBudget+len(line))
+	}
+}
+
+// AC E20-S2 #266: Entries renders items in the order given, with the brief's marks.
+func TestEntries(t *testing.T) {
+	at := time.Date(2026, 10, 3, 9, 0, 0, 0, time.UTC)
+	got, err := Entries([]Item{
+		{ID: 9, Text: "use pnpm", ExceptionTo: 2},
+		{ID: 4, Text: "run make\nthen test", ConflictsWith: []int64{7}, Dispute: Dispute{Anchors: []string{"a.go"}, At: at}},
+	})
+	want := "- [9] use pnpm (exception to global item 2)\n" +
+		"- [4] run make\n  then test (conflicts with 7; ask the user) (disputed: a.go deleted on 2026-10-03)\n"
+	if err != nil || got != want {
+		t.Errorf("Entries() = %q, %v, want %q", got, err, want)
+	}
+	if _, err := Entries([]Item{{ID: 1, Text: "a\nb\nc\nd"}}); err == nil {
+		t.Error("Entries(4 lines) = nil error, want the line limit error")
 	}
 }
 

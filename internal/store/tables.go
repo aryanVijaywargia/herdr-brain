@@ -399,6 +399,9 @@ type Delivery struct {
 	// TranscriptPath is the transcript_path of the start hook input (E15-S4). nil when the input
 	// had none, or after brain forget --session. Brain never reads the file.
 	TranscriptPath *string
+	// Recalled are the revisions that brain recall returned on this receipt, newest first. Only
+	// TiedReceipt fills it (§8.6); no column holds it.
+	Recalled []RevisionRef
 }
 
 // InsertDelivery adds d and returns its new id. d.ID is ignored.

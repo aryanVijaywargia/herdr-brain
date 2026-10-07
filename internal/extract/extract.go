@@ -712,8 +712,14 @@ func (p Pass) outcome(ctx context.Context, tx *sql.Tx, j job, item int64, r ref,
 
 // outcomeOf is the outcome for item of a session whose last receipt before the observation is
 // d (§5.4): ok is false when no single receipt ties to the session. It returns the revision that
-// d names, and false when the session got no revision of the item: no outcome.
+// d names, and false when the session got no revision of the item: no outcome. A revision that
+// brain recall returned on d comes first, also on a withheld receipt: recall printed it (§8.6).
 func outcomeOf(d store.Delivery, ok bool, item int64) (store.OutcomeKind, int64, bool) {
+	for _, r := range d.Recalled {
+		if ok && r.Item == item {
+			return store.OutcomeComeback, r.Revision, true
+		}
+	}
 	switch {
 	case !ok:
 		return store.OutcomeUnknown, 0, true
