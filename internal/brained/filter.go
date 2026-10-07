@@ -44,10 +44,14 @@ var marks = map[string][]mark{
 	"codex":  {{"› ", store.SenderUnconfirmed}, {"• ", store.SenderAssistant}, {"  └", store.SenderTool}},
 }
 
-// approval matches the question of an approval dialog [the recorded reads in testdata, and
-// the M2 eval run]: the CLI asks it for the agent, so it starts a block of the assistant, also
-// under a prompt line, and the dialog is no user text (#281).
-var approval = regexp.MustCompile(`^\s+(?:Would you like to|Do you want to) .+\?$`)
+// approval matches the question of a Codex approval dialog, and detail the line under it [the
+// recorded reads in testdata, and the M2 eval run]: Codex asks it for the agent, so it starts a
+// block of the assistant, also under a prompt line, and the dialog is no user text (#281). The
+// Claude dialog is in the block of its tool call.
+var (
+	approval = regexp.MustCompile(`^\s+Would you like to .+\?$`)
+	detail   = regexp.MustCompile(`^\s+(?:Environment: |Reason: |\$ )`)
+)
 
 // senders returns the sender of each line of a read of harness.
 func senders(harness string, lines []string) []store.Sender {
@@ -62,7 +66,7 @@ func senders(harness string, lines []string) []store.Sender {
 			}
 		}
 		switch {
-		case !found && approval.MatchString(l):
+		case !found && approval.MatchString(l) && i+1 < len(lines) && detail.MatchString(lines[i+1]):
 			sender = store.SenderAssistant
 		case !found && !strings.HasPrefix(l, " "):
 			sender = store.SenderUnconfirmed

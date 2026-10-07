@@ -51,8 +51,10 @@ noise_blocks = [
   { start = '\s*⎿[\s\x{a0}]+Tip: .*', next = '\s{5}\S.*' },
   { start = '\s*╭─+ Claude Code .*╮', next = '\s*[│╰].*' },
   # The folder trust dialog of Claude Code 2.1.292 (#281, M2 eval run): its lines start with
-  # one space, and its choices come after the ❯ cursor or under it.
-  { start = '\s*Accessing workspace:', next = ' \S.*|(?:❯| ) +(?:No, exit|Yes, I trust this folder)' },
+  # one space, and its choices come after the ❯ cursor or under it. A wrapped line starts in
+  # lower case. The lines are named, so the question of an approval dialog at the top of a
+  # read stays (§7.1).
+  { start = '\s*Accessing workspace:', next = ''' (?:[~/]\S*|Quick safety check: .*|Claude Code'll be able to .*|Security guide|Enter to confirm · Esc to cancel|[a-z(].*)| ?(?:❯| ) +(?:No, exit|Yes, I trust this folder)''' },
 ]
 # The diff panel (/diff, Claude Code 2.1.260 and later) opens beside the conversation in a
 # terminal at least 110 columns wide; its header is "N files changed +A -D" (#258). The header

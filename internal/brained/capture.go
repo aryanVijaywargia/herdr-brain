@@ -306,11 +306,12 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 	return c.suggest(ctx, s, cp)
 }
 
-// step notes the status of step s. A working or blocked status after another status starts
-// a new turn: a prompt was sent, or the agent works on its own.
+// step notes the status of step s. A working or blocked status after an end of a turn starts
+// a new turn: a prompt was sent, or the agent works on its own. An unknown status in a turn
+// does not end it, so a repaint after it is no new turn.
 func (cp *capturePane) step(s Step) {
 	status := eventOf(s)
-	if busy(status) && !busy(cp.status) {
+	if busy(status) && !busy(cp.status) && cp.status != "unknown" {
 		cp.turn++
 	}
 	cp.status = status
@@ -326,8 +327,9 @@ func busy(status string) bool {
 // reads, cut to one line, with a banner or an earlier prompt above it, or with another wrap.
 // A prompt that the session shows is a copy when its first line starts the text of a known
 // prompt, or the known first line starts it, and its other lines are text of that prompt. A
-// copy is a new send only when it is the last prompt of the read, with the same text, and a
-// new turn started since, or the read shows the known one too, above it (S40). A part with
+// copy is a new send only when it is the last prompt of the read and a new turn started since,
+// or it has the same text and the read shows the known one too, above it (S40). In a new turn
+// the last prompt is the prompt of the turn, also when it is only the start of a known one. A part with
 // no prompt mark and the sender of a prompt, as the wrapped end of a prompt, is dropped when
 // all its lines are text of a known prompt. copies returns the parts that stay and the
 // prompts that they send.
@@ -358,8 +360,9 @@ func (cp *capturePane) copies(r read, added []int, ps []part) ([]part, []sent) {
 				known = append(known, s)
 			}
 		}
-		again := p.at == last && !p.unsure && slices.ContainsFunc(known, func(s sent) bool { return s.text == k.text }) &&
-			(!slices.ContainsFunc(known, func(s sent) bool { return s.turn == cp.turn }) || shownAbove(r, added, k, p.at))
+		again := p.at == last && !p.unsure &&
+			(!slices.ContainsFunc(known, func(s sent) bool { return s.turn == cp.turn }) ||
+				slices.ContainsFunc(known, func(s sent) bool { return s.text == k.text }) && shownAbove(r, added, k, p.at))
 		if len(known) == 0 || again {
 			kept = append(kept, p)
 			fresh = append(fresh, sent{k.text, k.first, cp.turn})

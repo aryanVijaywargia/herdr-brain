@@ -188,3 +188,43 @@ func TestCaptureDialogLines(t *testing.T) {
 		})
 	}
 }
+
+// #278 review: a prompt in a new turn that is only the start of an earlier prompt is a new
+// send. An unknown status in a turn starts no turn, so a repaint after it is still a copy.
+func TestCapturePromptTurns(t *testing.T) {
+	const (
+		long  = "› Run the tests and the build, and tell me what fails."
+		short = "› Run the tests"
+		foot  = "\n\n  GPT-6.1-Sol high · ~/work/notes-api\n"
+	)
+	k := newCapture(t, "s1", t.TempDir())
+	k.pane("w1:p1", "codex", codexRun2)
+	k.raw("user@host notes-api % codex"+foot,
+		"user@host notes-api % codex\n"+long+"\n\n• Working (1s • esc to interrupt)"+foot,
+		"user@host notes-api % codex\n"+long+"\n\n• All passed."+foot,
+		"• All passed.\n"+short+"\n\n• Working (1s • esc to interrupt)"+foot,
+		"• All passed.\n"+short+"\n\n• Working (3s • esc to interrupt)"+foot,
+		// Codex draws the screen again in the same turn, after an unknown status.
+		"  >_ OpenAI Codex (v0.160.1)\n"+short+"\n\n• Ran npm test"+foot)
+	k.must(t, Baseline, "w1:p1", "", GapNone)
+	for _, st := range []string{"working", "idle", "working", "unknown", "working"} {
+		k.must(t, Change, "w1:p1", st, GapNone)
+	}
+	excerpts, counted := k.rows(t).prompts()
+	if !slices.Equal(excerpts, []string{long, short}) || counted != 2 {
+		t.Errorf("user text = %q (%d counted), want each prompt once", excerpts, counted)
+	}
+}
+
+// #281 review: only a Codex approval question with its detail line under it starts an
+// assistant block. The same words in a prompt stay user text.
+func TestSendersApproval(t *testing.T) {
+	lines := []string{"› Use this question in our UI:", "  Would you like to delete the project?",
+		"  Never ask it before a preview.", "• Running rm -r build", "› Run it", "  Would you like to run the following command?",
+		"  Reason: remove the build folder?"}
+	want := []store.Sender{store.SenderUnconfirmed, store.SenderUnconfirmed, store.SenderUnconfirmed, store.SenderAssistant,
+		store.SenderUnconfirmed, store.SenderAssistant, store.SenderAssistant}
+	if got := senders("codex", lines); !slices.Equal(got, want) {
+		t.Errorf("senders = %v, want %v", got, want)
+	}
+}
