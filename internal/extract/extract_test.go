@@ -119,11 +119,17 @@ type line struct {
 	at       time.Time
 }
 
-// session stores a session of agent id with lines, a new segment at each workspace change,
-// and ends it when ended. It returns the session id and the observation ids.
+// session stores a claude session of agent id with lines, a new segment at each workspace
+// change, and ends it when ended. It returns the session id and the observation ids.
 func (f *fixture) session(id string, ended bool, lines ...line) (int64, []int64) {
 	f.t.Helper()
-	key := store.SessionKey{HerdrSession: "default", Harness: "claude", Kind: store.KeyAgent, ID: id}
+	return f.harnessSession("claude", id, ended, lines...)
+}
+
+// harnessSession is session for an agent of harness.
+func (f *fixture) harnessSession(harness, id string, ended bool, lines ...line) (int64, []int64) {
+	f.t.Helper()
+	key := store.SessionKey{HerdrSession: "default", Harness: harness, Kind: store.KeyAgent, ID: id}
 	f.panes++
 	pane := fmt.Sprintf("w1:p%d", f.panes)
 	var sid int64
