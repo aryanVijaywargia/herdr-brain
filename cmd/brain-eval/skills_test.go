@@ -114,7 +114,7 @@ func TestLoadSkillErrors(t *testing.T) {
 		{"two-line example", strings.Replace(skillFile, `"Write the release notes for v1.4.0 in your reply."`, `"a\nb"`, 1), []string{"example: want one line"}},
 		{"marker in a prompt", strings.Replace(skillFile, "explain what an index is.", "say {{marker}}.", 1), []string{`negative 1 ("skill-negative-sql")`, "ask: want no placeholder"}},
 		{"bad harness", strings.Replace(skillFile, `["claude", "codex"]`, `["gemini"]`, 1), []string{`harness "gemini"`}},
-		{"negative alone", "[[negative]]\nid = \"n\"\nask = \"hi\"\nharnesses = [\"claude\"]\n", []string{"no [[probe]] or [[skill]]"}},
+		{"negative alone", "[[negative]]\nid = \"n\"\nask = \"hi\"\nharnesses = [\"claude\"]\n", []string{"no [[probe]], [[skill]] or [[bug]]"}},
 		{"negative with a probe only", goodProbe + "[[negative]]\nid = \"n\"\nask = \"hi\"\nharnesses = [\"claude\"]\n", []string{"[[negative]] needs a [[skill]]"}},
 		{"skill stage in a probe", strings.Replace(goodProbe, `"update"`, `"skill-choice"`, 1), []string{"give its cases as [[skill]]"}},
 		{"duplicate id", skillFile + strings.Replace(goodProbe, "pm-update", "skill-negative-sql", 1), []string{`id "skill-negative-sql" is also in`}},

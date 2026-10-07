@@ -44,6 +44,8 @@ type Case struct {
 	// negative prompt.
 	Skills   []FixtureSkill
 	SkillFor string
+	// Tests are the Go tests of a regression case (E20-S1); it has no probes.
+	Tests []GoTest
 }
 
 // Probe is one prompt to a fresh official CLI.
