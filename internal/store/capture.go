@@ -64,6 +64,7 @@ const (
 const (
 	SourceHerdr = "herdr" // a pane read
 	SourceHook  = "hook"  // a CLI hook (E11-S5)
+	SourceGit   = "git"   // a revert that git shows (#283, §7.1)
 )
 
 // Sender says who wrote the text of an observation (§6.5).

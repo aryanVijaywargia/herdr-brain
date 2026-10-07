@@ -540,3 +540,54 @@ func TestClaimKeyMigration(t *testing.T) {
 		}
 	}
 }
+
+// AC #283: migration 28 keeps the observations of an older store, with their ids and the
+// links that point at them, and then takes a git observation.
+func TestGitSourceMigration(t *testing.T) {
+	dir := t.TempDir()
+	e := &evidenceStore{Store: openTest(t, dir, migrationsUpTo(t, 27)), sessions: map[string]int64{}}
+	c := Candidate{ClaimID: e.claim(t, "use pnpm"), Scope: ScopeWorkspace, WorkspaceKey: "ws-a", Kind: CandidateCorrection}
+	obs := e.observe(t, "claude", "a1", "ws-a", SenderUnconfirmed, testNow)
+	old := e.mustAttach(t, c, obs)
+	git := Observation{CaptureIdentity: "git-1", Source: SourceGit, Event: "revert", Excerpt: "a revert",
+		Status: ObservationComplete, Counts: true, At: testNow}
+	addGit := func() error {
+		var err error
+		write(t, e.Store, func(tx *sql.Tx) error {
+			var seg int64
+			if err := tx.QueryRow(`SELECT segment_id FROM observations WHERE id = ?`, obs).Scan(&seg); err != nil {
+				return err
+			}
+			git.SegmentID = seg
+			_, err = AddObservation(context.Background(), tx, git)
+			return nil
+		})
+		return err
+	}
+	if err := addGit(); err == nil {
+		t.Fatal("a git observation before migration 28 = nil error, want a CHECK error")
+	}
+	closeTest(t, e.Store)
+
+	e.Store = openTest(t, dir, migrationsUpTo(t, 28))
+	defer closeTest(t, e.Store)
+	if err := addGit(); err != nil {
+		t.Fatalf("a git observation after migration 28: %v", err)
+	}
+	got := e.mustAttach(t, c, e.observe(t, "codex", "b1", "ws-a", SenderUnconfirmed, testNow))
+	if got.ID != old.ID || got.Count != 2 {
+		t.Errorf("after migration: %+v, want candidate %d with count 2", got, old.ID)
+	}
+	if n := queryInt(t, e.Store, fmt.Sprintf(`SELECT count(*) FROM evidence_links WHERE observation_id = %d`, obs)); n != 1 {
+		t.Errorf("evidence links of observation %d = %d, want 1", obs, n)
+	}
+	if n := queryInt(t, e.Store, `SELECT count(*) FROM pragma_foreign_key_check`); n != 0 {
+		t.Errorf("foreign key check = %d rows, want 0", n)
+	}
+	if n := queryInt(t, e.Store, `SELECT count(*) FROM sqlite_schema WHERE type = 'index' AND name = 'observations_segment'`); n != 1 {
+		t.Errorf("index observations_segment: %d, want 1", n)
+	}
+	if n := queryInt(t, e.Store, `SELECT count(*) FROM pragma_foreign_key_list('evidence_links') WHERE "table" = 'observations'`); n != 1 {
+		t.Errorf("evidence_links references observations %d times, want 1", n)
+	}
+}
