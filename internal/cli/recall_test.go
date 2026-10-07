@@ -62,7 +62,7 @@ func TestRecallMatch(t *testing.T) {
 	two := add("ws_a14", "run pnpm test before a push", store.StateActive, "")
 	three := add("ws_a14", "Packaging lives in the vendor folder", store.StateActive, "")
 	add("ws_a14", "docker builds are slow", store.StateActive, "")
-	add("ws_a15", "pnpm packages of the blog", store.StateActive, "")            // another workspace
+	add("ws_a15", "pnpm packages of the blog", store.StateActive, "")               // another workspace
 	add("ws_a14", "pnpm packages pending", store.StateDraft, store.ProposalPending) // pending
 	add("ws_a14", "pnpm packages rejected", store.StateDraft, store.ProposalRejected)
 	add("", "pnpm packages retired", store.StateRetired, "")
