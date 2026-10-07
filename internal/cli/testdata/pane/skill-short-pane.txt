@@ -9,8 +9,7 @@ text:
   description: Do the deploy task.
   required-tools: none
   example: "Do it."
-  ---
-... 17 more lines: brain review 1 shows them all
+... 18 more lines: brain review 1 shows them all
 approve with scope: as proposed, pin: no, on a conflict: keep-both
 
 a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  d detail  q close

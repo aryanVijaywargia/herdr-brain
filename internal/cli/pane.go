@@ -375,8 +375,8 @@ func (p *reviewPane) draw(prompt string) {
 }
 
 // fit returns the first lines of the view that fit above foot, and a line that says how many
-// lines it leaves out. A prompt at the end of foot is one row: line keeps the text you type on
-// it. [NEW]: the rows of a long line count at the pane's width.
+// lines it leaves out. The cursor row at the end of foot holds the prompt, if any: line keeps
+// the text you type on it. [NEW]: the rows of a long line count at the pane's width.
 func (p *reviewPane) fit(foot string) string {
 	view := strings.TrimSuffix(p.view, "\n") + "\n"
 	height, width := p.dims()
@@ -390,8 +390,9 @@ func (p *reviewPane) fit(foot string) string {
 		}
 		return max(1, (utf8.RuneCountInString(line)+width-1)/width)
 	}
+	// The row after the last newline of foot counts: the cursor is on it, with the prompt.
 	free := height
-	for _, l := range strings.Split(strings.TrimSuffix(foot, "\n"), "\n") {
+	for _, l := range strings.Split(foot, "\n") {
 		free -= rows(l)
 	}
 	lines := strings.SplitAfter(strings.TrimSuffix(view, "\n"), "\n")
