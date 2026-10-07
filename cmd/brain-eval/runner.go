@@ -34,6 +34,8 @@ type Herdr interface {
 	WaitOutput(ctx context.Context, id, re string, timeout time.Duration) (string, error)
 	// StartAgent starts agent name of kind in pane id with the CLI arguments args.
 	StartAgent(ctx context.Context, name, kind, id string, args []string) error
+	// SendKeys presses keys in pane id.
+	SendKeys(ctx context.Context, id string, keys ...string) error
 	PromptAgent(ctx context.Context, target, text string, timeout time.Duration) error
 	ReadAgent(ctx context.Context, target string, lines int) (string, error)
 	ReadAgentVisible(ctx context.Context, target string) (string, error)
@@ -50,8 +52,11 @@ type Timeouts struct {
 	Start  time.Duration // an agent start, which herdr bounds at 30 s itself: 60 s
 	Prompt time.Duration // one probe prompt, until the agent is done: 5 min
 	Step   time.Duration // one setup step: 60 s
-	Exit   time.Duration // the exit of the last case's processes: 10 s
-	Poll   time.Duration // the check interval of that wait: 100 ms
+	// Map is the wait until a new case workspace is mapped. herdr saves a new workspace
+	// about 5 s after it creates it (HLD §11): 30 s.
+	Map  time.Duration
+	Exit time.Duration // the exit of the last case's processes: 10 s
+	Poll time.Duration // the check interval of the waits: 100 ms
 }
 
 // defaultTimeouts are the Timeouts of a real run. [NEW]
@@ -60,6 +65,7 @@ var defaultTimeouts = Timeouts{
 	Start:  60 * time.Second,
 	Prompt: 5 * time.Minute,
 	Step:   60 * time.Second,
+	Map:    30 * time.Second,
 	Exit:   10 * time.Second,
 	Poll:   100 * time.Millisecond,
 }

@@ -57,13 +57,6 @@ func startArgs(p *adapter.Profile, dir string, setup bool) ([]string, error) {
 // pane gets prompt and works until it is done. skip is the reason when the CLI did not get
 // ready, for example at a dialog that the runner does not answer: the case cannot run then.
 func (r *Runner) runAgentStep(ctx context.Context, h Herdr, shell herdr.Pane, dir, name, harness, prompt string, opened *[]string) (skip string, err error) {
-	pane, err := call(ctx, r.Timeouts.Call, func(ctx context.Context) (herdr.Pane, error) {
-		return h.SplitPane(ctx, shell.ID, dir)
-	})
-	if err != nil {
-		return "", err
-	}
-	*opened = append(*opened, pane.ID)
 	p, err := adapter.LoadFS(r.Profiles, harness)
 	if err != nil {
 		return "", err
@@ -72,9 +65,7 @@ func (r *Runner) runAgentStep(ctx context.Context, h Herdr, shell herdr.Pane, di
 	if err != nil {
 		return "", err
 	}
-	if _, err := call(ctx, r.Timeouts.Start, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, h.StartAgent(ctx, name, harness, pane.ID, args)
-	}); err != nil {
+	if _, err := r.startCLI(ctx, h, shell, dir, name, harness, args, opened); err != nil {
 		if hasCode(err, "agent_not_ready") {
 			return fmt.Sprintf("the setup CLI %s did not get ready, for example at a dialog that the runner does not answer: %v", harness, err), nil
 		}
