@@ -19,8 +19,11 @@ const (
 	precedence  = `Precedence: for ordinary preferences, a workspace item wins over a global item. ` +
 		`It never relaxes a global permission or safety rule. A "conflicts with" mark wins over this line.`
 	// remember tells agents how to save a lesson; the call makes a draft (§8.1, #253).
-	remember       = `When the user asks you to remember something for later, run: brain remember "<lesson>"`
-	header         = precedence + "\n" + remember + "\n"
+	remember = `When the user asks you to remember something for later, run: brain remember "<lesson>"`
+	// recall tells agents how to find more approved items during work (§8.6, E20-S2). [NEW]
+	// the line text.
+	recall         = `To find more Brain items on a topic during work, run: brain recall <words>`
+	header         = precedence + "\n" + remember + "\n" + recall + "\n"
 	globalLabel    = "## Global (all workspaces)\n"
 	workspaceLabel = "## This workspace\n"
 	// frame is the text that every brief has around its two parts.
@@ -226,6 +229,18 @@ func part(name, label string, extra, limit int, items []Item, skills []Skill, to
 // a dispute names some of the anchors, never more, and "deleted" is the longer word.
 func markRoom(anchors []string, d Dispute) int {
 	return max(0, len(Dispute{Anchors: anchors}.mark())-len(d.mark()))
+}
+
+// Entries renders items as the brief shows them, with the same marks, in the order given:
+// brain recall prints them best match first (§8.6, E20-S2).
+func Entries(items []Item) (string, error) {
+	var b strings.Builder
+	for _, it := range items {
+		if err := writeItem(&b, it); err != nil {
+			return "", err
+		}
+	}
+	return b.String(), nil
 }
 
 // writeSkills writes the skill list, one line for each skill, or nothing when there is none.
