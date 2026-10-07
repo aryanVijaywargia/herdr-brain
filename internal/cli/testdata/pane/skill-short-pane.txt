@@ -1,0 +1,15 @@
+<clear>
+proposal 1 (pending): new item
+kind:     skill
+scope:    workspace
+target:   workspace w14 (shop)
+text:
+  ---
+  name: deploy
+  description: Do the deploy task.
+  required-tools: none
+  example: "Do it."
+... 18 more lines: brain review 1 shows them all
+approve with scope: as proposed, pin: no, on a conflict: keep-both
+
+a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  d detail  q close

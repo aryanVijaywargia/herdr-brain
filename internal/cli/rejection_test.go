@@ -150,7 +150,7 @@ func TestReviewRejectClaim(t *testing.T) {
 		t.Errorf("proposals %d, want %d: the new evidence created a proposal", after, before)
 	}
 	out = f.mustReview(t, "--rejected")
-	want := "rejection 1  workspace w14 (shop)  rejected " + testNow.Format("2006-01-02 15:04") +
+	want := "rejection 1  workspace w14 (shop)  rejected " + localTime(testNow) +
 		"  1 new evidence since (3 now, 2 then)\n" +
 		"  claim " + claim + ": When installing packages: use pnpm\n" +
 		"  reason: we use npm in shop\n" +
