@@ -269,10 +269,23 @@ func (r review) check() error {
 	return nil
 }
 
+// gates returns the gates of the config file, as the extractor reads them (§7.2, #282). A
+// config that does not read gives the default gates with a warning, so the lists still show.
+func (cl caller) gates() store.Gates {
+	g, _, err := extract.ReadConfig(cl.Config)
+	if err != nil {
+		if cl.Stderr != nil {
+			_, _ = fmt.Fprintf(cl.Stderr, "warning: %v; the review lists use the default gates\n", err)
+		}
+		return store.DefaultGates()
+	}
+	return g
+}
+
 // list prints the pending proposals that the caller sees. A proposal of a candidate below its
 // gate waits in brain review --all only (§7.2).
 func (cl caller) list(ctx context.Context) error {
-	gates := store.DefaultGates()
+	gates := cl.gates()
 	var lines []string
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		ids, err := store.PendingProposalIDs(ctx, tx)
@@ -1077,7 +1090,7 @@ func (cl caller) listRetired(ctx context.Context) error {
 // (§7.2). It changes nothing: a candidate becomes an item only through a proposal that you
 // approve.
 func (cl caller) listCandidates(ctx context.Context) error {
-	gates := store.DefaultGates()
+	gates := cl.gates()
 	var lines []string
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		cs, err := store.Candidates(ctx, tx)

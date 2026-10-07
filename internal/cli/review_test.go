@@ -787,4 +787,11 @@ func TestReviewAll(t *testing.T) {
 		t.Errorf("after --all: %d items, %d proposals; want %d, %d: nothing becomes active without approval", i, p, items, proposals)
 	}
 	closeStore(t, s)
+	// The gates of the config file count (#282): failure needs 3 sessions here.
+	if err := os.WriteFile(f.env(f.sock, "w14:p1", "w14", nil).Config, []byte("[gates]\nfailure = 3\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out := f.mustReview(t, "--all"); !strings.Contains(out, "failure  1 occurrences in 1 sessions  codex  last seen "+seen+"  below gate (1 of 3 sessions)") {
+		t.Errorf("--all with gates.failure = 3 printed\n%s\nwant below gate (1 of 3 sessions)", out)
+	}
 }
