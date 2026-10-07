@@ -1,0 +1,116 @@
+E11-S1c (#285): Codex hook payloads, live. codex-cli 0.160.1, herdr 0.9.3. HLD §17 item 14, §6.1, §6.7.
+Date: 2026-10-07. The M2 test Mac, test herdr session brain-eval, a workspace and a test folder
+(~/brain-eval/t0134/work, a git folder with sub/ and notes-zk.txt) that this test made. Model
+gpt-6.1-sol, effort high, permission_mode "default". Folder trust came from -c projects=... on the
+command line, as the eval runner gives it. No --dangerously-bypass-hook-trust, no trusted_hash setting.
+The home path is written as "~". The tool_response of the two list_mcp_resources calls is cut.
+
+== 1. Method
+A recorder script saved the stdin of each hook run to a file and printed nothing (exit 0):
+  #!/bin/sh
+  d="$HOME/brain-eval/t0134/payloads"
+  n="$1-$(date +%s)-$$"
+  cat > "$d/$n.json"
+  echo "$(date +%s) $1 pane=${HERDR_PANE_ID:-none} socket=${HERDR_SOCKET_PATH:+set} file=$n.json" >> "$d/index.log"
+  exit 0
+~/.codex/hooks.json got 4 temporary entries next to the 2 SessionStart entries (herdr, Brain):
+  UserPromptSubmit: rec.sh prompt
+  PostToolUse:      rec.sh tool-all (no matcher), and rec.sh tool-bash with "matcher": "Bash"
+  Stop:             rec.sh stop
+At start, Codex showed "Hooks need review / 4 hooks are new or changed". In "1. Review hooks"
+(/hooks screen), each of the 4 entries was trusted with "t", one at a time. The SessionStart row
+showed "2 installed, 2 active, 0 review": the existing entries kept their trust.
+After the test, the byte copy of ~/.codex/hooks.json from before the test was put back
+(sha256 the same as before). Codex keeps hook trust in its config.toml (E8-S3); this test did not
+read that file. The trust of the 4 removed entries can stay there; it trusts no other entry.
+
+== 2. Turns
+T1 "Repeat this whole message back to me exactly, ... Do not use any tool: qx-4410 blue river 7."
+T2 "Read @notes-zk.txt and quote its marker line. Do not run any shell command." (typed with send-text;
+   the @ file popup did not change the text)
+T3 three shell commands: "cd sub && pwd && ls nosuchfile-zq ." (ls fails), "pwd" with the workdir
+   of the tool call set to sub (not cd), "git status --short".
+T4 one long command: "sleep 15 && echo long-zq-done ." (longer than the first exec yield)
+T5 "sleep 40 && echo late-zq ." stopped with Esc after 14 s.
+
+== 3. Facts
+- Every hook run had HERDR_PANE_ID (the Codex pane) and HERDR_SOCKET_PATH in its environment.
+- All payloads: session_id, turn_id, transcript_path, cwd, hook_event_name, model, permission_mode.
+  session_id is the same in all turns: the Codex thread id ("codex resume <id>").
+  cwd is the folder where Codex started, in every payload.
+- UserPromptSubmit: "prompt" is the text as typed. The @-mention stays "@notes-zk.txt"; the file
+  text is not in the prompt.
+- A UserPromptSubmit hook with no output leaves the prompt unchanged: in T1 the reply
+  (last_assistant_message) is the prompt, character for character.
+- PostToolUse fires for every tool: also list_mcp_resources, list_mcp_resource_templates and
+  mcp__node_repl__js (T2: Codex read the file with node, "Read notes-zk.txt without a shell").
+  Those have no tool_input.command. The shell tool has tool_name "Bash". The entry with no matcher
+  ran for all 8 tool calls; the "Bash" matcher entry ran only for the 4 shell commands.
+- Shell PostToolUse: tool_input = {"command": "<the whole command string>"} only. No workdir, no
+  exit code, no duration. tool_response is a string with the output.
+- The failing "ls nosuchfile-zq" (T3) fired PostToolUse as a normal command. Codex has no
+  PostToolUseFailure event (the /hooks list: PreToolUse, PermissionRequest, PostToolUse, PreCompact,
+  PostCompact, SessionStart, SessionEnd, UserPromptSubmit, SubagentStart, SubagentStop, Stop).
+- The top-level cwd stays the turn cwd: "cd sub" in the command and the workdir of the tool call
+  (T3, pwd printed .../work/sub) do not change it.
+- The long command (T4) fired one PostToolUse, after the end, with the whole command.
+- Stop: last_assistant_message is the final reply text only, with its blank lines (T3), not the
+  "Ran ..." lines. stop_hook_active false. One Stop per finished turn.
+- T5, stopped with Esc: no Stop and no PostToolUse. The null last_assistant_message of the Codex
+  source (e11s1-codex-hooks.txt) was not seen.
+- Codex warned at start: "Running without the shared background server: command-line configuration
+  overrides (-c, --enable, --disable, or --search) requires embedded mode." (a -c argument).
+
+== 4. Profile result (adapters/codex.toml)
+The facts match the profile paths: input.prompt = "prompt", input.command = "tool_input.command",
+input.cwd = "cwd", input.reply = "last_assistant_message". The hook records go on:
+events.prompt = "UserPromptSubmit", events.tool = ["PostToolUse"], events.tool_matcher = "Bash",
+events.stop = "Stop". The command record has no exit status, and its cwd is the turn cwd.
+internal/hook/testdata/codex-0.160.1 holds payloads of this test; TestRecordCodex feeds them to
+`brain hook --profile codex`.
+
+== 5. Hook runs (seconds after the first; event, pane, file)
++  0s prompt pane=wX:p1 prompt-1791380444-45002.json
++  5s stop pane=wX:p1 stop-1791380449-45006.json
++ 50s prompt pane=wX:p1 prompt-1791380494-45910.json
++ 56s tool-all pane=wX:p1 tool-all-1791380500-45918.json
++ 57s tool-all pane=wX:p1 tool-all-1791380501-45922.json
++ 64s tool-all pane=wX:p1 tool-all-1791380508-45927.json
++ 77s tool-all pane=wX:p1 tool-all-1791380521-46085.json
++ 81s stop pane=wX:p1 stop-1791380525-46377.json
++119s prompt pane=wX:p1 prompt-1791380563-47275.json
++124s tool-bash pane=wX:p1 tool-bash-1791380568-47281.json
++124s tool-all pane=wX:p1 tool-all-1791380568-47280.json
++128s tool-all pane=wX:p1 tool-all-1791380572-47299.json
++128s tool-bash pane=wX:p1 tool-bash-1791380572-47300.json
++136s tool-bash pane=wX:p1 tool-bash-1791380580-47310.json
++136s tool-all pane=wX:p1 tool-all-1791380580-47309.json
++141s stop pane=wX:p1 stop-1791380585-47318.json
++202s prompt pane=wX:p1 prompt-1791380646-48381.json
++225s tool-all pane=wX:p1 tool-all-1791380669-48394.json
++225s tool-bash pane=wX:p1 tool-bash-1791380669-48395.json
++233s stop pane=wX:p1 stop-1791380677-48423.json
++262s prompt pane=wX:p1 prompt-1791380706-49347.json
+
+== 6. Payloads (file name, then the stdin as one JSON line)
+prompt-1791380444-45002.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a11698-518f-7f43-ad48-a632d7773e37","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"UserPromptSubmit","model":"gpt-6.1-sol","permission_mode":"default","prompt":"Repeat this whole message back to me exactly, character for character, and nothing else. Do not use any tool: qx-4410 blue river 7."}
+stop-1791380449-45006.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a11698-518f-7f43-ad48-a632d7773e37","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"Stop","model":"gpt-6.1-sol","permission_mode":"default","stop_hook_active":false,"last_assistant_message":"Repeat this whole message back to me exactly, character for character, and nothing else. Do not use any tool: qx-4410 blue river 7."}
+prompt-1791380494-45910.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a11699-1771-7cc1-8d08-bee6f51c8598","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"UserPromptSubmit","model":"gpt-6.1-sol","permission_mode":"default","prompt":"Read @notes-zk.txt and quote its marker line. Do not run any shell command."}
+tool-all-1791380500-45918.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a11699-1771-7cc1-8d08-bee6f51c8598","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"PostToolUse","model":"gpt-6.1-sol","permission_mode":"default","tool_name":"list_mcp_resources","tool_input":{},"tool_response":"[cut: the list of Codex app connectors]","tool_use_id":"exec-60c9e95c-5db7-4e81-b924-6f5b99264782"}
+tool-all-1791380501-45922.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a11699-1771-7cc1-8d08-bee6f51c8598","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"PostToolUse","model":"gpt-6.1-sol","permission_mode":"default","tool_name":"list_mcp_resource_templates","tool_input":{},"tool_response":"[cut: the list of Codex app connectors]","tool_use_id":"exec-51bcde5d-d1ae-44e4-8243-22e5cbcf0b1b"}
+tool-all-1791380508-45927.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a11699-1771-7cc1-8d08-bee6f51c8598","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"PostToolUse","model":"gpt-6.1-sol","permission_mode":"default","tool_name":"list_mcp_resources","tool_input":{},"tool_response":"[cut: the list of Codex app connectors]","tool_use_id":"exec-f1ac3089-551e-438f-a75a-34dedc271542"}
+tool-all-1791380521-46085.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a11699-1771-7cc1-8d08-bee6f51c8598","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"PostToolUse","model":"gpt-6.1-sol","permission_mode":"default","tool_name":"mcp__node_repl__js","tool_input":{"code":"var notesZk = await (await import('node:fs/promises')).readFile('~/brain-eval/t0134/work/notes-zk.txt', 'utf8'); nodeRepl.write(notesZk);","title":"Read notes-zk.txt without a shell"},"tool_response":{"content":[{"type":"text","text":"marker: qz-6612\n"}],"isError":false,"_meta":{"codex/nodeReplExecutionDurationMs":2}},"tool_use_id":"exec-01a4a156-04fa-4890-8949-9bb26c830981"}
+stop-1791380525-46377.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a11699-1771-7cc1-8d08-bee6f51c8598","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"Stop","model":"gpt-6.1-sol","permission_mode":"default","stop_hook_active":false,"last_assistant_message":"> marker: qz-6612"}
+prompt-1791380563-47275.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a1169a-2455-75d3-a6df-da96ecc39adb","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"UserPromptSubmit","model":"gpt-6.1-sol","permission_mode":"default","prompt":"Run these shell commands, one tool call each, in this order. 1: cd sub && pwd && ls nosuchfile-zq . 2: pwd, with the working directory of the tool call set to the sub folder (use the workdir option of the tool, not cd). 3: git status --short. Then reply with the word zr-5531 and one short sentence."}
+tool-bash-1791380568-47281.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a1169a-2455-75d3-a6df-da96ecc39adb","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"PostToolUse","model":"gpt-6.1-sol","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"cd sub && pwd && ls nosuchfile-zq ."},"tool_response":"~/brain-eval/t0134/work/sub\nls: nosuchfile-zq: No such file or directory\n.:\nreadme.txt\n","tool_use_id":"exec-fad826c0-8537-4761-bbf6-333ba69e76cd"}
+tool-all-1791380568-47280.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a1169a-2455-75d3-a6df-da96ecc39adb","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"PostToolUse","model":"gpt-6.1-sol","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"cd sub && pwd && ls nosuchfile-zq ."},"tool_response":"~/brain-eval/t0134/work/sub\nls: nosuchfile-zq: No such file or directory\n.:\nreadme.txt\n","tool_use_id":"exec-fad826c0-8537-4761-bbf6-333ba69e76cd"}
+tool-all-1791380572-47299.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a1169a-2455-75d3-a6df-da96ecc39adb","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"PostToolUse","model":"gpt-6.1-sol","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"pwd"},"tool_response":"~/brain-eval/t0134/work/sub\n","tool_use_id":"exec-e2465ca2-f652-4777-8f82-289e73165682"}
+tool-bash-1791380572-47300.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a1169a-2455-75d3-a6df-da96ecc39adb","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"PostToolUse","model":"gpt-6.1-sol","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"pwd"},"tool_response":"~/brain-eval/t0134/work/sub\n","tool_use_id":"exec-e2465ca2-f652-4777-8f82-289e73165682"}
+tool-bash-1791380580-47310.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a1169a-2455-75d3-a6df-da96ecc39adb","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"PostToolUse","model":"gpt-6.1-sol","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"git status --short"},"tool_response":"","tool_use_id":"exec-66f0e945-5c07-4099-acc5-2143b92d0fe9"}
+tool-all-1791380580-47309.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a1169a-2455-75d3-a6df-da96ecc39adb","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"PostToolUse","model":"gpt-6.1-sol","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"git status --short"},"tool_response":"","tool_use_id":"exec-66f0e945-5c07-4099-acc5-2143b92d0fe9"}
+stop-1791380585-47318.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a1169a-2455-75d3-a6df-da96ecc39adb","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"Stop","model":"gpt-6.1-sol","permission_mode":"default","stop_hook_active":false,"last_assistant_message":"zr-5531\n\nAll three commands ran in order; the first reported the missing file, and Git status was clean."}
+prompt-1791380646-48381.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a1169b-682f-7b30-b91e-b614f9b2f36a","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"UserPromptSubmit","model":"gpt-6.1-sol","permission_mode":"default","prompt":"Run this exact shell command as one tool call: sleep 15 && echo long-zq-done . Then reply with only the word zr-6620."}
+tool-all-1791380669-48394.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a1169b-682f-7b30-b91e-b614f9b2f36a","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"PostToolUse","model":"gpt-6.1-sol","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"sleep 15 && echo long-zq-done ."},"tool_response":"long-zq-done .\n","tool_use_id":"exec-0b4d7ed6-7597-4e6f-b473-d9acbb8c0dc9"}
+tool-bash-1791380669-48395.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a1169b-682f-7b30-b91e-b614f9b2f36a","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"PostToolUse","model":"gpt-6.1-sol","permission_mode":"default","tool_name":"Bash","tool_input":{"command":"sleep 15 && echo long-zq-done ."},"tool_response":"long-zq-done .\n","tool_use_id":"exec-0b4d7ed6-7597-4e6f-b473-d9acbb8c0dc9"}
+stop-1791380677-48423.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a1169b-682f-7b30-b91e-b614f9b2f36a","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"Stop","model":"gpt-6.1-sol","permission_mode":"default","stop_hook_active":false,"last_assistant_message":"zr-6620"}
+prompt-1791380706-49347.json {"session_id":"01a11696-1fa6-76e0-849b-bdab339a772f","turn_id":"01a1169c-53d8-7ec2-8637-3ac0a2404763","transcript_path":"~/.codex/sessions/2026/10/07/rollout-2026-10-07T19-08-19-01a11696-1fa6-76e0-849b-bdab339a772f.jsonl","cwd":"~/brain-eval/t0134/work","hook_event_name":"UserPromptSubmit","model":"gpt-6.1-sol","permission_mode":"default","prompt":"Run this exact shell command as one tool call: sleep 40 && echo late-zq . Then reply with only the word zr-7730."}
