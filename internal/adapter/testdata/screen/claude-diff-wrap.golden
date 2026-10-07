@@ -1,0 +1,7 @@
+⏺ Update(src/server.js)
+  ⎿  Updated src/server.js with 2 additions
+⏺ Bash(npm test)
+  ⎿  Error: Exit code 1
+     not ok 3 - POST /notes without a title
+       error: expected 400, got 500
+⏺ One test fails.

@@ -40,15 +40,24 @@ tested_version = "2.1.283"
 # folder), the mode line of another mode and the shortcut hint.
 noise_lines = ['[·✢✳✶✻✽*] \S+….*', '[·✢✳✶✻✽*] \S+ for .* · done .*', '❯', '─+', '.* \| ctx:.*', '\s*⏸ .*',
   '\s*[▐▛▜▌▝▘▗▖▙▟▀▄█][▐▛▜▌▝▘▗▖▙▟▀▄█ ]*\s{2,}.*', '\s*⏵⏵ .*', '\s*\? for shortcuts.*',
-# Claude Code 2.1.292 (#281, M2 eval run 2026-10-07): the lines of a code diff in the agent
-# output (a line number, then +, - or a space), the cut mark of a diff, and the folded shell
-# commands. Under a prompt they were stored as user text.
-  '\s{4,}\d+ [-+ ].*', '\s{4,}\.\.\.', '  Ran \d+ shell commands?(?:, .*)?']
+# Claude Code 2.1.292 (#281, M2 eval run 2026-10-07): the cut mark of a code diff in the agent
+# output, and the folded shell commands. Under a prompt they were stored as user text.
+  '\s{4,}\.\.\.', '  Ran \d+ shell commands?(?:, .*)?',
+# Claude Code 2.1.292 (#291, M2 eval run): an announcement line, the effort line at the right
+# of the prompt box (spike/m0/e17s2/data/screens.txt) for each effort, and the placeholder of
+# the empty prompt box. They were stored as user text.
+  '\s*▎ .*', '\s*[○◔◐◑◕●] \S+ · /effort', '❯ Try "[^"]*"']
 # The screen parts of more than one line (#258): a tip, also when it wraps in a narrow column,
 # and the welcome box with its two columns. Claude 2.1.284 puts a no-break space before "Tip:"
 # (internal/brained/testdata/claude-s31-0-base.txt).
 noise_blocks = [
   { start = '\s*⎿[\s\x{a0}]+Tip: .*', next = '\s{5}\S.*' },
+  # The lines of a code diff in the agent output (#281): a line number, then +, - or a space.
+  # A long diff line wraps onto a line with no number (#291); its text, such as "error:", made
+  # a failure signal under the tool mark. [NEW: no wrap is recorded] The number takes at least
+  # 8 columns before the +, so a wrapped line starts at column 8 or more; the tool output
+  # under ⎿ starts at column 5. A cut mark keeps the block open.
+  { start = '\s{4,}\d+ [-+ ].*', next = '\s{8,}\S.*|\s{4,}\.\.\.' },
   { start = '\s*╭─+ Claude Code .*╮', next = '\s*[│╰].*' },
   # The folder trust dialog of Claude Code 2.1.292 (#281, M2 eval run): its lines start with
   # one space, and its choices come after the ❯ cursor or under it. A wrapped line starts in

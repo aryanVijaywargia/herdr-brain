@@ -1,0 +1,14 @@
+• Edited src/server.js (+2 -0)
+  └ src/server.js (+2 -0)
+    57      if (!body.title) {
+    58 +      return badRequest(req, res, 'error: missing title in the
+              request body');
+    ⋮
+    90 +  // error: a title that is not a string gets a 400 with a
+              JSON body.
+
+• Ran npm test
+  └ not ok 3 - POST /notes without a title
+    error: expected 400, got 500
+
+• One test fails.

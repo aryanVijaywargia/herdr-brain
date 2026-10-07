@@ -1,0 +1,6 @@
+› Use the high effort from now on.
+
+• Model changed to gpt-6.1-sol high.
+  └ Tip: Use /model to change the effort again.
+
+› Run the tests.
