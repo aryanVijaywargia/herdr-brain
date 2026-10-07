@@ -413,13 +413,7 @@ func fitView(view, foot string, height, width int, more string) string {
 	if height <= 0 {
 		return view
 	}
-	rows := func(line string) int {
-		line = strings.TrimSuffix(line, "\n")
-		if width <= 0 {
-			return 1
-		}
-		return max(1, (utf8.RuneCountInString(line)+width-1)/width)
-	}
+	rows := func(line string) int { return lineRows(line, width) }
 	// The row after the last newline of foot counts: the cursor is on it, with the prompt.
 	free := height
 	for _, l := range strings.Split(foot, "\n") {
@@ -442,6 +436,15 @@ func fitView(view, foot string, height, width int, more string) string {
 		used += rows(lines[n])
 		n++
 	}
+}
+
+// lineRows is the rows that line takes in a pane of width columns; 0 columns counts one row.
+func lineRows(line string, width int) int {
+	line = strings.TrimSuffix(line, "\n")
+	if width <= 0 {
+		return 1
+	}
+	return max(1, (utf8.RuneCountInString(line)+width-1)/width)
 }
 
 // dims returns the rows and the columns of the pane, or 0, 0 when the pane has no size.

@@ -21,7 +21,7 @@ import (
 // Ctrl+N) choose, Enter shows, Esc goes back or closes.
 const (
 	recallSearchKeys = "type words  Up/Down choose  Enter show  Esc close"
-	recallItemKeys   = "Esc back  q close"
+	recallItemKeys   = "Up/Down scroll  Esc back  q close"
 	keyCtrlN         = 0x0e
 	keyCtrlP         = 0x10
 )
@@ -48,7 +48,7 @@ func recallPopup(ctx context.Context, e Env, keys *bufio.Reader, size func() (ro
 		return p.fail(err)
 	}
 	// No output repair: the popup changes no data (E20-S3 AC 4).
-	c, err := e.open(ctx, false)
+	c, err := e.open(ctx, openRead)
 	if err != nil {
 		return p.fail(err)
 	}
@@ -98,6 +98,7 @@ type recallPane struct {
 	hits  []recallHit
 	sel   int
 	view  string // the full view of the chosen item; "" shows the search
+	top   int    // the first line of view that shows
 	msg   string // an error of the last search or view
 	size  func() (rows, cols int)
 }
@@ -120,6 +121,10 @@ func (p *recallPane) run(ctx context.Context) error {
 				return nil
 			case keyEsc, keyDel, keyBS, '\r', '\n':
 				p.view = ""
+			case keyUp, keyCtrlP:
+				p.top = max(0, p.top-1)
+			case keyDown, keyCtrlN:
+				p.top = min(strings.Count(p.view, "\n")-1, p.top+1)
 			}
 			continue
 		}
@@ -169,6 +174,10 @@ func (p *recallPane) searchKey(ctx context.Context, k rune) (done bool) {
 	case k == '\r' || k == '\n':
 		if len(p.hits) > 0 {
 			p.view, p.msg = p.show(ctx, p.hits[p.sel].item)
+			p.top = 0
+		}
+		if p.msg != "" {
+			p.hits, p.sel = nil, 0 // a moved pane must not see the old list again
 		}
 		return false
 	case k == keyDel || k == keyBS:
@@ -199,6 +208,11 @@ func (p *recallPane) search(ctx context.Context, query string) ([]recallHit, err
 	}
 	var hits []recallHit
 	err := p.cl.Store.Write(ctx, func(tx *sql.Tx) error {
+		// The pane can move to another workspace while the popup is open, so check it again
+		// before each read, as brain recall does (§8.6).
+		if err := p.cl.recheck(ctx, p.cl.Call); err != nil {
+			return err
+		}
 		items, _, err := recallItems(ctx, tx, p.cl.Call, words)
 		if err != nil {
 			return err
@@ -222,6 +236,9 @@ func (p *recallPane) search(ctx context.Context, query string) ([]recallHit, err
 func (p *recallPane) show(ctx context.Context, h brief.Item) (view, msg string) {
 	var b strings.Builder
 	err := p.cl.Store.Write(ctx, func(tx *sql.Tx) error {
+		if err := p.cl.recheck(ctx, p.cl.Call); err != nil {
+			return err
+		}
 		it, cur, err := p.cl.item(ctx, tx, h.ID)
 		if err != nil {
 			return err
@@ -286,36 +303,82 @@ func (p *recallPane) draw() {
 	if p.size != nil {
 		rows, cols = p.size()
 	}
-	var body, foot strings.Builder
+	var foot strings.Builder
 	if p.msg != "" {
 		fmt.Fprintf(&foot, "\n%s\n", strings.TrimSpace(p.msg))
 	}
+	var body string
 	if p.view != "" {
 		fmt.Fprintf(&foot, "\n%s\n", recallItemKeys)
-		_, _ = io.WriteString(p.out, clearScreen+fitView(p.view, foot.String(), rows, cols, "")+foot.String()) // as in reviewPane.draw
-		return
+		lines := strings.SplitAfter(strings.TrimSuffix(p.view, "\n"), "\n")
+		p.top = min(p.top, lastTop(lines, foot.String(), rows, cols))
+		body = strings.Join(lines[p.top:], "")
+		if p.top > 0 {
+			body = fmt.Sprintf("... %d more lines above\n", p.top) + body
+		}
+		body = fitView(body, foot.String(), rows, cols, ": Down shows them")
+	} else {
+		fmt.Fprintf(&foot, "\n%s\n", recallSearchKeys)
+		body = p.list(rows, cols, foot.String())
 	}
+	_, _ = io.WriteString(p.out, clearScreen+body+foot.String()) // as in reviewPane.draw
+}
+
+// lastTop is the first line of the view whose lines from there to the end fit in the rows
+// above foot, with the line that counts the lines above: Down stops when the end shows.
+func lastTop(lines []string, foot string, rows, cols int) int {
+	if rows <= 0 {
+		return len(lines) - 1
+	}
+	free := rows - footRows(foot, cols) - 1 // the line that counts the lines above
+	top, used := len(lines), 0
+	for top > 0 && used+lineRows(lines[top-1], cols) <= free {
+		top--
+		used += lineRows(lines[top], cols)
+	}
+	return min(top, len(lines)-1)
+}
+
+// footRows is the rows that foot takes, with the cursor row after its last newline, as
+// fitView counts them.
+func footRows(foot string, cols int) int {
+	n := 0
+	for _, l := range strings.Split(foot, "\n") {
+		n += lineRows(l, cols)
+	}
+	return n
+}
+
+// list is the search screen above foot: the heading, the words, and the hits that fit, with the
+// chosen one always among them.
+func (p *recallPane) list(rows, cols int, foot string) string {
+	var b strings.Builder
 	// The same scope rule as brain recall: a workspace with no key gets the global items only.
 	scope := "the global items only: this workspace has no Brain key"
 	if p.cl.key != "" {
 		scope = "the global items and the items of " + p.cl.target(store.ScopeWorkspace)
 	}
-	fmt.Fprintf(&body, "Brain recall: %s\nwords: %s\n", scope, string(p.query))
+	fmt.Fprintf(&b, "Brain recall: %s\nwords: %s\n", scope, string(p.query))
 	switch {
 	case len(recallWords(string(p.query))) == 0:
-		body.WriteString("type words to search the approved items\n")
+		b.WriteString("type words to search the approved items\n")
 	case len(p.hits) == 0 && p.msg == "":
-		fmt.Fprintf(&body, "no Brain item matches %q\n", strings.Join(recallWords(string(p.query)), " "))
+		fmt.Fprintf(&b, "no Brain item matches %q\n", strings.Join(recallWords(string(p.query)), " "))
 	}
-	for i, h := range p.hits {
+	// Each hit takes one row: cut keeps it to the width.
+	free := max(1, len(p.hits))
+	if rows > 0 {
+		free = max(1, rows-footRows(b.String()+foot, cols))
+	}
+	first := max(0, p.sel-free+1)
+	for i, h := range p.hits[first:min(len(p.hits), first+free)] {
 		mark := "  "
-		if i == p.sel {
+		if first+i == p.sel {
 			mark = "> "
 		}
-		body.WriteString(cut(fmt.Sprintf("%s[%d] %s: %s", mark, h.item.ID, h.scope, oneLine(h.item.Text)), cols) + "\n")
+		b.WriteString(cut(fmt.Sprintf("%s[%d] %s: %s", mark, h.item.ID, h.scope, oneLine(h.item.Text)), cols) + "\n")
 	}
-	fmt.Fprintf(&foot, "\n%s\n", recallSearchKeys)
-	_, _ = io.WriteString(p.out, clearScreen+fitView(body.String(), foot.String(), rows, cols, "")+foot.String()) // as in reviewPane.draw
+	return b.String()
 }
 
 // cut returns line cut to fit cols columns, with "..." at the end of a cut line; 0 cols keeps

@@ -152,3 +152,16 @@ func TestManifestRecallAction(t *testing.T) {
 		t.Errorf("recall pane = %v, want a popup that runs bin/brain pane recall", pane)
 	}
 }
+
+// E20-S3 AC 5: HLD §4.1 lists the recall popup as a surface, with its action.
+func TestHLDRecallPopup(t *testing.T) {
+	b, err := os.ReadFile("../../docs/design/HLD.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, sec, _ := strings.Cut(string(b), "### 4.1 Components\n")
+	sec, _, _ = strings.Cut(sec, "\n### ")
+	if !strings.Contains(sec, "\n| Recall popup | The plugin action `brain.recall` opens a herdr popup") {
+		t.Errorf("HLD §4.1 =\n%s\nwant the Recall popup row", sec)
+	}
+}

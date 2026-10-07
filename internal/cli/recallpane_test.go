@@ -6,12 +6,15 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
+	"github.com/aryanVijaywargia/herdr-brain/internal/resolver"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
@@ -27,6 +30,17 @@ func (f *fixture) popupEnviron(paneID, ws string) []string {
 // popup runs the recall popup with environ and the keys, in a screen of rows and cols, and
 // returns its last screen.
 func (f *fixture) popup(t *testing.T, environ []string, keys string, rows, cols int) (string, error) {
+	t.Helper()
+	// The popup does not sync the workspace map (it writes nothing): an earlier brain call
+	// gives the map its herdr labels, as in real use.
+	if _, err := f.review(t); err != nil {
+		t.Fatal(err)
+	}
+	return f.popupOnly(t, environ, keys, rows, cols)
+}
+
+// popupOnly is popup with no brain call before it.
+func (f *fixture) popupOnly(t *testing.T, environ []string, keys string, rows, cols int) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
 	e := f.env(f.sock, "", "", &out)
@@ -198,30 +212,73 @@ func TestRecallPopupItemSource(t *testing.T) {
 }
 
 // AC 4 (E20-S3): the popup changes no data: no recall record, even with a receipt that brain
-// recall records on, and no other row.
+// recall records on, no workspace map sync (a later clock would show), no agent check of the
+// pane, and no other row or map change.
 func TestRecallPopupNoChange(t *testing.T) {
 	f := newFixture(t)
 	f.approvedWithSecret(t, "text")
 	recallItem(t, f, "", "use pnpm everywhere", store.StateActive, "")
+	if _, err := f.review(t); err != nil {
+		t.Fatal(err)
+	}
 	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
-		session, agent := "default", "a"
-		_, err := store.InsertDelivery(ctx, tx, store.Delivery{Profile: "claude", HerdrSession: &session, PaneID: "w14:p1",
-			AgentSessionID: &agent, ItemRevisions: []store.RevisionRef{}, Result: store.ResultEmitted, At: testNow})
-		return err
+		session := "default"
+		for _, agent := range []string{"a", "b"} {
+			d := store.Delivery{Profile: "claude", HerdrSession: &session, PaneID: "w14:p1", AgentSessionID: &agent,
+				ItemRevisions: []store.RevisionRef{}, Result: store.ResultEmitted, At: testNow}
+			id, err := store.InsertDelivery(ctx, tx, d)
+			if err != nil {
+				return err
+			}
+			if agent == "b" {
+				// A pending agent check: the next brain call that writes checks it.
+				if _, err := tx.ExecContext(ctx, `UPDATE deliveries SET agent_check = ? WHERE id = ?`, resolver.AgentPending, id); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
 	})
 	p := f.panes["w14:p1"]
 	p.AgentSession = &herdr.AgentSession{Agent: "claude", Kind: "id", Value: "a"}
 	f.panes["w14:p1"] = p
-	before := f.dump(t, f.tables(t)...)
-	if _, err := f.popup(t, f.popupEnviron("w14:p1", "w14"), "pnpm\x1b[B\r\x1bpnpm\r", 0, 0); err != nil {
+	before, beforeMap := f.dump(t, f.tables(t)...), string(readFile(t, filepath.Join(f.store, "workspaces.json")))
+	syncs := f.syncs
+	if _, err := f.popupOnly(t, f.popupEnviron("w14:p1", "w14"), "pnpm\x1b[B\r\x1b[B\x1bpnpm\r", 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	if after := f.dump(t, f.tables(t)...); after != before {
 		t.Errorf("store after the popup =\n%s\nwant it as before:\n%s", after, before)
 	}
-	// brain recall from the same pane records on that receipt: the popup did not.
+	if got := string(readFile(t, filepath.Join(f.store, "workspaces.json"))); got != beforeMap || f.syncs != syncs {
+		t.Errorf("popup synced the workspace map (%d syncs, map changed: %t), want no sync", f.syncs-syncs, got != beforeMap)
+	}
+	// brain recall from the same pane records on the receipt of agent a: the popup did not.
 	if _, _, err := f.recall(t, "w14:p1", "w14", "pnpm"); err != nil || len(f.recalls(t)) != 1 {
 		t.Errorf("Recall() = %v, recalls = %v, want one row", err, f.recalls(t))
+	}
+}
+
+// The popup checks its pane again before each read (§8.6): a pane that moved to another
+// workspace gets no item of its old workspace.
+func TestRecallPopupRecheck(t *testing.T) {
+	f := newFixture(t)
+	shop := recallItem(t, f, "ws_a14", "pnpm in shop", store.StateActive, "")
+	if _, err := f.review(t); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	e := f.env(f.sock, "", "", &out)
+	e.Environ = f.popupEnviron("w14:p1", "w14")
+	// The popup opens, then the pane moves before the first key.
+	keys := &firstRead{Reader: strings.NewReader("pnpm"), fn: func() {
+		f.panes["w14:p1"] = herdr.Pane{ID: "w14:p1", WorkspaceID: "w20", TabID: "w20:t1"}
+	}}
+	err := recallPopup(context.Background(), e, bufio.NewReader(keys), func() (int, int) { return 0, 0 })
+	screen := out.String()
+	last := screen[strings.LastIndex(screen, clearScreen):]
+	if err != nil || !strings.Contains(last, "moved to workspace w20") || strings.Contains(last, fmt.Sprintf("[%d]", shop)) {
+		t.Errorf("popup after a move = %v, screen =\n%s\nwant the move error and no shop item", err, last)
 	}
 }
 
@@ -287,7 +344,7 @@ func TestRecallPopupCut(t *testing.T) {
 	if n := screenRows(screen, 60); n > 8 {
 		t.Errorf("screen takes %d rows, want at most 8:\n%s", n, screen)
 	}
-	if !strings.HasSuffix(screen, "\n"+recallItemKeys+"\n") || !strings.Contains(screen, "more lines\n") {
+	if !strings.HasSuffix(screen, "\n"+recallItemKeys+"\n") || !strings.Contains(screen, "more lines: Down shows them\n") {
 		t.Errorf("screen =\n%s\nwant a cut line and the keys last", screen)
 	}
 }
@@ -335,5 +392,59 @@ func TestRecallPopupDenied(t *testing.T) {
 		if err == nil || !strings.Contains(screen, err.Error()) || !strings.HasSuffix(screen, "Press a key to close.") {
 			t.Errorf("popup(%v) = %v, screen =\n%s\nwant the error and a key to close", environ, err, screen)
 		}
+	}
+}
+
+// firstRead is a reader that runs fn before its first read.
+type firstRead struct {
+	io.Reader
+	fn func()
+}
+
+func (r *firstRead) Read(b []byte) (int, error) {
+	if r.fn != nil {
+		r.fn()
+		r.fn = nil
+	}
+	return r.Reader.Read(b)
+}
+
+// AC 3 and 4 (E20-S3): Down scrolls a long item view, so its last lines show too; Up goes back.
+func TestRecallPopupScroll(t *testing.T) {
+	f := newFixture(t)
+	id := recallItem(t, f, "", "pnpm "+strings.Repeat("long ", 30)+"\nsecond "+strings.Repeat("line ", 30), store.StateActive, "")
+	end, err := f.popup(t, f.popupEnviron("w14:p1", "w14"), "pnpm\r"+strings.Repeat("\x1b[B", 10), 8, 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("change:   brain review --item %d --edit \"<text>\" | --retire", id)
+	if !strings.Contains(end, want) || !strings.Contains(end, "more lines above\n") || strings.Contains(end, "Down shows them") {
+		t.Errorf("screen after Down =\n%s\nwant the last lines, with %q", end, want)
+	}
+	if n := screenRows(end, 60); n > 8 {
+		t.Errorf("screen takes %d rows, want at most 8:\n%s", n, end)
+	}
+	top, err := f.popup(t, f.popupEnviron("w14:p1", "w14"), "pnpm\r"+strings.Repeat("\x1b[B", 10)+strings.Repeat("\x1b[A", 10), 8, 60)
+	if err != nil || !strings.HasPrefix(top, fmt.Sprintf("item %d ", id)) {
+		t.Errorf("screen after Up = %v,\n%s\nwant the first line again", err, top)
+	}
+}
+
+// A list that does not fit the popup keeps the chosen item on the screen.
+func TestRecallPopupListWindow(t *testing.T) {
+	f := newFixture(t)
+	var ids []int64
+	for i := range 10 {
+		ids = append(ids, recallItem(t, f, "", fmt.Sprintf("pnpm %d", i), store.StateActive, ""))
+	}
+	screen, err := f.popup(t, f.popupEnviron("w14:p1", "w14"), "pnpm"+strings.Repeat("\x1b[B", 9), 9, 60)
+	if err != nil || !strings.Contains(screen, fmt.Sprintf("> [%d] global: pnpm 9", ids[9])) {
+		t.Errorf("screen = %v,\n%s\nwant the last item chosen and shown", err, screen)
+	}
+	if n := screenRows(screen, 60); n > 9 {
+		t.Errorf("screen takes %d rows, want at most 9:\n%s", n, screen)
+	}
+	if got := listed(screen); len(got) == 0 || len(got) == len(ids) {
+		t.Errorf("screen lists %v, want a window of the 10 items", got)
 	}
 }

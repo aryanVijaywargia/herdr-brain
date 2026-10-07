@@ -23,7 +23,7 @@ func Extract(ctx context.Context, e Env, args []string) (err error) {
 		return err
 	}
 	// The switch touches no output, so the call does not repair it either.
-	c, err := e.open(ctx, false)
+	c, err := e.open(ctx, openNoRepair)
 	if err != nil {
 		return err
 	}
