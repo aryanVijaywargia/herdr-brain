@@ -147,21 +147,24 @@ func (c *Call) Close() error { return c.Store.Close() }
 // nothing (S64): Open returns an error. A failed repair is only a warning: the command's own
 // write does not need it, and the next call retries it.
 func (e Env) Open(ctx context.Context) (*Call, error) {
-	return e.open(ctx, true)
+	return e.open(ctx, openRepair)
 }
 
-// open is Open. With repair false it does not repair the output: brain repair repairs it
-// itself, and shows each conflict once.
-func (e Env) open(ctx context.Context, repair bool) (*Call, error) {
-	open := func(ctx context.Context, dir string) (resolver.Store, error) {
-		s, err := store.Open(ctx, dir, busyTimeout)
-		if err != nil {
-			return nil, err
-		}
-		return commandStore{s}, nil
-	}
+// openMode is what open does besides the resolve.
+type openMode int
+
+const (
+	openRepair   openMode = iota // sync the workspace map and repair the output
+	openNoRepair                 // sync only: brain repair repairs the output itself, and shows each conflict once
+	// openRead writes nothing (the recall popup, E20-S3): no sync, so the workspace map is the
+	// one that the hook reads (§8.3), no repair, and no agent check.
+	openRead
+)
+
+// open is Open, with mode.
+func (e Env) open(ctx context.Context, mode openMode) (*Call, error) {
 	rctx, cancel := context.WithTimeout(ctx, herdrDeadline)
-	res, err := resolver.New(e.Bindings, open, e.Pane).Resolve(rctx, e.Environ, "")
+	res, err := resolver.New(e.Bindings, opener(mode), e.Pane).Resolve(rctx, e.Environ, "")
 	cancel()
 	if err != nil {
 		return nil, err
@@ -178,19 +181,18 @@ func (e Env) open(ctx context.Context, repair bool) (*Call, error) {
 	default:
 		panic(fmt.Sprintf("cli: unknown resolver result %T", res))
 	}
-	cs, ok := r.Store.(commandStore)
-	if !ok {
-		panic(fmt.Sprintf("cli: resolver store is %T, want the command's own", r.Store))
-	}
-	c := &Call{Store: cs.Store, Binding: r.Binding, PaneID: r.PaneID, WorkspaceID: r.WorkspaceID,
+	c := &Call{Store: storeOf(r.Store), Binding: r.Binding, PaneID: r.PaneID, WorkspaceID: r.WorkspaceID,
 		Workspace: workspace.For(r.Binding)}
+	if mode == openRead {
+		return c, nil
+	}
 	sctx, cancel := context.WithTimeout(ctx, herdrDeadline)
 	err = e.Sync(sctx, c.Workspace, c.Store)
 	cancel()
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("sync workspace map: %w", err), c.Close())
 	}
-	if repair {
+	if mode == openRepair {
 		if err := output.Repair(ctx, c.Store, filepath.Join(r.Binding.Store, outDir), e.Now); err != nil {
 			if _, werr := fmt.Fprintf(e.Stderr, "brain: warning: output repair: %v (the next brain call retries)\n", err); werr != nil {
 				return nil, errors.Join(werr, c.Close())
@@ -203,6 +205,31 @@ func (e Env) open(ctx context.Context, repair bool) (*Call, error) {
 		return nil, errors.Join(err, c.Close())
 	}
 	return c, nil
+}
+
+// opener opens the store of a command with mode: a read opens it as a readStore.
+func opener(mode openMode) resolver.Opener {
+	return func(ctx context.Context, dir string) (resolver.Store, error) {
+		s, err := store.Open(ctx, dir, busyTimeout)
+		if err != nil {
+			return nil, err
+		}
+		if mode == openRead {
+			return readStore{commandStore{s}}, nil
+		}
+		return commandStore{s}, nil
+	}
+}
+
+// storeOf is the store that opener opened.
+func storeOf(s resolver.Store) *store.Store {
+	switch s := s.(type) {
+	case commandStore:
+		return s.Store
+	case readStore:
+		return s.Store
+	}
+	panic(fmt.Sprintf("cli: resolver store is %T, want the command's own", s))
 }
 
 // recheck asks herdr again for the calling pane, and fails when it is gone or no longer in
@@ -249,6 +276,14 @@ func (commandStore) RecordAgentSession(context.Context, string, string, string) 
 
 func (cs commandStore) UncheckedAgentSessions(ctx context.Context, session, paneID string) ([]string, error) {
 	return cs.AgentSessions(ctx, session, paneID, string(resolver.AgentPending))
+}
+
+// readStore is the store of a call that writes nothing: it leaves the agent checks of the
+// pane for the next call.
+type readStore struct{ commandStore }
+
+func (readStore) SetAgentCheck(context.Context, string, string, string, resolver.AgentCheck) error {
+	return nil
 }
 
 func (cs commandStore) SetAgentCheck(ctx context.Context, session, paneID, agentSession string, c resolver.AgentCheck) error {

@@ -45,7 +45,7 @@ type suggester struct {
 
 // run shows suggestion d, or skips it.
 func (sg suggester) run(ctx context.Context, d brained.Dispatch) (err error) {
-	c, err := sg.open(ctx, false)
+	c, err := sg.open(ctx, openNoRepair)
 	if err != nil {
 		return err
 	}

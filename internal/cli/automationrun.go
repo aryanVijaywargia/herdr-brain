@@ -124,7 +124,7 @@ func (ln launcher) run(ctx context.Context, l brained.Launch) (err error) {
 // that brained started in: brained gives the pane of the event. It returns the binding, or
 // why the run is skipped.
 func (ln launcher) check(ctx context.Context, l brained.Launch, r store.AutomationRun, a store.Automation) (_ bindings.Binding, err error) {
-	c, err := ln.open(ctx, false)
+	c, err := ln.open(ctx, openNoRepair)
 	if err != nil {
 		return bindings.Binding{}, err
 	}
