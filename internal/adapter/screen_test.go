@@ -42,11 +42,13 @@ func TestScreen(t *testing.T) {
 
 // #258 AC 3: the screen rules are profile data, so a new CLI or CLI version needs no Go
 // change: a fake profile gets its own noise blocks and side panel. A bad rule is an error.
+// #291: a blank line ends a block, unless its next matches the empty line.
 func TestScreenRules(t *testing.T) {
 	good := string(readFile(t, "fake/fake.toml"))
 	rules := `
 noise_lines = ['== status .*']
-noise_blocks = [{ start = '\+-+\+', next = '\|.*\||\+-+\+' }]
+noise_blocks = [{ start = '\+-+\+', next = '\|.*\||\+-+\+' }, { start = '<open>', next = '  .*|' },
+  { start = '<shut>', next = '  .*' }]
 side_panel = { header = '\[panel\]', min_column = 10 }
 `
 	p, err := LoadFS(fstest.MapFS{"fake.toml": {Data: []byte(good + rules)}}, "fake")
@@ -62,10 +64,16 @@ side_panel = { header = '\[panel\]', min_column = 10 }
 		"漢字 reply    panel text",
 		"| kept |",
 		"== status ok",
+		"<open>",
+		"",
+		"  dropped",
+		"<shut>",
+		"",
+		"  kept",
 		"",
 	}, "\n")
 	// The wide runes take two columns each, so the cut keeps the reply up to column 14.
-	want := []string{"> hello", "漢字 reply", "| kept |"}
+	want := []string{"> hello", "漢字 reply", "| kept |", "  kept"}
 	if got := p.Screen(screen); !slices.Equal(got, want) {
 		t.Errorf("Screen() = %q, want %q", got, want)
 	}

@@ -63,15 +63,16 @@ noise_lines = ['› Ask Codex to do anything', '\s*.* · Context \d+% (?:used|le
 # it, also when a tip wraps. A tip line at another place is text of a reply.
 # Codex 0.160.1 (#278, #281, M2 eval run): the start banner with no box (the version, the folder,
 # a welcome line and the logo), and the folder trust dialog. Each runs to the next line at
-# column 0 that is not one of its options.
+# column 0 that is not one of its options. A blank line ends a block, unless its next matches
+# the empty line: the empty last choice of next keeps the block open over it (#291).
 noise_blocks = [
-  { start = '╭─+╮', next = '[│╰].*|  \S.*' },
-  { start = '\s*>_ OpenAI Codex \(v\S+\)', next = '  .*' },
-  { start = '  Folder access', next = '  .*|› \d\. Trust .*' },
+  { start = '╭─+╮', next = '[│╰].*|  \S.*|' },
+  { start = '\s*>_ OpenAI Codex \(v\S+\)', next = '  .*|' },
+  { start = '  Folder access', next = '  .*|› \d\. Trust .*|' },
   # The lines of a code diff in the agent output (#281): a line number, then +, - or a space.
   # A long diff line wraps onto a line with no number (#291); its text, such as "error:", made
   # a failure signal under the tool mark. [NEW: no wrap is recorded] The number takes at least
   # 6 columns before the +, so a wrapped line starts at column 7 or more; the tool output
-  # under └ starts at column 4. A fold hint keeps the block open.
+  # under └ starts at column 4. A fold hint keeps the block open, and a blank line ends it.
   { start = '\s{4,}\d+ [-+ ].*', next = '\s{7,}\S.*|\s+⋮' },
 ]
