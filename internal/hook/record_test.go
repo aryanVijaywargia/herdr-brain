@@ -146,10 +146,11 @@ func TestRecord(t *testing.T) {
 	}
 }
 
-// AC #285: the codex-cli 0.160.1 payloads of the live hook test
-// (spike/m0/data/e11s1c-codex-hooks.txt) store the records that Brain needs. A prompt keeps an
-// @-mention as typed. A command record has the whole command and the turn cwd, also when the
-// command ran in another folder, and no exit status. The stop record has the reply.
+// AC #285: each codex-cli 0.160.1 payload of the live hook test that reaches `brain hook`
+// (spike/m0/data/e11s1c-codex-hooks.txt), in the order of the test, stores the record that
+// Brain needs. A prompt keeps an @-mention as typed. A command record has the whole command and
+// the turn cwd, also when the command ran in another folder, and no exit status. A stop record
+// has the reply.
 func TestRecordCodex(t *testing.T) {
 	p, err := adapter.Load("codex")
 	if err != nil {
@@ -163,52 +164,62 @@ func TestRecordCodex(t *testing.T) {
 		}
 		return raw
 	}
+	echo := "Repeat this whole message back to me exactly, character for character, and nothing else. " +
+		"Do not use any tool: qx-4410 blue river 7."
+	want := []struct {
+		event, file string
+		excerpt     string // the stored text; for a tool, also the command of its record
+	}{
+		{adapter.EventPrompt, "prompt.json", echo},
+		{adapter.EventStop, "stop-echo.json", echo},
+		{adapter.EventPrompt, "prompt-mention.json", "Read @notes-zk.txt and quote its marker line. Do not run any shell command."},
+		{adapter.EventStop, "stop-mention.json", "> marker: qz-6612"},
+		{adapter.EventPrompt, "prompt-commands.json", "Run these shell commands, one tool call each, in this order. " +
+			"1: cd sub && pwd && ls nosuchfile-zq . 2: pwd, with the working directory of the tool call set to the sub " +
+			"folder (use the workdir option of the tool, not cd). 3: git status --short. Then reply with the word " +
+			"zr-5531 and one short sentence."},
+		{adapter.EventTool, "tool-cd.json", "cd sub && pwd && ls nosuchfile-zq ."},
+		// pwd ran in the sub folder: the cwd is still the turn cwd.
+		{adapter.EventTool, "tool-workdir.json", "pwd"},
+		{adapter.EventTool, "tool-git-status.json", "git status --short"},
+		// The excerpt drops the blank line of the reply.
+		{adapter.EventStop, "stop-commands.json", "zr-5531\nAll three commands ran in order; the first reported the " +
+			"missing file, and Git status was clean."},
+		{adapter.EventPrompt, "prompt-long.json", "Run this exact shell command as one tool call: sleep 15 && echo " +
+			"long-zq-done . Then reply with only the word zr-6620."},
+		{adapter.EventTool, "tool-long.json", "sleep 15 && echo long-zq-done ."},
+		{adapter.EventStop, "stop-long.json", "zr-6620"},
+		// A turn stopped with Esc: its prompt is the last hook run.
+		{adapter.EventPrompt, "prompt-stopped.json", "Run this exact shell command as one tool call: sleep 40 && echo " +
+			"late-zq . Then reply with only the word zr-7730."},
+	}
 	f := recordFixtureOf(t, "codex")
 	clock := testNow
-	for _, r := range []struct{ event, file string }{
-		{adapter.EventPrompt, "prompt.json"},
-		{adapter.EventPrompt, "prompt-mention.json"},
-		{adapter.EventTool, "tool-cd.json"},
-		{adapter.EventTool, "tool-workdir.json"},
-		{adapter.EventTool, "tool-long.json"},
-		{adapter.EventStop, "stop.json"},
-	} {
-		if err := runRecord(t, f, p, r.event, "w14:p1", string(payload(r.file)), &clock); err != nil {
-			t.Fatalf("hook --event %s with %s: %v", r.event, r.file, err)
+	for _, w := range want {
+		if err := runRecord(t, f, p, w.event, "w14:p1", string(payload(w.file)), &clock); err != nil {
+			t.Fatalf("hook --event %s with %s: %v", w.event, w.file, err)
 		}
 	}
 	obs, cmds := recordRows(t, f)
-	commands := []string{"cd sub && pwd && ls nosuchfile-zq .", "pwd", "sleep 15 && echo long-zq-done ."}
-	want := []struct {
-		event   string
-		sender  store.Sender
-		excerpt string
-	}{
-		{"prompt", store.SenderUnconfirmed, "Repeat this whole message back to me exactly, character for character, " +
-			"and nothing else. Do not use any tool: qx-4410 blue river 7."},
-		{"prompt", store.SenderUnconfirmed, "Read @notes-zk.txt and quote its marker line. Do not run any shell command."},
-		{"tool", store.SenderTool, commands[0]},
-		{"tool", store.SenderTool, commands[1]},
-		{"tool", store.SenderTool, commands[2]},
-		// The excerpt drops the blank line of the reply.
-		{"stop", store.SenderAssistant, "zr-5531\nAll three commands ran in order; the first reported the missing file, " +
-			"and Git status was clean."},
+	if len(obs) != len(want) || len(cmds) != 4 {
+		t.Fatalf("got %d observations and %d command records, want %d and 4:\n%+v\n%+v", len(obs), len(cmds),
+			len(want), obs, cmds)
 	}
-	if len(obs) != len(want) || len(cmds) != len(commands) {
-		t.Fatalf("got %d observations and %d command records, want %d and %d:\n%+v\n%+v", len(obs), len(cmds),
-			len(want), len(commands), obs, cmds)
-	}
+	var tools []store.Observation
 	for i, w := range want {
-		if o := obs[i]; o.Source != store.SourceHook || o.Event != w.event || o.Sender != w.sender || !o.Counts ||
+		o := obs[i]
+		if o.Source != store.SourceHook || o.Event != w.event || o.Sender != senders[w.event] || !o.Counts ||
 			o.Excerpt != w.excerpt {
-			t.Errorf("observation %d = %+v, want a hook %s by %s with %q", i, o, w.event, w.sender, w.excerpt)
+			t.Errorf("%s: observation = %+v, want a hook %s by %s with %q", w.file, o, w.event, senders[w.event], w.excerpt)
+		}
+		if w.event == adapter.EventTool {
+			tools = append(tools, o)
 		}
 	}
-	// tool-workdir.json ran pwd in the sub folder: the cwd is still the turn cwd.
 	for i, c := range cmds {
-		if c.Argv != commands[i] || c.CWD != "~/brain-eval/t0134/work" || c.ExitStatus != nil || c.Truncated ||
-			c.SecretFound || c.ObservationID != obs[i+2].ID {
-			t.Errorf("command record %d = %+v, want %q in the turn cwd with no exit status", i, c, commands[i])
+		if c.Argv != tools[i].Excerpt || c.CWD != "~/brain-eval/t0134/work" || c.ExitStatus != nil || c.Truncated ||
+			c.SecretFound || c.ObservationID != tools[i].ID {
+			t.Errorf("command record %d = %+v, want %q in the turn cwd with no exit status", i, c, tools[i].Excerpt)
 		}
 	}
 
@@ -217,8 +228,8 @@ func TestRecordCodex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if echo, err := p.ParseRecord(adapter.EventStop, payload("stop-echo.json")); err != nil || echo.Text != prompt.Text {
-		t.Errorf("echo reply = %q, %v, want the prompt %q", echo.Text, err, prompt.Text)
+	if reply, err := p.ParseRecord(adapter.EventStop, payload("stop-echo.json")); err != nil || reply.Text != prompt.Text {
+		t.Errorf("echo reply = %q, %v, want the prompt %q", reply.Text, err, prompt.Text)
 	}
 	// Every tool fires PostToolUse; an MCP tool has no command. So the tool entry matches only
 	// the shell tool, whose tool_name the profile names.
