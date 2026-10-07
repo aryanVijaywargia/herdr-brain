@@ -663,7 +663,16 @@ func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
 	if err := s.extractor(ctx, tx); err != nil {
 		return err
 	}
-	p := extract.Pass{HerdrSession: s.Binding.Session, DefaultOn: learningDefault(s.Binding), Now: s.Now}
+	gates, caps, err := extract.ReadConfig(s.Config)
+	if err != nil {
+		s.w.printf("  config: %v; Brain makes no extractor call until you fix the file\n", err)
+		return nil
+	}
+	if set := configSet(gates, caps); len(set) > 0 {
+		s.w.printf("  config: %s\n", strings.Join(set, ", "))
+	}
+	p := extract.Pass{HerdrSession: s.Binding.Session, DefaultOn: learningDefault(s.Binding), Now: s.Now,
+		Gates: gates, Caps: caps}
 	d, err := p.Day(ctx, tx)
 	if err != nil {
 		return err
@@ -695,6 +704,26 @@ func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
 			b.Status, b.Reason, age(s.Now().Sub(b.At)))
 	}
 	return nil
+}
+
+// configSet returns the gates and caps of the config that are not the defaults (§7.2, §7.3),
+// as "key = value (default d)", in a fixed order.
+func configSet(gates store.Gates, caps extract.Caps) []string {
+	var set []string
+	add := func(key string, v, def int) {
+		if v != def {
+			set = append(set, fmt.Sprintf("%s = %d (default %d)", key, v, def))
+		}
+	}
+	dg, dc := store.DefaultGates(), extract.DefaultCaps()
+	for _, k := range []store.CandidateKind{store.CandidateCorrection, store.CandidateLesson, store.CandidateFailure,
+		store.CandidateProcedure, store.CandidateCommandChain} {
+		add("gates."+string(k), gates[k].Min, dg[k].Min)
+	}
+	add("caps.calls_per_day", caps.Calls, dc.Calls)
+	add("caps.proposals_per_day", caps.Proposals, dc.Proposals)
+	add("caps.input_bytes", caps.InputBytes, dc.InputBytes)
+	return set
 }
 
 // batches returns "1 batch" or "n batches".

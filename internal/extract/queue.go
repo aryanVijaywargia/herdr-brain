@@ -14,8 +14,8 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// Caps are the limits of extraction (§7.3 caps). A later config can set them; a Pass with the
-// zero value uses DefaultCaps.
+// Caps are the limits of extraction (§7.3 caps). The config sets them (ReadConfig); a Pass
+// with the zero value uses DefaultCaps.
 type Caps struct {
 	Calls      int // extractor calls in one day
 	Proposals  int // new proposals in one day

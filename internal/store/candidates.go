@@ -215,8 +215,8 @@ type Gate struct {
 // Gates holds the gate of each candidate kind.
 type Gates map[CandidateKind]Gate
 
-// DefaultGates returns the gate defaults of §7.2. [NEW] Brain has no config file yet: a later
-// config sets this value.
+// DefaultGates returns the gate defaults of §7.2. The config can change them
+// (extract.ReadConfig).
 func DefaultGates() Gates {
 	return Gates{
 		CandidateCorrection:   {Min: 2},

@@ -384,10 +384,16 @@ func (d *doctorCall) ask(question string) (bool, error) {
 // extractor CLI is chosen, or after a failed call. Brain never inspects credentials; the stored
 // reason is what the official CLI reported.
 func (d *doctorCall) extraction(ctx context.Context) error {
-	p := extract.Pass{HerdrSession: d.Binding.Session, DefaultOn: learningDefault(d.Binding), Now: d.Now}
+	gates, caps, err := extract.ReadConfig(d.Config)
+	if err != nil {
+		d.fail("extraction: %v, so Brain makes no extractor call; fix: correct or remove the [gates] and [caps] keys", err)
+		return nil
+	}
+	p := extract.Pass{HerdrSession: d.Binding.Session, DefaultOn: learningDefault(d.Binding), Now: d.Now,
+		Gates: gates, Caps: caps}
 	var ws []extract.Waiting
 	var cli store.ExtractorCLI
-	err := d.Store.Write(ctx, func(tx *sql.Tx) (err error) {
+	err = d.Store.Write(ctx, func(tx *sql.Tx) (err error) {
 		if ws, err = p.Waiting(ctx, tx); err != nil {
 			return err
 		}

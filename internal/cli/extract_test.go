@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -232,6 +233,30 @@ func TestExtractorWorksAfterFailure(t *testing.T) {
 	if strings.Contains(out, "last extractor call") {
 		t.Errorf("brain doctor:\n%s\nwant no failed last call", out)
 	}
+}
+
+// AC #282: the gates and caps come from the config file. Status shows each value that is not
+// the default, and the caps line uses it. A bad value is a failed doctor check and a status line.
+func TestExtractionConfig(t *testing.T) {
+	f := newDoctorFixture(t)
+	f.setClaude(t)
+	config := filepath.Join(filepath.Dir(f.store), "config.toml")
+	putFile(t, config, "live_suggestions = \"on\"\n[gates]\ncorrection = 3\n[caps]\nproposals_per_day = 8\n")
+	status := f.mustStatus(t)
+	for _, want := range []string{
+		"  config: gates.correction = 3 (default 2), caps.proposals_per_day = 8 (default 5)\n",
+		"  last 24h: 0 of 10 extractor calls, 0 of 8 new proposals\n",
+	} {
+		if !strings.Contains(status, want) {
+			t.Errorf("brain status:\n%s\nwant %q", status, want)
+		}
+	}
+	putFile(t, config, "[caps]\ncalls_per_day = 0\n")
+	want := "caps.calls_per_day = 0, want 1 or more"
+	if status := f.mustStatus(t); !strings.Contains(status, want+"; Brain makes no extractor call until you fix the file\n") {
+		t.Errorf("brain status:\n%s\nwant %q", status, want)
+	}
+	f.failed(t, "", want+", so Brain makes no extractor call")
 }
 
 // The review queue line of status counts only what the default brain review lists: a

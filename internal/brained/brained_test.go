@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -402,7 +403,7 @@ func TestExtractTrigger(t *testing.T) {
 // A pass of a store with no extractor CLI calls nothing.
 func TestExtractPassNoCLI(t *testing.T) {
 	g := NewGate(bindings.Binding{Session: "s1", Store: t.TempDir(), Kind: bindings.KindMain})
-	if err := extractPass(context.Background(), g, nil, Start); err != nil {
+	if err := extractPass(context.Background(), g, filepath.Join(t.TempDir(), "config.toml"), nil, Start); err != nil {
 		t.Fatal(err)
 	}
 }
