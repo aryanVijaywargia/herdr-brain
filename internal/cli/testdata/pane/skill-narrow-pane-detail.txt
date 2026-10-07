@@ -9,7 +9,7 @@ text:
 ... 21 more lines: brain review 1 shows them all
 approve with scope: as proposed, pin: no, on a conflict: keep-both
 
-a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  d detail  q close
+a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  q close
 <clear>
 proposal 1 (pending): new item
 kind:     skill
@@ -20,4 +20,4 @@ revision: item 2 revision 2, from revision 1 (now 1)
 ... 24 more lines: brain review 1 --detail shows them all
 approve with scope: as proposed, pin: no, on a conflict: keep-both
 
-a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  d detail  q close
+a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  q close
