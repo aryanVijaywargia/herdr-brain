@@ -53,6 +53,9 @@ type fakePane struct {
 	// The agent.get state: the status ("" is working), the folder, the terminal and the seq.
 	status, cwd, terminal string
 	seq                   uint64
+	// procs is the pane.process_info reply of the foreground processes; "" gives the agent
+	// as its own process, or a shell when the pane has no agent.
+	procs string
 }
 
 // agentJSON is the agent.get state of pane id.
@@ -70,6 +73,17 @@ func (p *fakePane) agentJSON(id string) string {
 	}
 	return fmt.Sprintf(`{"pane_id":%q,"workspace_id":%q,"tab_id":"%s:t1","agent":%q,"agent_status":%q,"cwd":%q,"terminal_id":%q,"state_change_seq":%d,"focused":false,"revision":1%s}`,
 		id, p.ws, p.ws, p.agent, status, p.cwd, terminal, p.seq, as)
+}
+
+// processes is the JSON list of the foreground processes of the pane.
+func (p *fakePane) processes() string {
+	switch {
+	case p.procs != "":
+		return p.procs
+	case p.agent != "":
+		return fmt.Sprintf(`[{"name":%q,"argv":[%q],"pid":2}]`, p.agent, p.agent)
+	}
+	return `[{"name":"zsh","argv":["-zsh"],"pid":1}]`
 }
 
 func (p *fakePane) json(id string) string {
@@ -221,6 +235,11 @@ func (f *fakeHerdr) reply(method, paneID, source string, lines int, subs []herdr
 		}
 	case "pane.read":
 		reply = f.read(paneID, source, lines)
+	case "pane.process_info":
+		if p, ok := f.panes[paneID]; ok {
+			reply = fmt.Sprintf(`{"type":"pane_process_info","process_info":{"pane_id":%q,"shell_pid":1,"foreground_processes":%s}}`,
+				paneID, p.processes())
+		}
 	case "agent.get":
 		if f.gets != nil {
 			f.gets <- paneID
