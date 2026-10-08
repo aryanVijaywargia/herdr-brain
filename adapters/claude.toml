@@ -99,14 +99,16 @@ noise_above = [
   { line = '❯ Try "[^"]*"', below = '─+|\s*(?:Opus|Sonnet|Haiku|Fable) \d+(?:\.\d+)* \(\d+[KM] context\)(?:\s{2,}\S.*)?|\s*\? for shortcuts.*|\s*(?:⏵⏵|⏸) .*' },
 ]
 # The placeholder at the start of a session (#338, M2 eval run 3, Claude Code 2.1.294): the
-# rule above did not drop it, because another box line was under it. The source of Claude Code
-# 2.1.295 shows the placeholder only in the empty input box before the first prompt, with one of
-# its own texts and a file of the repo or "<filepath>". So the placeholder is noise when no
-# prompt line, reply, tool output or spinner is under it, whatever box line is there. A sent
-# prompt with the same text has the input line ❯ of the box under it, or a reply or the spinner,
-# so it stays. [NEW: the eval report gives the line, not the screen]
+# rules above did not drop it. The eval report gives the line, not the lines around it. The
+# source of Claude Code 2.1.295 shows the placeholder only in the empty input box before the
+# first prompt, with one of its own texts and a file of the repo or "<filepath>". So the
+# placeholder is noise when no prompt line, reply, tool output or spinner is under it, whatever
+# box line is there, also as the last line of a read. A sent prompt with the same text has the
+# input line ❯ of the box under it, or a reply or the spinner, so it stays. Claude puts a
+# no-break space before "Tip:", so the rule takes one after ❯ too. [NEW: no screen of 2.1.294
+# is recorded]
 noise_last = [
-  { line = '❯ Try "(?:fix lint errors|fix typecheck errors|how does [^"]+ work\?|refactor [^"]+|how do I log an error\?|edit [^"]+ to\.\.\.|write a test for [^"]+|create a util logging\.py that\.\.\.)"', unless = '(?:❯|⏺ |[·✢✳✶✻✽*] |\s*⎿).*' },
+  { line = '❯[ \x{a0}]Try "(?:fix lint errors|fix typecheck errors|how does [^"]+ work\?|refactor [^"]+|how do I log an error\?|edit [^"]+ to\.\.\.|write a test for [^"]+|create a util logging\.py that\.\.\.)"', unless = '(?:❯|⏺ |[·✢✳✶✻✽*] |\s*⎿).*' },
 ]
 # The diff panel (/diff, Claude Code 2.1.260 and later) opens beside the conversation in a
 # terminal at least 110 columns wide; its header is "N files changed +A -D" (#258). The header

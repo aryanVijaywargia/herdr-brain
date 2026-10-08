@@ -1,0 +1,23 @@
+• The pagination works, and the tests pass.
+
+Token usage: total=49,572 input=45,120 (+ 210,304 cached) output=4,452 (reasoning 1,920)
+To continue this session, run: codex resume 01a11d03-5b1e-7c40-9d2a-4f0e8b6c1a22
+user@host notes-api-t % codex -m gpt-6.1-sol -c model_reasoning_effort="high"
+
+  >_ OpenAI Codex (v0.160.1)
+     ~/brain-eval/notes-api-t
+
+› Shut the server down.
+
+• The server is stopped.
+
+Token usage: total=12 input=10 output=2
+To continue this session, run codex resume 01a11d07-2c3d-7e40-8f1a-9b0c1d2e3f44
+user@host notes-api-t % codex
+
+  >_ OpenAI Codex (v0.160.1)
+     ~/brain-eval/notes-api-t
+
+› Token usage: total=12 is low. To continue this session, run codex resume, then the tests.
+
+  gpt-6.1-sol high · ~/brain-eval/notes-api-t
