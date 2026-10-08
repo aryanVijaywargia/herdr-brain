@@ -554,29 +554,31 @@ func TestEventsRepeatedPrompt(t *testing.T) {
 	}
 }
 
-// probeLine is a pane_agent_detected event of a codex probe in pane id, as herdr sends it; a
+// shellPane is the shell pane of the probe tests (#317).
+const shellPane = "w1:p2"
+
+// probeLine is a pane_agent_detected event of a codex probe in shellPane, as herdr sends it; a
 // release has the final status and released.
-func probeLine(id string, released bool) string {
-	ws, _, _ := strings.Cut(id, ":")
+func probeLine(released bool) string {
 	if released {
-		return fmt.Sprintf(`{"data":{"agent":"codex","final_status":"idle","pane_id":%q,"released":true,"workspace_id":%q},"event":"pane_agent_detected"}`, id, ws)
+		return `{"data":{"agent":"codex","final_status":"idle","pane_id":"w1:p2","released":true,"workspace_id":"w1"},"event":"pane_agent_detected"}`
 	}
-	return fmt.Sprintf(`{"data":{"agent":"codex","pane_id":%q,"type":"pane_agent_detected","workspace_id":%q},"event":"pane_agent_detected"}`, id, ws)
+	return `{"data":{"agent":"codex","pane_id":"w1:p2","type":"pane_agent_detected","workspace_id":"w1"},"event":"pane_agent_detected"}`
 }
 
-// shell adds shell pane id, with no agent, and waits for its status stream.
-func (l *live) shell(t *testing.T, id string) {
+// shell adds shellPane, with no agent, and waits for its status stream.
+func (l *live) shell(t *testing.T) {
 	t.Helper()
-	l.f.addPane(id, "")
-	l.screen(id, "$ ")
-	l.created(t, id)
+	l.f.addPane(shellPane, "")
+	l.screen(shellPane, "$ ")
+	l.created(t, shellPane)
 }
 
-// agent sets the agent of pane id: "" when it left.
-func (l *live) agent(id, agent string) {
+// agent sets the agent of shellPane: "" when it left.
+func (l *live) agent(agent string) {
 	l.f.mu.Lock()
 	defer l.f.mu.Unlock()
-	l.f.panes[id].agent = agent
+	l.f.panes[shellPane].agent = agent
 }
 
 // #317 AC 1, AC 3: brain status runs "codex --version" in a shell pane. herdr detects codex
@@ -585,33 +587,33 @@ func (l *live) agent(id, agent string) {
 // session, and brain status counts no session observed.
 func TestEventsShellProbe(t *testing.T) {
 	l := newLive(t, map[string]string{"w1:p1": codexRun1})
-	l.shell(t, "w1:p2")
+	l.shell(t)
 
-	l.agent("w1:p2", "codex")
-	l.screen("w1:p2", "$ brain status", "codex-cli 0.160.1")
-	l.main.send(probeLine("w1:p2", false))
-	wantStep(t, l.step(t), Baseline, "w1:p2", GapNone, "")
-	l.agent("w1:p2", "")
-	l.main.send(probeLine("w1:p2", true))
-	wantStep(t, l.step(t), End, "w1:p2", "", ReasonAgentLeft)
+	l.agent("codex")
+	l.screen(shellPane, "$ brain status", "codex-cli 0.160.1")
+	l.main.send(probeLine(false))
+	wantStep(t, l.step(t), Baseline, shellPane, GapNone, "")
+	l.agent("")
+	l.main.send(probeLine(true))
+	wantStep(t, l.step(t), End, shellPane, "", ReasonAgentLeft)
 
 	// herdr loses the release of the second probe, and detects the third one.
-	l.agent("w1:p2", "codex")
-	l.screen("w1:p2", "$ brain doctor", "codex-cli 0.160.1")
-	l.main.send(probeLine("w1:p2", false))
-	wantStep(t, l.step(t), Baseline, "w1:p2", GapNone, "")
-	l.screen("w1:p2", "$ brain doctor", "codex-cli 0.160.1", "$ brain review", "codex-cli 0.160.1")
-	l.main.send(probeLine("w1:p2", false))
-	wantStep(t, l.step(t), Baseline, "w1:p2", GapNone, "")
-	l.agent("w1:p2", "")
-	l.main.send(probeLine("w1:p2", true))
-	wantStep(t, l.step(t), End, "w1:p2", "", ReasonAgentLeft)
+	l.agent("codex")
+	l.screen(shellPane, "$ brain doctor", "codex-cli 0.160.1")
+	l.main.send(probeLine(false))
+	wantStep(t, l.step(t), Baseline, shellPane, GapNone, "")
+	l.screen(shellPane, "$ brain doctor", "codex-cli 0.160.1", "$ brain review", "codex-cli 0.160.1")
+	l.main.send(probeLine(false))
+	wantStep(t, l.step(t), Baseline, shellPane, GapNone, "")
+	l.agent("")
+	l.main.send(probeLine(true))
+	wantStep(t, l.step(t), End, shellPane, "", ReasonAgentLeft)
 
 	r := l.rows(t)
 	if len(r.sessions) != 1 || r.sessions[0].PaneID != "w1:p1" {
 		t.Errorf("sessions = %+v, want only the codex session of w1:p1", r.sessions)
 	}
-	if lines, gaps := r.texts("w1:p2"); len(lines) != 0 || len(gaps) != 0 {
+	if lines, gaps := r.texts(shellPane); len(lines) != 0 || len(gaps) != 0 {
 		t.Errorf("w1:p2 holds lines %q and gaps %q, want none", lines, gaps)
 	}
 	var d store.DeliveryGap
@@ -629,16 +631,16 @@ func TestEventsShellProbe(t *testing.T) {
 // gap.
 func TestEventsShortAgentKept(t *testing.T) {
 	l := newLive(t, map[string]string{"w1:p1": codexRun1})
-	l.shell(t, "w1:p2")
-	l.agent("w1:p2", "codex")
-	l.screen("w1:p2", "$ codex", "• base")
-	l.main.send(probeLine("w1:p2", false))
-	wantStep(t, l.step(t), Baseline, "w1:p2", GapNone, "")
-	l.screen("w1:p2", "$ codex", "• base", "• done")
-	l.status(t, "w1:p2", "idle")
-	l.agent("w1:p2", "")
-	l.main.send(probeLine("w1:p2", true))
-	wantStep(t, l.step(t), End, "w1:p2", "", ReasonAgentLeft)
+	l.shell(t)
+	l.agent("codex")
+	l.screen(shellPane, "$ codex", "• base")
+	l.main.send(probeLine(false))
+	wantStep(t, l.step(t), Baseline, shellPane, GapNone, "")
+	l.screen(shellPane, "$ codex", "• base", "• done")
+	l.status(t, shellPane, "idle")
+	l.agent("")
+	l.main.send(probeLine(true))
+	wantStep(t, l.step(t), End, shellPane, "", ReasonAgentLeft)
 	l.main.send(paneLine("pane_closed", "w1:p1"))
 	wantStep(t, l.step(t), End, "w1:p1", "", ReasonGone)
 
@@ -646,6 +648,6 @@ func TestEventsShortAgentKept(t *testing.T) {
 	if len(r.sessions) != 2 || r.sessions[0].Ended.IsZero() || r.sessions[1].Ended.IsZero() {
 		t.Fatalf("sessions = %+v, want both ended and kept", r.sessions)
 	}
-	lines, _ := r.texts("w1:p2")
+	lines, _ := r.texts(shellPane)
 	wantLines(t, lines, "• done")
 }
