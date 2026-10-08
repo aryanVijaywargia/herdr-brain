@@ -156,11 +156,19 @@ const revertHelp = "A line that starts with \"git\" is a revert that git shows: 
 	"often the agent's change. Use it as a correction with the user's text that says why. A revert alone gives no " +
 	"rule that you cannot see in the evidence.\n"
 
-// skillHelp tells the extractor how to return a skill draft (E16-S4).
-const skillHelp = "For a procedure with steps that the user explains again and again, use kind skill, and fill name " +
-	"(1-40 lower-case letters, digits and hyphens), description (one line), required_tools (the tools it needs, " +
-	"or none), example (one request that uses it) and steps. For any other kind, set these five fields to null, " +
-	"but a tool has a name and a description too.\n"
+// skillHelp tells the extractor when to return a skill draft (E16-S4). The extractor sees one
+// session, so it cannot see a procedure that comes again: Brain's procedure gate counts the
+// repeats (#313, §7.2).
+const skillHelp = "Brain counts the repeats across sessions; you see one session. For a procedure with several steps " +
+	"that a future agent should follow, such as how to release, use kind skill, also when the user tells it once " +
+	"here. A short instruction that fits in one line, such as one chained command, is not a skill. " + skillFields
+
+// skillFields tells the extractor how to fill the skill fields (E16-S4). A redraft has it
+// without skillHelp: the kind of a redraft comes from its item (redraftKind).
+const skillFields = "For kind skill, fill name (1-40 lower-case letters, digits and hyphens), description (one line), " +
+	"required_tools (the tools it needs, or none), example (one request that uses it) and steps. Write the steps in " +
+	"a general form, with a placeholder such as <version> for a word that changes between tellings. For any other " +
+	"kind, set these five fields to null, but a tool has a name and a description too.\n"
 
 // toolHelp tells the extractor how to return a tool draft (E17-S6).
 const toolHelp = "For a command chain (tool lines) that repeats with clear input and output, use kind tool, and fill " +
