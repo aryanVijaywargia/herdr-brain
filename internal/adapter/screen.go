@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -11,10 +12,16 @@ import (
 )
 
 // noiseBlock is one entry of noise_blocks, compiled.
-type noiseBlock struct{ start, next *regexp.Regexp }
+type noiseBlock struct {
+	start, next *regexp.Regexp
+	afterBlank  bool
+}
 
-// checkScreen compiles the screen rules of the profile: noise_lines, noise_blocks and
-// side_panel (§6.2).
+// noiseAbove is one entry of noise_above, compiled.
+type noiseAbove struct{ line, below *regexp.Regexp }
+
+// checkScreen compiles the screen rules of the profile: noise_lines, noise_blocks,
+// noise_above and side_panel (§6.2).
 func (p *Profile) checkScreen() error {
 	for _, n := range p.NoiseLines {
 		re, err := wholeLine(n)
@@ -32,7 +39,18 @@ func (p *Profile) checkScreen() error {
 		if err != nil {
 			return fmt.Errorf("noise_blocks next %q: %w", b.Next, err)
 		}
-		p.blocks = append(p.blocks, noiseBlock{start, next})
+		p.blocks = append(p.blocks, noiseBlock{start, next, b.AfterBlank})
+	}
+	for _, a := range p.NoiseAbove {
+		line, err := wholeLine(a.Line)
+		if err != nil {
+			return fmt.Errorf("noise_above line %q: %w", a.Line, err)
+		}
+		below, err := wholeLine(a.Below)
+		if err != nil {
+			return fmt.Errorf("noise_above below %q: %w", a.Below, err)
+		}
+		p.above = append(p.above, noiseAbove{line, below})
 	}
 	if p.SidePanel.Header == "" {
 		return nil
@@ -65,20 +83,26 @@ func (p *Profile) Noise(line string) bool {
 
 // Screen splits the screen text of one pane read into lines without trailing space. It cuts
 // the side panel off each line, and drops blank lines and the noise of the profile: the
-// noise lines and the noise blocks (§6.2, #258). A read can start inside a block, as a
-// bounded read after the start line left it, so the lines at the start of the read that a
-// block's Next matches are dropped too. A blank line ends the open block, unless its Next
-// matches the empty line (#291).
+// noise lines, the noise blocks and the noise above a line (§6.2, #258, #316). A read can
+// start inside a block, as a bounded read after the start line left it, so the lines at the
+// start of the read that a block's Next matches are dropped too. A blank line ends the open
+// block, unless its Next matches the empty line (#291). A block with after_blank starts only
+// under a blank line or at the start of the read (#316).
 func (p *Profile) Screen(text string) []string {
 	rows := strings.Split(text, "\n")
 	col := p.panelColumn(rows)
+	for i, row := range rows {
+		rows[i] = strings.TrimRightFunc(cut(row, col), unicode.IsSpace)
+	}
 	var ls []string
 	head := true            // no line of the read is kept or starts a block yet
+	blank := true           // the last row is blank, or no row is read yet
 	var next *regexp.Regexp // the Next of the open noise block; nil when none
-	for _, row := range rows {
-		l := strings.TrimRightFunc(cut(row, col), unicode.IsSpace)
+	for i, l := range rows {
+		spaced := blank
+		blank = strings.TrimSpace(l) == ""
 		switch {
-		case strings.TrimSpace(l) == "":
+		case blank:
 			if next != nil && !next.MatchString("") {
 				next = nil
 			}
@@ -87,8 +111,8 @@ func (p *Profile) Screen(text string) []string {
 			continue
 		}
 		head = false
-		next = p.blockStart(l)
-		if next != nil || p.Noise(l) {
+		next = p.blockStart(l, spaced)
+		if next != nil || p.Noise(l) || p.noiseAbove(l, rows[i+1:]) {
 			continue
 		}
 		ls = append(ls, l)
@@ -96,10 +120,25 @@ func (p *Profile) Screen(text string) []string {
 	return ls
 }
 
-// blockStart returns the Next of the noise block that line l starts, or nil.
-func (p *Profile) blockStart(l string) *regexp.Regexp {
+// noiseAbove reports whether line l is noise by noise_above, with the lines under it in rest.
+func (p *Profile) noiseAbove(l string, rest []string) bool {
+	i := slices.IndexFunc(rest, func(r string) bool { return strings.TrimSpace(r) != "" })
+	if i < 0 {
+		return false
+	}
+	for _, a := range p.above {
+		if a.line.MatchString(l) && a.below.MatchString(rest[i]) {
+			return true
+		}
+	}
+	return false
+}
+
+// blockStart returns the Next of the noise block that line l starts, or nil. spaced says that
+// the line above l is blank, or that l is the first line of the read.
+func (p *Profile) blockStart(l string, spaced bool) *regexp.Regexp {
 	for _, b := range p.blocks {
-		if b.start.MatchString(l) {
+		if b.start.MatchString(l) && (spaced || !b.afterBlank) {
 			return b.next
 		}
 	}

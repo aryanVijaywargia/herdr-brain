@@ -1,0 +1,29 @@
+› Add pagination to GET /notes.
+
+  Hooks
+  Lifecycle hooks from config and enabled pl
+
+  ⚠ 3 hooks need review before they can run.
+
+  Event                 Installed   Active
+  PreToolUse            0           0
+  PostToolUse           1           0
+  SessionStart          2           2
+
+  Press t to trust all; enter to review hook
+
+  PreToolUse hooks
+  Turn hooks on or off. Your changes are s
+
+  [x] Hook 1
+
+  Event     PreToolUse
+  Matcher   Bash
+  Source    User config - /tmp/h.json
+  Command   one two three four five six
+            seven eight nine ten eleven
+            twelve thirteen fourteen…
+  Timeout   30s
+  Trust     Trusted
+
+  Press space or enter to toggle; esc to go

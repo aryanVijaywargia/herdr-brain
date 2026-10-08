@@ -1,0 +1,10 @@
+
+ ▐▛███▜▌   Claude Code v2.1.293
+▝▜█████▛▘  Opus 5.5 (1M context) · Claude Pro
+  ▘▘ ▝▝    ~/brain-eval/notes-api-r
+
+⚠ 1 MCP server needs authentication · run /mcp
+
+❯ Add a PUT /notes/:id route.
+
+⏺ I will add the route and a test.

@@ -58,7 +58,12 @@ noise_lines = ['› Ask Codex to do anything', '\s*.* · Context \d+% (?:used|le
 # The choices of an approval dialog: the first one has the prompt mark, and "don't" made a
 # correction signal. The question, the reason and the command stay: the blocked approval
 # signal reads them (§7.1).
-  '(?:›| ) \d\. (?:Yes, proceed|Yes, and don.t ask again|No, and tell Codex) .*', '  Press enter to confirm or esc to cancel']
+  '(?:›| ) \d\. (?:Yes, proceed|Yes, and don.t ask again|No, and tell Codex) .*', '  Press enter to confirm or esc to cancel',
+# Codex 0.160.1 (#316, M2 eval rerun 2026-10-08): the line of a turn that you stop, and the
+# shell prompt line that started Codex above its banner, also a bare "$ codex". They were
+# stored as user text, and "wrong" made a correction signal. A prompt starts with ›, so a
+# prompt with the same words stays.
+  '■ Conversation interrupted - .*', '(?:[^\s›•].*[%$#>❯]|[$%]) (?:\S+/)?codex(?: .*)?']
 # The start banner (#258): the box with the version, model and folder, and the tip lines under
 # it, also when a tip wraps. A tip line at another place is text of a reply.
 # Codex 0.160.1 (#278, #281, M2 eval run): the start banner with no box (the version, the folder,
@@ -75,4 +80,15 @@ noise_blocks = [
   # 6 columns before the +, so a wrapped line starts at column 7 or more; the tool output
   # under └ starts at column 4. A fold hint keeps the block open, and a blank line ends it.
   { start = '\s{4,}\d+ [-+ ].*', next = '\s{7,}\S.*|\s+⋮' },
+  # Codex 0.160.1 (#316, M2 eval rerun): the start dialog "Hooks need review" and the /hooks
+  # views (the table of the events and the hooks of one event), with the texts of the Codex
+  # source (tui/src/startup_hooks_review.rs, tui/src/bottom_pane/hooks_browser_view.rs). The
+  # first choice of the dialog has the prompt mark. Codex cuts a line of these views at the
+  # pane edge, so a pattern takes the start of a line. A long command of a hook wraps to
+  # column 12 [NEW: the snapshots of the Codex source]. Both blocks start under a blank line:
+  # a prompt line with the same words is right under the prompt, so it stays.
+  { start = '  Hooks need review', next = '  .*|› \d\. (?:Review hooks|Trust all and continue|Continue without trusting.*)|', after_blank = true },
+  { start = '  (?:Hooks|(?:PreToolUse|PermissionRequest|PostToolUse|PreCompact|PostCompact|SessionStart|SessionEnd|UserPromptSubmit|SubagentStart|SubagentStop|Stop) hooks)', next = '''  (?:Lifecycle hooks.*|Turn hooks on or off.*|Issues|[⚠■] .*|\d+ hooks? needs? review.*|No hooks installed.*|[A-Z][A-Za-z]+ +\d+(?: .*)?|\[[x !]\] .*|(?:Event|Matcher|Source|Command|Timeout|Context|Trust)(?: +\S.*)?|Managed hooks.*|Press .*)|\s{12}\S.*|''', after_blank = true },
+  # The line of a request that you cancel, and the rest of its command on the next lines.
+  { start = '✗ You canceled the request .*', next = '  \S.*' },
 ]

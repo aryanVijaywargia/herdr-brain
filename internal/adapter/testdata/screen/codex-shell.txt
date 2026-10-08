@@ -1,0 +1,6 @@
+$ codex -m gpt-6.1-sol
+user@host notes-api-r % codex -m gpt-6.1-sol -c model_reasoning_effort="high"
+  >_ OpenAI Codex (v0.160.1)
+     ~/brain-eval/notes-api-r
+
+› Add pagination to GET /notes.

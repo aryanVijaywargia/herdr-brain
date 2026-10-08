@@ -189,6 +189,79 @@ func TestCaptureDialogLines(t *testing.T) {
 	}
 }
 
+// #316: the CLI screen text of the M2 eval rerun (claude 2.1.293, codex 0.160.1) makes no
+// observation and no signal: the claude placeholder with its footer, the MCP warning, the fold
+// lines and the tool output under them, the shell line that started the CLI, the codex hooks
+// dialog and /hooks table, and the lines of a stopped turn. The reads are made from the lines
+// of the eval report. Real prompts with the same words are user text, and each counts.
+func TestCaptureCLINoise(t *testing.T) {
+	const rule = "────────────────────────────────────────"
+	hooks := "  Hooks need review\n  3 hooks are new or changed.\n  Hooks can run outside the sandbox after you trust them.\n\n"
+	for _, tc := range []struct {
+		harness string
+		texts   []string
+		prompts []string
+		noise   []string
+	}{
+		{"claude", []string{"user@host notes-api-r % claude\n",
+			" ▐▛███▜▌   Claude Code v2.1.293\n▝▜█████▛▘  Opus 5.5 (1M context) · Claude Pro\n\n" +
+				"⚠ 1 MCP server needs authentication · run /mcp\n\n" +
+				"❯ Try \"write a test for <filepath>\"\n  Opus 5.5 (1M context)\n",
+			"❯ Read 1 file and fix it\n\n  Read 1 file, ran 2 shell commands\n     M test/helpers.js\n\n" +
+				"⏺ Fixed test/helpers.js.\n\n❯ the conversation went wrong, use the tests\n\n" +
+				"  Listed 1 directory, ran 1 shell command\n     lint: ok\n\n  Searched for 1 pattern\n\n" +
+				"⏺ The lint passes.\n\n" + rule + "\n❯\n" + rule + "\n  Opus 5.5 (1M context)\n"},
+			[]string{"❯ Read 1 file and fix it", "❯ the conversation went wrong, use the tests"},
+			[]string{"Try \"", "(1M context)", "% claude", "MCP server", "Read 1 file, ran", "Listed 1 directory",
+				"Searched for", "M test/helpers.js", "lint: ok"}},
+		{"codex", []string{hooks + "› 1. Review hooks\n  2. Trust all and continue\n  3. Continue without trusting (hooks won't run)\n",
+			hooks + "  1. Review hooks\n› 2. Trust all and continue\n  3. Continue without trusting (hooks won't run)\n\n" +
+				"  Press enter to confirm or esc to go back\n",
+			"user@host notes-api-r % codex -m gpt-6.1-sol -c model_reasoning_effort=\"high\"\n" +
+				"  >_ OpenAI Codex (v0.160.1)\n     ~/brain-eval/notes-api-r\n\n› Read 1 file and fix it\n\n" +
+				"• Fixed test/helpers.js.\n\n› the conversation went wrong, use the tests\n\n" +
+				"  Hooks\n  Lifecycle hooks from config and enabled plugins.\n\n" +
+				"  Event                 Installed   Active      Review      Description\n" +
+				"  SessionStart          2           2           0           When a new session starts\n\n" +
+				"  Press t to trust all; enter to review hooks; esc to close\n\n" +
+				"✗ You canceled the request to run npm test\n\n" +
+				"■ Conversation interrupted - use /feedback if something went wrong\n\n" +
+				"  GPT-6.1-Sol high · ~/brain-eval/notes-api-r\n"},
+			[]string{"› Read 1 file and fix it", "› the conversation went wrong, use the tests"},
+			[]string{"Hooks", "hooks", "Trust all", "% codex", "Installed", "SessionStart", "You canceled",
+				"Conversation interrupted", "/feedback"}},
+	} {
+		t.Run(tc.harness, func(t *testing.T) {
+			k := newCapture(t, "s1", t.TempDir())
+			k.pane("w1:p1", tc.harness, "")
+			k.raw(tc.texts...)
+			k.must(t, Baseline, "w1:p1", "", GapNone)
+			for range tc.texts[1:] {
+				k.must(t, Change, "w1:p1", "idle", GapNone)
+			}
+			r := k.rows(t)
+			if excerpts, counted := r.prompts(); !slices.Equal(excerpts, tc.prompts) || counted != len(tc.prompts) {
+				t.Errorf("user text = %q (%d counted), want %q, each counted", excerpts, counted, tc.prompts)
+			}
+			for _, o := range r.obs {
+				for _, n := range tc.noise {
+					if strings.Contains(o.Excerpt, n) {
+						t.Errorf("observation %q holds %q", o.Excerpt, n)
+					}
+				}
+			}
+			sigs, text := k.signals(t)
+			for _, sg := range sigs {
+				for _, n := range tc.noise {
+					if strings.Contains(text[sg.Observations[0]], n) {
+						t.Errorf("%s signal starts at %q", sg.Kind, text[sg.Observations[0]])
+					}
+				}
+			}
+		})
+	}
+}
+
 // #278 review: a prompt in a new turn that is only the start of an earlier prompt is a new
 // send. An unknown status in a turn starts no turn, so a repaint after it is still a copy.
 func TestCapturePromptTurns(t *testing.T) {
