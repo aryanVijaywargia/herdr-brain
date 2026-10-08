@@ -92,21 +92,47 @@ func TestParseRegression(t *testing.T) {
 	}
 }
 
-// AC 3 (E20-S1): a run of regression cases only prints one line for each case and exits 1 when
-// one fails. It needs no Brain setup: with a scratch HOME it reaches no runner check.
+// AC 3 (E20-S1): a run of regression cases only prints one line for each case, then the
+// summary line (#318), and exits 1 when one fails. It needs no Brain setup: with a scratch HOME it reaches no runner check.
+// The go command writes nothing in that HOME (#322).
 func TestRunRegressionOnly(t *testing.T) {
 	goEnv := goEnv(t) // the Go caches stay where they are, out of the scratch HOME
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mode := goTelemetryOff(t)
 	path := filepath.Join(t.TempDir(), "bugs.toml")
 	write(t, path, "[[bug]]\nissue = 9\ntests = [\"no-such-folder:TestGone\"]\n")
 	var out, errOut bytes.Buffer
 	if code := run([]string{"--probes", path, "--stage", "regression"}, append(os.Environ(), goEnv...), &out, &errOut); code != 1 {
 		t.Errorf("run() = %d, want 1 (stderr %q)", code, errOut.String())
 	}
-	if lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n"); len(lines) != 1 ||
-		!strings.HasPrefix(lines[0], "bug-9: fail; no-such-folder TestGone: not run (") || errOut.Len() > 0 {
-		t.Errorf("run() stdout %q, stderr %q; want one fail line of bug-9 and no error", out.String(), errOut.String())
+	if lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n"); len(lines) != 2 ||
+		!strings.HasPrefix(lines[0], "bug-9: fail; no-such-folder TestGone: not run (") ||
+		lines[1] != "regression: 0 of 1 pass" || errOut.Len() > 0 {
+		t.Errorf("run() stdout %q, stderr %q; want one fail line of bug-9, the summary and no error", out.String(), errOut.String())
 	}
+	for path, data := range tree(t, home) {
+		if data != "dir" && path != mode {
+			t.Errorf("run() wrote %s in the scratch HOME, want only the telemetry mode file", path)
+		}
+	}
+}
+
+// goTelemetryOff turns off Go telemetry for a go command with the HOME of the test, and
+// returns the mode file (#322). In its default mode, local, each go command starts a telemetry
+// process that outlives it and writes in the Go config folder of HOME, so the cleanup of a
+// scratch HOME can find a new file there. The folder is in HOME on Linux only with no
+// XDG_CONFIG_HOME, so the test clears it: the test never writes a mode file outside HOME.
+func goTelemetryOff(t *testing.T) string {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", "")
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mode := filepath.Join(dir, "go", "telemetry", "mode")
+	write(t, mode, "off\n")
+	return mode
 }
 
 func TestResultLine(t *testing.T) {

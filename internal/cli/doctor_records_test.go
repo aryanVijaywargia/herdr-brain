@@ -132,3 +132,107 @@ func TestDoctorFixArgs(t *testing.T) {
 		}
 	}
 }
+
+// dropRecords removes the hook record entries of kind, so that the home holds only the Brain
+// start entry of kind, as after an update before #315.
+func (f *doctorFixture) dropRecords(t *testing.T, kind string) {
+	t.Helper()
+	p, err := adapter.LoadFS(testProfiles, kind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range p.Hooks()[1:] {
+		if st, err := f.installer(entryBin(t)).UninstallHook(p, h); err != nil || st != install.Removed {
+			t.Fatalf("UninstallHook(%s %s) = %q, %v, want removed", kind, h.CLIEvent, st, err)
+		}
+	}
+}
+
+// AC #315, the M2 case: with only the Brain start entries, status shows hook records off and
+// doctor fails with brain update as the fix, also with --fix, which adds no entry. After brain
+// update adds the entries, doctor fails on each Codex hook record entry that Codex does not
+// trust yet, and passes when Codex trusts them.
+func TestDoctorRecordsM2(t *testing.T) {
+	f := newDoctorFixture(t)
+	settings := filepath.Join(f.home, ".claude", "settings.json")
+	hooks := filepath.Join(f.home, ".codex", "hooks.json")
+	f.dropRecords(t, "claude")
+	f.dropRecords(t, "codex")
+	f.trust(t, "")
+
+	off := []string{
+		"hook records off for claude: " + settings + " has no Brain entry for UserPromptSubmit, PostToolUse, " +
+			"PostToolUseFailure, Stop; fix: brain update\n",
+		"hook records off for codex: " + hooks + " has no Brain entry for UserPromptSubmit, PostToolUse, Stop; fix: brain update\n",
+	}
+	f.failed(t, "", off...)
+	before := files(t, f.home)
+	if out, err := f.doctorArgs(t, f.sock, "", []string{"--fix"}); err == nil || !strings.Contains(out, off[0]) {
+		t.Errorf("Doctor(--fix) = %v\n%s\nwant %q", err, out, off[0])
+	}
+	diff(t, files(t, f.home), before)
+	status := f.mustStatus(t)
+	for _, want := range []string{"  claude 2.1.283: configured, unverified; hook records off (brain update adds them)\n",
+		"  codex 0.154.0: configured, unverified; hook records off (brain update adds them)\n"} {
+		if !strings.Contains(status, want) {
+			t.Errorf("brain status:\n%s\nwant %q", status, want)
+		}
+	}
+
+	// brain update adds the entries through install (cmd/brain TestUpdateHookRecords).
+	f.installAll(t, "claude", entryBin(t))
+	f.installAll(t, "codex", entryBin(t))
+	out := f.failed(t, "", "codex: Codex hook record entries not trusted: UserPromptSubmit (untrusted), "+
+		"PostToolUse (untrusted), Stop (untrusted), so Codex skips them; fix: start codex, type /hooks")
+	if strings.Contains(out, "hook records off") || strings.Contains(out, "Codex hook not trusted;") {
+		t.Errorf("brain doctor:\n%s\nwant no hook records off and a trusted start entry", out)
+	}
+	if status := f.mustStatus(t); !strings.Contains(status, "  codex 0.154.0: configured, unverified; hook records on\n") {
+		t.Errorf("brain status:\n%s\nwant codex hook records on", status)
+	}
+	f.trust(t, "")
+	if out, err := f.doctor(t, f.sock, ""); err != nil || out != "all checks passed\n" {
+		t.Errorf("Doctor() after the trust = %v\n%s\nwant all checks passed", err, out)
+	}
+}
+
+// AC #315: status names the missing CLI events when some hook record entries are in place, and
+// doctor names a hook record entry that changed since Codex trusted it.
+func TestRecordsPartly(t *testing.T) {
+	f := newDoctorFixture(t)
+	p, err := adapter.LoadFS(testProfiles, "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := p.Hooks()[len(p.Hooks())-1]
+	if st, err := f.installer(entryBin(t)).UninstallHook(p, stop); err != nil || st != install.Removed {
+		t.Fatalf("UninstallHook(codex Stop) = %q, %v", st, err)
+	}
+	if status := f.mustStatus(t); !strings.Contains(status, "  codex 0.154.0: configured, unverified; hook records off for Stop (brain update adds them)\n") {
+		t.Errorf("brain status:\n%s\nwant codex hook records off for Stop", status)
+	}
+	f.installAll(t, "codex", entryBin(t))
+	config := filepath.Join(f.codexHome, "config.toml")
+	b, err := os.ReadFile(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The trusted hash of PostToolUse belongs to an older entry: Codex sees a changed entry.
+	i := strings.Index(string(b), ":post_tool_use:0:0")
+	i += strings.Index(string(b[i:]), "sha256:") + len("sha256:")
+	if err := os.WriteFile(config, append(append(b[:i:i], "00"...), b[i+2:]...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The Stop entry is back with the same bytes, so Codex still trusts it.
+	f.failed(t, "", "codex: Codex hook record entries not trusted: PostToolUse (modified), so Codex skips them")
+}
+
+// entryBin is the brain binary of the entries that doctor wants: this test binary.
+func entryBin(t *testing.T) string {
+	t.Helper()
+	bin, err := paths.BinaryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bin
+}

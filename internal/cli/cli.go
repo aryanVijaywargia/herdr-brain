@@ -38,6 +38,52 @@ const (
 // errNoReceipts: a command never writes a hook receipt or an agent session record.
 var errNoReceipts = errors.New("a brain command writes no hook receipts")
 
+// Usage returns the usage text of command name, for `brain <name> --help` (#318), or "" for a
+// command with no usage text in this package.
+func Usage(name string) string {
+	switch name {
+	case "status":
+		return statusUsage
+	case "doctor":
+		return doctorUsage
+	case "remember":
+		return rememberUsage
+	case "recall":
+		return recallUsage
+	case "review":
+		return reviewUsage
+	case "pin":
+		return pinUsage
+	case "archive":
+		return archiveUsage
+	case "promote":
+		return promoteUsage
+	case "undo":
+		return undoUsage
+	case "workspace":
+		return workspaceUsage
+	case "forget":
+		return forgetUsage
+	case "repair":
+		return repairUsage
+	case "pane":
+		return paneUsage
+	case "uninstall":
+		return uninstallUsage
+	case "learn":
+		return learnUsage
+	case "extract":
+		return extractUsage
+	case "run":
+		return runUsage
+	case "tools":
+		return toolsUsage
+	case "automation":
+		return automationUsage
+	}
+	return ""
+}
+
 // Env is the process context of one command.
 type Env struct {
 	Environ  []string

@@ -25,7 +25,8 @@ import (
 )
 
 // doctorFixture is a status fixture with a temp HOME and a temp CODEX_HOME, both CLIs at
-// their tested versions, and the Brain hook of each CLI installed and trusted: a clean setup.
+// their tested versions, and every Brain entry of each CLI, the start entry and the hook record
+// entries, installed and trusted: a clean setup.
 type doctorFixture struct {
 	*statusFixture
 	home, codexHome string
@@ -49,10 +50,25 @@ func newDoctorFixture(t *testing.T) *doctorFixture {
 		t.Fatal(err)
 	}
 	for _, kind := range adapter.Kinds(testProfiles) {
-		f.install(t, kind, bin)
+		f.installAll(t, kind, bin)
 	}
 	f.trust(t, "")
 	return f
+}
+
+// installAll adds every Brain entry of kind that runs bin: the start entry and the hook record
+// entries, as setup does.
+func (f *doctorFixture) installAll(t *testing.T, kind, bin string) {
+	t.Helper()
+	p, err := adapter.LoadFS(testProfiles, kind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range p.Hooks() {
+		if _, err := f.installer(bin).InstallHook(p, h); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // cli writes a fake agent CLI that prints version.
@@ -68,47 +84,71 @@ func (f *doctorFixture) installer(bin string) *install.Installer {
 	return &install.Installer{Home: f.home, Record: filepath.Join(f.data, "install.json"), Binary: bin}
 }
 
-// install adds the Brain hook of kind that runs bin.
-func (f *doctorFixture) install(t *testing.T, kind, bin string) {
-	t.Helper()
-	p, err := adapter.LoadFS(testProfiles, kind)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.installer(bin).Install(p); err != nil {
-		t.Fatal(err)
-	}
-}
+// codexLabels are the trust key labels of the Codex events of the Brain entries (E8-S3).
+var codexLabels = map[string]string{"SessionStart": "session_start", "UserPromptSubmit": "user_prompt_submit",
+	"PostToolUse": "post_tool_use", "Stop": "stop"}
 
-// trust writes the Codex config.toml that trusts the recorded Codex entry with hash sum;
-// "" is the hash of the entry, as Codex 0.154 computes it (E8-S3).
+// trust writes the Codex config.toml that trusts each Codex entry of the install record: the
+// start entry with hash sum, where "" is the hash of the entry, and each hook record entry with
+// its hash (#315). Each entry is the first group of its event.
 func (f *doctorFixture) trust(t *testing.T, sum string) {
 	t.Helper()
 	rec, err := install.Read(filepath.Join(f.data, "install.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sum == "" {
-		var buf bytes.Buffer
-		enc := json.NewEncoder(&buf)
-		enc.SetEscapeHTML(false)
-		if err := enc.Encode(map[string]any{"event_name": "session_start", "hooks": []any{map[string]any{
-			"type": "command", "command": rec.Entries["codex"].Command, "timeout": 5, "async": false,
-			"additionalContextLimit": 0}}}); err != nil {
-			t.Fatal(err)
-		}
-		h := sha256.Sum256(bytes.TrimSuffix(buf.Bytes(), []byte("\n")))
-		sum = "sha256:" + hex.EncodeToString(h[:])
+	p, err := adapter.LoadFS(testProfiles, "codex")
+	if err != nil {
+		t.Fatal(err)
 	}
 	dir, err := filepath.EvalSymlinks(f.codexHome)
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := filepath.Join(dir, "hooks.json") + ":session_start:0:0"
-	config := fmt.Sprintf("model = \"x\"\n\n[hooks.state.%q]\ntrusted_hash = %q\n", key, sum)
+	config := "model = \"x\"\n"
+	for _, h := range p.Hooks() {
+		e, ok := rec.Entry("codex", h)
+		if !ok {
+			continue
+		}
+		label := codexLabels[h.CLIEvent]
+		hash := codexHash(t, label, e)
+		if h.Event == adapter.EventStart && sum != "" {
+			hash = sum
+		}
+		key := filepath.Join(dir, "hooks.json") + ":" + label + ":0:0"
+		config += fmt.Sprintf("\n[hooks.state.%q]\ntrusted_hash = %q\n", key, hash)
+	}
 	if err := os.WriteFile(filepath.Join(f.codexHome, "config.toml"), []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// codexHash is the trust hash of the Codex entry e with trust key label label, as Codex 0.154
+// computes it (E8-S3): the handler of the entry with async false, its event label and its
+// matcher, as JSON with sorted keys, then SHA-256.
+func codexHash(t *testing.T, label string, e install.Entry) string {
+	t.Helper()
+	var g struct {
+		Matcher *string          `json:"matcher"`
+		Hooks   []map[string]any `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(e.Text), &g); err != nil || len(g.Hooks) != 1 {
+		t.Fatalf("entry %s: %v, want one handler", e.Text, err)
+	}
+	g.Hooks[0]["async"] = false
+	identity := map[string]any{"event_name": label, "hooks": []any{g.Hooks[0]}}
+	if g.Matcher != nil {
+		identity["matcher"] = *g.Matcher
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(identity); err != nil {
+		t.Fatal(err)
+	}
+	h := sha256.Sum256(bytes.TrimSuffix(buf.Bytes(), []byte("\n")))
+	return "sha256:" + hex.EncodeToString(h[:])
 }
 
 // doctor runs brain doctor from pane w14:p1 with the answers in stdin.
@@ -211,7 +251,7 @@ func TestDoctorMissingBinary(t *testing.T) {
 	if _, err := f.installer(bin).Uninstall(p); err != nil {
 		t.Fatal(err)
 	}
-	f.install(t, "claude", gone)
+	f.installAll(t, "claude", gone)
 	before := files(t, f.home)
 	record := files(t, f.data)["install.json"]
 
@@ -260,8 +300,10 @@ func TestDoctorOtherTarget(t *testing.T) {
 	}
 	in := f.installer(bin)
 	in.Home = old
-	if _, err := in.Install(p); err != nil {
-		t.Fatal(err)
+	for _, h := range p.Hooks() {
+		if _, err := in.InstallHook(p, h); err != nil {
+			t.Fatal(err)
+		}
 	}
 	f.failed(t, "n\n", "claude: the Brain hook is in "+filepath.Join(old, ".claude", "settings.json")+
 		", but claude reads "+filepath.Join(f.home, ".claude", "settings.json"))

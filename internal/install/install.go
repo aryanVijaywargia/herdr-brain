@@ -106,7 +106,7 @@ func (in *Installer) InstallHook(p *adapter.Profile, h adapter.Hook) (Status, er
 	if old.missing {
 		data = []byte("{}\n")
 	}
-	prev, _ := rec.entry(p.Kind, h)
+	prev, _ := rec.Entry(p.Kind, h)
 	out, wrap, st, err := insert(data, h.CLIEvent, p, e, prev)
 	if err != nil || st == Edited {
 		return st, err
@@ -191,7 +191,7 @@ func (in *Installer) UninstallHook(p *adapter.Profile, h adapter.Hook) (Status, 
 // uninstall removes the recorded entry of hook h from its hook file and from rec, unless you
 // edited it. The caller holds the lock and writes rec.
 func (in *Installer) uninstall(rec *Record, p *adapter.Profile, h adapter.Hook) (Status, error) {
-	e, _ := rec.entry(p.Kind, h)
+	e, _ := rec.Entry(p.Kind, h)
 	old, out, st, err := removal(h.CLIEvent, p, e)
 	if err != nil || st == Edited {
 		return st, err
@@ -217,7 +217,7 @@ func (in *Installer) WouldUninstall(p *adapter.Profile) (Status, error) {
 	}
 	st := NotInstalled
 	for _, h := range recorded(rec, p) {
-		e, _ := rec.entry(p.Kind, h)
+		e, _ := rec.Entry(p.Kind, h)
 		_, _, s, err := removal(h.CLIEvent, p, e)
 		if err != nil {
 			return "", err
@@ -279,7 +279,7 @@ func (in *Installer) WouldInstallHook(p *adapter.Profile, h adapter.Hook) (Entry
 	if old.missing {
 		data = []byte("{}\n")
 	}
-	prev, ok := rec.entry(p.Kind, h)
+	prev, ok := rec.Entry(p.Kind, h)
 	_, _, st, err := insert(data, h.CLIEvent, p, e, prev)
 	if err != nil {
 		return e, "", err

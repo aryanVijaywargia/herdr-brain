@@ -2,8 +2,8 @@
 // `herdr plugin install` replaces a managed checkout, and a linked checkout is the user's own
 // git clone. update finds the install kind and the repo in `herdr plugin list`, compares the
 // installed commit with the newest commit of the repo's default branch (`git ls-remote`), and
-// then reinstalls or pulls and builds, and runs the new binary's `brain doctor --fix`. It is
-// the only Brain command that uses the network (§0 point 13).
+// then reinstalls or pulls and builds, and runs the hook record step and `brain doctor --fix`
+// of the new binary. It is the only Brain command that uses the network (§0 point 13).
 package update
 
 import (
@@ -20,7 +20,12 @@ import (
 	"time"
 )
 
-const usage = `usage: brain update [--check]`
+// Usage is the usage text of brain update.
+const Usage = `usage: brain update [--check | --records]
+  brain update            install the newest commit of the Brain repo, add the missing hook
+                          record entries of its profiles (one question), then run brain doctor --fix
+  brain update --check    compare the installed commit with the newest commit; change nothing
+  brain update --records  add the missing hook record entries (one question), with no network call`
 
 // pluginID is the id in herdr-plugin.toml.
 const pluginID = "brain"
@@ -46,10 +51,16 @@ type plugin struct {
 	} `json:"source"`
 }
 
+// Records is the hook record step of brain update (#315, §8.5): it shows the hook record
+// entries of the profiles of this binary that are missing, asks once on in, and adds them on
+// yes, as brain setup does. Any other answer writes nothing.
+type Records func(in io.Reader, stdout io.Writer) error
+
 // updater runs the commands of one brain update.
 type updater struct {
 	environ        []string
 	herdr          string
+	stdin          io.Reader
 	stdout, stderr io.Writer
 }
 
@@ -64,17 +75,22 @@ type state struct {
 }
 
 // Main runs `brain update` with args in the process environment environ. It writes the
-// output of each step to stdout and stderr.
-func Main(ctx context.Context, args, environ []string, stdout, stderr io.Writer) error {
+// output of each step to stdout and stderr, and reads the answer of the hook record step,
+// records, from stdin. Up to date, it runs records; after an install, the new binary runs its
+// own step (owner decision 2026-10-08, #315).
+func Main(ctx context.Context, args, environ []string, stdin io.Reader, stdout, stderr io.Writer, records Records) error {
 	check := len(args) == 1 && args[0] == "--check"
+	if len(args) == 1 && args[0] == "--records" {
+		return records(stdin, stdout)
+	}
 	if len(args) != 0 && !check {
-		return fmt.Errorf("unexpected argument %q\n%s", args[0], usage)
+		return fmt.Errorf("unexpected argument %q\n%s", args[0], Usage)
 	}
 	u := &updater{
 		// No git question: a prompt for a password would wait forever with no terminal.
 		environ: append(slices.Clone(environ), "GIT_TERMINAL_PROMPT=0"),
 		herdr:   cmp.Or(lookup(environ, "HERDR_BIN_PATH"), "herdr"),
-		stdout:  stdout, stderr: stderr,
+		stdin:   stdin, stdout: stdout, stderr: stderr,
 	}
 	p, err := u.plugin(ctx)
 	if err != nil {
@@ -105,13 +121,16 @@ func Main(ctx context.Context, args, environ []string, stdout, stderr io.Writer)
 		p.Version, short(s.installed), s.from, short(s.newest), s.remote, verdict); err != nil {
 		return err
 	}
-	if check || s.installed == s.newest {
+	switch {
+	case check:
 		return nil
+	case s.installed == s.newest:
+		return records(stdin, stdout)
 	}
 	if err := s.apply(ctx); err != nil {
 		return err
 	}
-	return u.doctor(ctx, p.Root)
+	return u.after(ctx, p.Root)
 }
 
 // plugin returns the Brain entry of `herdr plugin list`. herdr answers from its registry file
@@ -171,7 +190,7 @@ func (u *updater) managed(ctx context.Context, p plugin) (state, error) {
 			return fmt.Errorf("brain update follows the default branch, but this install is at --ref %s; "+
 				"to leave the ref, run: herdr plugin install %s --yes", src.Ref, repo)
 		}
-		if err := u.run(ctx, "", u.herdr, "plugin", "install", repo, "--yes"); err != nil {
+		if err := u.run(ctx, "", nil, u.herdr, "plugin", "install", repo, "--yes"); err != nil {
 			return fmt.Errorf("herdr plugin install (herdr keeps the old checkout, so Brain stays at commit %s): %w",
 				short(src.Commit), err)
 		}
@@ -216,10 +235,10 @@ func (u *updater) linked(ctx context.Context, p plugin) (state, error) {
 		return nil
 	}
 	apply := func(ctx context.Context) error {
-		if err := u.run(ctx, root, "git", "pull", "--ff-only"); err != nil {
+		if err := u.run(ctx, root, nil, "git", "pull", "--ff-only"); err != nil {
 			return err
 		}
-		return u.run(ctx, root, "sh", filepath.Join(root, "scripts", "build.sh"))
+		return u.run(ctx, root, nil, "sh", filepath.Join(root, "scripts", "build.sh"))
 	}
 	return state{installed: installed, newest: newest, from: "linked: " + root, remote: remote, guard: guard, apply: apply}, nil
 }
@@ -237,21 +256,29 @@ func (u *updater) head(ctx context.Context, dir, remote string) (string, error) 
 	return commit, nil
 }
 
-// doctor runs `brain doctor --fix` of the new binary: a new binary can need new hook entries.
-func (u *updater) doctor(ctx context.Context, root string) error {
-	if err := u.run(ctx, "", filepath.Join(root, "bin", "brain"), "doctor", "--fix"); err != nil {
+// after runs the new binary of the plugin root: its hook record step `brain update --records`,
+// which gets the input of update for its one question, then `brain doctor --fix`. The new
+// binary has the new profiles, so only it knows their hook record entries (#315), and a new
+// binary can need new hook entries.
+func (u *updater) after(ctx context.Context, root string) error {
+	bin := filepath.Join(root, "bin", "brain")
+	if err := u.run(ctx, "", u.stdin, bin, "update", "--records"); err != nil {
+		return fmt.Errorf("the update is done, but its hook record step reports a problem (see above): %w", err)
+	}
+	if err := u.run(ctx, "", nil, bin, "doctor", "--fix"); err != nil {
 		return fmt.Errorf("the update is done, but brain doctor --fix reports a problem (see above): %w", err)
 	}
 	return nil
 }
 
-// run runs name with args in dir, with its output on the output of update.
-func (u *updater) run(ctx context.Context, dir, name string, args ...string) error {
+// run runs name with args in dir and input stdin (nil for none), with its output on the output
+// of update.
+func (u *updater) run(ctx context.Context, dir string, stdin io.Reader, name string, args ...string) error {
 	if _, err := fmt.Fprintf(u.stdout, "$ %s %s\n", name, strings.Join(args, " ")); err != nil {
 		return err
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Dir, cmd.Env = dir, u.environ
+	cmd.Dir, cmd.Env, cmd.Stdin = dir, u.environ, stdin
 	cmd.Stdout, cmd.Stderr = u.stdout, u.stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s %s: %w", filepath.Base(name), args[0], err)

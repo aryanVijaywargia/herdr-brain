@@ -156,7 +156,10 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 
 	fmt.Fprintln(stdout, "\nStep 3: the changes.")
 	fmt.Fprint(stdout, p.text.String())
-	applied, err := p.apply(in, stdout, bin)
+	if len(p.steps) == 0 {
+		fmt.Fprintln(stdout, "Every step is already done. Setup changes nothing.")
+	}
+	applied, err := p.apply(in, stdout, "Setup wrote nothing. Run brain setup again to apply the changes. Run Brain with: "+bin+"\n")
 	if err != nil {
 		return err
 	}
@@ -188,7 +191,7 @@ func setupFlags(d setupDeps, args []string) (name, test string, again bool, err 
 }
 
 // plan holds the writes of setup and the text that shows them, so that setup asks once for
-// all of them (E19-S2).
+// all of them (E19-S2). brain update plans its hook record entries with it too (#315).
 type plan struct {
 	text  strings.Builder // one line or block for each step, done or not
 	steps []func() error  // the writes, in order
@@ -198,17 +201,17 @@ func (p *plan) say(format string, a ...any) { fmt.Fprintf(&p.text, format, a...)
 
 func (p *plan) add(step func() error) { p.steps = append(p.steps, step) }
 
-// apply asks once and runs every step on yes. It reports whether it ran them. A failed write
-// stops setup; a second setup plans the rest again.
-func (p *plan) apply(in *bufio.Reader, stdout io.Writer, bin string) (bool, error) {
+// apply asks once and runs every step on yes. It reports whether it ran them. Any other answer
+// prints refused and writes nothing. With no step it asks nothing. A failed write stops the
+// command; a second run plans the rest again.
+func (p *plan) apply(in *bufio.Reader, stdout io.Writer, refused string) (bool, error) {
 	if len(p.steps) == 0 {
-		fmt.Fprintln(stdout, "Every step is already done. Setup changes nothing.")
 		return false, nil
 	}
 	ok, err := ask(in, stdout, "Apply all of this? [y/N] ")
 	if err != nil || !ok {
 		if err == nil {
-			fmt.Fprintf(stdout, "Setup wrote nothing. Run brain setup again to apply the changes. Run Brain with: %s\n", bin)
+			fmt.Fprint(stdout, refused)
 		}
 		return false, err
 	}
