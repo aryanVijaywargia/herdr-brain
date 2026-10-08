@@ -191,12 +191,13 @@ func TestNoSecondSkill(t *testing.T) {
 		first     func(context.Context, string) ([]byte, error)
 		situation string // the situation of the claim of the first tellings
 		approve   bool
-		// The proposals and the candidates after the three later tellings.
-		proposals, candidates int
+		// The proposals and the candidates after the three later tellings, and the count of the
+		// first candidate with the evidence that the later tellings gave it, marked as merged.
+		proposals, candidates, count, merged int
 	}{
-		"skill waits":    {first: skillReply(nil), situation: skillSituation, proposals: 1, candidates: 1},
-		"skill approved": {first: skillReply(nil), situation: skillSituation, approve: true, proposals: 1, candidates: 1},
-		"rule waits":     {first: procedureReply(procedureSituation), situation: procedureSituation, proposals: 2, candidates: 2},
+		"skill waits":    {first: skillReply(nil), situation: skillSituation, proposals: 1, candidates: 1, count: 6, merged: 3},
+		"skill approved": {first: skillReply(nil), situation: skillSituation, approve: true, proposals: 1, candidates: 1, count: 6, merged: 3},
+		"rule waits":     {first: procedureReply(procedureSituation), situation: procedureSituation, proposals: 2, candidates: 2, count: 3},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
@@ -223,6 +224,14 @@ func TestNoSecondSkill(t *testing.T) {
 			}
 			if got := f.count(`SELECT COUNT(*) FROM items WHERE kind = 'skill'`); got != 1 {
 				t.Errorf("skill items = %d, want 1", got)
+			}
+			if got := f.count(`SELECT count FROM candidates WHERE claim_id IN (SELECT id FROM claims WHERE situation = '` +
+				tc.situation + `')`); got != tc.count {
+				t.Errorf("count of the first candidate = %d, want %d", got, tc.count)
+			}
+			if got := f.count(`SELECT COUNT(*) FROM evidence_links WHERE via_claim IN (SELECT id FROM claims WHERE situation = '` +
+				otherSituation + `')`); got != tc.merged {
+				t.Errorf("evidence of the later tellings marked as merged = %d, want %d", got, tc.merged)
 			}
 		})
 	}
