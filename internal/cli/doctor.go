@@ -332,8 +332,10 @@ func (d *doctorCall) trust(record string, p *adapter.Profile) error {
 	switch t {
 	case harness.Trusted:
 	case harness.NoEntry:
-		d.fail("codex: Codex reads %s, which holds no Brain hook entry; fix: brain setup with the same CODEX_HOME",
-			filepath.Join(dir, "hooks.json"))
+		// brain setup writes only ~/.codex/hooks.json and never reads CODEX_HOME, so the fix
+		// is that folder; SETUP.md gives the same fix (#333).
+		d.fail("codex: Codex reads %s, which holds no Brain hook entry; fix: run Codex with CODEX_HOME unset, "+
+			"or set to ~/.codex, so that it reads ~/.codex/hooks.json", filepath.Join(dir, "hooks.json"))
 	case harness.Modified:
 		d.fail("codex: Codex hook not trusted: the Brain hook changed since you trusted it; %s", fix)
 	case harness.Disabled:
