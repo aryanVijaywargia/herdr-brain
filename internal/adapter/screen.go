@@ -99,11 +99,11 @@ func (p *Profile) Noise(line string) bool {
 // Screen splits the screen text of one pane read into lines without trailing space. It cuts
 // the side panel off each line, and drops blank lines and the noise of the profile: the
 // noise lines, the noise blocks, the noise above a line and the noise with no given line under
-// it (§6.2, #258, #316, #338). A read can
-// start inside a block, as a bounded read after the start line left it, so the lines at the
-// start of the read that a block's Next matches are dropped too. A blank line ends the open
-// block, unless its Next matches the empty line (#291). A block with after_blank starts only
-// under a blank line or at the start of the read (#316).
+// it (§6.2, #258, #316, #338). A read can start inside a block, as a bounded read after the
+// start line left it, so the lines at the start of the read that a block's Next matches are
+// dropped too. A blank line ends the open block, unless its Next matches the empty line
+// (#291). A block with after_blank starts only under a blank line or at the start of the read
+// (#316).
 func (p *Profile) Screen(text string) []string {
 	rows := strings.Split(text, "\n")
 	col := p.panelColumn(rows)
