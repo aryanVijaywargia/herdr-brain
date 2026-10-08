@@ -226,8 +226,8 @@ type StopCall struct {
 	At           time.Time // the time of the call
 	ContractHash string    // the hash of the checked contract that the call ran
 	Stop         int64     // the stop observation: the evidence of the occurrence
-	Harness      string // the CLI kind of the session
-	WorkspaceKey string // the workspace of the stop's segment; "" when it has no Brain key
+	Harness      string    // the CLI kind of the session
+	WorkspaceKey string    // the workspace of the stop's segment; "" when it has no Brain key
 	PaneID       string
 }
 
