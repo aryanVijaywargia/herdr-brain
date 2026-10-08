@@ -795,7 +795,11 @@ func (e *env) sessionHook(t *testing.T, zone *time.Location, printed func(global
 				return err
 			}
 			if ok {
-				withLine = brief.LastSession(br.Workspace, last.Profile, last.At.In(zone), *last.TranscriptPath)
+				h, err := store.ReadHandoff(context.Background(), tx, key, last, br.Revisions)
+				if err != nil {
+					return err
+				}
+				withLine = withLast(br.Global, br.Workspace, last, h, zone)
 			}
 			sum := sha256.Sum256([]byte(printed(br.Global, br.Workspace, withLine)))
 			h, sess := hex.EncodeToString(sum[:]), session
