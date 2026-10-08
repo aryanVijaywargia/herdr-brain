@@ -11,3 +11,11 @@
 › Run it as user@host % codex -m gpt-6.1-sol
 
 • I cannot start Codex.
+
+› Explain this message:
+  Hooks need review
+  what should I pick?
+
+› Explain the /hooks view:
+  Hooks
+  Lifecycle hooks from config and enabled plugins.

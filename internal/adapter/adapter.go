@@ -123,6 +123,10 @@ type Profile struct {
 	NoiseBlocks []struct {
 		Start string `toml:"start"`
 		Next  string `toml:"next"`
+		// AfterBlank [NEW] makes the block start only under a blank line or at the top of
+		// the read: a prompt line with the same text is right under the prompt, so it stays
+		// (#316).
+		AfterBlank bool `toml:"after_blank"`
 	} `toml:"noise_blocks"`
 	// NoiseAbove [NEW] are optional screen lines that herdr capture drops only when the next
 	// line that is not blank matches Below, such as the placeholder of the empty input box

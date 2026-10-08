@@ -49,13 +49,14 @@ func TestScreen(t *testing.T) {
 // #258 AC 3: the screen rules are profile data, so a new CLI or CLI version needs no Go
 // change: a fake profile gets its own noise blocks and side panel. A bad rule is an error.
 // #291: a blank line ends a block, unless its next matches the empty line. #316: a noise_above
-// line is noise only when the next line that is not blank matches its below.
+// line is noise only when the next line that is not blank matches its below, and a block with
+// after_blank starts only under a blank line.
 func TestScreenRules(t *testing.T) {
 	good := string(readFile(t, "fake/fake.toml"))
 	rules := `
 noise_lines = ['== status .*']
 noise_blocks = [{ start = '\+-+\+', next = '\|.*\||\+-+\+' }, { start = '<open>', next = '  .*|' },
-  { start = '<shut>', next = '  .*' }]
+  { start = '<shut>', next = '  .*' }, { start = '<late>', next = '  .*', after_blank = true }]
 noise_above = [{ line = '> try', below = '== status .*' }]
 side_panel = { header = '\[panel\]', min_column = 10 }
 `
@@ -83,10 +84,15 @@ side_panel = { header = '\[panel\]', min_column = 10 }
 		"== status ok",
 		"> try",
 		"kept below",
+		"<late>",
+		"  kept late",
+		"",
+		"<late>",
+		"  dropped late",
 		"",
 	}, "\n")
 	// The wide runes take two columns each, so the cut keeps the reply up to column 14.
-	want := []string{"> hello", "漢字 reply", "| kept |", "  kept", "> try", "kept below"}
+	want := []string{"> hello", "漢字 reply", "| kept |", "  kept", "> try", "kept below", "<late>", "  kept late"}
 	if got := p.Screen(screen); !slices.Equal(got, want) {
 		t.Errorf("Screen() = %q, want %q", got, want)
 	}
