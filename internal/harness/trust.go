@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/BurntSushi/toml"
 
@@ -26,7 +27,8 @@ const (
 	Modified  Trust = "modified"  // a stored trusted_hash of another hash: the entry changed
 	Untrusted Trust = "untrusted" // no stored trusted_hash for the key
 	Disabled  Trust = "disabled"  // trusted, but its state sets enabled = false
-	// NoEntry: the hooks.json that Codex reads holds no group with the recorded hash.
+	// NoEntry: the hooks.json that Codex reads holds no group with the recorded hash, and no
+	// group of one handler with the recorded command.
 	NoEntry Trust = "no entry"
 )
 
@@ -78,9 +80,10 @@ func CodexHome(home, codexHomeEnv string) (string, error) {
 	return filepath.EvalSymlinks(abs)
 }
 
-// CodexTrust returns the trust state of the recorded Brain entry e of the start event in the
-// Codex home dir. It finds the entry in <dir>/hooks.json by its hash, builds the trust key and
-// the hash as Codex 0.154 does, and reads only the hooks.state table of <dir>/config.toml. It
+// CodexTrust returns the trust state of the recorded Brain entry e of CLI event event in the
+// Codex home dir. It finds the entry in <dir>/hooks.json by its hash, or, for an entry that you
+// edited, such as its timeout, by its command (#315). It builds the trust key and the hash of
+// that group as Codex 0.154 does, and reads only the hooks.state table of <dir>/config.toml. It
 // never writes a file: you trust the hook in Codex.
 func CodexTrust(dir string, e install.Entry, event string) (Trust, error) {
 	label, ok := eventLabels[event]
@@ -101,19 +104,23 @@ func CodexTrust(dir string, e install.Entry, event string) (Trust, error) {
 	if json.Unmarshal(data, &doc) != nil {
 		return NoEntry, nil //nolint:nilerr // Codex runs no hook from a file of another shape
 	}
-	gi := -1
-	for i, g := range doc.Hooks[event] {
+	groups := doc.Hooks[event]
+	gi := slices.IndexFunc(groups, func(g json.RawMessage) bool {
 		sum := sha256.Sum256(g)
-		if hex.EncodeToString(sum[:]) == e.SHA256 {
-			gi = i
-			break
-		}
+		return hex.EncodeToString(sum[:]) == e.SHA256
+	})
+	if gi < 0 {
+		// Codex trusts an edited entry by its own hash, so its state is the one to report.
+		gi = slices.IndexFunc(groups, func(g json.RawMessage) bool {
+			var x group
+			return json.Unmarshal(g, &x) == nil && len(x.Hooks) == 1 && x.Hooks[0].Command == e.Command
+		})
 	}
 	if gi < 0 {
 		return NoEntry, nil
 	}
 	var g group
-	if err := json.Unmarshal(doc.Hooks[event][gi], &g); err != nil || len(g.Hooks) != 1 {
+	if err := json.Unmarshal(groups[gi], &g); err != nil || len(g.Hooks) != 1 {
 		return "", fmt.Errorf("codex trust: the Brain group in %s is not one handler", source)
 	}
 	sum, err := hookHash(event, label, g.Matcher, g.Hooks[0])

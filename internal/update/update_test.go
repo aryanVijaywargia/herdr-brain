@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -21,6 +22,8 @@ const repo = "acme/brain"
 type fixture struct {
 	dir, remote, src, root, log string
 	environ                     []string
+	answer                      string // the input of update
+	records                     int    // the calls of the hook record step of this binary
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -61,8 +64,16 @@ case "$1 $2" in
 esac
 `, dir, f.root)
 	write(t, filepath.Join(dir, "herdr"), herdr, 0o700)
-	write(t, filepath.Join(dir, "next-brain"), "#!/bin/sh\necho \"brain-new $*\" >> "+f.log+"\n", 0o700)
+	write(t, filepath.Join(dir, "next-brain"), newBrain(f.log, ""), 0o700)
 	return f
+}
+
+// newBrain is a fake new bin/brain that logs each call to log. Its hook record step reads one
+// answer line and logs it. A call whose first word is fail exits 1.
+func newBrain(log, fail string) string {
+	return "#!/bin/sh\necho \"brain-new $*\" >> " + log + "\n" +
+		"if [ \"$1\" = update ]; then read -r a; echo \"answer $a\" >> " + log + "; fi\n" +
+		"if [ \"$1\" = \"" + fail + "\" ]; then exit 1; fi\n"
 }
 
 // managed makes root a managed install at the current remote HEAD, with ref ("" for none).
@@ -124,7 +135,13 @@ func (f *fixture) git(t *testing.T, dir string, args ...string) string {
 func (f *fixture) update(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
-	err := Main(context.Background(), args, f.environ, &out, &out)
+	records := func(in io.Reader, stdout io.Writer) error {
+		f.records++
+		b, err := io.ReadAll(in)
+		_, _ = fmt.Fprintf(stdout, "records step, answer %q\n", b) // the buffer cannot fail
+		return err
+	}
+	err := Main(context.Background(), args, f.environ, strings.NewReader(f.answer), &out, &out, records)
 	return out.String(), err
 }
 
@@ -196,23 +213,32 @@ func TestCheck(t *testing.T) {
 	if f.binary(t) != before {
 		t.Error("bin/brain changed after --check")
 	}
+	if f.records != 0 {
+		t.Errorf("--check ran the hook record step %d times, want none", f.records)
+	}
 }
 
 // AC: on a managed install, update runs `herdr plugin install <repo> --yes` and then the new
-// binary's `brain doctor --fix`. Up to date, it installs nothing.
+// binary's hook record step, with the input of update, and its `brain doctor --fix` (#315). Up
+// to date, it installs nothing and runs the hook record step of this binary.
 func TestManagedUpdate(t *testing.T) {
 	f := newFixture(t)
 	f.managed(t, "")
-	if out, err := f.update(t); err != nil || !strings.Contains(out, "up to date") {
-		t.Fatalf("update (up to date) = %v\n%s", err, out)
+	f.answer = "y\n"
+	if out, err := f.update(t); err != nil || !strings.Contains(out, "up to date\nrecords step, answer \"y\\n\"") ||
+		f.records != 1 {
+		t.Fatalf("update (up to date) = %v, %d hook record steps\n%s\nwant one with the answer y", err, f.records, out)
 	}
 	f.push(t)
 	out, err := f.update(t)
 	if err != nil {
 		t.Fatalf("update = %v\n%s", err, out)
 	}
+	if f.records != 1 {
+		t.Errorf("update ran the hook record step of the old binary: %d calls, want 1", f.records)
+	}
 	want := "herdr plugin list --json --plugin brain\nherdr plugin list --json --plugin brain\n" +
-		"herdr plugin install acme/brain --yes\nbrain-new doctor --fix\n"
+		"herdr plugin install acme/brain --yes\nbrain-new update --records\nanswer y\nbrain-new doctor --fix\n"
 	if got := f.calls(t); got != want {
 		t.Errorf("calls =\n%s\nwant\n%s", got, want)
 	}
@@ -307,27 +333,52 @@ func TestLinked(t *testing.T) {
 			if got := f.git(t, f.root, "rev-parse", "HEAD"); got != c2 {
 				t.Errorf("HEAD after update = %s, want %s", got, c2)
 			}
-			if c := f.calls(t); !strings.HasSuffix(c, "build\nbrain-new doctor --fix\n") {
-				t.Errorf("calls = %q, want the build, then the new doctor --fix", c)
+			if c := f.calls(t); !strings.HasSuffix(c, "build\nbrain-new update --records\nbrain-new doctor --fix\n") {
+				t.Errorf("calls = %q, want the build, then the new hook record step and doctor --fix", c)
 			}
 		})
 	}
 }
 
-// A failed doctor --fix after the update is an error that says the update is done.
-func TestDoctorFails(t *testing.T) {
+// A failed hook record step or doctor --fix after the update is an error that says the update
+// is done. A failed hook record step runs no doctor.
+func TestAfterFails(t *testing.T) {
+	for _, tt := range []struct{ fail, want string }{
+		{"update", "the update is done, but its hook record step reports a problem"},
+		{"doctor", "the update is done, but brain doctor --fix reports a problem"},
+	} {
+		t.Run(tt.fail, func(t *testing.T) {
+			f := newFixture(t)
+			f.managed(t, "")
+			f.push(t)
+			write(t, filepath.Join(f.dir, "next-brain"), newBrain(f.log, tt.fail), 0o700)
+			if out, err := f.update(t); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("update = %v, want %q\n%s", err, tt.want, out)
+			}
+			if tt.fail == "update" && strings.Contains(f.calls(t), "doctor") {
+				t.Errorf("calls = %q, want no doctor after a failed hook record step", f.calls(t))
+			}
+		})
+	}
+}
+
+// AC #315: --records runs only the hook record step of this binary, with the input of update:
+// no herdr, no git and no network.
+func TestRecordsOnly(t *testing.T) {
 	f := newFixture(t)
-	f.managed(t, "")
-	f.push(t)
-	write(t, filepath.Join(f.dir, "next-brain"), "#!/bin/sh\nexit 1\n", 0o700)
-	if out, err := f.update(t); err == nil || !strings.Contains(err.Error(), "the update is done, but brain doctor --fix") {
-		t.Errorf("update = %v, want the doctor failure\n%s", err, out)
+	f.answer = "n\n"
+	out, err := f.update(t, "--records")
+	if err != nil || f.records != 1 || out != "records step, answer \"n\\n\"\n" {
+		t.Errorf("update --records = %v, %d steps, %q; want one step with the answer n", err, f.records, out)
+	}
+	if c := f.calls(t); c != "" {
+		t.Errorf("calls = %q, want none", c)
 	}
 }
 
 func TestErrors(t *testing.T) {
 	f := newFixture(t)
-	if _, err := f.update(t, "--chek"); err == nil || !strings.Contains(err.Error(), usage) {
+	if _, err := f.update(t, "--chek"); err == nil || !strings.Contains(err.Error(), Usage) {
 		t.Errorf("update --chek = %v, want the usage", err)
 	}
 	write(t, filepath.Join(f.dir, "list.json"), `{"id":"cli:plugin","result":{"type":"plugin_list","plugins":[]}}`, 0o600)

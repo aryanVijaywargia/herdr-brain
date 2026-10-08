@@ -76,7 +76,7 @@ func checkGroups(t *testing.T, path string, p *adapter.Profile, rec Record) {
 		t.Fatal(err)
 	}
 	for _, h := range p.Hooks() {
-		e, ok := rec.entry(p.Kind, h)
+		e, ok := rec.Entry(p.Kind, h)
 		if !ok || !rec.Has(p.Kind, h) {
 			t.Fatalf("no record entry for %+v", h)
 		}

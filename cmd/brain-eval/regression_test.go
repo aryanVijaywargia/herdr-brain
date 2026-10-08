@@ -111,9 +111,10 @@ func TestPartSkip(t *testing.T) {
 		"bug-4: fail; a TestGone: not run",
 		"bug-5: fail; b TestBuild: not run (",
 		"bug-6: fail; a TestPartSkip: skip", // go test passes a test whose subtest skips
+		"regression: 1 of 6 pass",           // #318: the summary line
 	}
 	if len(lines) != len(want) {
-		t.Fatalf("runRegression() printed %d lines, want one for each of %d cases:\n%s", len(lines), len(cases), out.String())
+		t.Fatalf("runRegression() printed %d lines, want one for each of %d cases and the summary:\n%s", len(lines), len(cases), out.String())
 	}
 	for i, w := range want {
 		if !strings.HasPrefix(lines[i], w) {
@@ -124,7 +125,7 @@ func TestPartSkip(t *testing.T) {
 		t.Errorf("line 5 = %q, want the build error", lines[4])
 	}
 	out.Reset()
-	if failed := runRegression(context.Background(), root, os.Environ(), cases[:1], &out); failed || out.String() != "bug-1: pass\n" {
+	if failed := runRegression(context.Background(), root, os.Environ(), cases[:1], &out); failed || out.String() != "bug-1: pass\nregression: 1 of 1 pass\n" {
 		t.Errorf("runRegression(bug-1) = %v, %q; want a pass", failed, out.String())
 	}
 }
@@ -141,8 +142,9 @@ func TestRunRegressionNoGo(t *testing.T) {
 		t.Errorf("runRegression() = false, want a failed case")
 	}
 	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
-	if len(lines) != 2 || !strings.HasPrefix(lines[0], "bug-1: fail; a TestPass: not run (") ||
-		!strings.HasPrefix(lines[1], "bug-2: fail; b TestBuild: not run (") || !strings.Contains(lines[1], "executable file not found") {
+	if len(lines) != 3 || !strings.HasPrefix(lines[0], "bug-1: fail; a TestPass: not run (") ||
+		!strings.HasPrefix(lines[1], "bug-2: fail; b TestBuild: not run (") || !strings.Contains(lines[1], "executable file not found") ||
+		lines[2] != "regression: 0 of 2 pass" {
 		t.Errorf("runRegression() printed %q, want a fail line with the exec error for each case", out.String())
 	}
 }

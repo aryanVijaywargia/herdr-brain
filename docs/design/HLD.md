@@ -961,6 +961,7 @@ shim = ""                                      # "ts" for OpenCode and pi
 - **Receipts** say `emitted`, `withheld` or `unmapped`. A withheld receipt has a reason: not live, not a member, unknown herdr session, identity (the saved root lies outside the project folder of the workspace, or cannot be read; §11, owner decision 2026-09-28), inconsistent output, or control (§12.1). An emitted receipt proves that the hook printed. It does not prove that the model used the text.
 - `brain status` shows the states apart. A configured hook with no test shows as **unverified**. A session with no receipt shows as **unknown**.
 - **Newer CLI version** (owner decision 2026-10-07, #251): a CLI update alone is only a warning. Delivery, hook records and learning stay on, and setup still adds the hook record entries. `brain doctor` and `brain update` pass while hook receipts arrive. `brain doctor` reports a problem only when the receipts stop for live sessions of that CLI. No user step needs the Brain repo or Go. The evals after a CLI update are recommended, not required (§12.1).
+- `brain update` adds the missing hook record entries in its plan, with the same confirm as setup (owner decision 2026-10-08, #315).
 - **Changed hook payload** (S14): if the profile parse fails on an unknown input shape, the parse fails closed. herdr capture continues, and `brain doctor` reports the parse failure.
 - Brain does not repair a configuration silently. `brain doctor` explains and asks.
 
