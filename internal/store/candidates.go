@@ -104,17 +104,61 @@ func MarkClaim(ctx context.Context, tx *sql.Tx, id, kind string, permission bool
 // (§7.3). A claim is open with an open or proposed candidate, active with an active item, and
 // rejected while its rejection holds. A global candidate is not approved global context: it can
 // come from another workspace. A forgotten claim has no key and is not returned.
+//
+// The claim of an item that brain remember made has no key (#312): its key is the text of the
+// current revision of its first item, with no situation. It is returned while the item is
+// active in that scope or in global, or waits for review in that scope. An automation states no
+// rule, so its claim is not returned.
 func ScopeClaims(ctx context.Context, tx *sql.Tx, workspaceKey string) ([]Claim, error) {
 	return query(ctx, tx, `SELECT id, situation, rule, created FROM claims WHERE situation IS NOT NULL AND rule IS NOT NULL AND id IN (
 			SELECT claim_id FROM candidates WHERE status IN (?2, ?3) AND workspace_key = ?1
 			UNION SELECT claim_id FROM items WHERE state = ?4 AND COALESCE(workspace_key, '') IN (?1, '')
 			UNION SELECT claim_id FROM rejections WHERE reopened IS NULL AND COALESCE(workspace_key, '') IN (?1, ''))
-		ORDER BY id`,
+		UNION ALL SELECT i.claim_id, '', r.text, i.created FROM items i
+			JOIN item_revisions r ON r.item_id = i.id AND r.revision = i.current_revision
+			WHERE i.id IN (SELECT MIN(id) FROM items WHERE kind != ?5
+				AND NOT EXISTS (SELECT 1 FROM claims k WHERE k.id = items.claim_id AND k.situation IS NOT NULL)
+				AND (state = ?4 AND COALESCE(workspace_key, '') IN (?1, '')
+					OR state = ?6 AND workspace_key = ?1
+						AND EXISTS (SELECT 1 FROM proposals p WHERE p.item_id = items.id AND p.status = ?7))
+				GROUP BY claim_id)
+		ORDER BY 1`,
 		func(rows *sql.Rows) (Claim, error) {
 			var c Claim
 			err := rows.Scan(&c.ID, &c.Key.Situation, &c.Key.Rule, timeDest{&c.Created})
 			return c, err
-		}, workspaceKey, CandidateOpen, CandidateProposed, StateActive)
+		}, workspaceKey, CandidateOpen, CandidateProposed, StateActive, KindAutomation, StateDraft, ProposalPending)
+}
+
+// ClaimHeld reports whether claim claimID is proposed or approved in the scope of workspaceKey
+// ("" for global): an item of the claim in that scope or in global is active, or waits for
+// review with a pending proposal. A claim that means the same then adds no proposal of its own
+// (#312, §7.3 order for a known claim).
+func ClaimHeld(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string) (bool, error) {
+	var held bool
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM items i WHERE i.claim_id = ?1
+		AND COALESCE(i.workspace_key, '') IN (?2, '')
+		AND (i.state = ?3 OR EXISTS (SELECT 1 FROM proposals p WHERE p.item_id = i.id AND p.status = ?4)))`,
+		claimID, workspaceKey, StateActive, ProposalPending).Scan(&held)
+	if err != nil {
+		return false, fmt.Errorf("read held state of claim %s: %w", claimID, err)
+	}
+	return held, nil
+}
+
+// ClaimText returns the key text of claim id for the permission check (§7.3): its situation and
+// rule. The claim of a brain remember item has no key: its text is the current text of its
+// first item, as in ScopeClaims (#312). A forgotten claim gives "".
+func ClaimText(ctx context.Context, tx *sql.Tx, id string) (string, error) {
+	var text string
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE(
+		(SELECT situation || ' ' || rule FROM claims WHERE id = ?1 AND situation IS NOT NULL AND rule IS NOT NULL),
+		(SELECT r.text FROM items i JOIN item_revisions r ON r.item_id = i.id AND r.revision = i.current_revision
+			WHERE i.claim_id = ?1 ORDER BY i.id LIMIT 1), '')`, id).Scan(&text)
+	if err != nil {
+		return "", fmt.Errorf("read text of claim %s: %w", id, err)
+	}
+	return text, nil
 }
 
 // Match is what Brain knows about a same_as link that the extractor proposes (§7.3).
@@ -137,10 +181,16 @@ func (k ClaimKey) touchesPermission() bool { return TouchesPermission(k.Situatio
 // SameAs links claim id to claim other: the key of id means the same as the key of other. A
 // clear match is confirmed. An unclear match, and any match of two permission or safety
 // rules, waits for review (§7.2). The link keeps both claim ids and their evidence links.
+// The claim of an item that brain remember made has no row yet: the link adds it, with no key
+// text, so the link has its target (#312).
 func SameAs(ctx context.Context, tx *sql.Tx, id, other string, m Match) (SameAsStatus, error) {
 	source, err := ClaimByID(ctx, tx, id)
 	if err != nil {
 		return "", err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO claims (id, created) SELECT claim_id, created FROM items
+		WHERE claim_id = ? ORDER BY id LIMIT 1 ON CONFLICT (id) DO NOTHING`, other); err != nil {
+		return "", fmt.Errorf("add claim %s of its item: %w", other, err)
 	}
 	target, err := ClaimByID(ctx, tx, other)
 	if err != nil {
@@ -252,28 +302,9 @@ var ErrEvidenceRefused = errors.New("evidence refused")
 // (signal.Supports). An observation that is already evidence of the candidate adds nothing.
 // A new occurrence opens an expired candidate again.
 func Attach(ctx context.Context, tx *sql.Tx, c Candidate, obs int64, gates Gates, supports func(CandidateKind, Sender) bool) (int64, error) {
-	var l struct {
-		identity, workspace, harness string
-		sender                       Sender
-		session                      int64
-		counts, command              bool
-		at                           time.Time
-	}
-	err := tx.QueryRowContext(ctx, `SELECT o.capture_identity, COALESCE(g.workspace_key, ''), s.harness, o.sender,
-		s.id, o.counts, EXISTS (SELECT 1 FROM command_records c WHERE c.observation_id = o.id), o.at
-		FROM observations o JOIN segments g ON g.id = o.segment_id JOIN sessions s ON s.id = g.session_id
-		WHERE o.id = ?`, obs).Scan(&l.identity, &l.workspace, &l.harness, &l.sender, &l.session, &l.counts, &l.command,
-		timeDest{&l.at})
+	l, err := readEvidence(ctx, tx, c, obs, supports)
 	if err != nil {
-		return 0, fmt.Errorf("read observation %d: %w", obs, err)
-	}
-	switch {
-	case c.Scope == ScopeWorkspace && l.workspace != c.WorkspaceKey:
-		return 0, fmt.Errorf("observation %d is from workspace %q, not %q: %w", obs, l.workspace, c.WorkspaceKey, ErrEvidenceRefused)
-	case !supports(c.Kind, l.sender):
-		return 0, fmt.Errorf("observation %d: sender %s cannot support a %s: %w", obs, l.sender, c.Kind, ErrEvidenceRefused)
-	case !l.counts && (!l.command || c.Kind != CandidateCommandChain):
-		return 0, fmt.Errorf("observation %d does not count: %w", obs, ErrEvidenceRefused)
+		return 0, err
 	}
 	var id int64
 	var kind CandidateKind
@@ -310,6 +341,47 @@ func Attach(ctx context.Context, tx *sql.Tx, c Candidate, obs int64, gates Gates
 		return 0, fmt.Errorf("open candidate %d: %w", id, err)
 	}
 	return id, recount(ctx, tx, id, gates)
+}
+
+// observed is what Attach reads of an observation: the fields of its evidence link, and what
+// the checks need.
+type observed struct {
+	identity, workspace, harness string
+	sender                       Sender
+	session                      int64
+	counts, command              bool
+	at                           time.Time
+}
+
+// readEvidence reads observation obs for Attach and checks that it can be evidence of c. A
+// refused observation gives an error that wraps ErrEvidenceRefused.
+func readEvidence(ctx context.Context, tx *sql.Tx, c Candidate, obs int64, supports func(CandidateKind, Sender) bool) (observed, error) {
+	var l observed
+	err := tx.QueryRowContext(ctx, `SELECT o.capture_identity, COALESCE(g.workspace_key, ''), s.harness, o.sender,
+		s.id, o.counts, EXISTS (SELECT 1 FROM command_records c WHERE c.observation_id = o.id), o.at
+		FROM observations o JOIN segments g ON g.id = o.segment_id JOIN sessions s ON s.id = g.session_id
+		WHERE o.id = ?`, obs).Scan(&l.identity, &l.workspace, &l.harness, &l.sender, &l.session, &l.counts, &l.command,
+		timeDest{&l.at})
+	if err != nil {
+		return observed{}, fmt.Errorf("read observation %d: %w", obs, err)
+	}
+	switch {
+	case c.Scope == ScopeWorkspace && l.workspace != c.WorkspaceKey:
+		return observed{}, fmt.Errorf("observation %d is from workspace %q, not %q: %w", obs, l.workspace, c.WorkspaceKey, ErrEvidenceRefused)
+	case !supports(c.Kind, l.sender):
+		return observed{}, fmt.Errorf("observation %d: sender %s cannot support a %s: %w", obs, l.sender, c.Kind, ErrEvidenceRefused)
+	case !l.counts && (!l.command || c.Kind != CandidateCommandChain):
+		return observed{}, fmt.Errorf("observation %d does not count: %w", obs, ErrEvidenceRefused)
+	}
+	return l, nil
+}
+
+// CheckEvidence runs the checks of Attach for observation obs as evidence of c, and writes
+// nothing: an error that wraps ErrEvidenceRefused when Attach would refuse it. Evidence with no
+// candidate to attach to still counts for a comeback (#312, §5.4).
+func CheckEvidence(ctx context.Context, tx *sql.Tx, c Candidate, obs int64, supports func(CandidateKind, Sender) bool) error {
+	_, err := readEvidence(ctx, tx, c, obs, supports)
+	return err
 }
 
 // SetCandidateKind sets the kind of candidate id and counts its gate again: the kind follows

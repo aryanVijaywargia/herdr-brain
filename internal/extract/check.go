@@ -181,8 +181,13 @@ func body(head string, j job, middle string) string {
 	}
 	b.WriteString("</brief>\n<known_claims>\n")
 	for _, c := range j.known {
-		fmt.Fprintf(&b, "[%s] situation: %s; rule: %s", c.ID, tagSafe(c.Key.Situation, "known_claims"),
-			tagSafe(c.Key.Rule, "known_claims"))
+		fmt.Fprintf(&b, "[%s] ", c.ID)
+		// The claim of a brain remember item has its item text as the rule and no situation
+		// (store.ScopeClaims).
+		if c.Key.Situation != "" {
+			fmt.Fprintf(&b, "situation: %s; ", tagSafe(c.Key.Situation, "known_claims"))
+		}
+		fmt.Fprintf(&b, "rule: %s", tagSafe(c.Key.Rule, "known_claims"))
 		if name, ok := j.skills[c.ID]; ok {
 			fmt.Fprintf(&b, "; skill: %s", name)
 		}
