@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -354,5 +355,136 @@ func TestForgetOfInputItem(t *testing.T) {
 	f.mustRun()
 	if bs := f.batches(); f.cli.calls() != 2 || bs[0].Status != store.BatchCommitted || f.watermark(sid, "ws-A") != obs[0] {
 		t.Errorf("calls %d, batches %+v, want 2 calls and a committed batch", f.cli.calls(), bs)
+	}
+}
+
+// result is an extractor result with claims.
+func result(t *testing.T, claims ...map[string]any) json.RawMessage {
+	t.Helper()
+	return json.RawMessage(mustJSON(t, map[string]any{"claims": claims}))
+}
+
+// A claim that fails its own check is dropped, and the other claims stay (#310 AC 1, 6): the
+// three shapes of the M2 eval rerun (claim 4 of 5, claim 3, claim 1 with an empty
+// evidence_refs), and an evidence ref that is not in the input. dropped holds no claim text
+// (AC 4).
+func TestCheckDropsBadClaim(t *testing.T) {
+	j := job{refs: []ref{{id: "e1"}, {id: "e2"}}}
+	good := func(rule string) map[string]any {
+		return replyOf(map[string]any{"rule": rule, "evidence_refs": []string{"e1"}})
+	}
+	noEvidence := replyOf(map[string]any{"rule": "bad rule text"})
+	unknownRef := replyOf(map[string]any{"rule": "bad rule text", "evidence_refs": []string{"e1", "e9"}})
+	for name, tc := range map[string]struct {
+		claims  []map[string]any
+		rules   []string
+		dropped []string
+	}{
+		"claim 4 of 5": {[]map[string]any{good("r1"), good("r2"), good("r3"), noEvidence, good("r5")},
+			[]string{"r1", "r2", "r3", "r5"}, []string{"claim 4: no evidence"}},
+		"claim 3": {[]map[string]any{good("r1"), good("r2"), noEvidence, good("r4")},
+			[]string{"r1", "r2", "r4"}, []string{"claim 3: no evidence"}},
+		"claim 1": {[]map[string]any{noEvidence, good("r2")}, []string{"r2"}, []string{"claim 1: no evidence"}},
+		"unknown ref": {[]map[string]any{good("r1"), unknownRef, noEvidence},
+			[]string{"r1"}, []string{"claim 2: unknown evidence ref", "claim 3: no evidence"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			claims, dropped, err := check(result(t, tc.claims...), j)
+			if err != nil {
+				t.Fatalf("check = %v, want no error", err)
+			}
+			var rules []string
+			for _, c := range claims {
+				rules = append(rules, c.Rule)
+			}
+			if !slices.Equal(rules, tc.rules) || !slices.Equal(dropped, tc.dropped) {
+				t.Errorf("check = rules %q, dropped %q, want %q, %q", rules, dropped, tc.rules, tc.dropped)
+			}
+		})
+	}
+}
+
+// A result with claims that are all dropped stays invalid, so its batch waits for the retry of
+// #263 (AC 3). A result that does not match the schema stays invalid even with a good claim
+// (AC 2, S70). A valid empty result has no claim and drops none.
+func TestCheckInvalidResult(t *testing.T) {
+	j := job{refs: []ref{{id: "e1"}}}
+	good := replyOf(map[string]any{"evidence_refs": []string{"e1"}})
+	noEvidence := replyOf(nil)
+	extraField := replyOf(map[string]any{"evidence_refs": []string{"e1"}, "x": 1})
+	refsText := replyOf(map[string]any{"evidence_refs": "e1"})
+	for name, tc := range map[string]struct {
+		out  json.RawMessage
+		want string
+	}{
+		"all dropped":       {result(t, noEvidence, noEvidence), "claim 1: no evidence; claim 2: no evidence: "},
+		"field of a claim":  {result(t, good, extraField), "result does not match the schema: "},
+		"type of a field":   {result(t, refsText, good), "result does not match the schema: "},
+		"field of a result": {json.RawMessage(`{"claims":[` + mustJSON(t, good) + `],"x":1}`), "result does not match the schema: "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			claims, dropped, err := check(tc.out, j)
+			if !errors.Is(err, ErrInvalid) || !strings.HasPrefix(err.Error(), tc.want) || claims != nil || dropped != nil {
+				t.Errorf("check = %v, %q, %v, want ErrInvalid %q", claims, dropped, err, tc.want)
+			}
+		})
+	}
+	claims, dropped, err := check(json.RawMessage(`{"claims":[]}`), j)
+	if err != nil || len(claims) != 0 || len(dropped) != 0 {
+		t.Errorf("check(no claims) = %v, %q, %v, want none and no error", claims, dropped, err)
+	}
+}
+
+// A batch with a dropped claim commits its other claims and moves its watermark, and the
+// brained log gets one line with the count and the reason, no claim text (#310 AC 1, 4). A
+// batch with claims that are all dropped is invalid: its watermark stays, and the log gets no
+// line (AC 3).
+func TestBatchDropsBadClaim(t *testing.T) {
+	for name, tc := range map[string]struct {
+		evidence bool // the two first claims have the refs of the prompt as evidence
+		status   store.BatchStatus
+		notes    []string
+	}{
+		"one bad claim": {true, store.BatchCommitted, []string{"batch 1: dropped 1 of 3 claims: claim 3: no evidence"}},
+		"all bad":       {false, store.BatchInvalid, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			sid, _ := f.session("a", true, line{"ws-A", pnpm, t0})
+			f.cli.reply = func(_ context.Context, prompt string) ([]byte, error) {
+				refs := []string{}
+				if tc.evidence {
+					refs = promptRefs(prompt)
+				}
+				return claudeReply(map[string]any{"claims": []any{
+					replyOf(map[string]any{"rule": "use pnpm", "evidence_refs": refs}),
+					replyOf(map[string]any{"rule": "run pnpm install", "evidence_refs": refs}),
+					replyOf(map[string]any{"rule": "bad rule text"}),
+				}})
+			}
+			var notes []string
+			p := f.pass()
+			p.Note = func(line string) { notes = append(notes, line) }
+			if err := p.Run(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			bs := f.batches()
+			if len(bs) != 1 || bs[0].Status != tc.status {
+				t.Fatalf("batches = %+v, want one %s batch", bs, tc.status)
+			}
+			if !slices.Equal(notes, tc.notes) {
+				t.Errorf("notes = %q, want %q", notes, tc.notes)
+			}
+			wantCands := 0
+			if tc.evidence {
+				wantCands = 2
+			}
+			if n := f.count(`SELECT COUNT(*) FROM candidates`); n != wantCands {
+				t.Errorf("candidates = %d, want %d", n, wantCands)
+			}
+			if wm := f.watermark(sid, "ws-A"); (wm != 0) != tc.evidence {
+				t.Errorf("watermark = %d, want moved %v", wm, tc.evidence)
+			}
+		})
 	}
 }
