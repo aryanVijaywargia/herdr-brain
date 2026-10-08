@@ -213,10 +213,13 @@ func SetAutomationEnabled(ctx context.Context, tx *sql.Tx, id int64, on bool) er
 
 // StopCall is one occurrence of the minimal learned automation case (§10.4, E17-S10) [NEW]: a
 // ran tool call from the agent's pane (origin agent: a Brain-origin run never counts), whose
-// newest observation of its capture session at the call is a stop of the agent. A stop is a
-// hook stop record, or a pane read whose agent status is idle or done right after a pane read
-// whose status is working: the tested working → idle or working → done (M0 E17-S1). A denied
-// approval (blocked → idle) is no stop.
+// newest stop mark of its capture session at the call is a stop of the agent. A stop mark is a
+// hook stop record, or a pane read whose agent status differs from the status of the pane read
+// before it (a status change). The mark is a stop when it is the hook record, or a change from
+// working to idle or done: the tested working → idle or working → done (M0 E17-S1). A denied
+// approval (blocked → idle) and a change to working are no stop. The first pane read of a
+// session is a change only when it shows working. A pane read with no status change is no
+// mark, so the read of the final screen after a hook stop does not hide the stop (#311).
 type StopCall struct {
 	ToolID       int64
 	ContractHash string // the hash of the checked contract that the call ran
@@ -227,18 +230,27 @@ type StopCall struct {
 }
 
 // StopCalls returns the occurrences of the learned automation case in the sessions of herdr
-// session herdrSession, in call order.
+// session herdrSession, in call order. The status changes come from the pane reads of the
+// sessions with a ran agent call only; a gap is no pane read.
 func StopCalls(ctx context.Context, tx *sql.Tx, herdrSession string) ([]StopCall, error) {
-	return query(ctx, tx, `SELECT c.tool_id, c.contract_hash, o.id, s.harness, COALESCE(g.workspace_key, ''), s.pane_id
-		FROM tool_calls c JOIN sessions s ON s.id = c.session_id
-		JOIN observations o ON o.id = (SELECT o2.id FROM observations o2 JOIN segments g2 ON g2.id = o2.segment_id
-			WHERE g2.session_id = s.id AND o2.at <= c.at ORDER BY o2.at DESC, o2.id DESC LIMIT 1)
-		JOIN segments g ON g.id = o.segment_id
-		WHERE c.result = ?1 AND c.origin = ?2 AND s.herdr_session = ?3 AND o.status != ?4 AND o.brain_origin = 0
-		AND ((o.source = ?5 AND o.event = 'stop') OR (o.source = ?6 AND o.event IN ('idle', 'done')
-			AND (SELECT o3.source || ' ' || o3.event FROM observations o3 JOIN segments g3 ON g3.id = o3.segment_id
-				WHERE g3.session_id = s.id AND (o3.at < o.at OR o3.at = o.at AND o3.id < o.id)
-				ORDER BY o3.at DESC, o3.id DESC LIMIT 1) = ?6 || ' working'))
+	return query(ctx, tx, `WITH calls AS (
+			SELECT c.id, c.tool_id, c.contract_hash, c.at, s.id AS session_id, s.harness, s.pane_id
+			FROM tool_calls c JOIN sessions s ON s.id = c.session_id
+			WHERE c.result = ?1 AND c.origin = ?2 AND s.herdr_session = ?3),
+		reads AS (
+			SELECT o.id, o.at, o.source, o.event, o.brain_origin, o.segment_id, g.session_id,
+				LAG(o.event) OVER (PARTITION BY g.session_id, o.source ORDER BY o.at, o.id) AS before
+			FROM observations o JOIN segments g ON g.id = o.segment_id
+			WHERE g.session_id IN (SELECT session_id FROM calls) AND o.status != ?4
+			AND ((o.source = ?5 AND o.event = 'stop') OR o.source = ?6)),
+		marks AS (
+			SELECT * FROM reads WHERE source = ?5 OR before != event OR before IS NULL AND event = 'working')
+		SELECT c.tool_id, c.contract_hash, m.id, c.harness, COALESCE(g.workspace_key, ''), c.pane_id
+		FROM calls c JOIN marks m ON m.id = (SELECT m2.id FROM marks m2
+			WHERE m2.session_id = c.session_id AND m2.at <= c.at ORDER BY m2.at DESC, m2.id DESC LIMIT 1)
+		JOIN segments g ON g.id = m.segment_id
+		WHERE m.brain_origin = 0
+		AND (m.source = ?5 OR m.before = 'working' AND m.event IN ('idle', 'done'))
 		ORDER BY c.id`,
 		func(rows *sql.Rows) (StopCall, error) {
 			var c StopCall

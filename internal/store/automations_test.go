@@ -254,3 +254,80 @@ func TestStopCalls(t *testing.T) {
 		return nil
 	})
 }
+
+// A pane read of the final screen after the stop, many lines with one time, does not hide the
+// stop (#311): the newest hook stop or pane status change before the call counts. The M2 order:
+// hook stop at t, a read of 25 lines at t+0.8 s, the call at t+11 s.
+func TestStopCallsPaneRead(t *testing.T) {
+	s, tl, _ := bindingStore(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 10, 8, 8, 42, 25, 947_000_000, time.UTC)
+	type obs struct {
+		source, event string
+		n             int           // the lines of the read
+		after         time.Duration // from t0
+		stop          bool          // the first line is the expected stop
+	}
+	read := func(event string, n int, after time.Duration) obs { return obs{SourceHerdr, event, n, after, false} }
+	hookStop, hidden := obs{SourceHook, "stop", 1, 0, true}, obs{SourceHook, "stop", 1, 0, false}
+	for _, tc := range []struct {
+		name string
+		obs  []obs
+	}{
+		{"M2 order", []obs{hookStop, read("idle", 25, 800*time.Millisecond)}},
+		{"M2 order after a working read", []obs{read("working", 3, -5*time.Second), hidden,
+			{SourceHerdr, "idle", 25, 800 * time.Millisecond, true}}},
+		{"M2 order after an idle read", []obs{read("idle", 2, -9*time.Second), hookStop,
+			read("idle", 25, 800*time.Millisecond)}},
+		{"herdr only", []obs{read("working", 4, -3*time.Second), {SourceHerdr, "done", 1, 0, true},
+			read("done", 25, 800*time.Millisecond)}},
+		{"working after the stop", []obs{hidden, read("idle", 25, 800*time.Millisecond),
+			read("working", 6, 5*time.Second)}},
+		{"herdr working", []obs{read("idle", 3, -9*time.Second), read("working", 25, 800*time.Millisecond)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var want []int64
+			write(t, s, func(tx *sql.Tx) error {
+				herdr := "s-" + strings.ReplaceAll(tc.name, " ", "-")
+				key := SessionKey{HerdrSession: herdr, Harness: "codex", Kind: KeyAgent, ID: "a"}
+				sid, err := OpenSession(ctx, tx, key, "w1:p1", "k1", t0.Add(-time.Minute))
+				if err != nil {
+					return err
+				}
+				seg, err := StartSegment(ctx, tx, sid, "w1:p1", "k1", "recent_unwrapped", t0.Add(-time.Minute))
+				if err != nil {
+					return err
+				}
+				for i, o := range tc.obs {
+					for j := range o.n {
+						id, err := AddObservation(ctx, tx, Observation{CaptureIdentity: fmt.Sprintf("%s-%d-%d", herdr, i, j),
+							Source: o.source, SegmentID: seg, Event: o.event, Excerpt: "x", Status: ObservationComplete,
+							Sender: SenderAssistant, Counts: true, At: t0.Add(o.after)})
+						if err != nil {
+							return err
+						}
+						if o.stop && j == 0 {
+							want = append(want, id)
+						}
+					}
+				}
+				if _, err := AddToolCall(ctx, tx, ToolCall{ToolID: tl.ID, ContractHash: "h", SessionID: sid,
+					Origin: OriginAgent, Result: CallRan, At: t0.Add(11 * time.Second)}); err != nil {
+					return err
+				}
+				calls, err := StopCalls(ctx, tx, herdr)
+				if err != nil {
+					return err
+				}
+				var got []int64
+				for _, c := range calls {
+					got = append(got, c.Stop)
+				}
+				if !slices.Equal(got, want) {
+					t.Errorf("StopCalls() stops = %v, want %v", got, want)
+				}
+				return nil
+			})
+		})
+	}
+}
