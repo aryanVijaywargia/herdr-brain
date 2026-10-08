@@ -393,11 +393,10 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	var cur store.ItemRevision
 	var excerpts, conflicts []string
 	var changeable bool
-	var others int // the workspaces of the "also seen" hint of a promotion; -1 for none
-	var binding, from string
-	var claim string           // the claim of a script proposal
-	var match store.Suggestion // the suggestion of the proposal; ID 0 for none
-	var sibs []store.Proposal  // the proposals that you pick between with p
+	var others int                  // the workspaces of the "also seen" hint of a promotion; -1 for none
+	var binding, from, match string // match: the match line of the suggestion of p, if any
+	var claim string                // the claim of a script proposal
+	var sibs []store.Proposal       // the proposals that you pick between with p
 	// The review pane shows a pending proposal only: it closes on one that another surface
 	// decided (E5-S1).
 	read := cl.proposal
@@ -423,7 +422,7 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 		if sibs, err = siblings(ctx, tx, p); err != nil {
 			return err
 		}
-		if match, _, err = store.ProposalSuggestion(ctx, tx, p.ID); err != nil {
+		if match, err = matchLine(ctx, tx, p.ID); err != nil {
 			return err
 		}
 		if p.Script() {
@@ -458,9 +457,7 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 		fmt.Fprintf(&b, "excerpts:\n  %s\n", strings.Join(excerpts, "\n  "))
 	}
 	fmt.Fprintf(&b, "source:   %s, %s\n", from, localTime(p.Created))
-	if match.ID != 0 {
-		fmt.Fprintf(&b, "match:    %s, suggestion %d\n", reasonWords(match.Reason), match.ID)
-	}
+	b.WriteString(match)
 	if p.ChangeRequest != nil {
 		fmt.Fprintf(&b, "change:   %s\n", oneLine(*p.ChangeRequest))
 	}
@@ -475,6 +472,16 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	}
 	_, err = io.WriteString(cl.Stdout, b.String())
 	return err
+}
+
+// matchLine is the line of show that says why the newest suggestion of proposal matched
+// (E20-S9), or "" when the proposal has none.
+func matchLine(ctx context.Context, tx *sql.Tx, proposal int64) (string, error) {
+	s, ok, err := store.ProposalSuggestion(ctx, tx, proposal)
+	if err != nil || !ok {
+		return "", err
+	}
+	return fmt.Sprintf("match:    %s, suggestion %d\n", reasonWords(s.Reason), s.ID), nil
 }
 
 // reasonWords is suggestion reason r in words (E20-S9): a row of an older Brain has none.
