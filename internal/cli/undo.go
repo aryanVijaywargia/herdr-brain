@@ -52,42 +52,9 @@ func (cl caller) undo(ctx context.Context, id int64) error {
 	var undone int64
 	var automation bool
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
-		it, cur, err := cl.item(ctx, tx, id)
-		if err != nil {
-			return err
-		}
-		automation = it.Kind == store.KindAutomation
-		if forgotten(cur) {
-			return fmt.Errorf("item %d is forgotten: undo has no text to restore", id)
-		}
-		if it.State == store.StateDraft {
-			return fmt.Errorf("item %d is a draft: decide its proposal with brain review", id)
-		}
-		if cur.UndoesRevision != nil {
-			undone = *cur.UndoesRevision
-			return nil
-		}
-		if next, err = cl.undone(ctx, tx, it, cur); err != nil {
-			return err
-		}
-		next.Revision = it.CurrentRevision + 1
-		if _, err := store.WriteRevision(ctx, tx, it.CurrentRevision, next); err != nil {
-			return err
-		}
-		// Undo of the disputed revision ends the dispute: keep and retire of a dispute need a
-		// disputed item, so its pending dispute would stay in the queue for ever.
-		if it.State == store.StateDisputed && next.State != store.StateDisputed {
-			if err := store.SupersedeDisputes(ctx, tx, it.ID, cl.Now()); err != nil {
-				return err
-			}
-		}
-		// The undo of a link move takes the item out of the caller's view: its pending
-		// proposals end, as in the link, or no pane could decide them.
-		if !cl.sees(next.WorkspaceKey) {
-			_, err := endProposals(ctx, tx, []int64{it.ID}, cl.surface, cl.Now())
-			return err
-		}
-		return nil
+		it, n, u, err := cl.undoItem(ctx, tx, id)
+		next, undone, automation = n, u, it.Kind == store.KindAutomation
+		return err
 	})
 	if err != nil {
 		return err
@@ -156,4 +123,43 @@ func (cl caller) linkUndo(cur, prev store.ItemRevision) (bool, error) {
 	}
 	e, ok, err := cl.Workspace.Entry(*prev.WorkspaceKey)
 	return ok && !live(e), err
+}
+
+// undoItem writes the revision that undoes the latest revision of item id, and returns the
+// item and that revision. A latest revision that is itself an undo is left as it is: undone
+// is the revision that it undid, and nothing is written.
+func (cl caller) undoItem(ctx context.Context, tx *sql.Tx, id int64) (it store.Item, next store.ItemRevision, undone int64, err error) {
+	it, cur, err := cl.item(ctx, tx, id)
+	if err != nil {
+		return it, next, 0, err
+	}
+	if forgotten(cur) {
+		return it, next, 0, fmt.Errorf("item %d is forgotten: undo has no text to restore", id)
+	}
+	if it.State == store.StateDraft {
+		return it, next, 0, fmt.Errorf("item %d is a draft: decide its proposal with brain review", id)
+	}
+	if cur.UndoesRevision != nil {
+		return it, next, *cur.UndoesRevision, nil
+	}
+	if next, err = cl.undone(ctx, tx, it, cur); err != nil {
+		return it, next, 0, err
+	}
+	next.Revision = it.CurrentRevision + 1
+	if _, err := store.WriteRevision(ctx, tx, it.CurrentRevision, next); err != nil {
+		return it, next, 0, err
+	}
+	// Undo of the disputed revision ends the dispute: keep and retire of a dispute need a
+	// disputed item, so its pending dispute would stay in the queue for ever.
+	if it.State == store.StateDisputed && next.State != store.StateDisputed {
+		if err := store.SupersedeDisputes(ctx, tx, it.ID, cl.Now()); err != nil {
+			return it, next, 0, err
+		}
+	}
+	// The undo of a link move takes the item out of the caller's view: its pending proposals
+	// end, as in the link, or no pane could decide them.
+	if !cl.sees(next.WorkspaceKey) {
+		_, err = endProposals(ctx, tx, []int64{it.ID}, cl.surface, cl.Now())
+	}
+	return it, next, 0, err
 }

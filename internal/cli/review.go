@@ -1336,30 +1336,35 @@ func gateLabel(g store.Gates, c store.Candidate) string {
 // restore makes a retired item active again with a new revision (§9.2).
 func (cl caller) restore(ctx context.Context, id int64) error {
 	var rev int64
-	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
-		it, cur, err := cl.item(ctx, tx, id)
-		if err != nil {
-			return err
-		}
-		if it.State != store.StateRetired {
-			return fmt.Errorf("item %d is %s, not retired", id, it.State)
-		}
-		next := nextRevision(cur, cl.Now())
-		next.State = store.StateActive
-		if err := cl.checkBinding(ctx, tx, it, next); err != nil {
-			return err
-		}
-		rev = it.CurrentRevision + 1
-		if _, err := store.WriteRevision(ctx, tx, it.CurrentRevision, next); err != nil {
-			return err
-		}
-		return anchor(ctx, tx, next)
+	err := cl.Store.Write(ctx, func(tx *sql.Tx) (err error) {
+		rev, err = cl.restoreItem(ctx, tx, id)
+		return err
 	})
 	if err != nil {
 		return skillError(err)
 	}
 	_, err = fmt.Fprintf(cl.Stdout, "item %d restored at revision %d\n", id, rev)
 	return errors.Join(err, cl.deliver(ctx, nil))
+}
+
+// restoreItem makes retired item id active again with a new revision, and returns it.
+func (cl caller) restoreItem(ctx context.Context, tx *sql.Tx, id int64) (int64, error) {
+	it, cur, err := cl.item(ctx, tx, id)
+	if err != nil {
+		return 0, err
+	}
+	if it.State != store.StateRetired {
+		return 0, fmt.Errorf("item %d is %s, not retired", id, it.State)
+	}
+	next := nextRevision(cur, cl.Now())
+	next.State = store.StateActive
+	if err := cl.checkBinding(ctx, tx, it, next); err != nil {
+		return 0, err
+	}
+	if _, err := store.WriteRevision(ctx, tx, it.CurrentRevision, next); err != nil {
+		return 0, err
+	}
+	return it.CurrentRevision + 1, anchor(ctx, tx, next)
 }
 
 // proposeChange writes a proposal to edit or retire an active item. The item's current

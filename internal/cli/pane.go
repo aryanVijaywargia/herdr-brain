@@ -178,7 +178,8 @@ func (p *reviewPane) viewArgs() []string {
 // key runs the action of key k. done is true when the proposal is decided, or stays in the
 // queue with later. Any other error is on the screen, and the pane goes on. d turns the detail
 // view on and off for every kind [NEW key d], and v the evidence view (E20-S4); each shows the
-// proposal again in place of the other.
+// proposal again in place of the other. i opens the list of retired items and archive
+// candidates (E20-S7) [NEW key i].
 func (p *reviewPane) key(ctx context.Context, k rune) (done bool, err error) {
 	switch {
 	case k == 'd':
@@ -186,6 +187,13 @@ func (p *reviewPane) key(ctx context.Context, k rune) (done bool, err error) {
 		return false, nil
 	case k == 'v':
 		p.evidence, p.detail, p.msg = !p.evidence, false, ""
+		return false, nil
+	case k == 'i':
+		// The list of retired items and archive candidates (E20-S7); q or i comes back here.
+		p.msg = ""
+		if err := (&itemsPane{Env: p.Env, keys: p.keys, size: p.size}).run(ctx); err != nil {
+			p.msg = err.Error()
+		}
 		return false, nil
 	case p.dispute:
 		return p.disputeKey(ctx, k)
@@ -372,12 +380,12 @@ func entry(text []rune, n int, p *reviewPane) string {
 // its first lines, which hold what you decide on.
 func (p *reviewPane) draw(prompt string) {
 	var foot strings.Builder
-	keys := "a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  q close"
+	keys := "a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  i retired  q close"
 	switch {
 	case p.dispute:
-		keys = "k keep  e edit  t retire  l later  v evidence  d detail  q close"
+		keys = "k keep  e edit  t retire  l later  v evidence  d detail  i retired  q close"
 	case p.script:
-		keys = "a approve  r reject  l later  v evidence  d detail  q close"
+		keys = "a approve  r reject  l later  v evidence  d detail  i retired  q close"
 	default:
 		scope := "as proposed"
 		if p.scope != "" {
@@ -448,11 +456,14 @@ func lineRows(line string, width int) int {
 }
 
 // dims returns the rows and the columns of the pane, or 0, 0 when the pane has no size.
-func (p *reviewPane) dims() (rows, cols int) {
-	if p.size == nil {
+func (p *reviewPane) dims() (rows, cols int) { return paneDims(p.size) }
+
+// paneDims returns the rows and the columns that size gives, or 0, 0 when size is nil.
+func paneDims(size func() (rows, cols int)) (rows, cols int) {
+	if size == nil {
 		return 0, 0
 	}
-	return p.size()
+	return size()
 }
 
 // close shows the last message, or err, for the linger time, and ends the pane. It shows err

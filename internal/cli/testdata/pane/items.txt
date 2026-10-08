@@ -1,0 +1,49 @@
+<clear>
+proposal 1 (pending): new item
+text:     use yarn
+scope:    workspace
+target:   workspace w14 (shop)
+diff:
+  + use yarn
+source:   remember, sender unconfirmed, 2026-09-28 17:30
+approve with scope: as proposed, pin: no, on a conflict: keep-both
+
+a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  i retired  q close
+<clear>
+retired items and archive candidates (global and this workspace)
+
+> [ ] item 1  retired    global  live global item
+  [ ] item 2  retired    workspace w14 (shop)  use pnpm
+  [ ] item 5  candidate  workspace w14 (shop)  idle 183d  deploy with make
+  [ ] item 6  candidate  global  idle 183d  write tests first
+
+j down  k up  space select  r restore  a archive  u undo  q back
+<clear>
+retired items and archive candidates (global and this workspace)
+
+  [ ] item 1  retired    global  live global item
+> [ ] item 2  retired    workspace w14 (shop)  use pnpm
+  [ ] item 5  candidate  workspace w14 (shop)  idle 183d  deploy with make
+  [ ] item 6  candidate  global  idle 183d  write tests first
+
+j down  k up  space select  r restore  a archive  u undo  q back
+<clear>
+retired items and archive candidates (global and this workspace)
+
+  [ ] item 1  retired    global  live global item
+> [x] item 2  retired    workspace w14 (shop)  use pnpm
+  [ ] item 5  candidate  workspace w14 (shop)  idle 183d  deploy with make
+  [ ] item 6  candidate  global  idle 183d  write tests first
+
+j down  k up  space select  r restore  a archive  u undo  q back
+<clear>
+proposal 1 (pending): new item
+text:     use yarn
+scope:    workspace
+target:   workspace w14 (shop)
+diff:
+  + use yarn
+source:   remember, sender unconfirmed, 2026-09-28 17:30
+approve with scope: as proposed, pin: no, on a conflict: keep-both
+
+a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  i retired  q close
