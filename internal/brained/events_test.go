@@ -553,3 +553,99 @@ func TestEventsRepeatedPrompt(t *testing.T) {
 		t.Errorf("counted prompts = %d, want 2 (one each turn)", prompts)
 	}
 }
+
+// probeLine is a pane_agent_detected event of a codex probe in pane id, as herdr sends it; a
+// release has the final status and released.
+func probeLine(id string, released bool) string {
+	ws, _, _ := strings.Cut(id, ":")
+	if released {
+		return fmt.Sprintf(`{"data":{"agent":"codex","final_status":"idle","pane_id":%q,"released":true,"workspace_id":%q},"event":"pane_agent_detected"}`, id, ws)
+	}
+	return fmt.Sprintf(`{"data":{"agent":"codex","pane_id":%q,"type":"pane_agent_detected","workspace_id":%q},"event":"pane_agent_detected"}`, id, ws)
+}
+
+// shell adds shell pane id, with no agent, and waits for its status stream.
+func (l *live) shell(t *testing.T, id string) {
+	t.Helper()
+	l.f.addPane(id, "")
+	l.screen(id, "$ ")
+	l.created(t, id)
+}
+
+// agent sets the agent of pane id: "" when it left.
+func (l *live) agent(id, agent string) {
+	l.f.mu.Lock()
+	defer l.f.mu.Unlock()
+	l.f.panes[id].agent = agent
+}
+
+// #317 AC 1, AC 3: brain status runs "codex --version" in a shell pane. herdr detects codex
+// for under a second, with no agent session id, and releases it. A lost release and a new
+// detection end the first probe with the "agent detected again" baseline. No probe leaves a
+// session, and brain status counts no session observed.
+func TestEventsShellProbe(t *testing.T) {
+	l := newLive(t, map[string]string{"w1:p1": codexRun1})
+	l.shell(t, "w1:p2")
+
+	l.agent("w1:p2", "codex")
+	l.screen("w1:p2", "$ brain status", "codex-cli 0.160.1")
+	l.main.send(probeLine("w1:p2", false))
+	wantStep(t, l.step(t), Baseline, "w1:p2", GapNone, "")
+	l.agent("w1:p2", "")
+	l.main.send(probeLine("w1:p2", true))
+	wantStep(t, l.step(t), End, "w1:p2", "", ReasonAgentLeft)
+
+	// herdr loses the release of the second probe, and detects the third one.
+	l.agent("w1:p2", "codex")
+	l.screen("w1:p2", "$ brain doctor", "codex-cli 0.160.1")
+	l.main.send(probeLine("w1:p2", false))
+	wantStep(t, l.step(t), Baseline, "w1:p2", GapNone, "")
+	l.screen("w1:p2", "$ brain doctor", "codex-cli 0.160.1", "$ brain review", "codex-cli 0.160.1")
+	l.main.send(probeLine("w1:p2", false))
+	wantStep(t, l.step(t), Baseline, "w1:p2", GapNone, "")
+	l.agent("w1:p2", "")
+	l.main.send(probeLine("w1:p2", true))
+	wantStep(t, l.step(t), End, "w1:p2", "", ReasonAgentLeft)
+
+	r := l.rows(t)
+	if len(r.sessions) != 1 || r.sessions[0].PaneID != "w1:p1" {
+		t.Errorf("sessions = %+v, want only the codex session of w1:p1", r.sessions)
+	}
+	if lines, gaps := r.texts("w1:p2"); len(lines) != 0 || len(gaps) != 0 {
+		t.Errorf("w1:p2 holds lines %q and gaps %q, want none", lines, gaps)
+	}
+	var d store.DeliveryGap
+	l.tx(t, func(tx *sql.Tx) (err error) {
+		d, err = store.DeliveryGaps(context.Background(), tx, "s1", "codex")
+		return err
+	})
+	if d.Sessions != 1 || d.Gaps != 1 {
+		t.Errorf("status codex: sessions observed %d, capture gaps %d, want 1 and 1 (the start of w1:p1)", d.Sessions, d.Gaps)
+	}
+}
+
+// #317 AC 2: a real agent with no agent session id that ends fast keeps its session when it
+// holds text, and the agent of w1:p1, with its agent session id, keeps its session with only a
+// gap.
+func TestEventsShortAgentKept(t *testing.T) {
+	l := newLive(t, map[string]string{"w1:p1": codexRun1})
+	l.shell(t, "w1:p2")
+	l.agent("w1:p2", "codex")
+	l.screen("w1:p2", "$ codex", "• base")
+	l.main.send(probeLine("w1:p2", false))
+	wantStep(t, l.step(t), Baseline, "w1:p2", GapNone, "")
+	l.screen("w1:p2", "$ codex", "• base", "• done")
+	l.status(t, "w1:p2", "idle")
+	l.agent("w1:p2", "")
+	l.main.send(probeLine("w1:p2", true))
+	wantStep(t, l.step(t), End, "w1:p2", "", ReasonAgentLeft)
+	l.main.send(paneLine("pane_closed", "w1:p1"))
+	wantStep(t, l.step(t), End, "w1:p1", "", ReasonGone)
+
+	r := l.rows(t)
+	if len(r.sessions) != 2 || r.sessions[0].Ended.IsZero() || r.sessions[1].Ended.IsZero() {
+		t.Fatalf("sessions = %+v, want both ended and kept", r.sessions)
+	}
+	lines, _ := r.texts("w1:p2")
+	wantLines(t, lines, "• done")
+}
