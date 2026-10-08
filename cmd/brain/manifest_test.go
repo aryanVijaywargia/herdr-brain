@@ -165,3 +165,39 @@ func TestHLDRecallPopup(t *testing.T) {
 		t.Errorf("HLD §4.1 =\n%s\nwant the Recall popup row", sec)
 	}
 }
+
+// E20-S11 AC 1: the action "Brain: retired items" opens the retired popup for the focused
+// pane's workspace, and the popup runs `brain pane retired`, which takes that pane from the
+// action context, as the recall popup does.
+func TestManifestRetiredAction(t *testing.T) {
+	action := findTable(manifestTables(t, "actions"), "retired")
+	if action == nil {
+		t.Fatal("no [[actions]] with id retired")
+	}
+	if action["title"] != `"Brain: retired items"` || action["contexts"] != `["workspace", "pane"]` {
+		t.Errorf("retired action = %v, want title Brain: retired items in the workspace and pane contexts", action)
+	}
+	if !strings.Contains(action["command"], `plugin pane open --plugin brain --entrypoint retired`) {
+		t.Errorf("retired action command = %s, want it to open the retired pane", action["command"])
+	}
+	pane := findTable(manifestTables(t, "panes"), "retired")
+	if pane == nil {
+		t.Fatal("no [[panes]] with id retired")
+	}
+	if pane["placement"] != `"popup"` || !strings.Contains(pane["command"], `exec \"$HERDR_PLUGIN_ROOT/bin/brain\" pane retired"`) {
+		t.Errorf("retired pane = %v, want a popup that runs bin/brain pane retired", pane)
+	}
+}
+
+// E20-S11 AC 4: HLD §9.2 names the herdr action of the retired items list too.
+func TestHLDRetiredAction(t *testing.T) {
+	b, err := os.ReadFile("../../docs/design/HLD.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, line, _ := strings.Cut(string(b), "- **Retire, not delete.**")
+	line, _, _ = strings.Cut(line, "\n")
+	if !strings.Contains(line, "(key `i`, E20-S7), and so does the herdr action \"Brain: retired items\" (`brain.retired`, E20-S11)") {
+		t.Errorf("HLD §9.2 Retire line =\n%s\nwant the herdr action", line)
+	}
+}

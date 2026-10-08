@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -26,21 +25,12 @@ const (
 	keyCtrlP         = 0x10
 )
 
-// paneRecall runs `brain pane recall`, the recall popup (E20-S3): it searches the items that
-// the brief of the focused pane can deliver, as brain recall does (§8.6), and shows one item
-// in full with its source excerpts. It only reads: it writes no recall record, which is for an
-// agent session, and no decision. herdr runs it in a popup, which has no HERDR_PANE_ID, so the
-// caller is the focused pane of the action context (popupEnv).
-func paneRecall(ctx context.Context, e Env) error {
-	restore, err := cbreak(os.Stdin)
-	if err != nil {
-		return err
-	}
-	defer restore()
-	return recallPopup(ctx, e, bufio.NewReader(os.Stdin), func() (int, int) { return termSize(os.Stdin) })
-}
-
-// recallPopup runs the recall popup with the keys of keys, in a screen of size.
+// recallPopup runs `brain pane recall`, the recall popup (E20-S3), with the keys of keys, in
+// a screen of size: it searches the items that the brief of the focused pane can deliver, as
+// brain recall does (§8.6), and shows one item in full with its source excerpts. It only
+// reads: it writes no recall record, which is for an agent session, and no decision. herdr
+// runs it in a popup, which has no HERDR_PANE_ID, so the caller is the focused pane of the
+// action context (popupEnv).
 func recallPopup(ctx context.Context, e Env, keys *bufio.Reader, size func() (rows, cols int)) (err error) {
 	p := &recallPane{keys: keys, out: e.Stdout, size: size}
 	e.Environ, err = popupEnv(e.Environ)
@@ -71,13 +61,13 @@ func popupEnv(environ []string) ([]string, error) {
 	}
 	raw := lookupEnv(environ, "HERDR_PLUGIN_CONTEXT_JSON")
 	if raw == "" {
-		return nil, errors.New("no HERDR_PANE_ID and no HERDR_PLUGIN_CONTEXT_JSON: open the recall popup from the herdr action brain.recall")
+		return nil, errors.New("no HERDR_PANE_ID and no HERDR_PLUGIN_CONTEXT_JSON: open the popup from its herdr action (brain.recall, brain.retired)")
 	}
 	if err := json.Unmarshal([]byte(raw), &ctx); err != nil {
 		return nil, fmt.Errorf("read HERDR_PLUGIN_CONTEXT_JSON: %w", err)
 	}
 	if ctx.WorkspaceID == "" || ctx.FocusedPaneID == "" {
-		return nil, errors.New("the herdr action context has no focused pane: focus a pane, then open the recall popup")
+		return nil, errors.New("the herdr action context has no focused pane: focus a pane, then open the popup")
 	}
 	return append(environ[:len(environ):len(environ)], "HERDR_PANE_ID="+ctx.FocusedPaneID,
 		"HERDR_WORKSPACE_ID="+ctx.WorkspaceID), nil
@@ -390,10 +380,13 @@ func cut(line string, cols int) string {
 	return string([]rune(line)[:cols-4]) + "..."
 }
 
-// fail shows err in the popup until a key: herdr closes the popup when brain exits, so the
-// error that run prints to stderr is gone at once. It returns err.
-func (p *recallPane) fail(err error) error {
-	_, _ = fmt.Fprintf(p.out, "%s%v\n\nPress a key to close.", clearScreen, err) // as in reviewPane.draw
-	_, _, _ = p.keys.ReadRune()                                                  // any key, or the end of input, closes
+// fail shows err in the popup until a key, and returns it.
+func (p *recallPane) fail(err error) error { return popupFail(p.out, p.keys, err) }
+
+// popupFail shows err in a popup on out until a key of keys: herdr closes the popup when brain
+// exits, so the error that run prints to stderr is gone at once. It returns err.
+func popupFail(out io.Writer, keys io.RuneReader, err error) error {
+	_, _ = fmt.Fprintf(out, "%s%v\n\nPress a key to close.", clearScreen, err) // as in reviewPane.draw
+	_, _, _ = keys.ReadRune()                                                  // any key, or the end of input, closes
 	return err
 }
