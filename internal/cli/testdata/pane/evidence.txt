@@ -12,7 +12,7 @@ excerpts:
 source:   remember, sender unconfirmed, 2026-09-28 17:30
 approve with scope: as proposed, pin: no, on a conflict: keep-both
 
-a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  q close
+a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  i retired  q close
 <clear>
 proposal 1 (pending): the stored text around each source excerpt, up to 20 lines before and after
 excerpt 1: unconfirmed, session 2 (claude), workspace shop, 2026-09-28 17:30
@@ -26,7 +26,7 @@ excerpt 2: unconfirmed, session 1 (claude), workspace shop, 2026-09-28 17:30
   | using pnpm now
 approve with scope: as proposed, pin: no, on a conflict: keep-both
 
-a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  q close
+a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  i retired  q close
 <clear>
 proposal 1 (pending): new item
 text:     use pnpm
@@ -41,4 +41,4 @@ excerpts:
 source:   remember, sender unconfirmed, 2026-09-28 17:30
 approve with scope: as proposed, pin: no, on a conflict: keep-both
 
-a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  q close
+a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  i retired  q close

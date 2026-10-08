@@ -130,12 +130,16 @@ func (cl caller) archive(ctx context.Context, retire bool) error {
 	return errors.Join(err, cl.deliver(ctx, nil))
 }
 
-// retireItem retires item id, a live item, with a new revision that keeps its text, so that
+// retireItem retires item id, a live item (active or disputed), with a new revision that keeps its text, so that
 // restore can bring it back (§9.2).
 func (cl caller) retireItem(ctx context.Context, tx *sql.Tx, id int64) error {
 	it, cur, err := cl.item(ctx, tx, id)
 	if err != nil {
 		return err
+	}
+	// The review pane lists the item before the call: another surface can retire it meanwhile.
+	if it.State != store.StateActive && it.State != store.StateDisputed {
+		return fmt.Errorf("item %d is %s, not active", id, it.State)
 	}
 	next := nextRevision(cur, cl.Now())
 	next.State = store.StateRetired

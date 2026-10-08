@@ -243,7 +243,7 @@ func TestScriptPane(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pane = %v\n%s", err, screen)
 	}
-	if !strings.Contains(screen, "a approve  r reject  l later  v evidence  d detail  q close\n") || strings.Contains(screen, "p pin") {
+	if !strings.Contains(screen, "a approve  r reject  l later  v evidence  d detail  i retired  q close\n") || strings.Contains(screen, "p pin") {
 		t.Errorf("pane =\n%s\nwant the script keys only", screen)
 	}
 	if script, _ = scriptAndTool(t, f.rows(t)); script.Status != store.ProposalApproved {

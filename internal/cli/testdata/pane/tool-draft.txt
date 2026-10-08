@@ -36,4 +36,4 @@ source:   extractor, sender unconfirmed, 2026-09-28 18:30
 pick one: proposal 2 is a script of the same command chain; approve one, and the other is superseded
 approve with scope: as proposed, pin: no, on a conflict: keep-both
 
-a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  q close
+a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  i retired  q close
