@@ -375,3 +375,32 @@ tests = [
 [[bug]]
 issue = 333
 tests = ["internal/cli:TestDoctorOtherCodexHome"]
+
+# M2 eval run 3 (2026-10-09, B1): the same task makes different command chains (a Codex sandbox
+# retry, a tool output line between two runs), so no tool is learned, and later a duplicate tool
+# comes. Fix: PR #342.
+[[bug]]
+issue = 337
+tests = [
+  "internal/signal:TestCommandChainOneTask",
+  "internal/signal:TestCommandChainTurns",
+  "internal/extract:TestToolFromCodexRuns",
+  "internal/extract:TestNoDuplicateTool",
+]
+
+# M2 eval run 3 (2026-10-09, B3): a tool draft gets the name of an active tool, with no warning.
+# Fix: PR #342.
+[[bug]]
+issue = 339
+tests = [
+  "internal/store:TestToolTexts",
+  "internal/extract:TestToolDraftFreeName",
+  "internal/extract:TestFreeName",
+  "internal/extract:TestPlaceholderToolFreeName",
+]
+
+# M2 eval run 3 (2026-10-09, B4): the learned automation proposal shows unrelated screen lines as
+# its evidence, and its source says "extractor". Fix: PR #342.
+[[bug]]
+issue = 340
+tests = ["internal/store:TestStopCalls", "internal/cli:TestLearnedAutomationEvidence"]
