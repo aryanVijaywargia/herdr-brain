@@ -23,7 +23,7 @@ delivery to observed sessions:
 review queue: 1 pending, the oldest 3h old
 extraction: on; off for workspace ws_a15; capture and rules keep running
   extractor: claude, its default model
-  last 24h: 0 of 10 extractor calls, 0 of 5 new proposals
+  last 24h: 0 of 40 extractor calls, 0 of 15 new proposals
   waiting in workspace ws_a14: 4 batches, the oldest 7d old; the next pass takes them
   waiting in workspace ws_a15: 1 batch, the oldest 14d old; extraction is off
   failed batches: none

@@ -755,9 +755,9 @@ The rules are wide on purpose. The extractor removes the false positives.
   - the filtered signal excerpts, with sender marks, marked as untrusted data;
   - the claim keys of open, active and rejected claims in this scope;
   - the current Brain blocks for this workspace and global.
-- **Output:** claims `{kind, situation, rule, scope_guess, evidence_refs, same_as, conflicts_with, touches_permission, expected_benefit}`. Brain checks the evidence references and the permission flag outside the model. A schema alone does not stop prompt injection.
+- **Output:** claims `{kind, situation, rule, scope_guess, evidence_refs, same_as, conflicts_with, touches_permission, expected_benefit}`. Brain checks the evidence references and the permission flag outside the model. Brain drops a claim that fails this check and commits the other claims. A response with no valid claim left stays invalid. A schema alone does not stop prompt injection.
 - **Drafts for live suggestions:** each proposal stores the normalized prompts that led to it. The prompt index uses them at prompt time (§5.5).
-- **Caps:** 10 calls a day, 5 new proposals a day, and an input byte cap for each call (defaults). The rest waits.
+- **Caps:** 40 calls a day, 15 new proposals a day (owner decision 2026-10-08), and an input byte cap for each call (defaults). The rest waits.
 - **Queue:** round robin across workspaces. `brain status` shows the oldest pending age. Pending work stays pending; it does not expire.
 - **Order for a known claim:** first attach the new evidence to the claim (and to a comeback, §5.4). Then drop the duplicate proposal. Brain does not read native CLI memory.
 - **Locality (D9):** extraction is **on by default** after setup. The official CLI may send the excerpts to its configured provider. Setup explains this flow and the agent flow. With **extraction off** for a workspace, Brain makes no extractor call there. Only rules and your own text make items.

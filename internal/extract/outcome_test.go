@@ -182,7 +182,7 @@ func TestComebackChangeRequest(t *testing.T) {
 	last := bs[len(bs)-1]
 	c := Claim{Kind: "correction", Situation: "installing packages", Rule: "use pnpm", Scope: store.ScopeWorkspace,
 		Refs: []ref{{id: "e1", obs: last.LastObservation, identity: last.LastCapture, kind: "correction"}}}
-	if err := f.pass().commit(context.Background(), job{batch: last}, last.ID, []Claim{c}, nil); err != nil {
+	if err := f.pass().commit(context.Background(), job{batch: last}, last.ID, []Claim{c}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if n := len(f.outcomes()); n != 2 || f.count(`SELECT COUNT(*) FROM change_requests`) != 1 {
@@ -312,7 +312,7 @@ func TestComebacksInOneSession(t *testing.T) {
 	b := f.batches()[0]
 	c := Claim{Kind: "correction", Situation: "installing packages", Rule: "use pnpm", Scope: store.ScopeWorkspace,
 		Refs: []ref{{id: "e1", obs: b.LastObservation, identity: b.LastCapture}}}
-	if err := f.pass().commit(context.Background(), job{batch: b}, b.ID, []Claim{c}, nil); err != nil {
+	if err := f.pass().commit(context.Background(), job{batch: b}, b.ID, []Claim{c}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if n := len(f.outcomes()); n != 2 {

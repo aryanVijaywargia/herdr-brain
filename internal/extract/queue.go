@@ -22,10 +22,10 @@ type Caps struct {
 	InputBytes int // the excerpt bytes of one call
 }
 
-// DefaultCaps are the §7.3 defaults: 10 calls and 5 new proposals a day. [NEW] 32 KiB of
-// excerpts for each call: the prompt is one argument of the CLI, and it stays far under the
-// argument limit of macOS and Linux (1 MiB and more).
-func DefaultCaps() Caps { return Caps{Calls: 10, Proposals: 5, InputBytes: 32 << 10} }
+// DefaultCaps are the §7.3 defaults: 40 calls and 15 new proposals a day (owner decision
+// 2026-10-08, #319). [NEW] 32 KiB of excerpts for each call: the prompt is one argument of the
+// CLI, and it stays far under the argument limit of macOS and Linux (1 MiB and more).
+func DefaultCaps() Caps { return Caps{Calls: 40, Proposals: 15, InputBytes: 32 << 10} }
 
 // day is the window of the daily caps. [NEW] the 24 hours before now: it needs no time zone.
 const day = 24 * time.Hour
