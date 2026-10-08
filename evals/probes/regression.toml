@@ -378,7 +378,7 @@ tests = ["internal/cli:TestDoctorOtherCodexHome"]
 
 # M2 eval run 3 (2026-10-09, N7): more CLI screen text is stored as user text: the codex exit
 # text at a later session start, the claude start placeholder, tool output and a reply line at
-# column 0, the claude fold line with a memory part and a cut copy of a sent prompt. Fix: PR #PRN.
+# column 0, the claude fold line with a memory part and a cut copy of a sent prompt. Fix: PR #343.
 [[bug]]
 issue = 338
 tests = [
@@ -395,7 +395,7 @@ tests = [
 ]
 
 # M2 eval run 3 (2026-10-09): a codex question answer is stored with its tag and JSON, and the
-# question of codex on the pane as user text. Fix: PR #PRN.
+# question of codex on the pane as user text. Fix: PR #343.
 [[bug]]
 issue = 341
 tests = [
