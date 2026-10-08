@@ -257,13 +257,13 @@ func (h Hook) deliver(ctx context.Context, rc *receipts, r *resolver.Resolved, s
 		if err != nil {
 			return err
 		}
-		ws, err := h.lastSession(ctx, tx, key, rc.agentSession, b.Workspace)
+		ws, err := h.lastSession(ctx, tx, key, rc.agentSession, b)
 		if err != nil {
 			return err
 		}
 		// The brief is made from the same bytes that passed the manifest check (S65). The
 		// receipt names the (item, revision) pairs of that manifest, not the store rows now.
-		// The brief hash covers the last session line too.
+		// The brief hash covers the last session line and its handoff lines too.
 		text := brief.Text(b.Global, ws)
 		if err := h.Profile.Write(stdout, text); err != nil {
 			return err
@@ -276,17 +276,28 @@ func (h Hook) deliver(ctx context.Context, rc *receipts, r *resolver.Resolved, s
 }
 
 // lastSession adds the line of the last session of workspace key before agent session
-// agentSession to the workspace part (E15-S4). key "" is an unmapped or withheld workspace: it
-// gets no workspace part, so no line (S48). The time is in the zone of the hook clock.
-func (h Hook) lastSession(ctx context.Context, tx *sql.Tx, key, agentSession, workspace string) (string, error) {
+// agentSession to the workspace part of b (E15-S4), and below it the handoff lines of that
+// session that fit the brief budget (E20-S8). key "" is an unmapped or withheld workspace: it
+// gets no workspace part, so no lines (S48). The time is in the zone of the hook clock.
+func (h Hook) lastSession(ctx context.Context, tx *sql.Tx, key, agentSession string, b output.Brief) (string, error) {
 	if key == "" {
-		return workspace, nil
+		return b.Workspace, nil
 	}
 	last, ok, err := store.LastSession(ctx, tx, key, agentSession)
 	if err != nil || !ok {
-		return workspace, err
+		return b.Workspace, err
 	}
-	return brief.LastSession(workspace, last.Profile, last.At.In(h.Now().Location()), *last.TranscriptPath), nil
+	// The approved items are those of the manifest that passed the check, as the receipt names.
+	ho, err := store.ReadHandoff(ctx, tx, key, last, b.Revisions)
+	if err != nil {
+		return "", err
+	}
+	failed := make([]brief.Failure, len(ho.Failed))
+	for i, f := range ho.Failed {
+		failed[i] = brief.Failure{Command: f.Argv, Exit: f.ExitStatus}
+	}
+	ws := brief.LastSession(b.Workspace, last.Profile, last.At.In(h.Now().Location()), *last.TranscriptPath)
+	return brief.Handoff(b.Global, ws, ho.Approved, ho.Skills, failed), nil
 }
 
 func withheld(d store.Delivery, reason string) store.Delivery {

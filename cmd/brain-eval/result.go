@@ -40,12 +40,15 @@ const (
 const outDir = "out"
 
 // expected is the brief that the hook of a pane in a case workspace prints with the test store,
-// before the hook adds the line of the last session (E15-S4). The runner reads it after the
-// setup steps and before the probes, so a change that a probe makes does not move it.
+// before the hook adds the line of the last session (E15-S4) and its handoff lines (E20-S8). The
+// runner reads it after the setup steps and before the probes, so a change that a probe makes
+// does not move it.
 type expected struct {
 	found             bool   // false when the store has no brief
 	key               string // the workspace key of the brief; "" when the workspace is not mapped
 	global, workspace string
+	// revisions are the item revisions of the brief: the handoff names the approved ones.
+	revisions []store.RevisionRef
 }
 
 // expectedBrief reads the brief that the hook of a pane in workspace wsID prints with the test
@@ -67,12 +70,13 @@ func expectedBrief(b bindings.Binding, wsID string) (expected, error) {
 	if err != nil {
 		return expected{}, err
 	}
-	e.found, e.global, e.workspace = true, br.Global, br.Workspace
+	e.found, e.global, e.workspace, e.revisions = true, br.Global, br.Workspace, br.Revisions
 	return e, nil
 }
 
 // want returns the hashes of the brief that the hook can print with receipt d: brief exp, and for
-// a mapped workspace the line of the last session in it before the agent session of d (E15-S4).
+// a mapped workspace the line of the last session in it before the agent session of d (E15-S4)
+// with the handoff lines of that session (E20-S8).
 // An earlier session in the case workspace adds that line, for example an earlier probe, or a CLI
 // whose folder-trust dialog the runner answered and that ran its start hook before its close
 // (#296). The other CLIs of the case are idle or gone when the runner reads it, so the store
@@ -84,10 +88,11 @@ func (r *Runner) want(ctx context.Context, b bindings.Binding, exp expected, d s
 		return nil, nil
 	}
 	var last store.Delivery
+	var h store.Handoff
 	var ok bool
 	if exp.key != "" {
 		var err error
-		if last, ok, err = r.lastSession(ctx, b, exp.key, deref(d.AgentSessionID)); err != nil {
+		if last, h, ok, err = r.lastSession(ctx, b, exp, deref(d.AgentSessionID)); err != nil {
 			return nil, err
 		}
 	}
@@ -96,10 +101,22 @@ func (r *Runner) want(ctx context.Context, b bindings.Binding, exp expected, d s
 	}
 	var hs []string
 	for off := minOffset; off <= maxOffset; off += offsetStep {
-		at := last.At.In(time.FixedZone("", int(off/time.Second)))
-		hs = append(hs, briefSum(exp.global, brief.LastSession(exp.workspace, last.Profile, at, *last.TranscriptPath)))
+		ws := withLast(exp.global, exp.workspace, last, h, time.FixedZone("", int(off/time.Second)))
+		hs = append(hs, briefSum(exp.global, ws))
 	}
 	return hs, nil
+}
+
+// withLast returns the workspace part ws with the line of the last session last, its time in
+// zone loc, and the handoff lines of h that fit the brief with global, as the hook prints them
+// (E15-S4, E20-S8).
+func withLast(global, ws string, last store.Delivery, h store.Handoff, loc *time.Location) string {
+	failed := make([]brief.Failure, len(h.Failed))
+	for i, f := range h.Failed {
+		failed[i] = brief.Failure{Command: f.Argv, Exit: f.ExitStatus}
+	}
+	ws = brief.LastSession(ws, last.Profile, last.At.In(loc), *last.TranscriptPath)
+	return brief.Handoff(global, ws, h.Approved, h.Skills, failed)
 }
 
 // The UTC offsets of the time zones: from -12:00 to +14:00, each a multiple of 15 minutes. [NEW]
@@ -117,19 +134,22 @@ func briefSum(global, workspace string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// lastSession reads the last session in workspace key of the test store of b before agent
-// session agentSession, as the hook reads it.
-func (r *Runner) lastSession(ctx context.Context, b bindings.Binding, key, agentSession string) (d store.Delivery, ok bool, err error) {
+// lastSession reads the last session in the workspace of brief exp in the test store of b before
+// agent session agentSession, and its handoff for exp, as the hook reads them.
+func (r *Runner) lastSession(ctx context.Context, b bindings.Binding, exp expected, agentSession string) (d store.Delivery, h store.Handoff, ok bool, err error) {
 	s, err := store.Open(ctx, b.Store, r.Timeouts.Call)
 	if err != nil {
-		return d, false, err
+		return d, h, false, err
 	}
 	defer s.Close() //nolint:errcheck // read-only use: the read error is the one to report
 	err = s.Write(ctx, func(tx *sql.Tx) error {
-		d, ok, err = store.LastSession(ctx, tx, key, agentSession)
+		if d, ok, err = store.LastSession(ctx, tx, exp.key, agentSession); err != nil || !ok {
+			return err
+		}
+		h, err = store.ReadHandoff(ctx, tx, exp.key, d, exp.revisions)
 		return err
 	})
-	return d, ok, err
+	return d, h, ok, err
 }
 
 // receipt reads the newest receipt of pane of harness in the test store of b. ok is false

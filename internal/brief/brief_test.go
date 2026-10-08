@@ -419,3 +419,93 @@ func TestCatalogBudget(t *testing.T) {
 		t.Errorf("WorkspaceCatalog(one byte over) error = %v, want *BudgetError", err)
 	}
 }
+
+// AC #273 1 and 2: the handoff lines go below the last session line: the approved items in the
+// "[id]" form, then the approved skills as "skill <name>" (owner decision 2026-10-08), at most 10
+// together and the count of the rest, then one line for each failed command, on one line and cut
+// to 80 characters. With nothing to say, the part does not change.
+func TestHandoff(t *testing.T) {
+	part, err := Workspace([]Item{{ID: 12, Text: "use make"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := LastSession(part, "claude", time.Date(2026, 10, 7, 14, 5, 0, 0, time.UTC), "/t/s.jsonl")
+	eleven := make([]int64, 11)
+	for i := range eleven {
+		eleven[i] = int64(i + 1)
+	}
+	for _, tc := range []struct {
+		name     string
+		approved []int64
+		skills   []string
+		failed   []Failure
+		want     string // the lines after ws
+	}{
+		{"nothing", nil, nil, nil, ""},
+		{"two items and two commands", []int64{12, 15}, nil,
+			[]Failure{{"go test ./internal/hook -run TestReceiptLock", 1}, {"golangci-lint run ./...", 2}},
+			"Approved since that session started: [12], [15]\n" +
+				"Failed in that session (last run): go test ./internal/hook -run TestReceiptLock (exit 1)\n" +
+				"Failed in that session (last run): golangci-lint run ./... (exit 2)\n"},
+		{"failed commands only", nil, nil, []Failure{{"make", 2}}, "Failed in that session (last run): make (exit 2)\n"},
+		{"eleven items", eleven, nil, nil,
+			"Approved since that session started: [1], [2], [3], [4], [5], [6], [7], [8], [9], [10], and 1 more\n"},
+		{"a skill", nil, []string{"go-test"}, nil, "Approved since that session started: skill go-test\n"},
+		{"items and skills", []int64{12, 15}, []string{"go-test", "lint"}, nil,
+			"Approved since that session started: [12], [15], skill go-test, skill lint\n"},
+		{"the cap counts items and skills", eleven[:8], []string{"a", "b", "c", "d"}, nil,
+			"Approved since that session started: [1], [2], [3], [4], [5], [6], [7], [8], skill a, skill b, and 2 more\n"},
+		{"a command on more lines", nil, nil, []Failure{{"cat <<EOF\n  a\tb\nEOF\n", 1}},
+			"Failed in that session (last run): cat <<EOF a b EOF (exit 1)\n"},
+		{"a long command", nil, nil, []Failure{{strings.Repeat("é", 81), 1}},
+			"Failed in that session (last run): " + strings.Repeat("é", 77) + "... (exit 1)\n"},
+		{"a command of 80 characters", nil, nil, []Failure{{strings.Repeat("é", 80), 1}},
+			"Failed in that session (last run): " + strings.Repeat("é", 80) + " (exit 1)\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Handoff("", ws, tc.approved, tc.skills, tc.failed); got != ws+tc.want {
+				t.Errorf("Handoff() = %q, want %q", got, ws+tc.want)
+			}
+		})
+	}
+}
+
+// AC #273 3: the hook adds a handoff line only while the whole brief, with the last session
+// line, stays within the brief budget; the first line that does not fit stays out with the lines
+// after it. A full brief gets none, and its parts still build.
+func TestHandoffBudget(t *testing.T) {
+	g, err := Global(fill(t, len(frame)+len(globalLabel), globalBudget))
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 10, 7, 14, 5, 0, 0, time.UTC)
+	line := LastSession("", "claude", at, "/t/s.jsonl")[len(workspaceLabel):]
+	// The approved line is longer than the failed line, so a failed line after it could fit.
+	approved, failed := []int64{1, 2, 3, 4, 5}, []Failure{{"make", 2}}
+	items, make2 := approvedText(approved, nil), "Failed in that session (last run): make (exit 2)\n"
+	for _, tc := range []struct {
+		name string
+		room int // the bytes left for the handoff lines
+		want string
+	}{
+		{"full brief", 0, ""},
+		{"room for the approved line only", len(items), items},
+		{"room for less than the approved line", len(items) - 1, ""},
+		{"room for both lines", len(items) + len(make2), items + make2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w, err := Workspace(fill(t, len(workspaceLabel), workspaceBudget-len(line)-tc.room))
+			if err != nil {
+				t.Fatal(err)
+			}
+			ws := LastSession(w, "claude", at, "/t/s.jsonl")
+			got := Handoff(g, ws, approved, nil, failed)
+			if got != ws+tc.want {
+				t.Errorf("Handoff() adds %q, want %q", got[len(ws):], tc.want)
+			}
+			if n := len(Text(g, got)); n > briefBudget {
+				t.Errorf("len(Text) = %d, over the budget of %d", n, briefBudget)
+			}
+		})
+	}
+}
