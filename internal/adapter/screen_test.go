@@ -32,7 +32,10 @@ func TestScreen(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := strings.Split(strings.TrimSuffix(string(readFile(t, filepath.Join("screen", name+".golden"))), "\n"), "\n")
+			var want []string // an empty golden: the screen keeps no line
+			if golden := strings.TrimSuffix(string(readFile(t, filepath.Join("screen", name+".golden"))), "\n"); golden != "" {
+				want = strings.Split(golden, "\n")
+			}
 			if got := p.Screen(string(readFile(t, filepath.Join("screen", name+".txt")))); !slices.Equal(got, want) {
 				t.Errorf("Screen() =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 			}

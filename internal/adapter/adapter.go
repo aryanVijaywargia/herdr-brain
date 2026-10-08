@@ -118,12 +118,20 @@ type Profile struct {
 	NoiseLines []string `toml:"noise_lines"`
 	// NoiseBlocks [NEW] are optional screen parts of more than one line that herdr capture
 	// drops, such as a tip that wraps or a start banner (#258). A block is a line that Start
-	// matches and each next line that Next matches; a blank line does not end it. Patterns
-	// match a whole line.
+	// matches and each next line that Next matches; a blank line ends it, unless Next matches
+	// the empty line (#291). Patterns match a whole line.
 	NoiseBlocks []struct {
 		Start string `toml:"start"`
 		Next  string `toml:"next"`
 	} `toml:"noise_blocks"`
+	// NoiseAbove [NEW] are optional screen lines that herdr capture drops only when the next
+	// line that is not blank matches Below, such as the placeholder of the empty input box
+	// above the rule or the footer of the box (#316): a sent prompt with the same text has
+	// other text under it. Patterns match a whole line.
+	NoiseAbove []struct {
+		Line  string `toml:"line"`
+		Below string `toml:"below"`
+	} `toml:"noise_above"`
 	// SidePanel [NEW] is an optional column that the CLI draws to the right of the main text,
 	// such as the Claude diff panel (#258). Header is a regular expression of its header row;
 	// herdr capture cuts each line of a read at the column where the header starts.
@@ -143,6 +151,8 @@ type Profile struct {
 	noise []*regexp.Regexp
 	// blocks is NoiseBlocks, compiled.
 	blocks []noiseBlock
+	// above is NoiseAbove, compiled.
+	above []noiseAbove
 	// panel is SidePanel.Header, compiled; nil when the profile has no side panel.
 	panel *regexp.Regexp
 	// exit is ExitPattern, compiled; nil when the profile has none.
