@@ -137,10 +137,6 @@ func (cl caller) retireItem(ctx context.Context, tx *sql.Tx, id int64) error {
 	if err != nil {
 		return err
 	}
-	// The review pane lists the item before the call: another surface can retire it meanwhile.
-	if it.State != store.StateActive && it.State != store.StateDisputed {
-		return fmt.Errorf("item %d is %s, not active", id, it.State)
-	}
 	next := nextRevision(cur, cl.Now())
 	next.State = store.StateRetired
 	if _, err := store.WriteRevision(ctx, tx, it.CurrentRevision, next); err != nil {

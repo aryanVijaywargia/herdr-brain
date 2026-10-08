@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -27,16 +28,22 @@ func (f *fixture) listItems(t *testing.T) []int64 {
 // keys, and returns the screen. rows 0 is a pane with no size.
 func (f *fixture) itemsScreen(t *testing.T, keys string, rows, cols int) string {
 	t.Helper()
+	return f.itemsKeys(t, typed(keys), rows, cols)
+}
+
+// itemsKeys is itemsScreen with keys that can run a change before a key.
+func (f *fixture) itemsKeys(t *testing.T, k *keys, rows, cols int) string {
+	t.Helper()
 	id := f.remember(t, "use yarn")
 	var out bytes.Buffer
 	e := f.env(f.sock, "w14:p1", "w14", &out)
 	e.Now = func() time.Time { return days(183) }
-	p := &reviewPane{Env: e, id: id, keys: typed(keys)}
+	p := &reviewPane{Env: e, id: id, keys: k}
 	if rows > 0 {
 		p.size = func() (int, int) { return rows, cols }
 	}
 	if err := p.run(context.Background()); err != nil {
-		t.Fatalf("pane(%q) = %v\n%s", keys, err, out.String())
+		t.Fatalf("pane(%q) = %v\n%s", string(k.keys), err, out.String())
 	}
 	return out.String()
 }
@@ -150,8 +157,44 @@ func TestItemsPaneBulk(t *testing.T) {
 	}
 }
 
+// An item that another surface changes while the confirm or the undo waits stops the whole
+// action: nothing is written, and the change is not undone (§7.5 expected revision).
+func TestItemsPaneChangedMeanwhile(t *testing.T) {
+	f := newFixture(t)
+	ids := f.listItems(t)
+	pin := func() {
+		if _, err := f.pin(t, fmt.Sprint(ids[2])); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Archive the two candidates; item ids[2] gets a pin before the y.
+	screen := f.itemsKeys(t, &keys{keys: []rune("ijj j ay"), before: map[int]func(){7: pin}}, 0, 0)
+	if want := fmt.Sprintf("item %d changed in another surface", ids[2]); !strings.Contains(screen, want) {
+		t.Errorf("screen =\n%s\nwant %q", screen, want)
+	}
+	wantStates(t, f.states(t, ids), retired, retired, active, active)
+
+	// Restore the two retired items, then item ids[0] gets a pin before the u.
+	f = newFixture(t)
+	ids = f.listItems(t)
+	pin = func() {
+		if _, err := f.pin(t, fmt.Sprint(ids[0])); err != nil {
+			t.Fatal(err)
+		}
+	}
+	screen = f.itemsKeys(t, &keys{keys: []rune("i j ryu"), before: map[int]func(){6: pin}}, 0, 0)
+	if want := fmt.Sprintf("item %d changed in another surface", ids[0]); !strings.Contains(screen, want) {
+		t.Errorf("screen =\n%s\nwant %q", screen, want)
+	}
+	wantStates(t, f.states(t, ids), active, active, active, active)
+	if it, _ := f.rows(t).item(t, ids[0]); !it.Pinned {
+		t.Errorf("item %d lost its pin: the undo undid the other change", ids[0])
+	}
+}
+
 // AC 1: a list taller than the pane shows the items around the cursor, each on one row, and
-// the keys stay at the bottom of every screen.
+// the keys stay at the bottom of every screen: the list, the confirm, the result and the undo
+// of a bulk action of 14 items.
 func TestItemsPaneTallList(t *testing.T) {
 	inZone(t)
 	f := newFixture(t)
@@ -160,7 +203,7 @@ func TestItemsPaneTallList(t *testing.T) {
 		f.addActive(t, ptr("ws_a14"), fmt.Sprintf("a long rule number %d that does not fit on one row of the pane", i))
 	}
 	const rows, cols = 12, 60
-	screen := f.itemsScreen(t, "i"+strings.Repeat("j", 14)+" ", rows, cols)
+	screen := f.itemsScreen(t, "i"+strings.Repeat(" j", 16)+"ayu"+strings.Repeat("k", 2)+" ", rows, cols)
 	frames := strings.Split(screen, clearScreen)[1:]
 	for _, fr := range frames {
 		if n := screenRows(fr, cols); n > rows {
@@ -172,5 +215,9 @@ func TestItemsPaneTallList(t *testing.T) {
 	if !strings.HasSuffix(last, "\n"+itemsKeys+"\n") || !strings.Contains(last, "> [x] item") {
 		t.Errorf("last screen =\n%s\nwant the selected cursor item and the keys at the bottom", last)
 	}
-	f.paneGolden(t, "items-short-pane", clearScreen+last)
+	confirm := slices.IndexFunc(frames, func(fr string) bool { return strings.Contains(fr, "press y to confirm") })
+	if confirm < 0 || !strings.Contains(screen, "archived 14 items; u undoes it") || !strings.Contains(screen, "undid the last action on 14 items") {
+		t.Fatalf("screen =\n%s\nwant the confirm, the archive and the undo of 14 items", screen)
+	}
+	f.paneGolden(t, "items-short-pane", clearScreen+frames[confirm])
 }

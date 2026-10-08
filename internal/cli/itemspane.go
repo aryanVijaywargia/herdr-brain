@@ -16,10 +16,13 @@ const itemsKeys = "j down  k up  space select  r restore  a archive  u undo  q b
 
 // listedItem is one line of the items list: a retired item, or an archive candidate.
 type listedItem struct {
-	id      int64
+	itemRev
 	retired bool // false for an archive candidate
 	line    string
 }
+
+// itemRev is an item and the revision that an action expects as its current one (§7.5).
+type itemRev struct{ id, rev int64 }
 
 // itemsPane is the list of the retired items and the archive candidates in the review pane
 // (E20-S7, §9.2): the global items and those of the caller's workspace, as brain review
@@ -34,7 +37,7 @@ type itemsPane struct {
 	top    int // the first item on the screen
 	picked map[int64]bool
 	msg    string
-	last   []int64 // the items of the last action, which u undoes
+	last   []itemRev // the items of the last action and the revisions it wrote, which u undoes
 }
 
 // run shows the list and reads keys until q, i or the end of input. It reads the list again
@@ -112,26 +115,29 @@ func (l *itemsPane) act(ctx context.Context, restore bool) error {
 		l.msg = err.Error()
 		return nil //nolint:nilerr // the error is on the screen, and the list goes on
 	}
-	l.last, l.picked = ids, map[int64]bool{}
+	l.last, l.picked = make([]itemRev, len(ids)), map[int64]bool{}
+	for i, r := range ids {
+		l.last[i] = itemRev{r.id, r.rev + 1}
+	}
 	l.msg = fmt.Sprintf("%s %s; u undoes it\n%s", done, itemWords(ids), out)
 	return nil
 }
 
 // chosen is the selected items of the kind of the action, or the item at the cursor when
 // none is selected.
-func (l *itemsPane) chosen(restore bool) []int64 {
-	var ids []int64
+func (l *itemsPane) chosen(restore bool) []itemRev {
+	var ids []itemRev
 	some := false
 	for _, it := range l.items {
 		if l.picked[it.id] {
 			some = true
 			if it.retired == restore {
-				ids = append(ids, it.id)
+				ids = append(ids, it.itemRev)
 			}
 		}
 	}
 	if !some && len(l.items) > 0 && l.items[l.cursor].retired == restore {
-		ids = append(ids, l.items[l.cursor].id)
+		ids = append(ids, l.items[l.cursor].itemRev)
 	}
 	return ids
 }
@@ -203,14 +209,21 @@ func (l *itemsPane) draw(prompt string) {
 	_, _ = io.WriteString(l.Stdout, clearScreen+body.String()+foot.String()) // as above
 }
 
-// itemWords is "item 3" or "3 items (3, 5)".
-func itemWords(ids []int64) string {
-	if len(ids) == 1 {
-		return fmt.Sprintf("item %d", ids[0])
+// maxWords is the most item ids that a message names; more ids show as a count, so the
+// message fits a short pane. [NEW] 5.
+const maxWords = 5
+
+// itemWords is "item 3", "2 items (3, 5)", or "12 items" above maxWords.
+func itemWords(ids []itemRev) string {
+	switch {
+	case len(ids) == 1:
+		return fmt.Sprintf("item %d", ids[0].id)
+	case len(ids) > maxWords:
+		return fmt.Sprintf("%d items", len(ids))
 	}
 	s := make([]string, len(ids))
-	for i, id := range ids {
-		s[i] = fmt.Sprint(id)
+	for i, r := range ids {
+		s[i] = fmt.Sprint(r.id)
 	}
 	return fmt.Sprintf("%d items (%s)", len(ids), strings.Join(s, ", "))
 }
@@ -232,7 +245,7 @@ func (cl caller) listedItems(ctx context.Context) ([]listedItem, error) {
 			if err != nil {
 				return err
 			}
-			ls = append(ls, listedItem{id: id, retired: true,
+			ls = append(ls, listedItem{itemRev: itemRev{id, cur.Revision}, retired: true,
 				line: fmt.Sprintf("item %d  retired    %s  %s", id, cl.target(cur.Scope), oneLine(cur.Text))})
 		}
 		cs, err := cl.archiveCandidates(ctx, tx)
@@ -244,7 +257,7 @@ func (cl caller) listedItems(ctx context.Context) ([]listedItem, error) {
 			if err != nil {
 				return err
 			}
-			ls = append(ls, listedItem{id: c.ItemID, line: fmt.Sprintf("item %d  candidate  %s  idle %s  %s", c.ItemID,
+			ls = append(ls, listedItem{itemRev: itemRev{c.ItemID, cur.Revision}, line: fmt.Sprintf("item %d  candidate  %s  idle %s  %s", c.ItemID,
 				cl.target(cur.Scope), age(cl.Now().Sub(c.Since)), oneLine(cur.Text))})
 		}
 		return nil
@@ -253,15 +266,19 @@ func (cl caller) listedItems(ctx context.Context) ([]listedItem, error) {
 }
 
 // setRetired restores the retired items ids, or retires the live items ids, in one
-// transaction, so one undo of each item reverses the whole action.
-func (cl caller) setRetired(ctx context.Context, ids []int64, restore bool) error {
+// transaction, so one undo of each item reverses the whole action. Each item must still be at
+// the revision that the list showed.
+func (cl caller) setRetired(ctx context.Context, ids []itemRev, restore bool) error {
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
-		for _, id := range ids {
+		for _, r := range ids {
+			if err := cl.atRevision(ctx, tx, r); err != nil {
+				return err
+			}
 			var err error
 			if restore {
-				_, err = cl.restoreItem(ctx, tx, id)
+				_, err = cl.restoreItem(ctx, tx, r.id)
 			} else {
-				err = cl.retireItem(ctx, tx, id)
+				err = cl.retireItem(ctx, tx, r.id)
 			}
 			if err != nil {
 				return err
@@ -275,11 +292,15 @@ func (cl caller) setRetired(ctx context.Context, ids []int64, restore bool) erro
 	return cl.deliver(ctx, nil)
 }
 
-// undoAll undoes the latest revision of each item ids in one transaction (§7.5 undo).
-func (cl caller) undoAll(ctx context.Context, ids []int64) error {
+// undoAll undoes the revisions ids, the ones that one action wrote, in one transaction (§7.5
+// undo). An item that changed since then makes the whole undo fail: it would undo that change.
+func (cl caller) undoAll(ctx context.Context, ids []itemRev) error {
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
-		for _, id := range ids {
-			if _, _, _, err := cl.undoItem(ctx, tx, id); err != nil {
+		for _, r := range ids {
+			if err := cl.atRevision(ctx, tx, r); err != nil {
+				return err
+			}
+			if _, _, _, err := cl.undoItem(ctx, tx, r.id); err != nil {
 				return err
 			}
 		}
@@ -289,4 +310,13 @@ func (cl caller) undoAll(ctx context.Context, ids []int64) error {
 		return err
 	}
 	return cl.deliver(ctx, nil)
+}
+
+// atRevision fails when item r.id is no longer at revision r.rev: another surface changed it.
+func (cl caller) atRevision(ctx context.Context, tx *sql.Tx, r itemRev) error {
+	it, _, err := cl.item(ctx, tx, r.id)
+	if err == nil && it.CurrentRevision != r.rev {
+		err = fmt.Errorf("item %d changed in another surface (revision %d, not %d); nothing was written", r.id, it.CurrentRevision, r.rev)
+	}
+	return err
 }
