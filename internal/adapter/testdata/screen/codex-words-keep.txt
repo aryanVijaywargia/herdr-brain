@@ -1,0 +1,13 @@
+› Read 1 file and fix it
+
+• Fixed.
+
+› the conversation went wrong, use the tests
+
+› Conversation interrupted - use /feedback if something went wrong. Why?
+
+› Hooks need review: trust them.
+
+› Run it as user@host % codex -m gpt-6.1-sol
+
+• I cannot start Codex.

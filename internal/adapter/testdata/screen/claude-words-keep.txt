@@ -1,0 +1,22 @@
+❯ Read 1 file and fix it
+
+⏺ Fixed.
+
+❯ Do these steps:
+  Read 1 file, then fix it
+
+⏺ Done.
+
+❯ the conversation went wrong, use the tests
+
+⏺ OK.
+
+❯ Try "write a test for <filepath>"
+
+⏺ Which file?
+
+❯ Run it as user@host % claude --model opus
+
+⏺ I cannot start Claude.
+
+⏺ Opus 5.5 (1M context) is the model.

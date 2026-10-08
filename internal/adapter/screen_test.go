@@ -15,7 +15,10 @@ import (
 // recorded reads (claude-logo, claude-tip-nbsp); its .golden holds the kept lines. #281: the
 // approval, trust, welcome and diff screens are made from the stored excerpts of the M2 eval
 // run (2026-10-07). claude-approval-top is the dialog of claude-s31-2-blocked at the top of a
-// read: the trust dialog rule keeps it.
+// read: the trust dialog rule keeps it. #316: the placeholder, mcp, shell, fold, hooks and stop
+// screens are made from the lines of the M2 eval rerun report (2026-10-08, claude 2.1.293,
+// codex 0.160.1), with the hooks texts of the Codex source; the words-keep screens hold real
+// prompts with the same words. An empty golden keeps no line.
 func TestScreen(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join("testdata", "screen", "*.txt"))
 	if err != nil {
@@ -45,13 +48,15 @@ func TestScreen(t *testing.T) {
 
 // #258 AC 3: the screen rules are profile data, so a new CLI or CLI version needs no Go
 // change: a fake profile gets its own noise blocks and side panel. A bad rule is an error.
-// #291: a blank line ends a block, unless its next matches the empty line.
+// #291: a blank line ends a block, unless its next matches the empty line. #316: a noise_above
+// line is noise only when the next line that is not blank matches its below.
 func TestScreenRules(t *testing.T) {
 	good := string(readFile(t, "fake/fake.toml"))
 	rules := `
 noise_lines = ['== status .*']
 noise_blocks = [{ start = '\+-+\+', next = '\|.*\||\+-+\+' }, { start = '<open>', next = '  .*|' },
   { start = '<shut>', next = '  .*' }]
+noise_above = [{ line = '> try', below = '== status .*' }]
 side_panel = { header = '\[panel\]', min_column = 10 }
 `
 	p, err := LoadFS(fstest.MapFS{"fake.toml": {Data: []byte(good + rules)}}, "fake")
@@ -73,16 +78,23 @@ side_panel = { header = '\[panel\]', min_column = 10 }
 		"<shut>",
 		"",
 		"  kept",
+		"> try",
+		"",
+		"== status ok",
+		"> try",
+		"kept below",
 		"",
 	}, "\n")
 	// The wide runes take two columns each, so the cut keeps the reply up to column 14.
-	want := []string{"> hello", "漢字 reply", "| kept |", "  kept"}
+	want := []string{"> hello", "漢字 reply", "| kept |", "  kept", "> try", "kept below"}
 	if got := p.Screen(screen); !slices.Equal(got, want) {
 		t.Errorf("Screen() = %q, want %q", got, want)
 	}
 	for _, bad := range []string{
 		"noise_blocks = [{ start = '(', next = 'x' }]",
 		"noise_blocks = [{ start = 'x', next = '(' }]",
+		"noise_above = [{ line = '(', below = 'x' }]",
+		"noise_above = [{ line = 'x', below = '(' }]",
 		"side_panel = { header = '(', min_column = 10 }",
 		"side_panel = { header = 'x' }",
 	} {

@@ -1,0 +1,3 @@
+› Reset the local db and run the tests.
+• Running npm run lint && npm test && npm run build && git status --short
+› Run only the tests.

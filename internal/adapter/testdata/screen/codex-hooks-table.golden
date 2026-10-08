@@ -1,0 +1,3 @@
+› Add pagination to GET /notes.
+• Done: GET /notes takes limit and offset.
+› Run the tests.
