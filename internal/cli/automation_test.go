@@ -305,6 +305,15 @@ func TestParseAdd(t *testing.T) {
 // the pane, through the fake herdr. The session ends after the call.
 func (f *automationFixture) stopSession(t *testing.T, id string) {
 	t.Helper()
+	f.stopSessionOf(t, id, []store.Observation{
+		{Source: store.SourceHerdr, Event: "working", Excerpt: "Editing main.go", Sender: store.SenderAssistant},
+		{Source: store.SourceHook, Event: "stop", Excerpt: "Done.", Sender: store.SenderAssistant},
+	})
+}
+
+// stopSessionOf is stopSession with the observations obs before the call, one minute apart.
+func (f *automationFixture) stopSessionOf(t *testing.T, id string, obs []store.Observation) {
+	t.Helper()
 	key := store.SessionKey{HerdrSession: "default", Harness: "claude", Kind: store.KeyAgent, ID: id}
 	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
 		sid, err := store.OpenSession(ctx, tx, key, "w14:p1", "ws_a14", testNow.Add(-time.Hour))
@@ -315,12 +324,9 @@ func (f *automationFixture) stopSession(t *testing.T, id string) {
 		if err != nil {
 			return err
 		}
-		for i, o := range []store.Observation{
-			{Source: store.SourceHerdr, Event: "working", Excerpt: "Editing main.go", Sender: store.SenderAssistant},
-			{Source: store.SourceHook, Event: "stop", Excerpt: "Done.", Sender: store.SenderAssistant},
-		} {
+		for i, o := range obs {
 			o.CaptureIdentity, o.SegmentID, o.Status, o.Counts = fmt.Sprintf("%s-%d", id, i), seg, store.ObservationComplete, true
-			o.At = testNow.Add(time.Duration(i-2) * time.Minute)
+			o.At = testNow.Add(time.Duration(i-len(obs)) * time.Minute)
 			if _, err := store.AddObservation(ctx, tx, o); err != nil {
 				return err
 			}
@@ -417,6 +423,56 @@ func TestLearnedAutomation(t *testing.T) {
 	f.pass(t)
 	if ps := f.automationProposals(t); len(ps) != 0 {
 		t.Errorf("proposals after the rejection = %+v, want none in that scope", ps)
+	}
+}
+
+// #340 AC: the learned automation proposal shows, for each of its sessions, the stop and the
+// brain run call after it, and not the screen text at the stop. Its source line names the
+// learned automation rule: no model call made it. One session stops by its Stop hook record,
+// one by a herdr status change whose screen holds other tool lines, as in the M2 eval run 3.
+func TestLearnedAutomationEvidence(t *testing.T) {
+	f := newAutomationFixture(t)
+	f.approvedTool(t, bindTool(f.dir))
+	f.stopSession(t, "s1")
+	f.stopSessionOf(t, "s2", []store.Observation{
+		{Source: store.SourceHerdr, Event: "working", Excerpt: "• Ran git status --short; git log -1 --oneline",
+			Sender: store.SenderAssistant},
+		{Source: store.SourceHerdr, Event: "idle", Excerpt: "• Explored", Sender: store.SenderUnconfirmed},
+	})
+	f.stopSession(t, "s3")
+	if calls := f.pass(t); calls != 0 {
+		t.Fatalf("%d extractor calls, want none", calls)
+	}
+	ps := f.automationProposals(t)
+	if len(ps) != 1 {
+		t.Fatalf("proposals = %+v, want one", ps)
+	}
+	out := f.mustReview(t, fmt.Sprint(ps[0].ID))
+	_, rest, _ := strings.Cut(out, "excerpts:\n")
+	block, _, _ := strings.Cut(rest, "source:")
+	lines := strings.Split(strings.TrimSuffix(block, "\n"), "\n")
+	run := fmt.Sprintf(", then it ran brain run touch-ran at %s", localTime(testNow))
+	marks := map[string]bool{}
+	sessions := map[string]bool{}
+	for _, l := range lines {
+		head, mark, ok := strings.Cut(strings.TrimSpace(l), ": the agent stopped (")
+		if !ok || !strings.HasSuffix(mark, run) {
+			t.Errorf("excerpt line %q, want the stop and the brain run call", l)
+			continue
+		}
+		sessions[strings.Split(head, ",")[0]] = true
+		marks[strings.TrimSuffix(mark, ")"+run)] = true
+	}
+	if len(lines) != 3 || len(sessions) != 3 || !marks["Stop hook"] || !marks["herdr status working → idle"] {
+		t.Errorf("excerpts %q, want one line for each of the 3 sessions, with both stop marks", lines)
+	}
+	for _, text := range []string{"Done.", "Explored", "git status", "Editing main.go", "extractor"} {
+		if strings.Contains(out, text) {
+			t.Errorf("review shows %q, want no screen text and no extractor", text)
+		}
+	}
+	if !strings.Contains(out, "\nsource:   the learned automation rule (a brain run of this tool after a stop of the agent; no model call), ") {
+		t.Errorf("review has no source line of the learned automation rule:\n%s", out)
 	}
 }
 

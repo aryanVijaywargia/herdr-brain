@@ -222,8 +222,10 @@ func SetAutomationEnabled(ctx context.Context, tx *sql.Tx, id int64, on bool) er
 // mark, so the read of the final screen after a hook stop does not hide the stop (#311).
 type StopCall struct {
 	ToolID       int64
-	ContractHash string // the hash of the checked contract that the call ran
-	Stop         int64  // the stop observation: the evidence of the occurrence
+	Tool         string    // the tool name of the tools row
+	At           time.Time // the time of the call
+	ContractHash string    // the hash of the checked contract that the call ran
+	Stop         int64     // the stop observation: the evidence of the occurrence
 	Harness      string // the CLI kind of the session
 	WorkspaceKey string // the workspace of the stop's segment; "" when it has no Brain key
 	PaneID       string
@@ -246,16 +248,17 @@ func StopCalls(ctx context.Context, tx *sql.Tx, herdrSession string) ([]StopCall
 			AND ((o.source = ?5 AND o.event = 'stop') OR o.source = ?6)),
 		marks AS (
 			SELECT * FROM reads WHERE source = ?5 OR before != event OR before IS NULL AND event = 'working')
-		SELECT c.tool_id, c.contract_hash, m.id, c.harness, COALESCE(g.workspace_key, ''), c.pane_id
+		SELECT c.tool_id, t.name, c.at, c.contract_hash, m.id, c.harness, COALESCE(g.workspace_key, ''), c.pane_id
 		FROM calls c JOIN marks m ON m.id = (SELECT m2.id FROM marks m2
 			WHERE m2.session_id = c.session_id AND m2.at <= c.at ORDER BY m2.at DESC, m2.id DESC LIMIT 1)
-		JOIN segments g ON g.id = m.segment_id
+		JOIN segments g ON g.id = m.segment_id JOIN tools t ON t.id = c.tool_id
 		WHERE m.brain_origin = 0
 		AND (m.source = ?5 OR m.before = 'working' AND m.event IN ('idle', 'done'))
 		ORDER BY c.id`,
 		func(rows *sql.Rows) (StopCall, error) {
 			var c StopCall
-			err := rows.Scan(&c.ToolID, &c.ContractHash, &c.Stop, &c.Harness, &c.WorkspaceKey, &c.PaneID)
+			err := rows.Scan(&c.ToolID, &c.Tool, timeDest{&c.At}, &c.ContractHash, &c.Stop, &c.Harness, &c.WorkspaceKey,
+				&c.PaneID)
 			return c, err
 		}, CallRan, OriginAgent, herdrSession, ObservationGap, SourceHook, SourceHerdr)
 }
