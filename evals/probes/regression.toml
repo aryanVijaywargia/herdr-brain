@@ -369,3 +369,9 @@ tests = [
   "internal/extract:TestForgetMergedClaim",
   "internal/store:TestEraseItemLinkedClaim",
 ]
+
+# brain doctor gives "brain setup with the same CODEX_HOME" as the fix when CODEX_HOME names
+# another folder, but brain setup never reads CODEX_HOME (review of PR #331). Fix: PR #334.
+[[bug]]
+issue = 333
+tests = ["internal/cli:TestDoctorOtherCodexHome"]
