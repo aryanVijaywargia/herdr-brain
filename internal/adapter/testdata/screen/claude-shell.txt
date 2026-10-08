@@ -1,0 +1,5 @@
+$ claude --model opus
+user@host notes-api-r % claude
+(base) user@host notes-api-r % ~/.local/bin/claude --model opus
+
+❯ Add a PUT /notes/:id route.

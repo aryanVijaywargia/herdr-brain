@@ -41,12 +41,21 @@ tested_version = "2.1.283"
 noise_lines = ['[·✢✳✶✻✽*] \S+….*', '[·✢✳✶✻✽*] \S+ for .* · done .*', '❯', '.* \| ctx:.*', '\s*⏸ .*',
   '\s*[▐▛▜▌▝▘▗▖▙▟▀▄█][▐▛▜▌▝▘▗▖▙▟▀▄█ ]*\s{2,}.*', '\s*⏵⏵ .*', '\s*\? for shortcuts.*',
 # Claude Code 2.1.292 (#281, M2 eval run 2026-10-07): the cut mark of a code diff in the agent
-# output, and the folded shell commands. Under a prompt they were stored as user text.
-  '\s{4,}\.\.\.', '  Ran \d+ shell commands?(?:, .*)?',
+# output. Under a prompt it was stored as user text. The folded tool calls are a block below.
+  '\s{4,}\.\.\.',
 # Claude Code 2.1.292 (#291, M2 eval run): an announcement line, and the effort line at the
 # right of the prompt box (spike/m0/e17s2/data/screens.txt) for each effort. They were stored
 # as user text.
-  '\s*▎ .*', '\s*[○◔◐◑◕●] \S+ · /effort']
+  '\s*▎ .*', '\s*[○◔◐◑◕●] \S+ · /effort',
+# Claude Code 2.1.293 (#316, M2 eval rerun 2026-10-08): the MCP warning at the top of the
+# screen (also in the recorded reads of Claude Code 2.1.287), the footer line of the model with
+# its context size (more footer text only after two spaces), and the shell prompt line that
+# started Claude, also a bare "$ claude", which the screen shows before Claude draws and after
+# it ends. They were stored as user text. A prompt line starts with ❯ and a bash mode line
+# with !, so they stay. [NEW: the eval report gives the text of the lines, not the whole
+# screen]
+  '⚠ \d+ MCP servers? .* · run /mcp', '\s*(?:Opus|Sonnet|Haiku|Fable) \d+(?:\.\d+)* \(\d+[KM] context\)(?:\s{2,}\S.*)?',
+  '(?:[^\s❯⏺!].*[%$#>❯]|[$%]) (?:\S+/)?claude(?: .*)?']
 # The screen parts of more than one line (#258): a tip, also when it wraps in a narrow column,
 # and the welcome box with its two columns. Claude 2.1.284 puts a no-break space before "Tip:"
 # (internal/brained/testdata/claude-s31-0-base.txt). A blank line ends a block, unless its next
@@ -69,6 +78,22 @@ noise_blocks = [
   # lower case. The lines are named, so the question of an approval dialog at the top of a
   # read stays (§7.1).
   { start = '\s*Accessing workspace:', next = ''' (?:[~/]\S*|Quick safety check: .*|Claude Code'll be able to .*|Security guide|Enter to confirm · Esc to cancel|[a-z(].*)| ?(?:❯| ) +(?:No, exit|Yes, I trust this folder)|''' },
+  # The fold line of the tool calls of a turn (Claude Code 2.1.292, #281), in each form of the
+  # M2 eval rerun (#316): "Read 1 file, ran 2 shell commands", "Listed 1 directory, ran 1 shell
+  # command", "Searched for 1 pattern", and the same forms while they run. Under a prompt line
+  # it was stored as user text. The lines under it that start deeper than it and have no tool
+  # mark are its tool output, as "M test/helpers.js" and "lint: ok" [NEW: the eval report gives
+  # the lines, not their place on the screen]. A blank line keeps the block open: tool output
+  # can hold one. Claude puts a blank line above the fold line (testdata/claude-s31-2-blocked
+  # .txt), and a prompt line with the same words is right under the prompt, so it stays.
+  { start = '  (?:Read|Reading|Ran|Running|Listed|Listing|Searched for|Searching for|Fetched|Fetching) \d+ (?:files?|shell commands?|director(?:y|ies)|patterns?|URLs?)(?:, (?:read|reading|ran|running|listed|listing|searched for|searching for|fetched|fetching) \d+ (?:files?|shell commands?|director(?:y|ies)|patterns?|URLs?))*…?(?: \(ctrl\+o to expand\))?', next = '\s{4,}\S.*|', after_blank = true },
+]
+# The placeholder of the empty prompt box (#316, M2 eval rerun, Claude Code 2.1.293): the rule
+# block above did not drop it, and the stored text held the footer line under it. So the
+# placeholder is noise also when a rule of the box or a footer line is under it. A sent prompt
+# with the same text has the spinner, a reply or a blank line under it, so it stays.
+noise_above = [
+  { line = '❯ Try "[^"]*"', below = '─+|\s*(?:Opus|Sonnet|Haiku|Fable) \d+(?:\.\d+)* \(\d+[KM] context\)(?:\s{2,}\S.*)?|\s*\? for shortcuts.*|\s*(?:⏵⏵|⏸) .*' },
 ]
 # The diff panel (/diff, Claude Code 2.1.260 and later) opens beside the conversation in a
 # terminal at least 110 columns wide; its header is "N files changed +A -D" (#258). The header

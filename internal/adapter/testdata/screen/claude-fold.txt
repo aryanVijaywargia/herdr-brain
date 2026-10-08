@@ -1,0 +1,21 @@
+❯ Run the lint and fix the test helper.
+
+  Read 1 file, ran 2 shell commands
+
+⏺ Update(test/helpers.js)
+  ⎿  Updated test/helpers.js with 1 addition and 1 removal
+
+  Listed 1 directory, ran 1 shell command
+     M test/helpers.js
+
+  Searched for 1 pattern
+
+  Searched for 2 patterns, read 3 files (ctrl+o to expand)
+
+  Running 2 shell commands…
+     > notes-api@0.1.0 lint
+     > node scripts/lint.js
+
+     lint: ok
+
+⏺ The lint passes, and test/helpers.js is changed.

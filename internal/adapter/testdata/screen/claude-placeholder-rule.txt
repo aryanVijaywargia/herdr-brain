@@ -1,0 +1,6 @@
+⏺ Fixed the 400 for a bad body.
+
+❯ Try "fix lint errors"
+────────────────────────────────────────────────────────────────────────────────
+  Opus 5.5 (1M context)
+  ? for shortcuts
