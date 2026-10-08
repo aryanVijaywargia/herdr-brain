@@ -56,12 +56,18 @@ func processSetup(t *testing.T, script string) (*fixture, []string) {
 	return f, append(environ(f.mainSock, "", "w14:p1", "w14"), "HOME="+home, "PATH=/usr/bin:/bin", "HERDR_BIN_PATH="+bin)
 }
 
-// brainBinary builds cmd/brain, the command that an agent runs as its hook.
+// brainBinary builds cmd/brain, the command that an agent runs as its hook. It runs the new
+// binary once: macOS checks a binary at its first run, which took 140-570 ms on the dev Mac
+// and more under load (#335). An installed hook pays that once, not at each run, so the
+// timed runs must not.
 func brainBinary(t *testing.T) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "brain")
 	if out, err := exec.Command("go", "build", "-o", bin, "../../cmd/brain").CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
+	}
+	if out, err := exec.Command(bin, "version").CombinedOutput(); err != nil {
+		t.Fatalf("brain version: %v\n%s", err, out)
 	}
 	return bin
 }
