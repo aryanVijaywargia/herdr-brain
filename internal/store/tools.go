@@ -47,6 +47,38 @@ func ActiveTools(ctx context.Context, tx *sql.Tx) ([]ItemRevision, error) {
 	return activeOfKind(ctx, tx, KindTool)
 }
 
+// ToolText is the text of a tool of an item: its current revision or a pending proposal of it.
+type ToolText struct {
+	ItemID  int64
+	ClaimID string
+	Text    string
+}
+
+// ToolTexts returns the tools that a pane of workspace workspaceKey sees, in item id order: the
+// current revision of each active or disputed tool item, and the text of each pending proposal
+// of a tool item, of global items and of the items of that workspace ("" for global items
+// only). A pending proposal to global, as a promotion, is global already. A new tool draft must
+// not repeat one of them (#337, #339).
+func ToolTexts(ctx context.Context, tx *sql.Tx, workspaceKey string) ([]ToolText, error) {
+	ts, err := query(ctx, tx, `SELECT i.id, i.claim_id, r.text FROM items i
+		JOIN item_revisions r ON r.item_id = i.id AND r.revision = i.current_revision
+		WHERE i.kind = ?1 AND i.state IN (?2, ?3) AND (i.workspace_key IS NULL OR i.workspace_key = ?4)
+		UNION ALL
+		SELECT i.id, i.claim_id, p.text FROM proposals p JOIN items i ON i.id = p.item_id
+		WHERE i.kind = ?1 AND p.status = ?5 AND p.text != ''
+		AND (p.scope = ?6 OR i.workspace_key IS NULL OR i.workspace_key = ?4)
+		ORDER BY 1`,
+		func(rows *sql.Rows) (ToolText, error) {
+			var t ToolText
+			err := rows.Scan(&t.ItemID, &t.ClaimID, &t.Text)
+			return t, err
+		}, KindTool, StateActive, StateDisputed, workspaceKey, ProposalPending, ScopeGlobal)
+	if err != nil {
+		return nil, fmt.Errorf("read tool texts: %w", err)
+	}
+	return ts, nil
+}
+
 // syncTool writes the tools row of item, when it is a tool, from its current revision (§11).
 // A contract that breaks a §10.1 rule refuses the write (tool.Parse), and so does an active
 // tool whose name another active tool of its scope has (ErrToolName). Each revision write that

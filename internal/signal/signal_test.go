@@ -2,6 +2,7 @@ package signal
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -227,6 +228,71 @@ func TestCommandChain(t *testing.T) {
 	if ks := keys(a, CommandChain); len(ks) != 3 || ks[0] != ks[1] || ks[0] == ks[2] {
 		t.Errorf("chain keys = %v, want the same key for the same chain in two sessions and another for a third", ks)
 	}
+}
+
+// hookPromptRecord is a hook prompt record fixture: the CLI's prompt hook gives it for each
+// prompt, with an unconfirmed sender.
+func hookPromptRecord(id, session int64, text string) store.SignalInput {
+	in := obs(id, session, unconf, text)
+	in.Source, in.Event = store.SourceHook, promptEvent
+	return in
+}
+
+// #337: one task gives one chain. The 3 shapes of the M2 eval run 3: a Codex sandbox retry
+// (Codex hook records have no exit status), an approval first, and a pane line of tool output
+// between the failed run and its rerun, which capture kept as unconfirmed text. A Claude rerun
+// after a failed run (exit status 1) is the same. Each gives the chain of the last runs.
+func TestCommandChainOneTask(t *testing.T) {
+	const task = "Reset the local db and run the tests: run exactly ./scripts/reset-db.sh and then exactly npm test"
+	const reset, test = "./scripts/reset-db.sh", "npm test"
+	cases := []ruleCase{
+		{"sandbox retry", []store.SignalInput{hookPromptRecord(1, 1, task), cmd(2, 1, reset), cmd(3, 1, test),
+			cmd(4, 1, test)}, [][]int64{{2, 4}}},
+		{"approval first", []store.SignalInput{hookPromptRecord(1, 1, task), cmd(2, 1, reset), cmd(3, 1, test)},
+			[][]int64{{2, 3}}},
+		{"tool output between", []store.SignalInput{hookPromptRecord(1, 1, task), cmd(2, 1, reset), cmd(3, 1, test),
+			obs(4, 1, unconf, "?? src/routes/"), cmd(5, 1, test)}, [][]int64{{2, 5}}},
+		{"claude failed run", []store.SignalInput{hookPromptRecord(1, 1, task), cmd(2, 1, reset), cmd(3, 1, test, 1),
+			cmd(4, 1, test)}, [][]int64{{2, 4}}},
+	}
+	runRule(t, CommandChain, cases)
+	var ks []string
+	for _, tc := range cases {
+		ks = append(ks, keys(Find(tc.ins), CommandChain)...)
+	}
+	if len(ks) != len(cases) || slices.ContainsFunc(ks, func(k string) bool { return k != ks[0] }) {
+		t.Errorf("chain keys = %v, want one key for the 4 shapes", ks)
+	}
+}
+
+// #337: in a session with hook prompt records, only a prompt ends a turn: a hook prompt record,
+// also one that does not count, or text of yours. Pane text that capture keeps as unconfirmed
+// does not. A session with no hook prompt record (agy) keeps the rule of any text.
+func TestCommandChainTurns(t *testing.T) {
+	runRule(t, CommandChain, []ruleCase{
+		{"two prompts", []store.SignalInput{hookPromptRecord(1, 1, "reset the db"), cmd(2, 1, "./reset.sh"),
+			obs(3, 1, unconf, "reset the db"), hookPromptRecord(4, 1, "now test"), cmd(5, 1, "npm test")},
+			[][]int64{{2}, {5}}},
+		{"prompt record that does not count", []store.SignalInput{hookPromptRecord(1, 1, "reset the db"),
+			cmd(2, 1, "./reset.sh"), with(hookPromptRecord(3, 1, "now test"), func(in *store.SignalInput) {
+				in.Counts = false
+			}), cmd(4, 1, "npm test")}, [][]int64{{2}, {4}}},
+		{"text of yours", []store.SignalInput{hookPromptRecord(1, 1, "reset the db"), cmd(2, 1, "./reset.sh"),
+			obs(3, 1, you, "now test"), cmd(4, 1, "npm test")}, [][]int64{{2}, {4}}},
+		{"screen noise", []store.SignalInput{hookPromptRecord(1, 1, "reset the db and test"), cmd(2, 1, "./reset.sh"),
+			obs(3, 1, unconf, "Token usage: total=49,572"), obs(4, 1, unconf, `❯ Try "refactor server.js"`),
+			cmd(5, 1, "npm test")}, [][]int64{{2, 5}}},
+		{"no prompt hook", []store.SignalInput{cmd(1, 1, "./reset.sh"), obs(2, 1, unconf, "?? src/routes/"),
+			cmd(3, 1, "npm test")}, [][]int64{{1}, {3}}},
+		{"another session's prompt", []store.SignalInput{hookPromptRecord(1, 1, "reset the db and test"),
+			cmd(2, 1, "./reset.sh"), hookPromptRecord(3, 2, "list files"), cmd(4, 1, "npm test")},
+			[][]int64{{2, 4}}},
+		{"rerun later", []store.SignalInput{hookPromptRecord(1, 1, "test, build, test"), cmd(2, 1, "npm test"),
+			cmd(3, 1, "npm run build"), cmd(4, 1, "npm test")}, [][]int64{{2, 3, 4}}},
+		{"same command in two folders", []store.SignalInput{hookPromptRecord(1, 1, "test api and web"),
+			with(cmd(2, 1, "npm test"), func(in *store.SignalInput) { in.Command.CWD = "/src/api" }),
+			with(cmd(3, 1, "npm test"), func(in *store.SignalInput) { in.Command.CWD = "/src/web" })}, [][]int64{{2, 3}}},
+	})
 }
 
 func TestFailure(t *testing.T) {
