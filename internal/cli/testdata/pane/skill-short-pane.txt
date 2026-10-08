@@ -12,4 +12,4 @@ text:
 ... 18 more lines: brain review 1 shows them all
 approve with scope: as proposed, pin: no, on a conflict: keep-both
 
-a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  q close
+a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  i retired  q close

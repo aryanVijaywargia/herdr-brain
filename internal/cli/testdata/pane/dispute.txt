@@ -9,4 +9,4 @@ diff:
 dispute:  the item stays in the brief with a mark until you keep, edit or retire it
 source:   the anchor check of item 2: config/load.go moved, 2026-09-28 17:30
 
-k keep  e edit  t retire  l later  v evidence  d detail  q close
+k keep  e edit  t retire  l later  v evidence  d detail  i retired  q close

@@ -9,4 +9,4 @@ diff:
 source:   a change to active item 2, asked in review, 2026-09-28 17:30
 approve with scope: as proposed, pin: no, on a conflict: keep-both
 
-a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  q close
+a approve  e edit  c change  r reject  l later  s scope  p pin  x conflict  v evidence  d detail  i retired  q close
