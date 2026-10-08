@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -590,4 +591,181 @@ func TestGitSourceMigration(t *testing.T) {
 	if n := queryInt(t, e.Store, `SELECT count(*) FROM pragma_foreign_key_list('evidence_links') WHERE "table" = 'observations'`); n != 1 {
 		t.Errorf("evidence_links references observations %d times, want 1", n)
 	}
+}
+
+// rememberItem adds an item as brain remember makes it: a claim id with no claims row, and
+// revision 1 with text. key nil is a global item. A draft gets a proposal of status.
+func rememberItem(t *testing.T, s *Store, claim string, kind Kind, key *string, state State, status ProposalStatus, text string) {
+	t.Helper()
+	ctx := context.Background()
+	scope := ScopeGlobal
+	if key != nil {
+		scope = ScopeWorkspace
+	}
+	write(t, s, func(tx *sql.Tx) error {
+		item, err := InsertItem(ctx, tx, Item{ClaimID: claim, CurrentRevision: 1, Kind: kind, Scope: scope,
+			WorkspaceKey: key, State: state, Created: testNow})
+		if err != nil {
+			return err
+		}
+		pid, err := InsertProposal(ctx, tx, Proposal{ItemID: &item, BaseRevision: ptr[int64](1), Text: text, Scope: scope,
+			Target: "fact", Diff: "+ " + text, Status: status, Created: testNow})
+		if err != nil {
+			return err
+		}
+		return InsertItemRevision(ctx, tx, ItemRevision{ItemID: item, Revision: 1, Text: text, Scope: scope,
+			WorkspaceKey: key, State: state, Author: AuthorYou, Origin: OriginRemember, ProposalID: &pid, Created: testNow})
+	})
+}
+
+// rememberStore is a store with workspaces ws-a and ws-b and these brain remember items: one
+// active in ws-a, one active in global, one draft that waits for review in ws-a, one draft
+// whose proposal you rejected, one retired item, one active item in ws-b, and an automation
+// with no claim key. Each claim id names its case.
+func rememberStore(t *testing.T) *Store {
+	t.Helper()
+	s := openM1(t)
+	write(t, s, func(tx *sql.Tx) error {
+		for i, key := range []string{"ws-a", "ws-b"} {
+			if err := InsertWorkspace(context.Background(), tx, Workspace{Key: key, HerdrSession: "default",
+				HerdrWorkspaceID: fmt.Sprint("w", i+1), Label: key, Status: WorkspaceLive, LastSeen: testNow}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	a, b := ptr("ws-a"), ptr("ws-b")
+	rememberItem(t, s, "cl_active", KindFact, a, StateActive, ProposalApproved, "use pnpm")
+	rememberItem(t, s, "cl_global", KindPreference, nil, StateActive, ProposalApproved, "write short commits")
+	rememberItem(t, s, "cl_draft", KindFact, a, StateDraft, ProposalPending, "run go vet")
+	rememberItem(t, s, "cl_rejected", KindFact, a, StateDraft, ProposalRejected, "use yarn")
+	rememberItem(t, s, "cl_retired", KindFact, a, StateRetired, ProposalApproved, "use npm")
+	rememberItem(t, s, "cl_other", KindFact, b, StateActive, ProposalApproved, "use bun")
+	rememberItem(t, s, "cl_automation", KindAutomation, a, StateActive, ProposalApproved, "run the tests at the stop")
+	return s
+}
+
+// AC #312: the claim of a brain remember item is a known claim of the extractor input while the
+// item is active in the scope or in global, or waits for review in the scope. Its key is the
+// item text with no situation. A same_as link to it adds its claims row with no key, and the
+// claim stays known, once.
+func TestScopeClaimsRememberItems(t *testing.T) {
+	ctx := context.Background()
+	s := rememberStore(t)
+	scope := func() map[string]ClaimKey {
+		t.Helper()
+		got := map[string]ClaimKey{}
+		write(t, s, func(tx *sql.Tx) error {
+			cs, err := ScopeClaims(ctx, tx, "ws-a")
+			for _, c := range cs {
+				if _, ok := got[c.ID]; ok {
+					t.Errorf("ScopeClaims gave claim %s twice", c.ID)
+				}
+				got[c.ID] = c.Key
+			}
+			return err
+		})
+		return got
+	}
+	want := map[string]ClaimKey{"cl_active": {Rule: "use pnpm"}, "cl_global": {Rule: "write short commits"},
+		"cl_draft": {Rule: "run go vet"}}
+	if got := scope(); !maps.Equal(got, want) {
+		t.Errorf("ScopeClaims(ws-a) = %v, want %v", got, want)
+	}
+	var reworded string
+	write(t, s, func(tx *sql.Tx) (err error) {
+		if reworded, err = ClaimID(ctx, tx, ClaimKey{Situation: "installing packages", Rule: "always pick pnpm"}, testNow); err != nil {
+			return err
+		}
+		if _, err := SameAs(ctx, tx, reworded, "cl_active", Match{}); err != nil {
+			return err
+		}
+		c, err := ClaimByID(ctx, tx, "cl_active")
+		if err == nil && c.Key != (ClaimKey{}) {
+			err = fmt.Errorf("the claim of the remember item has key %+v, want none", c.Key)
+		}
+		return err
+	})
+	if got := scope(); !maps.Equal(got, want) {
+		t.Errorf("after the link: ScopeClaims(ws-a) = %v, want %v", got, want)
+	}
+	write(t, s, func(tx *sql.Tx) error {
+		if _, err := SameAs(ctx, tx, reworded, "cl_none", Match{}); !errors.Is(err, sql.ErrNoRows) {
+			t.Errorf("SameAs(a claim with no item and no row) = %v, want sql.ErrNoRows", err)
+		}
+		return nil
+	})
+}
+
+// AC #312: a claim is held in a scope while an item of it in that scope or in global is
+// active, or waits for review with a pending proposal.
+func TestClaimHeld(t *testing.T) {
+	s := rememberStore(t)
+	for _, tc := range []struct {
+		claim, key string
+		want       bool
+	}{
+		{"cl_active", "ws-a", true},
+		{"cl_global", "ws-a", true},
+		{"cl_draft", "ws-a", true},
+		{"cl_rejected", "ws-a", false},
+		{"cl_retired", "ws-a", false},
+		{"cl_other", "ws-a", false},
+		{"cl_global", "", true},
+		{"cl_active", "", false},
+	} {
+		write(t, s, func(tx *sql.Tx) error {
+			got, err := ClaimHeld(context.Background(), tx, tc.claim, tc.key)
+			if err != nil || got != tc.want {
+				t.Errorf("ClaimHeld(%s, %q) = %v, %v, want %v", tc.claim, tc.key, got, err, tc.want)
+			}
+			return nil
+		})
+	}
+}
+
+// CheckEvidence refuses what Attach refuses, and writes nothing (#312).
+func TestCheckEvidence(t *testing.T) {
+	e := newEvidenceStore(t)
+	ctx := context.Background()
+	c := Candidate{ClaimID: e.claim(t, "use pnpm"), Scope: ScopeWorkspace, WorkspaceKey: "ws-a", Kind: CandidateCorrection}
+	for _, tc := range []struct {
+		name string
+		obs  int64
+		want error
+	}{
+		{"a correction of you", e.observe(t, "claude", "a1", "ws-a", SenderUnconfirmed, testNow), nil},
+		{"tool output", e.observe(t, "claude", "a1", "ws-a", SenderTool, testNow), ErrEvidenceRefused},
+		{"another workspace", e.observe(t, "claude", "b1", "ws-b", SenderUnconfirmed, testNow), ErrEvidenceRefused},
+	} {
+		write(t, e.Store, func(tx *sql.Tx) error {
+			if err := CheckEvidence(ctx, tx, c, tc.obs, supportsForTest); !errors.Is(err, tc.want) {
+				t.Errorf("%s: CheckEvidence = %v, want %v", tc.name, err, tc.want)
+			}
+			return nil
+		})
+	}
+	if n := queryInt(t, e.Store, `SELECT count(*) FROM candidates`) + e.links(t); n != 0 {
+		t.Errorf("candidates and links = %d, want none", n)
+	}
+}
+
+// ClaimText gives the key of a claim, and the item text for the claim of a brain remember item
+// (#312 review).
+func TestClaimText(t *testing.T) {
+	ctx := context.Background()
+	s := rememberStore(t)
+	write(t, s, func(tx *sql.Tx) error {
+		keyed, err := ClaimID(ctx, tx, ClaimKey{Situation: "installing packages", Rule: "use pnpm"}, testNow)
+		if err != nil {
+			return err
+		}
+		for id, want := range map[string]string{keyed: "installing packages use pnpm", "cl_active": "use pnpm",
+			"cl_none": ""} {
+			if got, err := ClaimText(ctx, tx, id); err != nil || got != want {
+				t.Errorf("ClaimText(%s) = %q, %v, want %q", id, got, err, want)
+			}
+		}
+		return nil
+	})
 }
