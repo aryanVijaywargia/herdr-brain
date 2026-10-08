@@ -842,6 +842,20 @@ func (s *statusCall) week(w store.Week) {
 	s.w.printf("    live suggestions shown %d: approved %d, rejected %d, changed %d, later %d\n", w.Shown,
 		w.Suggested[store.SuggestionApproved], w.Suggested[store.SuggestionRejected],
 		w.Suggested[store.SuggestionChanged], w.Suggested[store.SuggestionLater])
+	if w.Shown > 0 {
+		s.w.printf("    %s\n", matchedLine(w.Matched))
+	}
+}
+
+// matchedLine is the line of the live suggestions of a week by reason (E20-S9). The rows of an
+// older Brain count as unknown, which shows only when there is one.
+func matchedLine(n map[store.SuggestionReason]int) string {
+	l := fmt.Sprintf("matched by: %s %d, %s %d", reasonWords(store.ReasonExactPrompt), n[store.ReasonExactPrompt],
+		reasonWords(store.ReasonLesson), n[store.ReasonLesson])
+	if u := n[""]; u > 0 {
+		l += fmt.Sprintf(", %s %d", reasonWords(""), u)
+	}
+	return l
 }
 
 // weekStarts returns the starts of the n weeks up to now, the newest first: Monday 00:00 UTC.

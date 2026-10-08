@@ -44,7 +44,8 @@ func TestReserveSuggestion(t *testing.T) {
 	id, _ := p.propose(t, "run make Foo", ScopeGlobal)
 	o, s := p.reserve(t, "ws-A", "run make Foo")
 	want := Suggestion{ID: 1, ObservationID: o, ProposalID: id, SessionID: 1, Generation: 0, HerdrSession: "default",
-		WorkspaceKey: "ws-A", AgentPaneID: "w1:p1", PromptHash: fingerprint.Prompt("run make Foo"), Reserved: testNow}
+		WorkspaceKey: "ws-A", AgentPaneID: "w1:p1", PromptHash: fingerprint.Prompt("run make Foo"), Reserved: testNow,
+		Reason: ReasonExactPrompt}
 	if s != want {
 		t.Errorf("ReserveSuggestion() = %+v, want %+v", s, want)
 	}
@@ -247,7 +248,8 @@ func TestReserveLessonSuggestion(t *testing.T) {
 	})
 	s = lesson()
 	want := Suggestion{ID: 1, ObservationID: o, ProposalID: id, SessionID: 1, HerdrSession: "default", WorkspaceKey: "ws-A",
-		AgentPaneID: "w1:p1", PromptHash: fingerprint.Prompt("from now on run make lint"), Reserved: testNow}
+		AgentPaneID: "w1:p1", PromptHash: fingerprint.Prompt("from now on run make lint"), Reserved: testNow,
+		Reason: ReasonLesson}
 	if s != want {
 		t.Errorf("ReserveLessonSuggestion() = %+v, want %+v", s, want)
 	}
@@ -267,4 +269,71 @@ func TestReserveLessonSuggestion(t *testing.T) {
 	if muted := lesson(); muted.ID != 0 {
 		t.Errorf("reservation after later = %+v, want none", muted)
 	}
+}
+
+// E20-S9 AC 1 and 4: the reason of a reservation is stored with it, and ProposalSuggestion
+// reads the newest suggestion of a proposal that did not expire. A row of an older Brain has
+// no reason; a proposal with no suggestion has none.
+func TestProposalSuggestion(t *testing.T) {
+	ctx := context.Background()
+	p := newPromptStore(t)
+	id, _ := p.propose(t, "run make Foo", ScopeGlobal)
+	newest := func() (Suggestion, bool) {
+		t.Helper()
+		var s Suggestion
+		var ok bool
+		write(t, p.Store, func(tx *sql.Tx) (err error) {
+			s, ok, err = ProposalSuggestion(ctx, tx, id, "")
+			return err
+		})
+		return s, ok
+	}
+	if s, ok := newest(); ok {
+		t.Errorf("ProposalSuggestion() with no suggestion = %+v, want none", s)
+	}
+	_, first := p.reserve(t, "ws-A", "run make Foo")
+	_, second := p.reserve(t, "ws-A", "run make Foo")
+	if s, ok := newest(); !ok || s.ID != second.ID || s.Reason != ReasonExactPrompt {
+		t.Errorf("ProposalSuggestion() = %+v, %v, want suggestion %d with reason %s", s, ok, second.ID, ReasonExactPrompt)
+	}
+	write(t, p.Store, func(tx *sql.Tx) error {
+		if err := ExpireSuggestion(ctx, tx, second.ID); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE suggestions SET reason = NULL WHERE id = ?`, first.ID)
+		return err
+	})
+	if s, ok := newest(); !ok || s.ID != first.ID || s.Reason != "" {
+		t.Errorf("ProposalSuggestion() after an expiry = %+v, %v, want suggestion %d with no reason", s, ok, first.ID)
+	}
+}
+
+// E20-S9 review finding: two agents have a suggestion of one proposal. The review from each
+// pane, the review pane or its agent, shows the reason of its own suggestion, not the newest.
+func TestProposalSuggestionOfPane(t *testing.T) {
+	ctx := context.Background()
+	p := newPromptStore(t)
+	id, _ := p.propose(t, "run make Foo", ScopeGlobal)
+	_, a := p.reserve(t, "ws-A", "run make Foo")
+	_, b := p.reserve(t, "ws-A", "run make Foo")
+	write(t, p.Store, func(tx *sql.Tx) error {
+		if err := ShowSuggestion(ctx, tx, a.ID, "w1:p8", testNow); err != nil {
+			return err
+		}
+		// b is the suggestion of another agent pane.
+		if _, err := tx.ExecContext(ctx, `UPDATE suggestions SET agent_pane_id = 'w1:p2', reason = ? WHERE id = ?`,
+			ReasonLesson, b.ID); err != nil {
+			return err
+		}
+		for pane, want := range map[string]int64{"w1:p8": a.ID, "w1:p1": a.ID, "w1:p2": b.ID, "": b.ID} {
+			s, ok, err := ProposalSuggestion(ctx, tx, id, pane)
+			if err != nil {
+				return err
+			}
+			if !ok || s.ID != want {
+				t.Errorf("ProposalSuggestion(pane %q) = %+v, %v, want suggestion %d", pane, s, ok, want)
+			}
+		}
+		return nil
+	})
 }
