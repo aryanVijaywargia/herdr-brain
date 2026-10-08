@@ -231,7 +231,7 @@ issue = 296
 tests = ["cmd/brain-eval:TestLastSessionLine"]
 
 # M2 eval rerun (2026-10-08, N4): a procedure told in several sessions becomes a one-line rule,
-# never a skill; a reworded telling after a skill draft makes a second skill. Fix: issue #313.
+# never a skill; a reworded telling after a skill draft makes a second skill. Fix: PR #332.
 [[bug]]
 issue = 313
 tests = [
