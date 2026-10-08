@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/brained"
 	"github.com/aryanVijaywargia/herdr-brain/internal/cli"
@@ -19,7 +20,7 @@ import (
 // version is set at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
-const usage = `usage: brain <command>
+const usage = `usage: brain <command>   (brain <command> --help: the usage of one command)
 
 commands:
   version   print the Brain version
@@ -46,8 +47,9 @@ commands:
   hook      --profile <name> --event start|prompt|tool|stop: the agent hooks (start prints the brief or nothing)
   brained   the herdr listener of one herdr session (herdr starts it; D7)
   start     start brained for this herdr session, and open setup when it has no binding (the start action)
-  update    [--check]: update the Brain plugin to the newest commit of its repo, then run brain doctor --fix;
-            --check only compares. The only Brain command that uses the network
+  update    [--check | --records]: update the Brain plugin to the newest commit of its repo, add the missing
+            hook record entries (one question), then run brain doctor --fix; --check only compares;
+            --records only adds the hook record entries. The only Brain command that uses the network
   suggest   the live suggestion of one prompt (the hook or brained starts it)
   run       <tool> [--<input> <value>]...: run an approved tool in this workspace; exits with its exit code
   tools     list the approved tools that this workspace can run, with their inputs
@@ -77,9 +79,6 @@ var commands = map[string]func(context.Context, cli.Env, []string) error{
 	"run":        cli.Run,
 	"tools":      cli.Tools,
 	"automation": cli.Automation,
-	"update": func(ctx context.Context, e cli.Env, args []string) error {
-		return update.Main(ctx, args, e.Environ, e.Stdout, e.Stderr)
-	},
 }
 
 func main() {
@@ -96,6 +95,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		_ = hook.Main(args[1:], os.Environ(), stdin, stdout)
 		return 0
 	}
+	if helpFlag(args[0], args[1:]) {
+		fmt.Fprint(stdout, commandUsage(args[0]))
+		return 0
+	}
 	in := bufio.NewReader(stdin)
 	var err error
 	switch args[0] {
@@ -104,8 +107,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "setup":
 		err = setup(context.Background(), osSetupDeps(os.Environ()), args[1:], in, stdout)
 	case "status", "doctor", "remember", "recall", "review", "pin", "archive", "promote", "undo", "workspace", "forget", "repair", "pane", "uninstall", "learn", "extract",
-		"suggest", "run", "tools", "automation", "update":
+		"suggest", "run", "tools", "automation":
 		err = command(commands[args[0]], args[1:], in, stdout, stderr)
+	case "update":
+		err = updateMain(args[1:], stdin, stdout, stderr)
 	case "event":
 		err = event.Main(context.Background(), args[1:], os.Environ())
 	case "start":
@@ -122,22 +127,60 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "brain: unknown command %q\n\n%s", args[0], usage)
 		return 2
 	}
-	code := 0
 	if err != nil {
 		fmt.Fprintf(stderr, "brain %s: %v\n", args[0], err)
-		code = 1
-		// brain run exits with the exit code of the tool (E17-S4).
-		var x *cli.ExitError
-		if errors.As(err, &x) {
-			code = x.Code
-		}
 	}
 	// A popup pane closes when its command exits, so wait until the user has read the output.
 	if args[0] == "setup" && os.Getenv("HERDR_PLUGIN_ENTRYPOINT_ID") != "" {
 		fmt.Fprint(stdout, "Press Enter to close.")
 		_, _ = in.ReadString('\n') // any error, such as EOF, also ends the wait
 	}
-	return code
+	return exitCode(err)
+}
+
+// exitCode is the exit code of a command that returned err: 0 for none, and 1 for an error,
+// except that brain run exits with the exit code of the tool (E17-S4).
+func exitCode(err error) int {
+	var x *cli.ExitError
+	switch {
+	case err == nil:
+		return 0
+	case errors.As(err, &x):
+		return x.Code
+	}
+	return 1
+}
+
+// updateMain runs brain update with stdin, the input of the process. The new binary of an
+// update asks its question on stdin itself, so it gets the file, not a reader: exec copies
+// from a reader until EOF, so update would wait for one more line after the new binary exits.
+func updateMain(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	return update.Main(context.Background(), args, os.Environ(), stdin, stdout, stderr, func(r io.Reader, w io.Writer) error {
+		return updateRecords(osSetupDeps(os.Environ()), bufio.NewReader(r), w)
+	})
+}
+
+// helpFlag reports whether the arguments args of command name are only -h or --help, for a
+// command that takes arguments (#318). The hook gets no help: it prints only the brief.
+func helpFlag(name string, args []string) bool {
+	_, store := commands[name]
+	cmd := store || slices.Contains([]string{"setup", "update", "event", "start", "brained"}, name)
+	return cmd && len(args) == 1 && (args[0] == "-h" || args[0] == "--help")
+}
+
+// commandUsage is the text of `brain <name> --help` (#318): the usage of the command, or the
+// usage of brain for a command with none of its own.
+func commandUsage(name string) string {
+	switch name {
+	case "setup":
+		return setupUsage + "\n"
+	case "update":
+		return update.Usage + "\n"
+	}
+	if u := cli.Usage(name); u != "" {
+		return u + "\n"
+	}
+	return usage
 }
 
 // command runs a store command of internal/cli with the process environment.

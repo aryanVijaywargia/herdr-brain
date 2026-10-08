@@ -109,8 +109,9 @@ func (d *doctorCall) run(ctx context.Context) {
 	d.conflicts()
 }
 
-// hooks checks the hook entry, the CLI version, a hook input that the profile could not parse
-// (S14), the Codex trust (hook_trust "codex") and the receipts of each profile.
+// hooks checks the hook entry, the hook record entries of an installed CLI (#315), the CLI
+// version, a hook input that the profile could not parse (S14), the Codex trust of each Brain
+// entry (hook_trust "codex") and the receipts of each profile.
 func (d *doctorCall) hooks(ctx context.Context, ps []*adapter.Profile) error {
 	inst, err := d.installer()
 	if err != nil {
@@ -135,6 +136,11 @@ func (d *doctorCall) hooks(ctx context.Context, ps []*adapter.Profile) error {
 		}
 		if err := d.entry(inst, p); err != nil {
 			return err
+		}
+		if st.Installed {
+			if err := d.records(inst, p); err != nil {
+				return err
+			}
 		}
 		// A CLI update is only a warning (D13): the receipt check below finds a hook that stopped.
 		switch n := st.VersionNote(); {
@@ -161,7 +167,7 @@ func (d *doctorCall) hooks(ctx context.Context, ps []*adapter.Profile) error {
 }
 
 // installer is the installer of this user, with this brain binary.
-func (d *doctorCall) installer() (*install.Installer, error) {
+func (cl caller) installer() (*install.Installer, error) {
 	home, err := paths.Home()
 	if err != nil {
 		return nil, err
@@ -170,7 +176,38 @@ func (d *doctorCall) installer() (*install.Installer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &install.Installer{Home: home, Record: d.Adapters.Install, Binary: bin}, nil
+	return &install.Installer{Home: home, Record: cl.Adapters.Install, Binary: bin}, nil
+}
+
+// records checks that each hook record entry that profile p turns on is in place (#315):
+// with one missing, Brain stores no hook record of that CLI event. brain update adds them, with
+// one question, as setup does.
+func (d *doctorCall) records(inst *install.Installer, p *adapter.Profile) error {
+	missing, target, err := missingRecords(inst, p)
+	if err != nil {
+		return err
+	}
+	if len(missing) > 0 {
+		d.fail("hook records off for %s: %s has no Brain entry for %s; fix: brain update",
+			p.Kind, target, strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// missingRecords returns the CLI events of the hook record entries of profile p that install
+// would add, and their hook file (#315). An entry that you edited is not missing: Brain keeps
+// it.
+func missingRecords(inst *install.Installer, p *adapter.Profile) (events []string, target string, err error) {
+	for _, h := range p.Hooks()[1:] {
+		e, st, err := inst.WouldInstallHook(p, h)
+		if err != nil {
+			return nil, "", err
+		}
+		if st == install.Added {
+			events, target = append(events, h.CLIEvent), e.Target
+		}
+	}
+	return events, target, nil
 }
 
 // entry checks that the recorded hook entry of p runs this brain binary. An entry of a
@@ -268,8 +305,9 @@ func entryBinary(command, kind string) string {
 	return bin
 }
 
-// trust checks that Codex trusts the recorded Brain entry (E8-S3). It reads only the
-// hooks.state table of the Codex config.toml, and never writes it.
+// trust checks that Codex trusts the recorded Brain start entry (E8-S3) and each recorded hook
+// record entry (#315). It reads only the hooks.state table of the Codex config.toml, and never
+// writes it.
 func (d *doctorCall) trust(record string, p *adapter.Profile) error {
 	rec, err := install.Read(record)
 	if err != nil {
@@ -302,6 +340,32 @@ func (d *doctorCall) trust(record string, p *adapter.Profile) error {
 		d.fail("codex: Codex hook not trusted: the Brain hook is disabled in Codex; fix: enable it in /hooks in Codex")
 	default:
 		d.fail("codex: Codex hook not trusted; %s", fix)
+	}
+	return d.recordTrust(dir, rec, p)
+}
+
+// recordTrust checks that Codex in the Codex home dir trusts each hook record entry of p that
+// the install record rec holds (#315): Codex skips an untrusted entry, and codex exec gives no
+// warning. A recorded entry that is not in the hook file is missing; the records check reports
+// it.
+func (d *doctorCall) recordTrust(dir string, rec install.Record, p *adapter.Profile) error {
+	var bad []string
+	for _, h := range p.Hooks()[1:] {
+		e, ok := rec.Entry(p.Kind, h)
+		if !ok {
+			continue
+		}
+		t, err := harness.CodexTrust(dir, e, h.CLIEvent)
+		if err != nil {
+			return err
+		}
+		if t != harness.Trusted && t != harness.NoEntry {
+			bad = append(bad, fmt.Sprintf("%s (%s)", h.CLIEvent, t))
+		}
+	}
+	if len(bad) > 0 {
+		d.fail("codex: Codex hook record entries not trusted: %s, so Codex skips them; fix: start codex, type /hooks, "+
+			"and press t on each Brain hook entry, or enable a disabled one", strings.Join(bad, ", "))
 	}
 	return nil
 }

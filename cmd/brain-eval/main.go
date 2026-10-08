@@ -44,7 +44,7 @@ the data home: pending at the start, then pass, fail or inconclusive when the ru
 
 A regression case (bug-<issue>) runs the Go tests of one bug's fixture with go test in the
 current folder, which must be the root of the Brain repo, and prints one pass or fail line.
-It needs no herdr, no CLI and no setup, and --harness leaves it out.
+The stage ends with one summary line, such as "regression: 24 of 24 pass". It needs no herdr, no CLI and no setup, and --harness leaves it out.
 
 Else runs one ad-hoc case in the brain-eval test session: each --step in a shell pane of a fresh
 scratch git folder, then --prompt to a fresh CLI of each --probe. "{{marker}}" in a step or the

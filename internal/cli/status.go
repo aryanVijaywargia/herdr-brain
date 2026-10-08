@@ -380,7 +380,7 @@ func (s *statusCall) clis(ctx context.Context, ps []*adapter.Profile) {
 		s.w.printf("  unavailable: %v\n", err)
 		return
 	}
-	for _, st := range sts {
+	for i, st := range sts {
 		if !st.Installed {
 			s.w.printf("  %s: not installed\n", st.Kind)
 			continue
@@ -403,6 +403,9 @@ func (s *statusCall) clis(ctx context.Context, ps []*adapter.Profile) {
 				word = "unknown"
 			}
 		}
+		if st.Configured {
+			word += s.records(ps[i])
+		}
 		if n := st.VersionNote(); n != "" && st.VersionErr == nil {
 			word += "; " + n
 		}
@@ -420,6 +423,30 @@ func (s *statusCall) clis(ctx context.Context, ps []*adapter.Profile) {
 	if s.panesErr != nil {
 		s.w.printf("  (herdr pane list failed, so live agents are not counted)\n")
 	}
+}
+
+// records is the hook records part of the status line of the configured profile p (#315):
+// "on" when each hook record entry that it turns on is in place, else "off", with the missing
+// CLI events when some are in place. It is "" for a profile with no hook record event.
+func (s *statusCall) records(p *adapter.Profile) string {
+	all := len(p.Hooks()) - 1
+	if all == 0 {
+		return ""
+	}
+	inst, err := s.installer()
+	var missing []string
+	if err == nil {
+		missing, _, err = missingRecords(inst, p)
+	}
+	switch {
+	case err != nil:
+		return fmt.Sprintf("; hook records unknown (%v)", err)
+	case len(missing) == 0:
+		return "; hook records on"
+	case len(missing) == all:
+		return "; hook records off (brain update adds them)"
+	}
+	return "; hook records off for " + strings.Join(missing, ", ") + " (brain update adds them)"
 }
 
 // delivery prints the delivery gaps of each profile: each live agent joins its newest receipt

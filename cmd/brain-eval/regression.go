@@ -80,10 +80,10 @@ func (e bugEntry) check() ([]GoTest, error) {
 }
 
 // runRegression runs the tests of the regression cases with `go test` in the repo folder
-// root, once for each package, and prints one pass or fail line for each case. A case passes
-// when each of its tests passed; a skipped test or one that did not run is no pass. A go test
-// that cannot run fails the cases of its package with its error. It reports whether a case
-// failed.
+// root, once for each package, and prints one pass or fail line for each case, then one
+// summary line, such as "regression: 24 of 24 pass" (#318). A case passes when each of its
+// tests passed; a skipped test or one that did not run is no pass. A go test that cannot run
+// fails the cases of its package with its error. It reports whether a case failed.
 func runRegression(ctx context.Context, root string, environ []string, cases []Case, w io.Writer) (failed bool) {
 	tops := map[string][]string{} // each package folder to the top-level tests that its cases name
 	for _, c := range cases {
@@ -103,12 +103,16 @@ func runRegression(ctx context.Context, root string, environ []string, cases []C
 		}
 		why[pkg] = line
 	}
+	passed := 0
 	for _, c := range cases {
 		line, ok := regressionLine(c, got, why)
 		fmt.Fprintln(w, line)
-		failed = failed || !ok
+		if ok {
+			passed++
+		}
 	}
-	return failed
+	fmt.Fprintf(w, "%s: %d of %d pass\n", regressionStage, passed, len(cases))
+	return passed < len(cases)
 }
 
 // testEvent is one event of `go test -json` (go doc test2json). Go 1.24 and later give a
