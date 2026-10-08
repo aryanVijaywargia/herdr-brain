@@ -556,20 +556,25 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 		return Suggestion{}, err
 	}
 	// Each outcome names its failure: the claim that got the evidence, after a merge (E20-S5).
-	// The skill link comes first: an unconfirmed same_as link to the same skill adds no
-	// uncertain outcome over its comeback.
 	base := store.Outcome{SessionID: j.session.ID, ClaimID: into, At: now}
-	covered, err := skillOutcomes(ctx, tx, j, c.CoveredBy, failures(kind, accepted, c.Refs), base)
-	if err != nil {
+	covered, err := recordOutcomes(ctx, tx, j, claim, c, kind, accepted, base)
+	if err != nil || id == 0 || covered {
 		return Suggestion{}, err
-	}
-	if err := outcomes(ctx, tx, j, claim, corrections(kind, accepted), base); err != nil {
-		return Suggestion{}, err
-	}
-	if id == 0 || covered {
-		return Suggestion{}, nil
 	}
 	return p.propose(ctx, tx, id, c, now)
+}
+
+// recordOutcomes records the outcomes of claim c with claim id claim, from accepted, the refs
+// that the evidence check accepted for a candidate of kind. base holds the session, the
+// failure claim and the time. The skill link comes first: an unconfirmed same_as link to the
+// same skill adds no uncertain outcome over its comeback. It reports whether an active skill
+// covers c (skillOutcomes).
+func recordOutcomes(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim, kind store.CandidateKind, accepted []ref, base store.Outcome) (bool, error) {
+	covered, err := skillOutcomes(ctx, tx, j, c.CoveredBy, failures(kind, accepted, c.Refs), base)
+	if err != nil {
+		return false, err
+	}
+	return covered, outcomes(ctx, tx, j, claim, corrections(kind, accepted), base)
 }
 
 // link records the claim kind and the permission flag of claim c on its claim id claim, and
@@ -699,11 +704,8 @@ func (p Pass) restate(ctx context.Context, tx *sql.Tx, j job, claim, held string
 	if err != nil {
 		return err
 	}
-	base := store.Outcome{SessionID: j.session.ID, ClaimID: held, At: now}
-	if _, err := skillOutcomes(ctx, tx, j, c.CoveredBy, failures(kind, accepted, c.Refs), base); err != nil {
-		return err
-	}
-	return outcomes(ctx, tx, j, claim, corrections(kind, accepted), base)
+	_, err = recordOutcomes(ctx, tx, j, claim, c, kind, accepted, store.Outcome{SessionID: j.session.ID, ClaimID: held, At: now})
+	return err
 }
 
 // mergeInto returns the claim whose candidate gets the evidence of claim c with claim id claim,
