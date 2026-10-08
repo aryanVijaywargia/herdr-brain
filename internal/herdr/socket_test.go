@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"reflect"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -206,5 +207,34 @@ func TestSocketReadShape(t *testing.T) {
 	var se *ShapeError
 	if _, err := (Socket{Path: path}).Read(testCtx(t), "w1:p2", ReadVisible, 0); !errors.As(err, &se) || se.Field != "read.text" {
 		t.Errorf("Read = %v, want a ShapeError on read.text", err)
+	}
+}
+
+// The reply shape of herdr 0.9.1 pane.process_info; argv may be null.
+func TestSocketProcesses(t *testing.T) {
+	path := serveOne(t, "pane.process_info",
+		`{"id":"brain","result":{"type":"pane_process_info","process_info":{"foreground_process_group_id":80590,"foreground_processes":[`+
+			`{"argv":["codex","--version"],"argv0":"codex","cmdline":"codex --version","cwd":"/tmp","name":"codex","pid":80590},`+
+			`{"argv":null,"name":"zsh","pid":80255}],"pane_id":"w1:p2","shell_pid":null,"tty":null}}}`)
+	got, err := Socket{Path: path}.Processes(testCtx(t), "w1:p2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Process{{Name: "codex", Argv: []string{"codex", "--version"}, PID: 80590}, {Name: "zsh", PID: 80255}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Processes = %+v, want %+v", got, want)
+	}
+}
+
+func TestSocketProcessesShape(t *testing.T) {
+	for name, reply := range map[string]string{
+		"other pane": `{"id":"brain","result":{"type":"pane_process_info","process_info":{"foreground_processes":[],"pane_id":"w1:p3"}}}`,
+		"no pid":     `{"id":"brain","result":{"type":"pane_process_info","process_info":{"foreground_processes":[{"name":"codex"}],"pane_id":"w1:p2"}}}`,
+	} {
+		path := serveOne(t, "pane.process_info", reply)
+		var se *ShapeError
+		if _, err := (Socket{Path: path}).Processes(testCtx(t), "w1:p2"); !errors.As(err, &se) {
+			t.Errorf("%s: Processes = %v, want a ShapeError", name, err)
+		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -168,6 +169,9 @@ func (c *Capture) baseline(ctx context.Context, s Step, gap string) error {
 		return c.lose(ctx, s, cp, errMoved)
 	}
 	native := nativeID(r.pane)
+	if native == "" && c.probe(ctx, s.PaneID) {
+		return c.end(ctx, s, cp)
+	}
 	var old *capturePane
 	if cp == nil || cp.agent != r.agent || !sameSession(cp.native, native) {
 		old = cp
@@ -669,6 +673,32 @@ func (c *Capture) read(ctx context.Context, id string) (read, error) {
 	return read{pane: after, agent: agent, read: rd, lines: all, senders: senders(agent, all),
 		clean: redact(agent, all), head: head(agent, all),
 		full: source == herdr.ReadRecentUnwrapped && raw < lines && !rd.Truncated}, nil
+}
+
+// shells are the names of the shells that a pane runs [NEW]: a shell is no agent run.
+var shells = map[string]bool{"sh": true, "bash": true, "zsh": true, "fish": true, "dash": true, "ksh": true,
+	"tcsh": true, "csh": true, "nu": true, "pwsh": true}
+
+// probe reports whether herdr saw a short CLI run as an agent in pane id, such as the
+// "codex --version" of brain status in a shell pane (#317): each foreground process of the
+// pane is a shell, Brain's own CLI or a run with --version or -v, so no agent runs there. A
+// real agent is its own foreground process while it runs. When herdr gives no process or no
+// argv, it reports false, and the baseline opens the session as before.
+func (c *Capture) probe(ctx context.Context, id string) bool {
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	ps, err := c.sock.Processes(ctx, id)
+	if err != nil || len(ps) == 0 {
+		return false
+	}
+	return !slices.ContainsFunc(ps, func(p herdr.Process) bool {
+		if len(p.Argv) == 0 {
+			return true
+		}
+		name := strings.TrimPrefix(filepath.Base(p.Argv[0]), "-")
+		version := slices.ContainsFunc(p.Argv[1:], func(a string) bool { return a == "--version" || a == "-v" })
+		return !shells[name] && name != "brain" && !version
+	})
 }
 
 // lines splits text into lines without trailing space, and drops blank lines. The screen

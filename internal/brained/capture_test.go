@@ -51,7 +51,7 @@ func onlyReads(t *testing.T, f *fakeHerdr) {
 	t.Helper()
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	allowed := []string{"pane.get", "pane.read visible", "pane.read recent_unwrapped", "pane.list", "plugin.list", "events.subscribe", "agent.get"}
+	allowed := []string{"pane.get", "pane.read visible", "pane.read recent_unwrapped", "pane.process_info", "pane.list", "plugin.list", "events.subscribe", "agent.get"}
 	for _, c := range f.calls {
 		if !slices.Contains(allowed, c) {
 			t.Errorf("herdr call %q: Brain only reads", c)
