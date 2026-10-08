@@ -40,6 +40,9 @@ const (
 	gapSession = "session change" // another agent or agent session holds the pane
 	gapLost    = "screen lost"    // the screen lost the old text, with nothing new
 	gapForget  = "forgotten"      // brain forget --session deleted the evidence of the session
+	// gapDetected: herdr detected the agent again in a pane with no agent session id, so the
+	// last run may have ended (E20-S10).
+	gapDetected = "agent detected again"
 )
 
 // Capture is the Handler that reads panes (E11-S3, HLD §6.2). It keeps the last read of each
@@ -111,6 +114,20 @@ func (c *Capture) Handle(ctx context.Context, s Step) error {
 	cp := c.panes[s.PaneID]
 	switch s.Kind {
 	case Baseline:
+		if s.Gap == GapNone && cp != nil && cp.ok && s.Event != nil && s.Event.Kind == herdr.PaneAgentDetected {
+			// The pane has a base, so herdr repeated the detection, or lost the release of the
+			// last agent (an end drops the base) (E20-S10). With no agent session id, Brain
+			// cannot tell a new run of the same harness: the new baseline records the gap.
+			if cp.native == "" {
+				return c.baseline(ctx, s, gapDetected)
+			}
+			// The text since the last read is new text, and another agent or session gets its
+			// baseline with a gap in change. The agent status stays, so no turn starts.
+			ev := *s.Event
+			ev.Status = cp.status
+			s.Kind, s.Event = Change, &ev
+			return c.change(ctx, s, cp)
+		}
 		return c.baseline(ctx, s, string(s.Gap))
 	case Change:
 		switch {
