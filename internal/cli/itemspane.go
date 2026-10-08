@@ -192,7 +192,7 @@ func (l *itemsPane) draw(prompt string) {
 	l.top = max(l.top, l.cursor-free+1)
 	end := min(len(l.items), l.top+free)
 	if free < len(l.items) {
-		head += fmt.Sprintf(": %d-%d of %d", l.top+1, end, len(l.items))
+		head = fmt.Sprintf("%d-%d of %d %s", l.top+1, end, len(l.items), head)
 	}
 	fmt.Fprintf(&body, "%s\n\n", cut(head, width))
 	for i := l.top; i < end; i++ {
