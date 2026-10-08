@@ -1,0 +1,10 @@
+{
+  "name": "herdr-brain-launch-video",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "npx --yes hyperframes@0.8.140 lint .",
+    "snapshot": "npx --yes hyperframes@0.8.140 snapshot . --at 1.5,2.5,4.95,8.7,12.4,14.8,18.45,21.6 --describe false --no-end",
+    "render": "npx --yes hyperframes@0.8.140 render . --quality high --fps 30 --crf 22 --no-experimental-fast-capture -o out/raw.mp4"
+  }
+}
