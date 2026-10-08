@@ -162,16 +162,14 @@ func (c *Capture) baseline(ctx context.Context, s Step, gap string) error {
 	switch {
 	case err != nil:
 		return c.lose(ctx, s, cp, err)
-	case r.agent == "":
+	case r.agent == "" || nativeID(r.pane) == "" && c.probe(ctx, s.PaneID):
+		// No agent, or a CLI probe that is no agent session (#317).
 		return c.end(ctx, s, cp)
 	case r.pane.ID != s.PaneID || r.pane.WorkspaceID != s.WorkspaceID:
 		// The pane moved: its new id or workspace gets its own baseline.
 		return c.lose(ctx, s, cp, errMoved)
 	}
 	native := nativeID(r.pane)
-	if native == "" && c.probe(ctx, s.PaneID) {
-		return c.end(ctx, s, cp)
-	}
 	var old *capturePane
 	if cp == nil || cp.agent != r.agent || !sameSession(cp.native, native) {
 		old = cp
