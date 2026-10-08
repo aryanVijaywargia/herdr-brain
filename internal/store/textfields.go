@@ -200,6 +200,7 @@ func noItemTextFields() []Field {
 		{"suggestions", "reserved"},
 		{"suggestions", "shown_at"},
 		{"suggestions", "result"},
+		{"suggestions", "reason"}, // A fixed kind word of Brain; no prompt text (E20-S9).
 		// An outcome holds ids only (E15-S1, §11).
 		{"outcomes", "kind"},
 		{"outcomes", "at"},

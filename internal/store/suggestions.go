@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -20,6 +21,18 @@ const (
 	SuggestionExpired SuggestionResult = "expired"
 )
 
+// SuggestionReason is why a suggestion matched (E20-S9, §5.5): a kind word, no prompt text.
+// A row of an older Brain has none.
+type SuggestionReason string
+
+// The suggestion reasons. Close prompt matches stay off (§5.5, §12.1), so none has a score.
+const (
+	// ReasonExactPrompt: the prompt hash matched a trigger prompt of the proposal.
+	ReasonExactPrompt SuggestionReason = "exact_prompt"
+	// ReasonLesson: you said the lesson of the proposal in plain words (#253).
+	ReasonLesson SuggestionReason = "lesson"
+)
+
 // Suggestion is one row of suggestions (E14-S3, §5.5, §11). It holds ids only, no text.
 type Suggestion struct {
 	ID            int64
@@ -35,6 +48,7 @@ type Suggestion struct {
 	Reserved      time.Time
 	ShownAt       time.Time // zero until the pane opens
 	Result        SuggestionResult
+	Reason        SuggestionReason // "" for a row of an older Brain
 }
 
 // ReserveSuggestion reserves the suggestion of prompt occurrence obs, a stored prompt
@@ -56,6 +70,7 @@ func ReserveSuggestion(ctx context.Context, tx *sql.Tx, obs int64, hash string, 
 		return Suggestion{}, err
 	}
 	s.PromptHash = hash
+	s.Reason = ReasonExactPrompt
 	on, err := ExtractionOn(ctx, tx, s.WorkspaceKey)
 	if err != nil || !on {
 		return Suggestion{}, err
@@ -100,6 +115,7 @@ func ReserveLessonSuggestion(ctx context.Context, tx *sql.Tx, obs, proposal int6
 		return Suggestion{}, fmt.Errorf("read prompt hash of observation %d: %w", obs, err)
 	}
 	s.ProposalID = proposal
+	s.Reason = ReasonLesson
 	return insertSuggestion(ctx, tx, s)
 }
 
@@ -125,9 +141,9 @@ func newSuggestion(ctx context.Context, tx *sql.Tx, obs int64, now time.Time) (S
 func insertSuggestion(ctx context.Context, tx *sql.Tx, s Suggestion) (Suggestion, error) {
 	var err error
 	s.ID, err = insertRow(ctx, tx, "suggestion", `INSERT INTO suggestions (observation_id, proposal_id, session_id,
-		generation, herdr_session, workspace_key, agent_pane_id, prompt_hash, reserved) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		generation, herdr_session, workspace_key, agent_pane_id, prompt_hash, reserved, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		s.ObservationID, s.ProposalID, s.SessionID, s.Generation, s.HerdrSession, nullText(s.WorkspaceKey),
-		s.AgentPaneID, s.PromptHash, timeArg(s.Reserved))
+		s.AgentPaneID, s.PromptHash, timeArg(s.Reserved), nullText(string(s.Reason)))
 	return s, err
 }
 
@@ -145,13 +161,13 @@ func SuggestionMuted(ctx context.Context, tx *sql.Tx, session, proposal int64) (
 
 const suggestionColumns = `id, observation_id, proposal_id, session_id, generation, herdr_session,
 	COALESCE(workspace_key, ''), agent_pane_id, COALESCE(review_pane_id, ''), prompt_hash, reserved, shown_at,
-	COALESCE(result, '')`
+	COALESCE(result, ''), COALESCE(reason, '')`
 
 func scanSuggestion(rows interface{ Scan(...any) error }) (Suggestion, error) {
 	var s Suggestion
 	err := rows.Scan(&s.ID, &s.ObservationID, &s.ProposalID, &s.SessionID, &s.Generation, &s.HerdrSession,
 		&s.WorkspaceKey, &s.AgentPaneID, &s.ReviewPaneID, &s.PromptHash, timeDest{&s.Reserved}, timeDest{&s.ShownAt},
-		&s.Result)
+		&s.Result, &s.Reason)
 	return s, err
 }
 
@@ -163,6 +179,20 @@ func SuggestionByID(ctx context.Context, tx *sql.Tx, id int64) (Suggestion, erro
 		return Suggestion{}, fmt.Errorf("read suggestion %d: %w", id, err)
 	}
 	return s, nil
+}
+
+// ProposalSuggestion returns the newest suggestion of proposal that did not expire, and false
+// when it has none: the suggestion that a review of the proposal shows the reason of (E20-S9).
+func ProposalSuggestion(ctx context.Context, tx *sql.Tx, proposal int64) (Suggestion, bool, error) {
+	s, err := scanSuggestion(tx.QueryRowContext(ctx, `SELECT `+suggestionColumns+` FROM suggestions
+		WHERE proposal_id = ? AND COALESCE(result, '') != ? ORDER BY id DESC LIMIT 1`, proposal, SuggestionExpired))
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return Suggestion{}, false, nil
+	case err != nil:
+		return Suggestion{}, false, fmt.Errorf("read suggestion of proposal %d: %w", proposal, err)
+	}
+	return s, true, nil
 }
 
 // Suggestions returns every suggestion, by id.

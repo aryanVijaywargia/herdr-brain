@@ -43,6 +43,7 @@ measurement (raw counts, no score; a week starts on Monday 00:00 UTC):
     correction candidates 1
     proposals made 5; decided 4: approved 1, edited 1, rejected 1, changed 1; median review 315s of 2 timed
     live suggestions shown 2: approved 1, rejected 0, changed 0, later 1
+    matched by: exact prompt 1, plain-words lesson 0, unknown 1
   week of 2026-09-21: sessions observed 1, capture gaps 1
     correction candidates 2
     proposals made 0; decided 0: approved 0, edited 0, rejected 0, changed 0; no timed review

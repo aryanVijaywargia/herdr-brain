@@ -395,8 +395,9 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	var changeable bool
 	var others int // the workspaces of the "also seen" hint of a promotion; -1 for none
 	var binding, from string
-	var claim string          // the claim of a script proposal
-	var sibs []store.Proposal // the proposals that you pick between with p
+	var claim string           // the claim of a script proposal
+	var match store.Suggestion // the suggestion of the proposal; ID 0 for none
+	var sibs []store.Proposal  // the proposals that you pick between with p
 	// The review pane shows a pending proposal only: it closes on one that another surface
 	// decided (E5-S1).
 	read := cl.proposal
@@ -420,6 +421,9 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 			return err
 		}
 		if sibs, err = siblings(ctx, tx, p); err != nil {
+			return err
+		}
+		if match, _, err = store.ProposalSuggestion(ctx, tx, p.ID); err != nil {
 			return err
 		}
 		if p.Script() {
@@ -454,6 +458,9 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 		fmt.Fprintf(&b, "excerpts:\n  %s\n", strings.Join(excerpts, "\n  "))
 	}
 	fmt.Fprintf(&b, "source:   %s, %s\n", from, localTime(p.Created))
+	if match.ID != 0 {
+		fmt.Fprintf(&b, "match:    %s, suggestion %d\n", reasonWords(match.Reason), match.ID)
+	}
 	if p.ChangeRequest != nil {
 		fmt.Fprintf(&b, "change:   %s\n", oneLine(*p.ChangeRequest))
 	}
@@ -468,6 +475,17 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	}
 	_, err = io.WriteString(cl.Stdout, b.String())
 	return err
+}
+
+// reasonWords is suggestion reason r in words (E20-S9): a row of an older Brain has none.
+func reasonWords(r store.SuggestionReason) string {
+	switch r {
+	case store.ReasonExactPrompt:
+		return "exact prompt"
+	case store.ReasonLesson:
+		return "plain-words lesson"
+	}
+	return "unknown"
 }
 
 // showHead writes the first lines of p in show, what you decide on (§7.4): the status and what

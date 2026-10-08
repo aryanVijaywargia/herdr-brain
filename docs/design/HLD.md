@@ -563,6 +563,7 @@ sequenceDiagram
 
 - **Drafts first.** The extractor drafts proposals in the background (§7.3). Each ready proposal stores the normalized prompts that led to it.
 - **Local match.** At prompt time, Brain normalizes the new prompt and looks it up in the prompt index. Exact repeats match by hash. Close matches stay **off** until the prompt index passes the negative prompt set (§12.1). No source gives a threshold for close text. M2 sets it from that set. There is no model call. Target: under 50 ms.
+- **Match reason** (E20-S9): each suggestion stores why it matched, as a kind word with no prompt text: an exact prompt match, or a plain-words lesson (§7.2). The review of the proposal and `brain status` show it in one line. A suggestion of an older Brain shows "unknown".
 - **Fastest path:** the `UserPromptSubmit` hook record, for a CLI whose profile has it and where M0 tested it. The hook does the match inside its time cap. On a match, it starts a detached `brain` process that shows the notification and opens the pane. The hook prints nothing, so the prompt does not change.
 - **Fallback:** herdr capture at the next state change, through `brained`. It can come some seconds later.
 - **Surface:** a herdr notification, and a small review pane `brain review <id>` that Brain opens with `--no-focus` beside the agent. The pane shows the change (the diff, or the full execution contract for a tool or an automation), 1-3 source excerpts and the expected benefit. Brain closes only its own pane.
