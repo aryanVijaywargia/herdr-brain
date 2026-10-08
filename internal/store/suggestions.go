@@ -181,11 +181,15 @@ func SuggestionByID(ctx context.Context, tx *sql.Tx, id int64) (Suggestion, erro
 	return s, nil
 }
 
-// ProposalSuggestion returns the newest suggestion of proposal that did not expire, and false
-// when it has none: the suggestion that a review of the proposal shows the reason of (E20-S9).
-func ProposalSuggestion(ctx context.Context, tx *sql.Tx, proposal int64) (Suggestion, bool, error) {
+// ProposalSuggestion returns the suggestion of proposal that a review of it from pane paneID
+// shows the reason of (E20-S9), and false when the proposal has none: of the suggestions that
+// did not expire, the newest one that paneID shows or is the agent of, else the newest one. Two
+// agents can have a suggestion of one proposal at the same time.
+func ProposalSuggestion(ctx context.Context, tx *sql.Tx, proposal int64, paneID string) (Suggestion, bool, error) {
 	s, err := scanSuggestion(tx.QueryRowContext(ctx, `SELECT `+suggestionColumns+` FROM suggestions
-		WHERE proposal_id = ? AND COALESCE(result, '') != ? ORDER BY id DESC LIMIT 1`, proposal, SuggestionExpired))
+		WHERE proposal_id = ?1 AND COALESCE(result, '') != ?2
+		ORDER BY (COALESCE(review_pane_id, '') = ?3 OR agent_pane_id = ?3) DESC, id DESC LIMIT 1`,
+		proposal, SuggestionExpired, paneID))
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return Suggestion{}, false, nil

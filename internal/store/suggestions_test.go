@@ -283,7 +283,7 @@ func TestProposalSuggestion(t *testing.T) {
 		var s Suggestion
 		var ok bool
 		write(t, p.Store, func(tx *sql.Tx) (err error) {
-			s, ok, err = ProposalSuggestion(ctx, tx, id)
+			s, ok, err = ProposalSuggestion(ctx, tx, id, "")
 			return err
 		})
 		return s, ok
@@ -306,4 +306,34 @@ func TestProposalSuggestion(t *testing.T) {
 	if s, ok := newest(); !ok || s.ID != first.ID || s.Reason != "" {
 		t.Errorf("ProposalSuggestion() after an expiry = %+v, %v, want suggestion %d with no reason", s, ok, first.ID)
 	}
+}
+
+// E20-S9 review finding: two agents have a suggestion of one proposal. The review from each
+// pane, the review pane or its agent, shows the reason of its own suggestion, not the newest.
+func TestProposalSuggestionOfPane(t *testing.T) {
+	ctx := context.Background()
+	p := newPromptStore(t)
+	id, _ := p.propose(t, "run make Foo", ScopeGlobal)
+	_, a := p.reserve(t, "ws-A", "run make Foo")
+	_, b := p.reserve(t, "ws-A", "run make Foo")
+	write(t, p.Store, func(tx *sql.Tx) error {
+		if err := ShowSuggestion(ctx, tx, a.ID, "w1:p8", testNow); err != nil {
+			return err
+		}
+		// b is the suggestion of another agent pane.
+		if _, err := tx.ExecContext(ctx, `UPDATE suggestions SET agent_pane_id = 'w1:p2', reason = ? WHERE id = ?`,
+			ReasonLesson, b.ID); err != nil {
+			return err
+		}
+		for pane, want := range map[string]int64{"w1:p8": a.ID, "w1:p1": a.ID, "w1:p2": b.ID, "": b.ID} {
+			s, ok, err := ProposalSuggestion(ctx, tx, id, pane)
+			if err != nil {
+				return err
+			}
+			if !ok || s.ID != want {
+				t.Errorf("ProposalSuggestion(pane %q) = %+v, %v, want suggestion %d", pane, s, ok, want)
+			}
+		}
+		return nil
+	})
 }

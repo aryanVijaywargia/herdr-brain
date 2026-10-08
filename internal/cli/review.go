@@ -422,7 +422,7 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 		if sibs, err = siblings(ctx, tx, p); err != nil {
 			return err
 		}
-		if match, err = matchLine(ctx, tx, p.ID); err != nil {
+		if match, err = matchLine(ctx, tx, p.ID, cl.PaneID); err != nil {
 			return err
 		}
 		if p.Script() {
@@ -474,10 +474,10 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	return err
 }
 
-// matchLine is the line of show that says why the newest suggestion of proposal matched
-// (E20-S9), or "" when the proposal has none.
-func matchLine(ctx context.Context, tx *sql.Tx, proposal int64) (string, error) {
-	s, ok, err := store.ProposalSuggestion(ctx, tx, proposal)
+// matchLine is the line of show from pane paneID that says why the suggestion of proposal
+// matched (E20-S9, store.ProposalSuggestion), or "" when the proposal has none.
+func matchLine(ctx context.Context, tx *sql.Tx, proposal int64, paneID string) (string, error) {
+	s, ok, err := store.ProposalSuggestion(ctx, tx, proposal, paneID)
 	if err != nil || !ok {
 		return "", err
 	}
