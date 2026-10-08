@@ -158,6 +158,12 @@ func TestPlaceholderTool(t *testing.T) {
 	if n := f.count(`SELECT COUNT(*) FROM tools WHERE approved_hash IS NOT NULL`); n != 0 {
 		t.Errorf("approved tools = %d, want none: nothing runs before approval", n)
 	}
+	// #314 AC 3: the chain counts from its first run, as before. The prompt of session 3 repeats
+	// the one of session 1, but a tool candidate refuses your text, so its first telling adds
+	// nothing either.
+	if n := f.count(`SELECT COUNT(*) FROM candidates WHERE kind = 'command_chain' AND count = 3 AND sessions = 3`); n != 1 {
+		t.Errorf("command candidates with 3 occurrences in 3 sessions = %d, want 1", n)
+	}
 }
 
 // Exact repeats come first: the same commands in 3 sessions give one tool draft of the exact
