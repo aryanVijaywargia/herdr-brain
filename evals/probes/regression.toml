@@ -376,6 +376,19 @@ tests = [
 issue = 333
 tests = ["internal/cli:TestDoctorOtherCodexHome"]
 
+# M2 eval run 3 (2026-10-09, B1): the same task makes different command chains (a Codex sandbox
+# retry, a tool output line between two runs), so no tool is learned, and later a duplicate tool
+# comes. Fix: PR #342.
+[[bug]]
+issue = 337
+tests = [
+  "internal/signal:TestCommandChainOneTask",
+  "internal/signal:TestCommandChainTurns",
+  "internal/extract:TestToolFromCodexRuns",
+  "internal/extract:TestNoDuplicateTool",
+  "internal/extract:TestRunsTool",
+]
+
 # M2 eval run 3 (2026-10-09, N7): more CLI screen text is stored as user text: the codex exit
 # text at a later session start, the claude start placeholder, tool output and a reply line at
 # column 0, the claude fold line with a memory part and a cut copy of a sent prompt. Fix: PR #343.
@@ -392,6 +405,27 @@ tests = [
   "internal/brained:TestSenders",
   "internal/brained:TestCaptureRun3Noise",
   "internal/brained:TestCapturePromptCut",
+]
+
+# M2 eval run 3 (2026-10-09, B3): a tool draft gets the name of an active tool, with no warning.
+# Fix: PR #342.
+[[bug]]
+issue = 339
+tests = [
+  "internal/store:TestToolTexts",
+  "internal/extract:TestToolDraftFreeName",
+  "internal/extract:TestFreeName",
+  "internal/extract:TestPlaceholderToolFreeName",
+]
+
+# M2 eval run 3 (2026-10-09, B4): the learned automation proposal shows unrelated screen lines as
+# its evidence, and its source says "extractor". Fix: PR #342.
+[[bug]]
+issue = 340
+tests = [
+  "internal/store:TestStopCalls",
+  "internal/cli:TestLearnedAutomationEvidence",
+  "internal/cli:TestLearnedAutomationEvidenceOwnTool",
 ]
 
 # M2 eval run 3 (2026-10-09): a codex question answer is stored with its tag and JSON, and the

@@ -34,6 +34,9 @@ const (
 // RevertEvent is the event of a git observation: a revert that git shows (#283).
 const RevertEvent = "revert"
 
+// promptEvent is the event of a hook prompt record (adapter.EventPrompt).
+const promptEvent = "prompt"
+
 // Signal is one signal. It holds ids and a hash, no text.
 type Signal struct {
 	Kind Kind
@@ -194,11 +197,21 @@ func repeatedPrompts(texts []text) []Signal {
 }
 
 // commandChains finds the command chain of each turn: the commands of one session between two
-// prompts, from the command records only (§7.1). Each chain is a signal from its first
-// occurrence; E12-S2 counts the sessions of a key (§7.2). A chain with a command that the
-// secret filter held back or that was cut gives no signal: Brain never drafts a tool from it
-// (§6.7).
+// prompts, from the command records only (§7.1). In a session with hook prompt records, only a
+// prompt ends a turn: a hook prompt record, or text that capture marks as yours. There a pane
+// line can be tool output or screen noise that capture keeps as unconfirmed text, and it must
+// not split one task into two chains (#337). A CLI with no prompt hook (agy) gives no hook
+// prompt record, so there any text of yours or unconfirmed text ends a turn. Each chain is a
+// signal from its first occurrence; E12-S2 counts the sessions of a key (§7.2). A chain with a
+// command that the secret filter held back or that was cut gives no signal: Brain never drafts
+// a tool from it (§6.7).
 func commandChains(ins []store.SignalInput) []Signal {
+	hooked := map[int64]bool{} // the sessions with a hook prompt record
+	for _, in := range ins {
+		if hookPrompt(in) {
+			hooked[in.SessionID] = true
+		}
+	}
 	var sigs []Signal
 	var order []int64
 	chains := map[int64][]store.SignalInput{}
@@ -215,7 +228,7 @@ func commandChains(ins []store.SignalInput) []Signal {
 				order = append(order, in.SessionID)
 			}
 			chains[in.SessionID] = append(chains[in.SessionID], in)
-		case eligible(RepeatedPrompt, in.Sender):
+		case hookPrompt(in) || in.Sender == store.SenderYou || !hooked[in.SessionID] && eligible(RepeatedPrompt, in.Sender):
 			flush(in.SessionID)
 		}
 	}
@@ -225,16 +238,32 @@ func commandChains(ins []store.SignalInput) []Signal {
 	return sigs
 }
 
-// chain returns the command chain signal of cmds, the commands of one turn.
+// hookPrompt reports whether in is a hook prompt record: the CLI fires the prompt hook for each
+// prompt that it submits. It ends a turn also when it does not count, as a pane read of the
+// same prompt holds the occurrence then (§6.4).
+func hookPrompt(in store.SignalInput) bool {
+	return in.Source == store.SourceHook && in.Event == promptEvent
+}
+
+// chain returns the command chain signal of cmds, the commands of one turn. An immediate rerun
+// of the same command in the same folder counts once, as its last run (#337): an agent runs a
+// command again after a failed or denied run, as Codex does after its sandbox refuses it and you
+// approve, and the Codex hook records have no exit status, so the failed run looks like a run
+// that worked. A tool never needs the same command twice in a row.
 func chain(cmds []store.SignalInput) (Signal, bool) {
 	s := Signal{Kind: CommandChain}
 	argv := make([]string, 0, len(cmds))
-	for _, c := range cmds {
+	for i, c := range cmds {
 		if c.Command.SecretFound || c.Command.Truncated {
 			return Signal{}, false
 		}
+		a := strings.Join(strings.Fields(c.Command.Argv), " ")
+		if n := len(argv); n > 0 && argv[n-1] == a && cmds[i-1].Command.CWD == c.Command.CWD {
+			s.Observations[n-1] = c.ID
+			continue
+		}
 		s.Observations = append(s.Observations, c.ID)
-		argv = append(argv, strings.Join(strings.Fields(c.Command.Argv), " "))
+		argv = append(argv, a)
 	}
 	if len(argv) == 0 {
 		return Signal{}, false

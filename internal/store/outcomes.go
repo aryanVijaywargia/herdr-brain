@@ -82,8 +82,8 @@ func ComebackSessions(ctx context.Context, tx *sql.Tx, item, revision int64) (in
 // ComebackExcerpts returns the observations of the comebacks on revision of item that are still
 // in the store, the newest first: the input of the change request of that revision.
 func ComebackExcerpts(ctx context.Context, tx *sql.Tx, item, revision int64) ([]Excerpt, error) {
-	return query(ctx, tx, `SELECT o.id, o.capture_identity, o.excerpt, o.sender, s.id, s.herdr_session, s.harness,
-		s.pane_id, COALESCE(g.workspace_key, ''), o.at FROM outcomes c
+	return query(ctx, tx, `SELECT o.id, o.capture_identity, o.excerpt, o.sender, o.source, o.event, s.id,
+		s.herdr_session, s.harness, s.pane_id, COALESCE(g.workspace_key, ''), o.at FROM outcomes c
 		JOIN observations o ON o.id = c.observation_id JOIN segments g ON g.id = o.segment_id
 		JOIN sessions s ON s.id = g.session_id
 		WHERE c.item_id = ? AND c.revision = ? AND c.kind = ? ORDER BY o.at DESC, o.id DESC`,

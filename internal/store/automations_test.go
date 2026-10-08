@@ -240,7 +240,8 @@ func TestStopCalls(t *testing.T) {
 		}
 		var got []int64
 		for _, c := range calls {
-			if c.ToolID != tl.ID || c.ContractHash != "h" || c.Harness != "claude" || c.WorkspaceKey != "k1" || c.PaneID != "w1:p1" {
+			if c.ToolID != tl.ID || c.Tool != tl.Name || !c.At.Equal(at.Add(time.Minute)) || c.ContractHash != "h" ||
+				c.Harness != "claude" || c.WorkspaceKey != "k1" || c.PaneID != "w1:p1" {
 				t.Errorf("StopCall = %+v", c)
 			}
 			got = append(got, c.Stop)

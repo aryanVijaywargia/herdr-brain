@@ -223,6 +223,8 @@ type Excerpt struct {
 	CaptureIdentity string
 	Excerpt         string
 	Sender          Sender
+	Source          string
+	Event           string
 	SessionID       int64
 	HerdrSession    string
 	Harness         string
@@ -234,8 +236,8 @@ type Excerpt struct {
 // CandidateExcerpts returns the evidence observations of candidate id that are still in the
 // store, the newest first.
 func CandidateExcerpts(ctx context.Context, tx *sql.Tx, id int64) ([]Excerpt, error) {
-	return query(ctx, tx, `SELECT o.id, o.capture_identity, o.excerpt, o.sender, s.id, s.herdr_session, s.harness,
-		s.pane_id, COALESCE(l.workspace_key, ''), o.at FROM evidence_links l
+	return query(ctx, tx, `SELECT o.id, o.capture_identity, o.excerpt, o.sender, o.source, o.event, s.id,
+		s.herdr_session, s.harness, s.pane_id, COALESCE(l.workspace_key, ''), o.at FROM evidence_links l
 		JOIN observations o ON o.id = l.observation_id AND o.capture_identity = l.capture_identity
 		JOIN sessions s ON s.id = l.session_id WHERE l.candidate_id = ? ORDER BY o.at DESC, o.id DESC`,
 		scanExcerpt, id)
@@ -243,8 +245,8 @@ func CandidateExcerpts(ctx context.Context, tx *sql.Tx, id int64) ([]Excerpt, er
 
 func scanExcerpt(rows *sql.Rows) (Excerpt, error) {
 	var e Excerpt
-	err := rows.Scan(&e.ObservationID, &e.CaptureIdentity, &e.Excerpt, &e.Sender, &e.SessionID, &e.HerdrSession,
-		&e.Harness, &e.PaneID, &e.WorkspaceKey, timeDest{&e.At})
+	err := rows.Scan(&e.ObservationID, &e.CaptureIdentity, &e.Excerpt, &e.Sender, &e.Source, &e.Event, &e.SessionID,
+		&e.HerdrSession, &e.Harness, &e.PaneID, &e.WorkspaceKey, timeDest{&e.At})
 	return e, err
 }
 

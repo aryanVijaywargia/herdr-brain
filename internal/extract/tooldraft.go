@@ -310,7 +310,103 @@ func (p Pass) exactChain(ctx context.Context, tx *sql.Tx, s signal.Signal, byID 
 	if err != nil || !p.gates().Reached(cand) {
 		return gatedTool{}, err
 	}
+	if known, err := knownTool(ctx, tx, claim, first.WorkspaceKey, cmds[0].CWD, steps); err != nil || known {
+		return gatedTool{}, err
+	}
 	return gatedTool{id: id, key: first.WorkspaceKey, text: text, script: scriptText(cmds)}, nil
+}
+
+// knownTool reports whether a tool of another claim that a pane of workspace key sees, active or
+// pending, runs steps in folder cwd, maybe with a step run again (runs): that chain, or a draft
+// of it, makes no new tool proposal and uses no cap (#337). A tool of the same claim is the
+// same tool: proposeTool, propose and proposeScript check it, and a pending draft of the claim
+// still gets its script on a later day.
+func knownTool(ctx context.Context, tx *sql.Tx, claim, key, cwd string, steps [][]string) (bool, error) {
+	ts, err := store.ToolTexts(ctx, tx, key)
+	if err != nil {
+		return false, err
+	}
+	for _, t := range ts {
+		if t.ClaimID == claim {
+			continue
+		}
+		// A pending text that is no valid contract is no tool: approve refuses it.
+		c, err := tool.Parse(t.Text)
+		if err == nil && path.Clean(c.Cwd) == path.Clean(cwd) && runs(c, steps) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// knownDraft reports whether tool draft text of candidate cand is a tool of another claim that
+// its workspace has (knownTool): the extractor's draft of a known chain makes no proposal either.
+func knownDraft(ctx context.Context, tx *sql.Tx, cand store.Candidate, text string) (bool, error) {
+	d, err := tool.Parse(text)
+	if err != nil {
+		return false, err
+	}
+	return knownTool(ctx, tx, cand.ClaimID, cand.WorkspaceKey, d.Cwd, d.Commands())
+}
+
+// runs reports whether tool c runs chain when a step that runs again right after itself counts
+// once, as in a chain (signal.chain) [NEW]: each command of chain fits the step of c at its
+// place, and the words in place of its inputs are values that the input schema of c takes
+// (tool.Contract.Fill). So a chain that adds a rerun to the steps of c is c, and so is a chain
+// of a tool whose steps hold a rerun, as a draft before #337 could.
+func runs(c tool.Contract, chain [][]string) bool {
+	once := func(s [][]string) [][]string { return slices.CompactFunc(slices.Clone(s), slices.Equal[[]string]) }
+	steps := once(c.Commands())
+	if chain = once(chain); len(chain) != len(steps) {
+		return false
+	}
+	values := map[string]string{}
+	for i, ws := range chain {
+		if !fits(steps[i], ws) {
+			return false
+		}
+		for j, el := range steps[i] {
+			if !wholeInput.MatchString(el) {
+				continue
+			}
+			n := el[1 : len(el)-1]
+			if v, ok := values[n]; ok && v != ws[j] {
+				return false // one call gives an input one value
+			}
+			values[n] = ws[j]
+		}
+	}
+	_, err := c.Fill(values)
+	return err == nil
+}
+
+// freeName returns tool text with a name that no other tool that a pane of workspace key sees
+// has, active or pending (#339): its own name, else that name with the first free number from
+// 2, as "reset-db-sh-2" [NEW]. A tool of a name that an active tool has cannot be approved
+// (§10.1), and brain run finds one tool by a name. item is the tool item of text, 0 for a new
+// one: its own texts are no clash.
+func freeName(ctx context.Context, tx *sql.Tx, text, key string, item int64) (string, error) {
+	c, err := tool.Parse(text)
+	if err != nil {
+		return "", err
+	}
+	ts, err := store.ToolTexts(ctx, tx, key)
+	if err != nil {
+		return "", err
+	}
+	taken := map[string]bool{}
+	for _, t := range ts {
+		// A pending text that is no valid contract has no name to take: approve refuses it.
+		if o, err := tool.Parse(t.Text); err == nil && t.ItemID != item {
+			taken[o.Name] = true
+		}
+	}
+	name := c.Name
+	for n := 2; taken[name]; n++ {
+		name = c.Name + "-" + strconv.Itoa(n)
+	}
+	// The text of a draft comes from draftToml.text: the encoder writes the name line first.
+	return strings.Replace(text, "name = "+strconv.Quote(c.Name), "name = "+strconv.Quote(name), 1), nil
 }
 
 // heldChain reports whether chain s gives no exact draft: a forget erased the claim key, and the
@@ -384,6 +480,9 @@ func proposeTool(ctx context.Context, tx *sql.Tx, id int64, text, benefit string
 	case errors.Is(err, sql.ErrNoRows):
 		return 0, fmt.Errorf("the workspace of candidate %d has no row yet: %w", id, errNoDraft)
 	case err != nil:
+		return 0, err
+	}
+	if text, err = freeName(ctx, tx, text, cand.WorkspaceKey, 0); err != nil {
 		return 0, err
 	}
 	var key *string

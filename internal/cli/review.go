@@ -684,8 +684,17 @@ func source(p store.Proposal, it store.Item, cur store.ItemRevision) string {
 		return fmt.Sprintf("the anchor check of item %d: %s", it.ID, gone(p))
 	case it.State != store.StateDraft:
 		return fmt.Sprintf("a change to %s item %d, asked in review", it.State, it.ID)
+	case learned(p, it):
+		return "the learned automation rule (a brain run of this tool after a stop of the agent; no model call)"
 	}
 	return fmt.Sprintf("%s, sender unconfirmed", cur.Origin)
+}
+
+// learned reports whether p, a proposal of item it, comes from the learned automation rule
+// (§10.4, E17-S10): an automation proposal of a candidate. brain automation add makes one with
+// no candidate.
+func learned(p store.Proposal, it store.Item) bool {
+	return p.CandidateID != nil && it.Kind == store.KindAutomation
 }
 
 // origin says where proposal p of item it, at revision cur, comes from: for the draft of the
@@ -745,10 +754,64 @@ func (cl caller) excerpts(ctx context.Context, tx *sql.Tx, p store.Proposal) (li
 	if err != nil {
 		return nil, false, err
 	}
+	if p.ItemID != nil {
+		it, err := store.ItemByID(ctx, tx, *p.ItemID)
+		if err != nil {
+			return nil, false, err
+		}
+		if learned(p, it) {
+			// A binding that does not parse names no tool (0): the lines then show the stops only,
+			// and bindingLines shows why it is refused.
+			b, _ := store.ParseBinding(p.Text)
+			lines, err = cl.stopLines(ctx, tx, es, b.ToolID)
+			return lines, changeable, err
+		}
+	}
 	for _, e := range cl.shown(es) {
 		lines = append(lines, cl.excerptHead(e)+": "+extract.Redact(oneLine(e.Excerpt)))
 	}
 	return lines, changeable, nil
+}
+
+// stopLines are the lines of up to excerptsShown evidence stops es of a learned automation
+// proposal of tool item toolID (#340), the newest of each session first (bySession): the stop of
+// the agent and the first brain run call of the tool after it (store.StopCalls). The screen
+// text at the stop says nothing of the call, so it does not show; brain review --evidence shows
+// it.
+func (cl caller) stopLines(ctx context.Context, tx *sql.Tx, es []store.Excerpt, toolID int64) ([]string, error) {
+	calls := map[int64]store.StopCall{} // by stop observation
+	read := map[string]bool{}           // the herdr sessions whose calls are in calls
+	var lines []string
+	for _, e := range cl.shown(bySession(es)) {
+		if !read[e.HerdrSession] {
+			read[e.HerdrSession] = true
+			cs, err := store.StopCalls(ctx, tx, e.HerdrSession)
+			if err != nil {
+				return nil, err
+			}
+			for _, c := range cs {
+				if _, ok := calls[c.Stop]; !ok && c.ToolID == toolID {
+					calls[c.Stop] = c
+				}
+			}
+		}
+		line := fmt.Sprintf("session %d (%s), workspace %s, %s: the agent stopped (%s)", e.SessionID, e.Harness, cl.label,
+			localTime(e.At), stopMark(e))
+		if c, ok := calls[e.ObservationID]; ok {
+			line += fmt.Sprintf(", then it ran brain run %s at %s", c.Tool, localTime(c.At))
+		}
+		lines = append(lines, line)
+	}
+	return lines, nil
+}
+
+// stopMark says what marked stop e (store.StopCall): the Stop hook of the CLI, or a change of
+// the agent status that herdr gives from working.
+func stopMark(e store.Excerpt) string {
+	if e.Source == store.SourceHook {
+		return "Stop hook"
+	}
+	return "herdr status working → " + e.Event
 }
 
 // shown are the first excerptsShown excerpts of es in a scope that the caller sees.
