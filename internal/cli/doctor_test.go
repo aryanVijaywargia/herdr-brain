@@ -341,6 +341,34 @@ func TestDoctorCodexTrust(t *testing.T) {
 	}
 }
 
+// AC #333: CODEX_HOME names another folder, so Codex reads a hooks.json with no Brain entry.
+// brain setup writes only ~/.codex/hooks.json, so the fix line names that folder, with the
+// words of SETUP.md, and doctor changes no file. With CODEX_HOME set to ~/.codex, doctor passes.
+func TestDoctorOtherCodexHome(t *testing.T) {
+	f := newDoctorFixture(t)
+	f.codexHome = filepath.Join(filepath.Dir(f.store), "other-codex")
+	if err := os.MkdirAll(f.codexHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := filepath.EvalSymlinks(f.codexHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, other := files(t, f.home), files(t, f.codexHome)
+	want := "codex: Codex reads " + filepath.Join(dir, "hooks.json") + ", which holds no Brain hook entry; " +
+		"fix: run Codex with CODEX_HOME unset, or set to ~/.codex, so that it reads ~/.codex/hooks.json\n"
+	if out := f.failed(t, ""); out != want {
+		t.Errorf("brain doctor:\n%s\nwant only\n%s", out, want)
+	}
+	diff(t, files(t, f.home), before)
+	diff(t, files(t, f.codexHome), other)
+
+	f.codexHome = filepath.Join(f.home, ".codex")
+	if out, err := f.doctor(t, f.sock, ""); err != nil || out != "all checks passed\n" {
+		t.Errorf("Doctor() with CODEX_HOME=~/.codex = %v\n%s\nwant all checks passed", err, out)
+	}
+}
+
 // AC §17 item 30: a live agent of a configured kind with no receipt after its first prompt:
 // hook not trusted or not firing.
 func TestDoctorNoReceipt(t *testing.T) {
