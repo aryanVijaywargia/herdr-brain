@@ -384,6 +384,18 @@ func CheckEvidence(ctx context.Context, tx *sql.Tx, c Candidate, obs int64, supp
 	return err
 }
 
+// EvidenceElsewhere reports whether observation obs is evidence of a candidate other than
+// candidate id (#314).
+func EvidenceElsewhere(ctx context.Context, tx *sql.Tx, obs, id int64) (bool, error) {
+	var found bool
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM evidence_links
+		WHERE observation_id = ? AND candidate_id != ?)`, obs, id).Scan(&found)
+	if err != nil {
+		return false, fmt.Errorf("read evidence of observation %d: %w", obs, err)
+	}
+	return found, nil
+}
+
 // SetCandidateKind sets the kind of candidate id and counts its gate again: the kind follows
 // the claim (#280, §7.2).
 func SetCandidateKind(ctx context.Context, tx *sql.Tx, id int64, kind CandidateKind, gates Gates) error {
