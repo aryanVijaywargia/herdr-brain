@@ -110,21 +110,8 @@ func (cl caller) archive(ctx context.Context, retire bool) error {
 				}
 				continue
 			}
-			it, cur, err := cl.item(ctx, tx, c.ItemID)
-			if err != nil {
+			if err := cl.retireItem(ctx, tx, c.ItemID); err != nil {
 				return err
-			}
-			next := nextRevision(cur, cl.Now())
-			next.State = store.StateRetired
-			if _, err := store.WriteRevision(ctx, tx, it.CurrentRevision, next); err != nil {
-				return err
-			}
-			// A retired item is no longer disputed, and keep and retire of a dispute need a
-			// disputed item: its pending dispute would stay in the queue for ever.
-			if it.State == store.StateDisputed {
-				if err := store.SupersedeDisputes(ctx, tx, it.ID, cl.Now()); err != nil {
-					return err
-				}
 			}
 		}
 		return nil
@@ -141,4 +128,24 @@ func (cl caller) archive(ctx context.Context, retire bool) error {
 	}
 	_, err = fmt.Fprintf(cl.Stdout, "retired %d items; brain review --retired lists them, brain review --restore <item> brings one back\n", n)
 	return errors.Join(err, cl.deliver(ctx, nil))
+}
+
+// retireItem retires item id, a live item, with a new revision that keeps its text, so that
+// restore can bring it back (§9.2).
+func (cl caller) retireItem(ctx context.Context, tx *sql.Tx, id int64) error {
+	it, cur, err := cl.item(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	next := nextRevision(cur, cl.Now())
+	next.State = store.StateRetired
+	if _, err := store.WriteRevision(ctx, tx, it.CurrentRevision, next); err != nil {
+		return err
+	}
+	// A retired item is no longer disputed, and keep and retire of a dispute need a disputed
+	// item: its pending dispute would stay in the queue for ever.
+	if it.State == store.StateDisputed {
+		return store.SupersedeDisputes(ctx, tx, it.ID, cl.Now())
+	}
+	return nil
 }
