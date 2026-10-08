@@ -653,13 +653,18 @@ func checked(ctx context.Context, tx *sql.Tx, cand store.Candidate, refs []ref) 
 // linkTarget returns the claim that the proposed same_as link of claim names, for claim c with
 // claim id claim. It returns false for no link, and when either claim is a permission or a
 // safety rule: Brain never merges those without review (§7.2), so the link stays for review.
+// The text of a brain remember item counts as the key of its claim (store.ClaimText).
 func linkTarget(ctx context.Context, tx *sql.Tx, claim string, c Claim) (store.Claim, bool, error) {
 	cl, err := store.ClaimByID(ctx, tx, claim)
 	if err != nil || cl.SameAs == "" || cl.SameAsStatus != store.SameAsProposed || c.TouchesPermission || cl.TouchesPermission {
 		return store.Claim{}, false, err
 	}
 	other, err := store.ClaimByID(ctx, tx, cl.SameAs)
-	if err != nil || other.TouchesPermission || store.TouchesPermission(other.Key.Situation+" "+other.Key.Rule) {
+	if err != nil || other.TouchesPermission {
+		return store.Claim{}, false, err
+	}
+	text, err := store.ClaimText(ctx, tx, other.ID)
+	if err != nil || store.TouchesPermission(text) {
 		return store.Claim{}, false, err
 	}
 	return other, true, nil

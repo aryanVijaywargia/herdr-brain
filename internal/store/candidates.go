@@ -146,6 +146,21 @@ func ClaimHeld(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string) (b
 	return held, nil
 }
 
+// ClaimText returns the key text of claim id for the permission check (§7.3): its situation and
+// rule. The claim of a brain remember item has no key: its text is the current text of its
+// first item, as in ScopeClaims (#312). A forgotten claim gives "".
+func ClaimText(ctx context.Context, tx *sql.Tx, id string) (string, error) {
+	var text string
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE(
+		(SELECT situation || ' ' || rule FROM claims WHERE id = ?1 AND situation IS NOT NULL AND rule IS NOT NULL),
+		(SELECT r.text FROM items i JOIN item_revisions r ON r.item_id = i.id AND r.revision = i.current_revision
+			WHERE i.claim_id = ?1 ORDER BY i.id LIMIT 1), '')`, id).Scan(&text)
+	if err != nil {
+		return "", fmt.Errorf("read text of claim %s: %w", id, err)
+	}
+	return text, nil
+}
+
 // Match is what Brain knows about a same_as link that the extractor proposes (§7.3).
 type Match struct {
 	Clear       bool // the extractor gives a clear match

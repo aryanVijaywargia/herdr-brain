@@ -749,3 +749,23 @@ func TestCheckEvidence(t *testing.T) {
 		t.Errorf("candidates and links = %d, want none", n)
 	}
 }
+
+// ClaimText gives the key of a claim, and the item text for the claim of a brain remember item
+// (#312 review).
+func TestClaimText(t *testing.T) {
+	ctx := context.Background()
+	s := rememberStore(t)
+	write(t, s, func(tx *sql.Tx) error {
+		keyed, err := ClaimID(ctx, tx, ClaimKey{Situation: "installing packages", Rule: "use pnpm"}, testNow)
+		if err != nil {
+			return err
+		}
+		for id, want := range map[string]string{keyed: "installing packages use pnpm", "cl_active": "use pnpm",
+			"cl_none": ""} {
+			if got, err := ClaimText(ctx, tx, id); err != nil || got != want {
+				t.Errorf("ClaimText(%s) = %q, %v, want %q", id, got, err, want)
+			}
+		}
+		return nil
+	})
+}

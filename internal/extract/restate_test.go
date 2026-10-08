@@ -302,3 +302,40 @@ func TestRestatedForgottenClaim(t *testing.T) {
 		t.Errorf("candidates = %+v, %d proposals, want only candidate 4 with count 2 and proposal 3", cs, len(f.proposals()))
 	}
 }
+
+// A same_as link to the claim of a brain remember item that is a permission or a safety rule
+// holds nothing (§7.2): the item text counts as its key, so the restatement keeps its own
+// candidate and its proposal goes to review, for an approved item and for a draft (#312 review).
+func TestRestatedRememberedPermissionRule(t *testing.T) {
+	const rule = "Never run commands outside the sandbox"
+	for name, draft := range map[string]bool{"approved": false, "waits for review": true} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			a := "ws-A"
+			_, item := f.remembered(&a, rule)
+			if draft {
+				f.write(func(ctx context.Context, tx *sql.Tx) error {
+					for _, q := range []string{`UPDATE items SET state = 'draft' WHERE id = ?`,
+						`UPDATE item_revisions SET state = 'draft' WHERE item_id = ?`,
+						`UPDATE proposals SET status = 'pending' WHERE item_id = ?`} {
+						if _, err := tx.ExecContext(ctx, q, item); err != nil {
+							return err
+						}
+					}
+					return nil
+				})
+			}
+			f.cli.reply = ruleReply("running shell commands", "execute commands only inside the isolated environment",
+				regexp.MustCompile(`\[(cl_[0-9a-f]+)\] rule: `+rule))
+			f.session("s1", true, line{"ws-A", "no, keep the commands inside the isolated environment", t0})
+			f.session("s2", true, line{"ws-A", "no, keep the commands inside the isolated environment again", t0.Add(time.Minute)})
+			f.mustRun()
+			if cs := f.candidates(); len(cs) != 1 || cs[0].Count != 2 {
+				t.Errorf("candidates = %+v, want the restatement's own with count 2", cs)
+			}
+			if n := f.count(`SELECT COUNT(*) FROM proposals WHERE candidate_id IS NOT NULL AND status = 'pending'`); n != 1 {
+				t.Errorf("pending proposals of candidates = %d, want 1 for review", n)
+			}
+		})
+	}
+}
