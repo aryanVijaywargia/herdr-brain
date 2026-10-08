@@ -751,8 +751,12 @@ func newPart(old, back []string, r read) ([]int, store.ObservationStatus) {
 		}
 	}
 	flush(len(old))
+	// A read that starts with a rewrap of the first old lines starts inside the old text too,
+	// also when no line at the top of the screen stays the same over a resize (S38, #316).
+	start := len(r.lines) > 0 && (pair[0] != -1 ||
+		!slices.Contains(added, 0) && strings.HasPrefix(squashLines(old).text, squash(r.lines[0])))
 	status := store.ObservationPartial
-	if !r.read.Truncated && (len(old) == 0 || r.full || len(r.lines) > 0 && pair[0] != -1) {
+	if !r.read.Truncated && (len(old) == 0 || r.full || start) {
 		status = store.ObservationComplete
 	}
 	return added, status

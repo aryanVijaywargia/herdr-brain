@@ -1,0 +1,14 @@
+› Reset the local db and run the tests.
+
+• Running npm run lint && npm test && npm run build && git status --short
+
+✗ You canceled the request to run npm run lint && npm test && npm run build && git status
+  --short
+
+■ Conversation interrupted - use /feedback if something went wrong
+
+› Run only the tests.
+
+✗ You canceled the request to run brain run reset-db-sh
+
+■ Conversation interrupted - tell the model what to do differently. Something went wrong? Hit `/feedback` to report the issue.
