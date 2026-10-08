@@ -305,14 +305,18 @@ func TestParseAdd(t *testing.T) {
 // the pane, through the fake herdr. The session ends after the call.
 func (f *automationFixture) stopSession(t *testing.T, id string) {
 	t.Helper()
-	f.stopSessionOf(t, id, []store.Observation{
-		{Source: store.SourceHerdr, Event: "working", Excerpt: "Editing main.go", Sender: store.SenderAssistant},
-		{Source: store.SourceHook, Event: "stop", Excerpt: "Done.", Sender: store.SenderAssistant},
-	})
+	f.stopSessionOf(t, id, hookStop, "touch-ran")
 }
 
-// stopSessionOf is stopSession with the observations obs before the call, one minute apart.
-func (f *automationFixture) stopSessionOf(t *testing.T, id string, obs []store.Observation) {
+// hookStop are the observations of a session that its Stop hook record ends.
+var hookStop = []store.Observation{
+	{Source: store.SourceHerdr, Event: "working", Excerpt: "Editing main.go", Sender: store.SenderAssistant},
+	{Source: store.SourceHook, Event: "stop", Excerpt: "Done.", Sender: store.SenderAssistant},
+}
+
+// stopSessionOf is stopSession with the observations obs before the calls, one minute apart,
+// and brain run calls of tools in order. The last tool is touch-ran.
+func (f *automationFixture) stopSessionOf(t *testing.T, id string, obs []store.Observation, tools ...string) {
 	t.Helper()
 	key := store.SessionKey{HerdrSession: "default", Harness: "claude", Kind: store.KeyAgent, ID: id}
 	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
@@ -334,8 +338,10 @@ func (f *automationFixture) stopSessionOf(t *testing.T, id string, obs []store.O
 		return nil
 	})
 	rf := &runFixture{fixture: f.fixture, dir: f.dir}
-	if _, err := rf.run(t, "w14:p1", "w14", "touch-ran"); err != nil {
-		t.Fatalf("Run(touch-ran) = %v", err)
+	for _, name := range tools {
+		if _, err := rf.run(t, "w14:p1", "w14", name); err != nil {
+			t.Fatalf("Run(%s) = %v", name, err)
+		}
 	}
 	if err := os.Remove(filepath.Join(f.dir, "ran")); err != nil {
 		t.Fatal(err)
@@ -438,7 +444,7 @@ func TestLearnedAutomationEvidence(t *testing.T) {
 		{Source: store.SourceHerdr, Event: "working", Excerpt: "• Ran git status --short; git log -1 --oneline",
 			Sender: store.SenderAssistant},
 		{Source: store.SourceHerdr, Event: "idle", Excerpt: "• Explored", Sender: store.SenderUnconfirmed},
-	})
+	}, "touch-ran")
 	f.stopSession(t, "s3")
 	if calls := f.pass(t); calls != 0 {
 		t.Fatalf("%d extractor calls, want none", calls)
@@ -473,6 +479,32 @@ func TestLearnedAutomationEvidence(t *testing.T) {
 	}
 	if !strings.Contains(out, "\nsource:   the learned automation rule (a brain run of this tool after a stop of the agent; no model call), ") {
 		t.Errorf("review has no source line of the learned automation rule:\n%s", out)
+	}
+}
+
+// #340: after each stop the agent runs two tools. Each tool gets its own learned automation
+// proposal, and the evidence of each shows the call of its own tool (Sol review of PR #342).
+func TestLearnedAutomationEvidenceOwnTool(t *testing.T) {
+	f := newAutomationFixture(t)
+	f.approvedTool(t, bindTool(f.dir))
+	f.approvedTool(t, strings.NewReplacer(`"touch-ran"`, `"touch-lint"`, `"ran"]`, `"linted"]`).Replace(bindTool(f.dir)))
+	for _, id := range []string{"s1", "s2", "s3"} {
+		f.stopSessionOf(t, id, hookStop, "touch-lint", "touch-ran")
+	}
+	f.pass(t)
+	ps := f.automationProposals(t)
+	if len(ps) != 2 {
+		t.Fatalf("proposals = %+v, want one for each tool", ps)
+	}
+	for _, p := range ps {
+		b, err := store.ParseBinding(p.Text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := f.mustReview(t, fmt.Sprint(p.ID))
+		if n := strings.Count(out, ", then it ran brain run "+b.Tool+" at "); n != 3 {
+			t.Errorf("review of the %s proposal shows %d calls of %s, want 3:\n%s", b.Tool, n, b.Tool, out)
+		}
 	}
 }
 

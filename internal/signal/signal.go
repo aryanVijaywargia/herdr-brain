@@ -246,19 +246,19 @@ func hookPrompt(in store.SignalInput) bool {
 }
 
 // chain returns the command chain signal of cmds, the commands of one turn. An immediate rerun
-// of the same command counts once, as its last run (#337): an agent runs a command again after
-// a failed or denied run, as Codex does after its sandbox refuses it and you approve, and the
-// Codex hook records have no exit status, so the failed run looks like a run that worked. A
-// tool never needs the same command twice in a row.
+// of the same command in the same folder counts once, as its last run (#337): an agent runs a
+// command again after a failed or denied run, as Codex does after its sandbox refuses it and you
+// approve, and the Codex hook records have no exit status, so the failed run looks like a run
+// that worked. A tool never needs the same command twice in a row.
 func chain(cmds []store.SignalInput) (Signal, bool) {
 	s := Signal{Kind: CommandChain}
 	argv := make([]string, 0, len(cmds))
-	for _, c := range cmds {
+	for i, c := range cmds {
 		if c.Command.SecretFound || c.Command.Truncated {
 			return Signal{}, false
 		}
 		a := strings.Join(strings.Fields(c.Command.Argv), " ")
-		if n := len(argv); n > 0 && argv[n-1] == a {
+		if n := len(argv); n > 0 && argv[n-1] == a && cmds[i-1].Command.CWD == c.Command.CWD {
 			s.Observations[n-1] = c.ID
 			continue
 		}

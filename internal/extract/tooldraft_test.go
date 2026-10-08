@@ -691,23 +691,27 @@ func (f *fixture) addTool(y yourTool) int64 {
 // #337 AC: a chain that only adds a rerun to the steps of an active or pending tool makes no new
 // tool proposal and uses no cap, also when the tool has another claim, as a tool that you made.
 // A tool whose own steps hold the rerun, as the duplicate draft of the M2 eval run 3, is the
-// same tool too. The same commands in another folder are another tool.
+// same tool too, and so is the extractor's draft of the chain. The same commands in another
+// folder are another tool.
 func TestNoDuplicateTool(t *testing.T) {
 	reset, test := []string{resetCmd}, []string{"npm", "test"}
+	model := toolReply(map[string]any{"name": "reset-db-sh", "commands": [][]string{reset, test}, "inputs": nil})
 	for _, tc := range []struct {
 		name      string
 		tool      yourTool
+		reply     func(context.Context, string) ([]byte, error)
 		proposals int
 	}{
-		{"active", yourTool{"ws-A", "reset-and-test", shop, false, [][]string{reset, test}}, 0},
-		{"pending", yourTool{"ws-A", "reset-and-test", shop, true, [][]string{reset, test}}, 0},
-		{"rerun in the tool", yourTool{"ws-A", "reset-db-sh", shop, false, [][]string{reset, test, test}}, 0},
-		{"other folder", yourTool{"ws-A", "reset-and-test", "/src/blog", false, [][]string{reset, test}}, 2},
-		{"other workspace", yourTool{"ws-B", "reset-and-test", shop, false, [][]string{reset, test}}, 2},
+		{"active", yourTool{"ws-A", "reset-and-test", shop, false, [][]string{reset, test}}, noClaims, 0},
+		{"pending", yourTool{"ws-A", "reset-and-test", shop, true, [][]string{reset, test}}, noClaims, 0},
+		{"rerun in the tool", yourTool{"ws-A", "reset-db-sh", shop, false, [][]string{reset, test, test}}, noClaims, 0},
+		{"extractor draft", yourTool{"ws-A", "reset-and-test", shop, false, [][]string{reset, test}}, model, 0},
+		{"other folder", yourTool{"ws-A", "reset-and-test", "/src/blog", false, [][]string{reset, test}}, noClaims, 2},
+		{"other workspace", yourTool{"ws-B", "reset-and-test", shop, false, [][]string{reset, test}}, noClaims, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
-			f.cli.reply = noClaims
+			f.cli.reply = tc.reply
 			f.addTool(tc.tool)
 			for i := range 3 {
 				f.commandSession(fmt.Sprintf("s%d", i), turn{"reset the db and test", []store.CommandRecord{
@@ -806,5 +810,33 @@ func TestPlaceholderToolFreeName(t *testing.T) {
 	}
 	if c, err := tool.Parse(ps[0].Text); err != nil || c.Name != "test-package-2" {
 		t.Errorf("draft = %+v, %v; want the name test-package-2", c, err)
+	}
+}
+
+// #337: a known tool runs the chain only with values that its input schema takes, so a chain
+// that the tool cannot run still makes its own tool (Sol review of PR #342).
+func TestRunsTool(t *testing.T) {
+	text := "name = \"test-api\"\ndescription = \"Run the tests of one package\"\ncwd = \"/src/shop\"\ntimeout_s = 600\n" +
+		"effects = \"runs tests\"\nread_only = true\nsteps = [[\"pnpm\", \"install\"], [\"pnpm\", \"test\", \"--filter\", \"{package}\"]]\n\n" +
+		"[inputs.package]\ntype = \"string\"\npattern = \"^api$\"\n"
+	c, err := tool.Parse(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	install, api, web := []string{"pnpm", "install"}, []string{"pnpm", "test", "--filter", "api"}, []string{"pnpm", "test", "--filter", "web"}
+	for _, tc := range []struct {
+		name  string
+		chain [][]string
+		want  bool
+	}{
+		{"the steps", [][]string{install, api}, true},
+		{"a rerun", [][]string{install, install, api, api}, true},
+		{"a value that the pattern refuses", [][]string{install, web}, false},
+		{"a step less", [][]string{api}, false},
+		{"another step", [][]string{install, api, web}, false},
+	} {
+		if got := runs(c, tc.chain); got != tc.want {
+			t.Errorf("runs(%s) = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

@@ -289,6 +289,9 @@ func TestCommandChainTurns(t *testing.T) {
 			[][]int64{{2, 4}}},
 		{"rerun later", []store.SignalInput{hookPromptRecord(1, 1, "test, build, test"), cmd(2, 1, "npm test"),
 			cmd(3, 1, "npm run build"), cmd(4, 1, "npm test")}, [][]int64{{2, 3, 4}}},
+		{"same command in two folders", []store.SignalInput{hookPromptRecord(1, 1, "test api and web"),
+			with(cmd(2, 1, "npm test"), func(in *store.SignalInput) { in.Command.CWD = "/src/api" }),
+			with(cmd(3, 1, "npm test"), func(in *store.SignalInput) { in.Command.CWD = "/src/web" })}, [][]int64{{2, 3}}},
 	})
 }
 

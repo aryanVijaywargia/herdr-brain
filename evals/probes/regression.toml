@@ -386,6 +386,7 @@ tests = [
   "internal/signal:TestCommandChainTurns",
   "internal/extract:TestToolFromCodexRuns",
   "internal/extract:TestNoDuplicateTool",
+  "internal/extract:TestRunsTool",
 ]
 
 # M2 eval run 3 (2026-10-09, B3): a tool draft gets the name of an active tool, with no warning.
@@ -403,4 +404,8 @@ tests = [
 # its evidence, and its source says "extractor". Fix: PR #342.
 [[bug]]
 issue = 340
-tests = ["internal/store:TestStopCalls", "internal/cli:TestLearnedAutomationEvidence"]
+tests = [
+  "internal/store:TestStopCalls",
+  "internal/cli:TestLearnedAutomationEvidence",
+  "internal/cli:TestLearnedAutomationEvidenceOwnTool",
+]

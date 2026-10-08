@@ -760,7 +760,10 @@ func (cl caller) excerpts(ctx context.Context, tx *sql.Tx, p store.Proposal) (li
 			return nil, false, err
 		}
 		if learned(p, it) {
-			lines, err = cl.stopLines(ctx, tx, es)
+			// A binding that does not parse names no tool (0): the lines then show the stops only,
+			// and bindingLines shows why it is refused.
+			b, _ := store.ParseBinding(p.Text)
+			lines, err = cl.stopLines(ctx, tx, es, b.ToolID)
 			return lines, changeable, err
 		}
 	}
@@ -771,10 +774,11 @@ func (cl caller) excerpts(ctx context.Context, tx *sql.Tx, p store.Proposal) (li
 }
 
 // stopLines are the lines of up to excerptsShown evidence stops es of a learned automation
-// proposal (#340), the newest of each session first (bySession): the stop of the agent and the
-// first brain run call after it (store.StopCalls). The screen text at the stop says nothing of
-// the call, so it does not show; brain review --evidence shows it.
-func (cl caller) stopLines(ctx context.Context, tx *sql.Tx, es []store.Excerpt) ([]string, error) {
+// proposal of tool item toolID (#340), the newest of each session first (bySession): the stop of
+// the agent and the first brain run call of the tool after it (store.StopCalls). The screen
+// text at the stop says nothing of the call, so it does not show; brain review --evidence shows
+// it.
+func (cl caller) stopLines(ctx context.Context, tx *sql.Tx, es []store.Excerpt, toolID int64) ([]string, error) {
 	calls := map[int64]store.StopCall{} // by stop observation
 	read := map[string]bool{}           // the herdr sessions whose calls are in calls
 	var lines []string
@@ -786,7 +790,7 @@ func (cl caller) stopLines(ctx context.Context, tx *sql.Tx, es []store.Excerpt) 
 				return nil, err
 			}
 			for _, c := range cs {
-				if _, ok := calls[c.Stop]; !ok {
+				if _, ok := calls[c.Stop]; !ok && c.ToolID == toolID {
 					calls[c.Stop] = c
 				}
 			}

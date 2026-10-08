@@ -1060,6 +1060,10 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 		return Suggestion{}, err
 	}
 	if c.Tool != "" {
+		known, err := knownDraft(ctx, tx, cand, c.Tool)
+		if err != nil || known {
+			return Suggestion{}, err
+		}
 		if c.Tool, err = freeName(ctx, tx, c.Tool, cand.WorkspaceKey, 0); err != nil {
 			return Suggestion{}, err
 		}
