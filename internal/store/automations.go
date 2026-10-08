@@ -231,7 +231,8 @@ type StopCall struct {
 
 // StopCalls returns the occurrences of the learned automation case in the sessions of herdr
 // session herdrSession, in call order. The status changes come from the pane reads of the
-// sessions with a ran agent call only; a gap is no pane read.
+// sessions with a ran agent call only. A gap is no pane read, and a line that does not count
+// is no evidence (store.Attach), so the status changes skip both.
 func StopCalls(ctx context.Context, tx *sql.Tx, herdrSession string) ([]StopCall, error) {
 	return query(ctx, tx, `WITH calls AS (
 			SELECT c.id, c.tool_id, c.contract_hash, c.at, s.id AS session_id, s.harness, s.pane_id
@@ -241,7 +242,7 @@ func StopCalls(ctx context.Context, tx *sql.Tx, herdrSession string) ([]StopCall
 			SELECT o.id, o.at, o.source, o.event, o.brain_origin, o.segment_id, g.session_id,
 				LAG(o.event) OVER (PARTITION BY g.session_id, o.source ORDER BY o.at, o.id) AS before
 			FROM observations o JOIN segments g ON g.id = o.segment_id
-			WHERE g.session_id IN (SELECT session_id FROM calls) AND o.status != ?4
+			WHERE g.session_id IN (SELECT session_id FROM calls) AND o.status != ?4 AND o.counts = 1
 			AND ((o.source = ?5 AND o.event = 'stop') OR o.source = ?6)),
 		marks AS (
 			SELECT * FROM reads WHERE source = ?5 OR before != event OR before IS NULL AND event = 'working')
