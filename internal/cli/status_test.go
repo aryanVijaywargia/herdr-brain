@@ -590,15 +590,17 @@ func TestStatusCounts(t *testing.T) {
 		}
 		// The approved proposal came from a suggestion shown 10 minutes before testNow; the later
 		// one is still pending. The rejected one has a stored review time.
+		// The later one is a row of an older Brain, with no match reason (E20-S9).
 		for i, s := range []struct {
 			proposal int64
 			result   store.SuggestionResult
-		}{{approved, store.SuggestionApproved}, {later, store.SuggestionLater}} {
+			reason   any
+		}{{approved, store.SuggestionApproved, store.ReasonExactPrompt}, {later, store.SuggestionLater, nil}} {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO suggestions (observation_id, proposal_id, session_id, generation,
-				herdr_session, agent_pane_id, review_pane_id, prompt_hash, reserved, shown_at, result)
-				VALUES (?, ?, ?, 0, 'default', 'w14:p3', 'w14:p9', 'h', ?, ?, ?)`, []int64{uncertain, unknown}[i], s.proposal,
+				herdr_session, agent_pane_id, review_pane_id, prompt_hash, reserved, shown_at, result, reason)
+				VALUES (?, ?, ?, 0, 'default', 'w14:p3', 'w14:p9', 'h', ?, ?, ?, ?)`, []int64{uncertain, unknown}[i], s.proposal,
 				c1, testNow.Add(-10*time.Minute).Format(storeTime), testNow.Add(-10*time.Minute).Format(storeTime),
-				s.result); err != nil {
+				s.result, s.reason); err != nil {
 				return err
 			}
 		}
@@ -655,6 +657,24 @@ func TestMedian(t *testing.T) {
 	}{{[]int64{7}, 7}, {[]int64{1, 2, 9}, 2}, {[]int64{30, 600}, 315}, {[]int64{1, 2}, 1}} {
 		if got := median(c.xs); got != c.want {
 			t.Errorf("median(%v) = %d, want %d", c.xs, got, c.want)
+		}
+	}
+}
+
+// E20-S9 AC 2 and 4: the matched line counts the live suggestions of a week by reason in one
+// line; unknown, the rows of an older Brain, shows only when there is one.
+func TestMatchedLine(t *testing.T) {
+	for _, tc := range []struct {
+		n    map[store.SuggestionReason]int
+		want string
+	}{
+		{map[store.SuggestionReason]int{store.ReasonExactPrompt: 2}, "matched by: exact prompt 2, plain-words lesson 0"},
+		{map[store.SuggestionReason]int{store.ReasonLesson: 1}, "matched by: exact prompt 0, plain-words lesson 1"},
+		{map[store.SuggestionReason]int{store.ReasonExactPrompt: 1, store.ReasonLesson: 1, "": 3},
+			"matched by: exact prompt 1, plain-words lesson 1, unknown 3"},
+	} {
+		if got := matchedLine(tc.n); got != tc.want {
+			t.Errorf("matchedLine(%v) = %q, want %q", tc.n, got, tc.want)
 		}
 	}
 }

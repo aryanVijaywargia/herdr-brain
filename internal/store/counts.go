@@ -32,9 +32,11 @@ type Week struct {
 	// ReviewSeconds holds the review time of each decided proposal that has one, sorted.
 	ReviewSeconds []int64
 	// Shown counts the live suggestions shown in the week, and Suggested counts them by
-	// result; a suggestion that waits for you has none.
+	// result; a suggestion that waits for you has none. Matched counts them by reason; a row
+	// of an older Brain counts under "" (E20-S9).
 	Shown     int
 	Suggested map[SuggestionResult]int
+	Matched   map[SuggestionReason]int
 }
 
 // The review results of Week.Decided. edited is not a proposal status: it is an approved
@@ -51,7 +53,8 @@ const (
 func Weeks(ctx context.Context, tx *sql.Tx, starts []time.Time) ([]Week, error) {
 	ws := make([]Week, len(starts))
 	for i, s := range starts {
-		ws[i] = Week{Start: s, Decided: map[string]int{}, Suggested: map[SuggestionResult]int{}}
+		ws[i] = Week{Start: s, Decided: map[string]int{}, Suggested: map[SuggestionResult]int{},
+			Matched: map[SuggestionReason]int{}}
 	}
 	if len(starts) == 0 {
 		return ws, nil
@@ -130,15 +133,18 @@ func Weeks(ctx context.Context, tx *sql.Tx, starts []time.Time) ([]Week, error) 
 	if err := decided(ctx, tx, since, week); err != nil {
 		return nil, err
 	}
-	err = eachRow(ctx, tx, `SELECT shown_at, COALESCE(result, '') FROM suggestions WHERE shown_at >= ?`,
+	err = eachRow(ctx, tx, `SELECT shown_at, COALESCE(result, ''), COALESCE(reason, '') FROM suggestions
+		WHERE shown_at >= ?`,
 		func(rows *sql.Rows) error {
 			var at time.Time
 			var r SuggestionResult
-			if err := rows.Scan(timeDest{&at}, &r); err != nil {
+			var why SuggestionReason
+			if err := rows.Scan(timeDest{&at}, &r, &why); err != nil {
 				return err
 			}
 			w := week(at)
 			w.Shown++
+			w.Matched[why]++
 			if r != "" {
 				w.Suggested[r]++
 			}

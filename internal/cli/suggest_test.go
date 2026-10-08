@@ -528,3 +528,43 @@ func TestSuggestRejectNoNag(t *testing.T) {
 		return nil
 	})
 }
+
+// E20-S9 AC 2 and 4: the review of a proposal shows the reason of its newest suggestion in
+// one line: an exact prompt match, a plain-words lesson, or unknown for a row of an older
+// Brain. A proposal with no suggestion shows no match line.
+func TestReviewMatchReason(t *testing.T) {
+	f := newSuggestFixture(t)
+	show := func() string {
+		t.Helper()
+		var out bytes.Buffer
+		if err := Review(context.Background(), f.env(f.sock, "w14:p1", "w14", &out), []string{fmt.Sprint(f.proposal)}); err != nil {
+			t.Fatalf("review %d = %v", f.proposal, err)
+		}
+		return out.String()
+	}
+	if out := show(); strings.Contains(out, "match:") {
+		t.Errorf("review with no suggestion shows a match line:\n%s", out)
+	}
+	f.reserve(t)
+	if out := show(); !strings.Contains(out, "match:    exact prompt, suggestion 1\n") {
+		t.Errorf("review of an exact prompt match:\n%s", out)
+	}
+	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
+		o, err := f.prompt(ctx, tx)
+		if err != nil {
+			return err
+		}
+		_, err = store.ReserveLessonSuggestion(ctx, tx, o, f.proposal, testNow)
+		return err
+	})
+	if out := show(); !strings.Contains(out, "match:    plain-words lesson, suggestion 2\n") {
+		t.Errorf("review of a lesson suggestion:\n%s", out)
+	}
+	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE suggestions SET reason = NULL`)
+		return err
+	})
+	if out := show(); !strings.Contains(out, "match:    unknown, suggestion 2\n") {
+		t.Errorf("review of a suggestion of an older Brain:\n%s", out)
+	}
+}
