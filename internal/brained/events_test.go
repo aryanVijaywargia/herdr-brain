@@ -575,6 +575,8 @@ const (
 	procsBrain = `[{"name":"brain","argv":["brain","doctor"],"pid":12}]`
 	// procsShell: brain review and its probe have exited.
 	procsShell = `[{"name":"zsh","argv":["-zsh"],"pid":1}]`
+	// procsAsh: the probe has exited in an ash login shell.
+	procsAsh = `[{"name":"ash","argv":["-ash"],"pid":1}]`
 	// procsCodex: a real codex runs.
 	procsCodex = `[{"name":"codex","argv":["codex"],"pid":13}]`
 	// procsNoArgv: herdr cannot read the argv.
@@ -642,6 +644,8 @@ func TestEventsShellProbe(t *testing.T) {
 	l.screen(shellPane, "$ brain doctor", "codex-cli 0.160.1", "$ brain review", "codex-cli 0.160.1")
 	l.detect(t, procsShell)
 	l.status(t, shellPane, "idle") // a status change with no base takes a baseline too
+	l.release(t)
+	l.detect(t, procsAsh)
 	l.release(t)
 
 	r := l.rows(t)

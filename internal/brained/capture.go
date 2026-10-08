@@ -673,9 +673,16 @@ func (c *Capture) read(ctx context.Context, id string) (read, error) {
 		full: source == herdr.ReadRecentUnwrapped && raw < lines && !rd.Truncated}, nil
 }
 
-// shells are the names of the shells that a pane runs [NEW]: a shell is no agent run.
-var shells = map[string]bool{"sh": true, "bash": true, "zsh": true, "fish": true, "dash": true, "ksh": true,
-	"tcsh": true, "csh": true, "nu": true, "pwsh": true}
+// shell reports whether name is the name of a shell that a pane runs [NEW]: a shell is no
+// agent run.
+func shell(name string) bool {
+	switch name {
+	case "sh", "bash", "zsh", "fish", "dash", "ash", "ksh", "mksh", "oksh", "yash", "tcsh", "csh", "nu", "pwsh",
+		"elvish", "xonsh":
+		return true
+	}
+	return false
+}
 
 // probe reports whether herdr saw a short CLI run as an agent in pane id, such as the
 // "codex --version" of brain status in a shell pane (#317): each foreground process of the
@@ -695,7 +702,7 @@ func (c *Capture) probe(ctx context.Context, id string) bool {
 		}
 		name := strings.TrimPrefix(filepath.Base(p.Argv[0]), "-")
 		version := slices.ContainsFunc(p.Argv[1:], func(a string) bool { return a == "--version" || a == "-v" })
-		return !shells[name] && name != "brain" && !version
+		return !shell(name) && name != "brain" && !version
 	})
 }
 
