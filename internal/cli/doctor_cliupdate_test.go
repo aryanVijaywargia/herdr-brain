@@ -107,8 +107,8 @@ func TestStatusM2(t *testing.T) {
 	f := m2(t)
 	out := f.mustStatus(t)
 	for _, want := range []string{
-		"  claude 2.1.292: configured, unverified; newer than tested (2.1.283)\n",
-		"  codex 0.160.1: configured, unverified; newer than tested (0.154.0)\n",
+		"  claude 2.1.292: configured, unverified; hook records on; newer than tested (2.1.283)\n",
+		"  codex 0.160.1: configured, unverified; hook records on; newer than tested (0.154.0)\n",
 		"  claude: 5 live: 1 emitted, 4 before Brain\n",
 		"    w2:p1 before Brain: started before Brain installed its hook; its next session gets Brain items\n",
 	} {
@@ -156,7 +156,7 @@ func TestDoctorParseFailure(t *testing.T) {
 	if strings.Contains(out, "go run") || strings.Contains(out, "brain repo") {
 		t.Errorf("brain doctor:\n%s\nwant no repo step", out)
 	}
-	if !strings.Contains(f.mustStatus(t), "  claude 2.1.283: retest: the profile could not parse a hook input (brain doctor)\n") {
+	if !strings.Contains(f.mustStatus(t), "  claude 2.1.283: retest: the profile could not parse a hook input (brain doctor); hook records on\n") {
 		t.Errorf("brain status does not show the retest of claude")
 	}
 	if err := os.RemoveAll(dir); err != nil {

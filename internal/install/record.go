@@ -26,8 +26,8 @@ func recordKey(kind, event string) string {
 	return kind + " " + event
 }
 
-// entry returns the recorded entry of profile kind for hook h.
-func (r Record) entry(kind string, h adapter.Hook) (Entry, bool) {
+// Entry returns the recorded entry of profile kind for hook h.
+func (r Record) Entry(kind string, h adapter.Hook) (Entry, bool) {
 	if h.Event == adapter.EventStart {
 		e, ok := r.Entries[kind]
 		return e, ok
@@ -59,7 +59,7 @@ func (r *Record) drop(kind string, h adapter.Hook) {
 
 // Has reports whether the record holds the entry of profile kind for hook h.
 func (r Record) Has(kind string, h adapter.Hook) bool {
-	_, ok := r.entry(kind, h)
+	_, ok := r.Entry(kind, h)
 	return ok
 }
 

@@ -97,7 +97,7 @@ The asset path works only when the repo is public.
 | `brain forget <item>` | Remove the text of an item from the store and the output |
 | `brain repair [--confirm]` | Repair the output and list its conflicts; `--confirm` deletes them |
 | `brain uninstall [--apply] [--data]` | List what uninstall removes; `--apply` removes it, `--data` the stores too |
-| `brain update [--check]` | Update the plugin to the newest commit of its repo, then run `brain doctor --fix`; `--check` only compares |
+| `brain update [--check \| --records]` | Update the plugin to the newest commit of its repo, add the missing hook record entries (one question), then run `brain doctor --fix`; `--check` only compares; `--records` only adds the hook record entries |
 
 herdr and the agent CLIs run these. You do not run them by hand:
 
@@ -140,8 +140,10 @@ Run these in a pane of a herdr session:
 
 ```sh
 brain update --check   # compares the installed commit with the newest commit of the repo
-brain update           # installs the newest commit, then runs brain doctor --fix
+brain update           # installs the newest commit, adds the missing hook record entries, then runs brain doctor --fix
 ```
+
+A new Brain can store more hook records: the prompts, commands and replies of Claude and Codex. `brain update` shows the hook record entries that are missing and asks once, as `brain setup` does. Answer `y` to add them. Codex needs trust again for each new entry: start codex, type `/hooks` and press `t` on each. `brain status` shows `hook records on` or `off` for each CLI, and `brain doctor` names each missing or untrusted entry.
 
 herdr has no plugin update, so `brain update` runs `herdr plugin install` again. The running `brained` switches to the new binary by itself.
 A plugin that you installed with `--ref` does not follow the default branch: `brain update` prints the install command instead.
