@@ -86,6 +86,23 @@ title = "Brain recall"
 placement = "popup"
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" pane recall"]
 
+# E20-S11: the popup lists the retired items and the archive candidates of the focused pane's
+# workspace and the global items, as key i of the review pane does (E20-S7), with no proposal.
+# Also: `herdr plugin action invoke brain.retired`.
+[[actions]]
+id = "retired"
+title = "Brain: retired items"
+contexts = ["workspace", "pane"]
+command = ["sh", "-c", "exec \"$HERDR_BIN_PATH\" plugin pane open --plugin brain --entrypoint retired"]
+
+# A popup, as the recall popup: `brain pane retired` takes the focused pane and its workspace
+# from HERDR_PLUGIN_CONTEXT_JSON (D6). q closes it.
+[[panes]]
+id = "retired"
+title = "Brain retired items"
+placement = "popup"
+command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" pane retired"]
+
 # D4 (E2-S6): a close marks the workspace closed, because herdr reuses a closed id after a
 # restart. herdr runs the command once for each event; there is no listener process.
 [[events]]

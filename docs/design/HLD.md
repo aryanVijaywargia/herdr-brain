@@ -990,7 +990,7 @@ A fact that works is invisible, because the mistake does not happen. So "not use
 - A full block (§8.1) forces a choice when a new item comes.
 - An item with 2 comebacks on one revision (§5.4) gets a proposal for a rewrite or removal.
 - M4: tools use real call counts: `tool_calls` rows with the result `ran`, from `brain run` and `run_tool` (§10.2).
-- **Retire, not delete.** A retired item or skill stays in the store. `brain review --retired` lists it, and you can restore it (a new revision). The review pane also lists the retired items and the archive candidates of the workspace and the global items (key `i`, E20-S7): you select several, restore or archive them with one confirm, and `u` undoes that action.
+- **Retire, not delete.** A retired item or skill stays in the store. `brain review --retired` lists it, and you can restore it (a new revision). The review pane also lists the retired items and the archive candidates of the workspace and the global items (key `i`, E20-S7), and so does the herdr action "Brain: retired items" (`brain.retired`, E20-S11) in a popup with no proposal: you select several, restore or archive them with one confirm, and `u` undoes that action.
 - **Skill patches (M3):** a change to an active skill is a proposal with a small diff, not a full rewrite. You approve it like any other proposal.
 
 ### 9.3 Promotion (M3)

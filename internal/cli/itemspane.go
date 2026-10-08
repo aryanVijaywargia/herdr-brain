@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"database/sql"
@@ -12,7 +13,12 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-const itemsKeys = "j down  k up  space select  r restore  a archive  u undo  q back"
+// The keys of the items list: in the review pane, q goes back to the proposal; in the popup,
+// q closes it.
+const (
+	itemsKeys      = "j down  k up  space select  r restore  a archive  u undo  q back"
+	itemsPopupKeys = "j down  k up  space select  r restore  a archive  u undo  q close"
+)
 
 // listedItem is one line of the items list: a retired item, or an archive candidate.
 type listedItem struct {
@@ -27,9 +33,12 @@ type itemRev struct{ id, rev int64 }
 // itemsPane is the list of the retired items and the archive candidates in the review pane
 // (E20-S7, §9.2): the global items and those of the caller's workspace, as brain review
 // --retired and brain archive show them. You restore or archive the selected items, or the
-// item at the cursor, with one confirm, and u undoes the last such action. [NEW keys].
+// item at the cursor, with one confirm, and u undoes the last such action. [NEW keys]. The
+// popup of the action brain.retired shows the same list with no proposal (E20-S11).
 type itemsPane struct {
 	Env
+	popup  bool // the list is the popup: only q closes it, as i opens nothing
+	closed bool // q at a confirm of the popup: the popup closes, and nothing changes
 	keys   io.RuneReader
 	size   func() (rows, cols int)
 	items  []listedItem
@@ -40,7 +49,20 @@ type itemsPane struct {
 	last   []itemRev // the items of the last action and the revisions it wrote, which u undoes
 }
 
-// run shows the list and reads keys until q, i or the end of input. It reads the list again
+// retiredPopup runs `brain pane retired`, the popup of the action brain.retired (E20-S11): the
+// items list of the focused pane's workspace, with no proposal. herdr closes the popup when
+// brain exits, so an error shows until a key.
+func retiredPopup(ctx context.Context, e Env, keys *bufio.Reader, size func() (rows, cols int)) (err error) {
+	if e.Environ, err = popupEnv(e.Environ); err == nil {
+		err = (&itemsPane{Env: e, popup: true, keys: keys, size: size}).run(ctx)
+	}
+	if err != nil {
+		return popupFail(e.Stdout, keys, err)
+	}
+	return nil
+}
+
+// run shows the list and reads keys until q, i (not in the popup) or the end of input. It reads the list again
 // before each screen, so an item that changed in another surface shows its new state.
 func (l *itemsPane) run(ctx context.Context) error {
 	l.picked = map[int64]bool{}
@@ -57,10 +79,10 @@ func (l *itemsPane) run(ctx context.Context) error {
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
-		if err != nil || k == 'q' || k == 'i' {
+		if err != nil || k == 'q' || (k == 'i' && !l.popup) {
 			return err
 		}
-		if err := l.key(ctx, k); err != nil {
+		if err := l.key(ctx, k); err != nil || l.closed {
 			return err
 		}
 	}
@@ -105,6 +127,10 @@ func (l *itemsPane) act(ctx context.Context, restore bool) error {
 	k, _, err := l.keys.ReadRune()
 	if err != nil {
 		return err
+	}
+	if k == 'q' && l.popup {
+		l.closed = true // the keys say q closes the popup
+		return nil
 	}
 	if k != 'y' {
 		l.msg = "nothing changed"
@@ -181,7 +207,11 @@ func (l *itemsPane) draw(prompt string) {
 	if l.msg != "" {
 		fmt.Fprintf(&foot, "\n%s\n", strings.TrimSpace(l.msg))
 	}
-	fmt.Fprintf(&foot, "\n%s\n%s", itemsKeys, prompt)
+	keys := itemsKeys
+	if l.popup {
+		keys = itemsPopupKeys
+	}
+	fmt.Fprintf(&foot, "\n%s\n%s", keys, prompt)
 	height, width := paneDims(l.size)
 	head := "retired items and archive candidates (global and this workspace)"
 	var body strings.Builder
