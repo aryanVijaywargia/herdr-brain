@@ -13,15 +13,15 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// retiredPopup runs the popup of `brain pane retired` at day 183 with environ and the keys, as
-// Pane routes it, and returns the whole output.
+// retiredPopup runs the popup that Pane routes `brain pane retired` to, at day 183 with
+// environ and the keys, and returns the whole output.
 func (f *fixture) retiredPopup(t *testing.T, environ []string, keys string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
 	e := f.env(f.sock, "", "", &out)
 	e.Environ = environ
 	e.Now = func() time.Time { return days(183) }
-	err := popups["retired"](context.Background(), e, bufio.NewReader(strings.NewReader(keys)), func() (int, int) { return 0, 0 })
+	err := popupOf([]string{"retired"})(context.Background(), e, bufio.NewReader(strings.NewReader(keys)), func() (int, int) { return 0, 0 })
 	return out.String(), err
 }
 
@@ -38,8 +38,15 @@ func TestPanePopupRoute(t *testing.T) {
 		!strings.HasSuffix(out, "\n"+itemsPopupKeys+"\n") {
 		t.Errorf("pane retired = %v, screen =\n%s\nwant the items list with the popup keys", err, out)
 	}
-	if _, ok := popups["recall"]; !ok {
-		t.Error("no popup recall")
+	for _, args := range [][]string{{"recall"}, {"retired"}} {
+		if popupOf(args) == nil {
+			t.Errorf("popupOf(%q) = nil, want a popup", args)
+		}
+	}
+	for _, args := range [][]string{nil, {"review"}, {"retired", "x"}, {"items"}} {
+		if popupOf(args) != nil {
+			t.Errorf("popupOf(%q) is a popup, want nil", args)
+		}
 	}
 	if !strings.Contains(paneUsage, "brain pane retired") {
 		t.Errorf("paneUsage = %q, want brain pane retired", paneUsage)
@@ -134,7 +141,7 @@ func popupEnvOf(t *testing.T, e Env) Env {
 	return e
 }
 
-// E20-S11 AC 3 and 5: q closes the popup, and the keys after it do nothing. A popup with no
+// E20-S11 AC 3 and 5: q closes the popup, also at a confirm, and the keys after it do nothing. A popup with no
 // confirmed caller shows the error until a key.
 func TestRetiredPopupClose(t *testing.T) {
 	f := newFixture(t)
@@ -142,6 +149,12 @@ func TestRetiredPopupClose(t *testing.T) {
 	out, err := f.retiredPopup(t, f.popupEnviron("w14:p1", "w14"), "qry")
 	if err != nil || strings.Contains(out, "press y to confirm") {
 		t.Errorf("popup(qry) = %v,\n%s\nwant a close at q", err, out)
+	}
+	wantStates(t, f.states(t, ids), retired, retired, active, active)
+	// q at the confirm closes the popup too: the keys after it do nothing (Sol review).
+	out, err = f.retiredPopup(t, f.popupEnviron("w14:p1", "w14"), "rqry")
+	if err != nil || strings.Count(out, "press y to confirm") != 1 || strings.Contains(out, "restored") {
+		t.Errorf("popup(rqry) = %v,\n%s\nwant a close at the q of the confirm", err, out)
 	}
 	wantStates(t, f.states(t, ids), retired, retired, active, active)
 	for _, environ := range [][]string{f.popupEnviron("w99:p1", "w99"), {"HERDR_ENV=1"}} {

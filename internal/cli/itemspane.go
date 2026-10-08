@@ -38,6 +38,7 @@ type itemRev struct{ id, rev int64 }
 type itemsPane struct {
 	Env
 	popup  bool // the list is the popup: only q closes it, as i opens nothing
+	closed bool // q at a confirm of the popup: the popup closes, and nothing changes
 	keys   io.RuneReader
 	size   func() (rows, cols int)
 	items  []listedItem
@@ -81,7 +82,7 @@ func (l *itemsPane) run(ctx context.Context) error {
 		if err != nil || k == 'q' || (k == 'i' && !l.popup) {
 			return err
 		}
-		if err := l.key(ctx, k); err != nil {
+		if err := l.key(ctx, k); err != nil || l.closed {
 			return err
 		}
 	}
@@ -126,6 +127,10 @@ func (l *itemsPane) act(ctx context.Context, restore bool) error {
 	k, _, err := l.keys.ReadRune()
 	if err != nil {
 		return err
+	}
+	if k == 'q' && l.popup {
+		l.closed = true // the keys say q closes the popup
+		return nil
 	}
 	if k != 'y' {
 		l.msg = "nothing changed"

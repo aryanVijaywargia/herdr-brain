@@ -34,19 +34,24 @@ const (
 	keyBS       = 0x08
 )
 
-// popups are the popups of `brain pane <name>`, each with its keys and its screen size. herdr
-// opens each from a plugin action, in a popup with no HERDR_PANE_ID (D6): the caller is the
+// popupOf returns the popup of `brain pane` args, with its keys and its screen size, or nil.
+// herdr opens each popup from a plugin action, with no HERDR_PANE_ID (D6): the caller is the
 // focused pane of the action context (popupEnv).
-var popups = map[string]func(ctx context.Context, e Env, keys *bufio.Reader, size func() (rows, cols int)) error{
-	"recall":  recallPopup,  // E20-S3
-	"retired": retiredPopup, // E20-S11
+func popupOf(args []string) func(ctx context.Context, e Env, keys *bufio.Reader, size func() (rows, cols int)) error {
+	switch strings.Join(args, " ") {
+	case "recall":
+		return recallPopup // E20-S3
+	case "retired":
+		return retiredPopup // E20-S11
+	}
+	return nil
 }
 
 // Pane runs `brain pane` with args after "pane" (E5-S1): the review pane of one proposal, or
 // a popup. herdr runs it in a plugin pane, and the proposal id comes from the pane's --env
 // (§5.1).
 func Pane(ctx context.Context, e Env, args []string) error {
-	if popup, ok := popups[strings.Join(args, " ")]; ok {
+	if popup := popupOf(args); popup != nil {
 		restore, err := cbreak(os.Stdin)
 		if err != nil {
 			return err
