@@ -338,8 +338,8 @@ type observed struct {
 	at                           time.Time
 }
 
-// readEvidence reads observation obs for Attach and checks that it can be evidence of c. A refused
-// observation gives an error that wraps ErrEvidenceRefused.
+// readEvidence reads observation obs for Attach and checks that it can be evidence of c. A
+// refused observation gives an error that wraps ErrEvidenceRefused.
 func readEvidence(ctx context.Context, tx *sql.Tx, c Candidate, obs int64, supports func(CandidateKind, Sender) bool) (observed, error) {
 	var l observed
 	err := tx.QueryRowContext(ctx, `SELECT o.capture_identity, COALESCE(g.workspace_key, ''), s.harness, o.sender,

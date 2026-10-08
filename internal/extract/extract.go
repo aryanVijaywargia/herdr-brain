@@ -689,8 +689,11 @@ func heldBy(ctx context.Context, tx *sql.Tx, claim string, c Claim, key string) 
 // marked as merged (store.Candidate.Via), so the evidence view of its proposal shows it. With
 // no such candidate, as for an item of brain remember, the evidence has no place and is
 // dropped. Either way the corrections that the evidence check accepts count for the active
-// items of held, as an uncertain comeback (§5.4).
+// items of held, as an uncertain comeback (§5.4). A forgotten claim held adds nothing (§6.7).
 func (p Pass) restate(ctx context.Context, tx *sql.Tx, j job, claim, held string, c Claim, key string, now time.Time) error {
+	if ts, err := store.TombstonesByClaim(ctx, tx, held); err != nil || len(ts) > 0 {
+		return err
+	}
 	kind := candidateKind(c)
 	var accepted []ref
 	cand, err := store.CandidateOf(ctx, tx, held, key)

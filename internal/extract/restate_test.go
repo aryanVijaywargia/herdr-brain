@@ -282,3 +282,23 @@ func TestSameAsRejectedClaim(t *testing.T) {
 		t.Errorf("candidates of the rejected claim = %d, want none", n)
 	}
 }
+
+// A restatement of a forgotten claim adds nothing (§6.7): no evidence, no candidate, no
+// proposal, as for new evidence of the same claim id (#312).
+func TestRestatedForgottenClaim(t *testing.T) {
+	f := newFixture(t)
+	claim := f.item3(true)
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		return store.InsertTombstone(ctx, tx, store.Tombstone{ClaimID: claim, SourceKeys: []string{}, ForgottenAt: t0})
+	})
+	f.cli.reply = ruleReply(item3Situation, proposal9Rule, knownItem3)
+	f.session("s9", true, line{"ws-A", item3Prompt + " again", t0.Add(time.Hour)})
+	f.mustRun()
+	if f.cli.calls() != 3 {
+		t.Fatalf("calls = %d, want 3", f.cli.calls())
+	}
+	cs := f.candidates()
+	if len(cs) != 1 || cs[0].Count != 2 || len(f.proposals()) != 1 {
+		t.Errorf("candidates = %+v, %d proposals, want only candidate 4 with count 2 and proposal 3", cs, len(f.proposals()))
+	}
+}
