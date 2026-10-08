@@ -186,3 +186,58 @@ func TestReadHandoff(t *testing.T) {
 		})
 	}
 }
+
+// AC #273 1 (Sol review of PR #307): the start of a session is its oldest receipt in the
+// workspace, also when that receipt has no transcript path; a receipt of the same agent session
+// in another workspace, or of another session, does not count.
+func TestSessionStart(t *testing.T) {
+	ctx := context.Background()
+	s := openM1(t)
+	at := func(h, m int) time.Time { return time.Date(2026, 10, 8, h, m, 0, 0, time.UTC) }
+	ids := map[string]int64{}
+	write(t, s, func(tx *sql.Tx) error {
+		for _, k := range []string{"ka", "kb"} {
+			if err := InsertWorkspace(ctx, tx, Workspace{Key: k, HerdrSession: "default", HerdrWorkspaceID: "w-" + k,
+				Label: k, Status: WorkspaceLive, LastSeen: at(7, 0)}); err != nil {
+				return err
+			}
+		}
+		for _, r := range []struct {
+			name, agent, key string
+			at               time.Time
+			path             *string
+		}{
+			{"b", "b", "ka", at(7, 0), ptr("/t/b")},
+			{"a in kb", "a", "kb", at(8, 0), ptr("/t/a")},
+			{"a first", "a", "ka", at(9, 0), nil},
+			{"a", "a", "ka", at(9, 30), ptr("/t/a")},
+			{"a last", "a", "ka", at(10, 0), ptr("/t/a")},
+			{"c", "c", "ka", at(11, 0), ptr("/t/c")},
+		} {
+			id, err := InsertDelivery(ctx, tx, Delivery{Profile: "claude", HerdrSession: ptr("default"), PaneID: "w1:p1",
+				AgentSessionID: ptr(r.agent), WorkspaceKey: ptr(r.key), Result: ResultEmitted, At: r.at, TranscriptPath: r.path})
+			if err != nil {
+				return err
+			}
+			ids[r.name] = id
+		}
+		return nil
+	})
+	for _, tc := range []struct {
+		name, last, agent string
+		want              time.Time
+	}{
+		{"first receipt with no transcript path", "a last", "a", at(9, 0)},
+		{"the only receipt of the session", "c", "c", at(11, 0)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			write(t, s, func(tx *sql.Tx) error {
+				got, err := sessionStart(ctx, tx, "ka", Delivery{ID: ids[tc.last], AgentSessionID: ptr(tc.agent)})
+				if err != nil || !got.Equal(tc.want) {
+					t.Errorf("sessionStart(%s) = %v, %v, want %v", tc.last, got, err, tc.want)
+				}
+				return nil
+			})
+		})
+	}
+}

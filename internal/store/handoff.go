@@ -45,11 +45,12 @@ func ReadHandoff(ctx context.Context, tx *sql.Tx, key string, last Delivery, rev
 
 // sessionStart is the time of the oldest receipt of the agent session of last in workspace key.
 // A CLI can write more receipts for one agent session, as Claude does after a resume or a
-// compact (§8.3), so last can be a later one.
+// compact (§8.3), so last can be a later one. A receipt with no transcript path counts too: it
+// can be the first one of the session.
 func sessionStart(ctx context.Context, tx *sql.Tx, key string, last Delivery) (time.Time, error) {
 	var start time.Time
 	err := tx.QueryRowContext(ctx, `SELECT min(at) FROM deliveries
-		WHERE workspace_key = ?1 AND transcript_path IS NOT NULL AND (id = ?2 OR agent_session_id = ?3)`,
+		WHERE workspace_key = ?1 AND (id = ?2 OR agent_session_id = ?3)`,
 		key, last.ID, last.AgentSessionID).Scan(timeDest{&start})
 	if err != nil {
 		return time.Time{}, fmt.Errorf("read start of the session of receipt %d: %w", last.ID, err)
