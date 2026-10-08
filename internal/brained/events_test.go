@@ -87,14 +87,14 @@ func (l *live) screen(id string, lines ...string) {
 }
 
 // status sends a status change of pane id on its stream, and waits for its step.
-func (l *live) status(t *testing.T, id, status string) Step {
+func (l *live) status(t *testing.T, id, status string) {
 	t.Helper()
 	l.subs[id].send(statusLine(id, status))
-	return l.step(t)
+	l.step(t)
 }
 
-// created sends pane_created of pane id and returns its status stream.
-func (l *live) created(t *testing.T, id string) *fakeSub {
+// created sends pane_created of pane id and waits for its status stream.
+func (l *live) created(t *testing.T, id string) {
 	t.Helper()
 	ws, _, _ := strings.Cut(id, ":")
 	l.main.send(fmt.Sprintf(`{"event":"pane_created","data":{"type":"pane_created","pane":{"pane_id":%q,"workspace_id":%q,"tab_id":"%s:t1"}}}`,
@@ -104,7 +104,6 @@ func (l *live) created(t *testing.T, id string) *fakeSub {
 		t.Fatalf("no status subscription for %s", id)
 	}
 	l.subs[id] = st
-	return st
 }
 
 // rows returns what the store holds.
