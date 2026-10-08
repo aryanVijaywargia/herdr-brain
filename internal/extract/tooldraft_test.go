@@ -128,11 +128,10 @@ func codexRec(argv string) rec {
 		cmd: &store.CommandRecord{Argv: argv, CWD: shop}}
 }
 
-// codexSession stores an ended Codex session of agent id in ws-A with recs, in order. It
-// returns the session id.
-func (f *fixture) codexSession(id string, recs ...rec) int64 {
+// codexSession stores an ended Codex session of agent id in ws-A with recs, in order.
+func (f *fixture) codexSession(id string, recs ...rec) {
 	f.t.Helper()
-	return f.agentSession("codex", id, func(ctx context.Context, tx *sql.Tx, add adder) error {
+	f.agentSession("codex", id, func(ctx context.Context, tx *sql.Tx, add adder) error {
 		for _, r := range recs {
 			o, err := add(r.o)
 			if err != nil {
