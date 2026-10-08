@@ -111,6 +111,16 @@ func (c *Capture) Handle(ctx context.Context, s Step) error {
 	cp := c.panes[s.PaneID]
 	switch s.Kind {
 	case Baseline:
+		if s.Gap == GapNone && cp != nil && cp.ok && s.Event != nil && s.Event.Kind == herdr.PaneAgentDetected {
+			// The pane has a base, so herdr repeated the detection, or lost the release of the
+			// last agent (an end drops the base). The text since the last read is new text, and
+			// another agent or session gets its baseline with a gap in change (E20-S10). The
+			// agent status stays, so no turn starts.
+			ev := *s.Event
+			ev.Status = cp.status
+			s.Kind, s.Event = Change, &ev
+			return c.change(ctx, s, cp)
+		}
 		return c.baseline(ctx, s, string(s.Gap))
 	case Change:
 		switch {
