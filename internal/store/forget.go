@@ -26,15 +26,25 @@ func ForgetPending(ctx context.Context, tx *sql.Tx) (bool, error) {
 // index rows that link a proposal of the item, and its tools and automations rows. Forget finds them by id, never by a text search (§6.7).
 // The claim key is shared by the scopes: while another item, or a candidate in another scope,
 // uses the claim, that scope keeps its copy of the claim and its key text (§6.7, §7.2).
+// The claims rows also hold the claims whose same_as link names the claim of the item: a
+// restatement (#312) or a merge (#279) keeps the key of the linked claim with no candidate of
+// its own. Such a claim goes with the item while no item and no candidate has it, and no
+// candidate in another scope has evidence that it brought (#327).
 var itemRows = map[string]string{
 	"items":          `id = ?1`,
 	"item_revisions": `item_id = ?1`,
 	"proposals":      scriptsOfItem,
 	"applied_edits":  appliedEditsWithItem,
-	"claims": `id = (SELECT claim_id FROM items WHERE id = ?1)
+	"claims": `(id = (SELECT claim_id FROM items WHERE id = ?1)
 		AND NOT EXISTS (SELECT 1 FROM items o WHERE o.claim_id = claims.id AND o.id != ?1)
 		AND NOT EXISTS (SELECT 1 FROM candidates c JOIN items i ON i.id = ?1
-			WHERE c.claim_id = claims.id AND COALESCE(c.workspace_key, '') != COALESCE(i.workspace_key, ''))`,
+			WHERE c.claim_id = claims.id AND COALESCE(c.workspace_key, '') != COALESCE(i.workspace_key, '')))
+		OR (same_as = (SELECT claim_id FROM items WHERE id = ?1)
+		AND NOT EXISTS (SELECT 1 FROM items o WHERE o.claim_id = claims.id)
+		AND NOT EXISTS (SELECT 1 FROM candidates c WHERE c.claim_id = claims.id)
+		AND NOT EXISTS (SELECT 1 FROM evidence_links l JOIN candidates c ON c.id = l.candidate_id
+			JOIN items i ON i.id = ?1
+			WHERE l.via_claim = claims.id AND COALESCE(c.workspace_key, '') != COALESCE(i.workspace_key, '')))`,
 	"rejections": `claim_id = (SELECT claim_id FROM items WHERE id = ?1)
 		AND COALESCE(workspace_key, '') = (SELECT COALESCE(workspace_key, '') FROM items WHERE id = ?1)`,
 	"prompt_index": promptRowsOfItem,
