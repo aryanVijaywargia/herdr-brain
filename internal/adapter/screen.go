@@ -20,8 +20,11 @@ type noiseBlock struct {
 // noiseAbove is one entry of noise_above, compiled.
 type noiseAbove struct{ line, below *regexp.Regexp }
 
+// noiseLast is one entry of noise_last, compiled.
+type noiseLast struct{ line, unless *regexp.Regexp }
+
 // checkScreen compiles the screen rules of the profile: noise_lines, noise_blocks,
-// noise_above and side_panel (§6.2).
+// noise_above, noise_last and side_panel (§6.2).
 func (p *Profile) checkScreen() error {
 	for _, n := range p.NoiseLines {
 		re, err := wholeLine(n)
@@ -31,26 +34,25 @@ func (p *Profile) checkScreen() error {
 		p.noise = append(p.noise, re)
 	}
 	for _, b := range p.NoiseBlocks {
-		start, err := wholeLine(b.Start)
+		start, next, err := pair("noise_blocks", "start", b.Start, "next", b.Next)
 		if err != nil {
-			return fmt.Errorf("noise_blocks start %q: %w", b.Start, err)
-		}
-		next, err := wholeLine(b.Next)
-		if err != nil {
-			return fmt.Errorf("noise_blocks next %q: %w", b.Next, err)
+			return err
 		}
 		p.blocks = append(p.blocks, noiseBlock{start, next, b.AfterBlank})
 	}
 	for _, a := range p.NoiseAbove {
-		line, err := wholeLine(a.Line)
+		line, below, err := pair("noise_above", "line", a.Line, "below", a.Below)
 		if err != nil {
-			return fmt.Errorf("noise_above line %q: %w", a.Line, err)
-		}
-		below, err := wholeLine(a.Below)
-		if err != nil {
-			return fmt.Errorf("noise_above below %q: %w", a.Below, err)
+			return err
 		}
 		p.above = append(p.above, noiseAbove{line, below})
+	}
+	for _, l := range p.NoiseLast {
+		line, unless, err := pair("noise_last", "line", l.Line, "unless", l.Unless)
+		if err != nil {
+			return err
+		}
+		p.last = append(p.last, noiseLast{line, unless})
 	}
 	if p.SidePanel.Header == "" {
 		return nil
@@ -71,6 +73,19 @@ func wholeLine(s string) (*regexp.Regexp, error) {
 	return regexp.Compile(`^(?:` + s + `)$`)
 }
 
+// pair compiles the two patterns of one rule of field, keyed ka and kb, with wholeLine.
+func pair(field, ka, a, kb, b string) (*regexp.Regexp, *regexp.Regexp, error) {
+	ra, err := wholeLine(a)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s %s %q: %w", field, ka, a, err)
+	}
+	rb, err := wholeLine(b)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s %s %q: %w", field, kb, b, err)
+	}
+	return ra, rb, nil
+}
+
 // Noise reports whether line is screen noise by the profile's noise_lines.
 func (p *Profile) Noise(line string) bool {
 	for _, re := range p.noise {
@@ -83,7 +98,8 @@ func (p *Profile) Noise(line string) bool {
 
 // Screen splits the screen text of one pane read into lines without trailing space. It cuts
 // the side panel off each line, and drops blank lines and the noise of the profile: the
-// noise lines, the noise blocks and the noise above a line (§6.2, #258, #316). A read can
+// noise lines, the noise blocks, the noise above a line and the noise with no given line under
+// it (§6.2, #258, #316, #338). A read can
 // start inside a block, as a bounded read after the start line left it, so the lines at the
 // start of the read that a block's Next matches are dropped too. A blank line ends the open
 // block, unless its Next matches the empty line (#291). A block with after_blank starts only
@@ -112,7 +128,7 @@ func (p *Profile) Screen(text string) []string {
 		}
 		head = false
 		next = p.blockStart(l, spaced)
-		if next != nil || p.Noise(l) || p.noiseAbove(l, rows[i+1:]) {
+		if next != nil || p.Noise(l) || p.noiseAbove(l, rows[i+1:]) || p.noiseLast(l, rows[i+1:]) {
 			continue
 		}
 		ls = append(ls, l)
@@ -128,6 +144,16 @@ func (p *Profile) noiseAbove(l string, rest []string) bool {
 	}
 	for _, a := range p.above {
 		if a.line.MatchString(l) && a.below.MatchString(rest[i]) {
+			return true
+		}
+	}
+	return false
+}
+
+// noiseLast reports whether line l is noise by noise_last, with the lines under it in rest.
+func (p *Profile) noiseLast(l string, rest []string) bool {
+	for _, n := range p.last {
+		if n.line.MatchString(l) && !slices.ContainsFunc(rest, n.unless.MatchString) {
 			return true
 		}
 	}

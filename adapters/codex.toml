@@ -63,7 +63,12 @@ noise_lines = ['› Ask Codex to do anything', '\s*.* · Context \d+% (?:used|le
 # shell prompt line that started Codex above its banner, also a bare "$ codex". They were
 # stored as user text, and "wrong" made a correction signal. A prompt starts with ›, so a
 # prompt with the same words stays.
-  '■ Conversation interrupted - .*', '(?:[^\s›•].*[%$#>❯]|[$%]) (?:\S+/)?codex(?: .*)?']
+  '■ Conversation interrupted - .*', '(?:[^\s›•].*[%$#>❯]|[$%]) (?:\S+/)?codex(?: .*)?',
+# Codex 0.160.1 (#338, M2 eval run 3 2026-10-09): the two lines that Codex prints when it ends,
+# with the texts of the Codex source (tui/src/main.rs, protocol TokenUsage). The pane keeps them,
+# so each later session in the pane reads them again at its start. They were stored as user text.
+# The report shows "run:" with a colon and the source "run" with none, so both match.
+  'Token usage: total=[\d,]+ input=.*', 'To continue this session, run:? codex resume .*']
 # The start banner (#258): the box with the version, model and folder, and the tip lines under
 # it, also when a tip wraps. A tip line at another place is text of a reply.
 # Codex 0.160.1 (#278, #281, M2 eval run): the start banner with no box (the version, the folder,

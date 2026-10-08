@@ -38,11 +38,22 @@ type mark struct {
 // prompt, the reply and the tool output. A line at column 0 starts a block: its mark gives the
 // sender, and with no mark the sender is not confirmed. A line that starts with a space
 // continues the block above it, unless it starts with a mark. The prompt mark gives no owner
-// mark: a script or another agent can submit text too (§6.3).
+// mark: a script or another agent can submit text too (§6.3). The first mark that a line
+// starts with gives its sender. Codex 0.160.1 shows its question to you (request_user_input)
+// as a quote after the prompt mark, "› > ...", once you answer it: the question is its text,
+// not yours (#341, M2 eval run 3). [NEW: the eval report gives the line, not the screen]
 var marks = map[string][]mark{
 	"claude": {{"❯ ", store.SenderUnconfirmed}, {"⏺ ", store.SenderAssistant}, {"  ⎿", store.SenderTool}},
-	"codex":  {{"› ", store.SenderUnconfirmed}, {"• ", store.SenderAssistant}, {"  └", store.SenderTool}},
+	"codex": {{"› > ", store.SenderAssistant}, {"› ", store.SenderUnconfirmed}, {"• ", store.SenderAssistant},
+		{"  └", store.SenderTool}},
 }
+
+// inMarks lists the harnesses that draw each prompt that you send with the prompt mark, and
+// each line of a block below its first line with an indent [NEW, #338, M2 eval run 3]. A line
+// at column 0 with no mark there is no prompt: it is the rest of a line that the terminal
+// wrapped, or text that the CLI did not indent, as a line of tool output whose └ is above the
+// read. So it continues the block above it, as an indented line does.
+var inMarks = map[string]bool{"codex": true}
 
 // approval matches the question of a Codex approval dialog, and detail the line under it [the
 // recorded reads in testdata, and the M2 eval run]: Codex asks it for the agent, so it starts a
@@ -68,7 +79,7 @@ func senders(harness string, lines []string) []store.Sender {
 		switch {
 		case !found && approval.MatchString(l) && i+1 < len(lines) && detail.MatchString(lines[i+1]):
 			sender = store.SenderAssistant
-		case !found && !strings.HasPrefix(l, " "):
+		case !found && !strings.HasPrefix(l, " ") && !inMarks[harness]:
 			sender = store.SenderUnconfirmed
 		}
 		ss[i] = sender
@@ -77,21 +88,26 @@ func senders(harness string, lines []string) []store.Sender {
 }
 
 // head returns the number of lines at the start of a read of harness that continue a block
-// whose first line is above the read: lines that start with a space and no sender mark. Their
-// sender is not known (§6.5): a diff line or the rest of a reply, not only user text (#281).
+// whose first line is above the read: lines with no sender mark that start with a space, or
+// any line with no mark for a harness of inMarks. Their sender is not known (§6.5): a diff line
+// or the rest of a reply, not only user text (#281, #338).
 func head(harness string, lines []string) int {
 	for i, l := range lines {
-		if !strings.HasPrefix(l, " ") || slices.ContainsFunc(marks[harness], func(m mark) bool { return strings.HasPrefix(l, m.prefix) }) {
+		if !strings.HasPrefix(l, " ") && !inMarks[harness] || slices.ContainsFunc(marks[harness], func(m mark) bool { return strings.HasPrefix(l, m.prefix) }) {
 			return i
 		}
 	}
 	return len(lines)
 }
 
-// promptLine returns line l of harness without its prompt mark, and whether l starts with it.
+// promptLine returns line l of harness without its prompt mark, and whether l starts with it:
+// the first mark that l starts with is the prompt mark.
 func promptLine(harness, l string) (string, bool) {
 	for _, m := range marks[harness] {
-		if m.sender == store.SenderUnconfirmed && strings.HasPrefix(l, m.prefix) {
+		if strings.HasPrefix(l, m.prefix) {
+			if m.sender != store.SenderUnconfirmed {
+				return l, false
+			}
 			return l[len(m.prefix):], true
 		}
 	}

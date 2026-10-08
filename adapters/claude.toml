@@ -86,7 +86,10 @@ noise_blocks = [
   # the lines, not their place on the screen]. A blank line keeps the block open: tool output
   # can hold one. Claude puts a blank line above the fold line (testdata/claude-s31-2-blocked
   # .txt), and a prompt line with the same words is right under the prompt, so it stays.
-  { start = '  (?:Read|Reading|Ran|Running|Listed|Listing|Searched for|Searching for|Fetched|Fetching) \d+ (?:files?|shell commands?|director(?:y|ies)|patterns?|URLs?)(?:, (?:read|reading|ran|running|listed|listing|searched for|searching for|fetched|fetching) \d+ (?:files?|shell commands?|director(?:y|ies)|patterns?|URLs?))*…?(?: \(ctrl\+o to expand\))?', next = '\s{4,}\S.*|', after_blank = true },
+  # Claude Code 2.1.294 (#338, M2 eval run 3 2026-10-09): the parts of the memory tools, as in
+  # "Ran 2 shell commands, wrote 1 memory". The texts of the parts "recalled N memories",
+  # "searched memories" and "wrote N memories" come from the source of Claude Code 2.1.295.
+  { start = '  (?:(?:Read|Reading|Ran|Running|Listed|Listing|Searched for|Searching for|Fetched|Fetching|Recalled|Recalling|Wrote|Writing) \d+ (?:files?|shell commands?|director(?:y|ies)|patterns?|URLs?|memor(?:y|ies))|(?:Searched|Searching) memories)(?:, (?:(?:read|reading|ran|running|listed|listing|searched for|searching for|fetched|fetching|recalled|recalling|wrote|writing) \d+ (?:files?|shell commands?|director(?:y|ies)|patterns?|URLs?|memor(?:y|ies))|(?:searched|searching) memories))*…?(?: \(ctrl\+o to expand\))?', next = '\s{4,}\S.*|', after_blank = true },
 ]
 # The placeholder of the empty prompt box (#316, M2 eval rerun, Claude Code 2.1.293): the rule
 # block above did not drop it, and the stored text held the footer line under it. So the
@@ -94,6 +97,16 @@ noise_blocks = [
 # with the same text has the spinner, a reply or a blank line under it, so it stays.
 noise_above = [
   { line = '❯ Try "[^"]*"', below = '─+|\s*(?:Opus|Sonnet|Haiku|Fable) \d+(?:\.\d+)* \(\d+[KM] context\)(?:\s{2,}\S.*)?|\s*\? for shortcuts.*|\s*(?:⏵⏵|⏸) .*' },
+]
+# The placeholder at the start of a session (#338, M2 eval run 3, Claude Code 2.1.294): the
+# rule above did not drop it, because another box line was under it. The source of Claude Code
+# 2.1.295 shows the placeholder only in the empty input box before the first prompt, with one of
+# its own texts and a file of the repo or "<filepath>". So the placeholder is noise when no
+# prompt line, reply, tool output or spinner is under it, whatever box line is there. A sent
+# prompt with the same text has the input line ❯ of the box under it, or a reply or the spinner,
+# so it stays. [NEW: the eval report gives the line, not the screen]
+noise_last = [
+  { line = '❯ Try "(?:fix lint errors|fix typecheck errors|how does [^"]+ work\?|refactor [^"]+|how do I log an error\?|edit [^"]+ to\.\.\.|write a test for [^"]+|create a util logging\.py that\.\.\.)"', unless = '(?:❯|⏺ |[·✢✳✶✻✽*] |\s*⎿).*' },
 ]
 # The diff panel (/diff, Claude Code 2.1.260 and later) opens beside the conversation in a
 # terminal at least 110 columns wide; its header is "N files changed +A -D" (#258). The header

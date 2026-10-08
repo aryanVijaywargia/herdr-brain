@@ -348,7 +348,9 @@ func busy(status string) bool {
 // prompt, or the known first line starts it, and its other lines are text of that prompt. A
 // copy is a new send only when it is the last prompt of the read and a new turn started since,
 // or it has the same text and the read shows the known one too, above it (S40). In a new turn
-// the last prompt is the prompt of the turn, also when it is only the start of a known one. A part with
+// the last prompt is the prompt of the turn, also when it is only the start of a known one,
+// unless its last line ends with "…": the CLI shows a prompt that you send in full, so a cut
+// line that holds only the start of a known prompt is a copy (#338). A part with
 // no prompt mark and the sender of a prompt, as the wrapped end of a prompt, is dropped when
 // all its lines are text of a known prompt. copies returns the parts that stay and the
 // prompts that they send.
@@ -379,7 +381,9 @@ func (cp *capturePane) copies(r read, added []int, ps []part) ([]part, []sent) {
 				known = append(known, s)
 			}
 		}
-		again := p.at == last && !p.unsure &&
+		cut := strings.HasSuffix(p.lines[len(p.lines)-1], "…") &&
+			slices.ContainsFunc(known, func(s sent) bool { return len(k.text) < len(s.text) })
+		again := p.at == last && !p.unsure && !cut &&
 			(!slices.ContainsFunc(known, func(s sent) bool { return s.turn == cp.turn }) ||
 				slices.ContainsFunc(known, func(s sent) bool { return s.text == k.text }) && shownAbove(r, added, k, p.at))
 		if len(known) == 0 || again {
