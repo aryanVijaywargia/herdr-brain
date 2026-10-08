@@ -116,7 +116,7 @@ func withLast(global, ws string, last store.Delivery, h store.Handoff, loc *time
 		failed[i] = brief.Failure{Command: f.Argv, Exit: f.ExitStatus}
 	}
 	ws = brief.LastSession(ws, last.Profile, last.At.In(loc), *last.TranscriptPath)
-	return brief.Handoff(global, ws, h.Approved, failed)
+	return brief.Handoff(global, ws, h.Approved, h.Skills, failed)
 }
 
 // The UTC offsets of the time zones: from -12:00 to +14:00, each a multiple of 15 minutes. [NEW]

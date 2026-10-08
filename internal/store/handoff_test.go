@@ -18,19 +18,23 @@ type handoffStore struct {
 }
 
 // approve adds item id, approved at revision rev at at, after rev-1 earlier revisions. A
-// proposal makes it an approval; with proposal false the revision is a pin or an undo.
-func (h *handoffStore) approve(ctx context.Context, tx *sql.Tx, id, rev int64, key *string, at time.Time, proposal bool) error {
-	scope := ScopeGlobal
+// proposal makes it an approval; with proposal false the revision is a pin or an undo. A skill
+// name makes it a skill item with that name; "" makes a fact.
+func (h *handoffStore) approve(ctx context.Context, tx *sql.Tx, id, rev int64, key *string, at time.Time, proposal bool, skill string) error {
+	scope, kind, text := ScopeGlobal, KindFact, "rule"
 	if key != nil {
 		scope = ScopeWorkspace
 	}
+	if skill != "" {
+		kind, text = KindSkill, skillText(skill)
+	}
 	if rev == 1 {
-		if _, err := InsertItem(ctx, tx, Item{ID: id, ClaimID: fmt.Sprint("c", id), CurrentRevision: 1, Kind: KindFact,
+		if _, err := InsertItem(ctx, tx, Item{ID: id, ClaimID: fmt.Sprint("c", id), CurrentRevision: 1, Kind: kind,
 			Scope: scope, WorkspaceKey: key, State: StateActive, Created: at}); err != nil {
 			return err
 		}
 	}
-	r := ItemRevision{ItemID: id, Revision: rev, Text: "rule", Scope: scope, WorkspaceKey: key, State: StateActive,
+	r := ItemRevision{ItemID: id, Revision: rev, Text: text, Scope: scope, WorkspaceKey: key, State: StateActive,
 		Author: AuthorYou, Origin: OriginReview, Created: at}
 	if proposal {
 		p, err := InsertProposal(ctx, tx, Proposal{ItemID: &id, Text: "rule", Scope: scope, Target: "fact", Diff: "+rule",
@@ -96,20 +100,25 @@ func TestReadHandoff(t *testing.T) {
 			key      *string
 			at       time.Duration // after t0
 			proposal bool
+			skill    string // the name of a skill item; "" for a fact
 		}{
-			{1, 1, nil, -time.Minute, true},      // before the start
-			{2, 1, nil, 10 * time.Minute, true},  // between the two receipts of "a"
-			{3, 1, &ka, 30 * time.Minute, true},  // after the last receipt
-			{4, 1, nil, 10 * time.Minute, true},  // approved, then undone: the brief has revision 2
-			{4, 2, nil, 11 * time.Minute, false}, //
-			{5, 1, &kb, 10 * time.Minute, true},  // another workspace: not in the brief
-			{6, 1, nil, 0, true},                 // at the start
-			{7, 1, nil, -time.Minute, true},      // approved before, pinned after
-			{7, 2, nil, 10 * time.Minute, false}, //
-			{8, 1, nil, 10 * time.Minute, true},  // a newer revision than the brief holds
-			{8, 2, nil, -2 * time.Minute, true},  //
+			{1, 1, nil, -time.Minute, true, ""},      // before the start
+			{2, 1, nil, 10 * time.Minute, true, ""},  // between the two receipts of "a"
+			{3, 1, &ka, 30 * time.Minute, true, ""},  // after the last receipt
+			{4, 1, nil, 10 * time.Minute, true, ""},  // approved, then undone: the brief has revision 2
+			{4, 2, nil, 11 * time.Minute, false, ""}, //
+			{5, 1, &kb, 10 * time.Minute, true, ""},  // another workspace: not in the brief
+			{6, 1, nil, 0, true, ""},                 // at the start
+			{7, 1, nil, -time.Minute, true, ""},      // approved before, pinned after
+			{7, 2, nil, 10 * time.Minute, false, ""}, //
+			{8, 1, nil, 10 * time.Minute, true, ""},  // a newer revision than the brief holds
+			{8, 2, nil, -2 * time.Minute, true, ""},  //
+			// Skills show by name, in name order (owner decision 2026-10-08).
+			{9, 1, nil, 10 * time.Minute, true, "go-test"},
+			{10, 1, &ka, 10 * time.Minute, true, "check-lint"},
+			{11, 1, nil, -time.Minute, true, "old-skill"}, // before the start
 		} {
-			if err := h.approve(ctx, tx, a.id, a.rev, a.key, h.t0.Add(a.at), a.proposal); err != nil {
+			if err := h.approve(ctx, tx, a.id, a.rev, a.key, h.t0.Add(a.at), a.proposal, a.skill); err != nil {
 				return err
 			}
 		}
@@ -161,8 +170,8 @@ func TestReadHandoff(t *testing.T) {
 		}
 		return h.command(ctx, tx, segOther, "ls", exit(2), false, false)
 	})
-	brief := []RevisionRef{{1, 1}, {2, 1}, {3, 1}, {4, 2}, {6, 1}, {7, 2}, {8, 1}}
-	want := Handoff{Approved: []int64{2, 3, 6, 8},
+	brief := []RevisionRef{{1, 1}, {2, 1}, {3, 1}, {4, 2}, {6, 1}, {7, 2}, {8, 1}, {9, 1}, {10, 1}, {11, 1}}
+	want := Handoff{Approved: []int64{2, 3, 6, 8}, Skills: []string{"check-lint", "go-test"},
 		Failed: []FailedCommand{{"git push", 128}, {"cargo build", 101}, {"npm test", 1}}}
 	noBinding := last
 	noBinding.HerdrSession = nil
@@ -173,7 +182,7 @@ func TestReadHandoff(t *testing.T) {
 	}{
 		{"last session", last, want},
 		// The receipt of an older store has no binding, so no capture session matches.
-		{"receipt with no binding", noBinding, Handoff{Approved: want.Approved}},
+		{"receipt with no binding", noBinding, Handoff{Approved: want.Approved, Skills: want.Skills}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			write(t, h.s, func(tx *sql.Tx) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -14,8 +15,11 @@ const maxFailed = 3
 // §8.3 "Handoff lines"). Brain reads no transcript for it (§6.6).
 type Handoff struct {
 	// Approved are the items of the brief whose revision in it you approved at or after the
-	// start of that session, in id order.
+	// start of that session, in id order. Skills are not in it: see Skills.
 	Approved []int64
+	// Skills are the names of the skills of the brief that you approved in the same way, in
+	// name order: a skill entry of the brief has no id (owner decision 2026-10-08).
+	Skills []string
 	// Failed are the commands whose last run in that session failed, newest first, at most
 	// maxFailed.
 	Failed []FailedCommand
@@ -36,7 +40,7 @@ func ReadHandoff(ctx context.Context, tx *sql.Tx, key string, last Delivery, rev
 		return Handoff{}, err
 	}
 	var h Handoff
-	if h.Approved, err = approvedSince(ctx, tx, revisions, start); err != nil {
+	if h.Approved, h.Skills, err = approvedSince(ctx, tx, revisions, start); err != nil {
 		return Handoff{}, err
 	}
 	h.Failed, err = failedCommands(ctx, tx, key, last)
@@ -59,13 +63,41 @@ func sessionStart(ctx context.Context, tx *sql.Tx, key string, last Delivery) (t
 }
 
 // approvedSince returns the items of revisions whose revision there you approved at or after
-// since, in id order: a revision of an approved proposal (§7.4). A pin, an undo or a restore
-// writes a revision with no proposal, so an approval that you undid does not count.
-func approvedSince(ctx context.Context, tx *sql.Tx, revisions []RevisionRef, since time.Time) ([]int64, error) {
-	return query(ctx, tx, `SELECT r.item_id FROM json_each(?1) j JOIN item_revisions r
+// since, in id order, and the names of such skills, in name order: a revision of an approved
+// proposal (§7.4). A pin, an undo or a restore writes a revision with no proposal, so an
+// approval that you undid does not count. The name of a skill comes from its text, as the brief
+// entry has it (§8.2).
+func approvedSince(ctx context.Context, tx *sql.Tx, revisions []RevisionRef, since time.Time) (items []int64, skills []string, err error) {
+	type approved struct {
+		id   int64
+		kind Kind
+		text string
+	}
+	rs, err := query(ctx, tx, `SELECT r.item_id, i.kind, r.text FROM json_each(?1) j JOIN item_revisions r
 		ON r.item_id = json_extract(j.value, '$.item') AND r.revision = json_extract(j.value, '$.revision')
+		JOIN items i ON i.id = r.item_id
 		WHERE r.author = ?2 AND r.proposal_id IS NOT NULL AND r.created >= ?3 ORDER BY r.item_id`,
-		scanID, jsonList[RevisionRef](revisions), AuthorYou, timeArg(since))
+		func(rows *sql.Rows) (approved, error) {
+			var a approved
+			err := rows.Scan(&a.id, &a.kind, &a.text)
+			return a, err
+		}, jsonList[RevisionRef](revisions), AuthorYou, timeArg(since))
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, a := range rs {
+		if a.kind != KindSkill {
+			items = append(items, a.id)
+			continue
+		}
+		sk, err := ParseSkill(a.text)
+		if err != nil {
+			return nil, nil, fmt.Errorf("approved skill %d: %w", a.id, err)
+		}
+		skills = append(skills, sk.Name)
+	}
+	slices.Sort(skills)
+	return items, skills, nil
 }
 
 // failedCommands returns the commands whose newest command record in the agent session of last

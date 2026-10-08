@@ -29,9 +29,10 @@ func startAt(t *testing.T, f *fixture, p *adapter.Profile, env []string, input s
 	return briefOf(t, out.String())
 }
 
-// approveAt makes a draft of text and approves it at at, as brain remember and an approve in
-// review do: the active revision comes from an approved proposal. key "" makes a global item.
-func approveAt(t *testing.T, s *store.Store, key, text string, at time.Time) int64 {
+// approveAt makes a draft of text of kind and approves it at at, as brain remember and an
+// approve in review do: the active revision comes from an approved proposal. key "" makes a
+// global item.
+func approveAt(t *testing.T, s *store.Store, key, text string, kind store.Kind, at time.Time) int64 {
 	t.Helper()
 	r := store.ItemRevision{Text: text, Scope: store.ScopeGlobal, State: store.StateDraft, Author: store.AuthorBrain,
 		Origin: store.OriginRemember, Created: at}
@@ -42,7 +43,7 @@ func approveAt(t *testing.T, s *store.Store, key, text string, at time.Time) int
 	write(t, s, func(tx *sql.Tx) error {
 		ctx := context.Background()
 		var err error
-		if id, _, err = store.CreateItem(ctx, tx, store.Item{ClaimID: text, Kind: store.KindFact, Created: at}, r); err != nil {
+		if id, _, err = store.CreateItem(ctx, tx, store.Item{ClaimID: text, Kind: kind, Created: at}, r); err != nil {
 			return err
 		}
 		p, err := store.InsertProposal(ctx, tx, store.Proposal{ItemID: &id, BaseRevision: ptr(int64(1)), Text: text,
@@ -96,18 +97,21 @@ func runCommands(t *testing.T, s *store.Store, agent string, runs ...failedRun) 
 }
 
 // handoffPrep is the store of TestHandoffLines: Claude session claude-1 starts in w14 at
-// testNow; you approved one item before it and two after its start; its last runs of two
-// commands failed. It returns the ids of the two items approved after the start.
+// testNow; you approved one item before it, and two items and the skill go-test after its
+// start; its last runs of two commands failed. It returns the ids of the two items approved
+// after the start.
 func handoffPrep(t *testing.T, f *fixture) (global, workspace int64) {
 	t.Helper()
 	s := openStore(t, f.mainStore)
-	approveAt(t, s, "", "approved before the start", testNow.Add(-time.Minute))
+	approveAt(t, s, "", "approved before the start", store.KindFact, testNow.Add(-time.Minute))
 	closeStore(t, s)
 	startAt(t, f, claude(t), paneA14(f), startInput("claude-1", "/t/claude-1.jsonl"), testNow)
 	s = openStore(t, f.mainStore)
 	defer closeStore(t, s)
-	global = approveAt(t, s, "", "approved global item", testNow.Add(10*time.Minute))
-	workspace = approveAt(t, s, "ws_a14", "approved workspace item", testNow.Add(10*time.Minute))
+	global = approveAt(t, s, "", "approved global item", store.KindFact, testNow.Add(10*time.Minute))
+	workspace = approveAt(t, s, "ws_a14", "approved workspace item", store.KindFact, testNow.Add(10*time.Minute))
+	approveAt(t, s, "ws_a14", "---\nname: go-test\ndescription: Run the tests.\nrequired-tools: none\n"+
+		"example: run the tests\n---\n\nRun go test ./...\n", store.KindSkill, testNow.Add(10*time.Minute))
 	runCommands(t, s, "claude-1", failedRun{"go test ./x", ptr(1)}, failedRun{"go test ./y", ptr(1)},
 		failedRun{"go test ./y", nil}, failedRun{"make lint", ptr(2)})
 	f.gen = build(t, s, f.mainStore)
@@ -115,14 +119,15 @@ func handoffPrep(t *testing.T, f *fixture) (global, workspace int64) {
 }
 
 // AC #273 1, 2 and 4: the brief of the next session names, below the last session line, the
-// items approved since that session started and the commands whose last run failed in it,
-// newest first. The receipt's brief hash covers the lines; the built output holds none.
+// items and the skill (by name) approved since that session started and the commands whose
+// last run failed in it, newest first. The receipt's brief hash covers the lines; the built
+// output holds none.
 func TestHandoffLines(t *testing.T) {
 	f := newFixture(t)
 	global, workspace := handoffPrep(t, f)
 	got := startAt(t, f, codex(t), paneA14(f), startInput("codex-1", "/t/codex-1.jsonl"), testNow.Add(time.Hour))
 	want := lastLine("/t/claude-1.jsonl") +
-		fmt.Sprintf("Approved since that session started: [%d], [%d]\n", global, workspace) +
+		fmt.Sprintf("Approved since that session started: [%d], [%d], skill go-test\n", global, workspace) +
 		"Failed in that session (last run): make lint (exit 2)\n" +
 		"Failed in that session (last run): go test ./x (exit 1)\n<!-- brain:end -->"
 	if !strings.HasSuffix(got, want) {

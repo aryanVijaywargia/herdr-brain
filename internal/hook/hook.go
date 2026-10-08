@@ -297,7 +297,7 @@ func (h Hook) lastSession(ctx context.Context, tx *sql.Tx, key, agentSession str
 		failed[i] = brief.Failure{Command: f.Argv, Exit: f.ExitStatus}
 	}
 	ws := brief.LastSession(b.Workspace, last.Profile, last.At.In(h.Now().Location()), *last.TranscriptPath)
-	return brief.Handoff(b.Global, ws, ho.Approved, failed), nil
+	return brief.Handoff(b.Global, ws, ho.Approved, ho.Skills, failed), nil
 }
 
 func withheld(d store.Delivery, reason string) store.Delivery {

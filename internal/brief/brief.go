@@ -202,7 +202,7 @@ func LastSession(workspace, harness string, at time.Time, transcript string) str
 const (
 	approvedLine = "Approved since that session started: "
 	failedLine   = "Failed in that session (last run): "
-	// maxApproved is the most item ids that the approved line names.
+	// maxApproved is the most items and skills that the approved line names, together.
 	maxApproved = 10
 	// maxCommand is the longest command of a failed line in characters, its cut mark included.
 	maxCommand = 80
@@ -216,15 +216,16 @@ type Failure struct {
 }
 
 // Handoff adds the handoff lines of the last session (E20-S8, §8.3) to workspace, the workspace
-// part that ends with the last session line: the line of the items that you approved since that
-// session started, then one line for each failed command, in the order given. A line goes in only
+// part that ends with the last session line: the line of the items and the skills that you
+// approved since that session started, then one line for each failed command, in the order
+// given. A line goes in only
 // while the whole brief, with the global part global, stays within the brief budget; the first
 // line that does not fit stays out, with the lines after it. As the last session line, the lines
 // are in no built part and no manifest, so a full part never fails to build for them.
-func Handoff(global, workspace string, approved []int64, failed []Failure) string {
+func Handoff(global, workspace string, approved []int64, skills []string, failed []Failure) string {
 	var lines []string
-	if len(approved) > 0 {
-		lines = append(lines, approvedText(approved))
+	if len(approved)+len(skills) > 0 {
+		lines = append(lines, approvedText(approved, skills))
 	}
 	for _, f := range failed {
 		lines = append(lines, failedLine+oneCommand(f.Command)+" (exit "+strconv.Itoa(f.Exit)+")\n")
@@ -239,16 +240,21 @@ func Handoff(global, workspace string, approved []int64, failed []Failure) strin
 	return workspace
 }
 
-// approvedText is the approved line of ids: the first maxApproved ids in the "[id]" form of the
-// item entries, then the count of the rest.
-func approvedText(ids []int64) string {
-	shown := ids[:min(len(ids), maxApproved)]
-	words := make([]string, len(shown))
-	for i, id := range shown {
-		words[i] = "[" + strconv.FormatInt(id, 10) + "]"
+// approvedText is the approved line of the items ids and the skills names: the items in the
+// "[id]" form of the item entries, then the skills as "skill <name>", because a skill entry has
+// no id (owner decision 2026-10-08). It names the first maxApproved of them, then the count of
+// the rest.
+func approvedText(ids []int64, names []string) string {
+	words := make([]string, 0, len(ids)+len(names))
+	for _, id := range ids {
+		words = append(words, "["+strconv.FormatInt(id, 10)+"]")
 	}
-	text := approvedLine + strings.Join(words, ", ")
-	if rest := len(ids) - len(shown); rest > 0 {
+	for _, n := range names {
+		words = append(words, "skill "+n)
+	}
+	shown := words[:min(len(words), maxApproved)]
+	text := approvedLine + strings.Join(shown, ", ")
+	if rest := len(words) - len(shown); rest > 0 {
 		text += ", and " + strconv.Itoa(rest) + " more"
 	}
 	return text + "\n"

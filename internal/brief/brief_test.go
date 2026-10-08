@@ -421,8 +421,9 @@ func TestCatalogBudget(t *testing.T) {
 }
 
 // AC #273 1 and 2: the handoff lines go below the last session line: the approved items in the
-// "[id]" form, at most 10 and the count of the rest, then one line for each failed command, on
-// one line and cut to 80 characters. With nothing to say, the part does not change.
+// "[id]" form, then the approved skills as "skill <name>" (owner decision 2026-10-08), at most 10
+// together and the count of the rest, then one line for each failed command, on one line and cut
+// to 80 characters. With nothing to say, the part does not change.
 func TestHandoff(t *testing.T) {
 	part, err := Workspace([]Item{{ID: 12, Text: "use make"}})
 	if err != nil {
@@ -436,27 +437,33 @@ func TestHandoff(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		approved []int64
+		skills   []string
 		failed   []Failure
 		want     string // the lines after ws
 	}{
-		{"nothing", nil, nil, ""},
-		{"two items and two commands", []int64{12, 15},
+		{"nothing", nil, nil, nil, ""},
+		{"two items and two commands", []int64{12, 15}, nil,
 			[]Failure{{"go test ./internal/hook -run TestReceiptLock", 1}, {"golangci-lint run ./...", 2}},
 			"Approved since that session started: [12], [15]\n" +
 				"Failed in that session (last run): go test ./internal/hook -run TestReceiptLock (exit 1)\n" +
 				"Failed in that session (last run): golangci-lint run ./... (exit 2)\n"},
-		{"failed commands only", nil, []Failure{{"make", 2}}, "Failed in that session (last run): make (exit 2)\n"},
-		{"eleven items", eleven, nil,
+		{"failed commands only", nil, nil, []Failure{{"make", 2}}, "Failed in that session (last run): make (exit 2)\n"},
+		{"eleven items", eleven, nil, nil,
 			"Approved since that session started: [1], [2], [3], [4], [5], [6], [7], [8], [9], [10], and 1 more\n"},
-		{"a command on more lines", nil, []Failure{{"cat <<EOF\n  a\tb\nEOF\n", 1}},
+		{"a skill", nil, []string{"go-test"}, nil, "Approved since that session started: skill go-test\n"},
+		{"items and skills", []int64{12, 15}, []string{"go-test", "lint"}, nil,
+			"Approved since that session started: [12], [15], skill go-test, skill lint\n"},
+		{"the cap counts items and skills", eleven[:8], []string{"a", "b", "c", "d"}, nil,
+			"Approved since that session started: [1], [2], [3], [4], [5], [6], [7], [8], skill a, skill b, and 2 more\n"},
+		{"a command on more lines", nil, nil, []Failure{{"cat <<EOF\n  a\tb\nEOF\n", 1}},
 			"Failed in that session (last run): cat <<EOF a b EOF (exit 1)\n"},
-		{"a long command", nil, []Failure{{strings.Repeat("é", 81), 1}},
+		{"a long command", nil, nil, []Failure{{strings.Repeat("é", 81), 1}},
 			"Failed in that session (last run): " + strings.Repeat("é", 77) + "... (exit 1)\n"},
-		{"a command of 80 characters", nil, []Failure{{strings.Repeat("é", 80), 1}},
+		{"a command of 80 characters", nil, nil, []Failure{{strings.Repeat("é", 80), 1}},
 			"Failed in that session (last run): " + strings.Repeat("é", 80) + " (exit 1)\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := Handoff("", ws, tc.approved, tc.failed); got != ws+tc.want {
+			if got := Handoff("", ws, tc.approved, tc.skills, tc.failed); got != ws+tc.want {
 				t.Errorf("Handoff() = %q, want %q", got, ws+tc.want)
 			}
 		})
@@ -475,7 +482,7 @@ func TestHandoffBudget(t *testing.T) {
 	line := LastSession("", "claude", at, "/t/s.jsonl")[len(workspaceLabel):]
 	// The approved line is longer than the failed line, so a failed line after it could fit.
 	approved, failed := []int64{1, 2, 3, 4, 5}, []Failure{{"make", 2}}
-	items, make2 := approvedText(approved), "Failed in that session (last run): make (exit 2)\n"
+	items, make2 := approvedText(approved, nil), "Failed in that session (last run): make (exit 2)\n"
 	for _, tc := range []struct {
 		name string
 		room int // the bytes left for the handoff lines
@@ -492,7 +499,7 @@ func TestHandoffBudget(t *testing.T) {
 				t.Fatal(err)
 			}
 			ws := LastSession(w, "claude", at, "/t/s.jsonl")
-			got := Handoff(g, ws, approved, failed)
+			got := Handoff(g, ws, approved, nil, failed)
 			if got != ws+tc.want {
 				t.Errorf("Handoff() adds %q, want %q", got[len(ws):], tc.want)
 			}
