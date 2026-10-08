@@ -1,0 +1,223 @@
+# Set up Herdr Brain: steps for an agent
+
+This file is for a coding agent that installs and sets up Brain in herdr for its user.
+People can read [`README.md`](README.md) instead.
+
+Each step gives the command, the result to expect, and what to do when it fails.
+Run every command in a shell inside a pane of the herdr session that the user wants Brain in.
+`brain status`, `brain doctor` and `brain remember` need that pane. Outside herdr they print "not in a herdr pane".
+
+Two steps ask the user. Do not answer for them:
+
+- The plugin install asks "Install this plugin? [y/N]".
+- `brain setup` asks which CLI runs the extractor, and then asks once "Apply all of this? [y/N]" for the whole plan.
+
+Ask your user the same questions, show them what setup will change, and answer only with their answer.
+
+## 1. Check the requirements
+
+| Check | Command | Expected |
+|---|---|---|
+| OS | `uname -s` | `Darwin` or `Linux`. Brain has no Windows support. |
+| herdr | `herdr --version` | `herdr 0.9.1` or later |
+| An agent CLI | `command -v claude codex` | At least one path. Brain works with Claude Code and Codex. |
+| Go, while the repo is private | `go version` | `go1.23` or later |
+| Repo access, while the repo is private | `git ls-remote https://github.com/aryanVijaywargia/herdr-brain HEAD` | One commit line |
+
+If a check fails:
+
+- Wrong OS: stop and tell the user that Brain runs on macOS and Linux only.
+- herdr is missing or older than 0.9.1: tell the user to install or update herdr. Brain setup stops on an older herdr.
+- No `claude` and no `codex`: Brain installs, but no session gets items. Tell the user.
+- No Go 1.23 or later: tell the user to install Go. The repo is private, so there is no release binary yet, and the build needs Go.
+- No repo access: the user needs access to the private repo `aryanVijaywargia/herdr-brain` and working git sign-in for GitHub.
+
+## 2. Install the plugin
+
+Tell the user what the install does: herdr clones the repo, runs the build step `sh scripts/build.sh`, which builds `bin/brain`, and then Brain starts its `brained` process for each running herdr session.
+Ask: "Install this plugin? [y/N]". Go on only with a yes.
+
+In a terminal that the user can see, run:
+
+```sh
+herdr plugin install aryanVijaywargia/herdr-brain
+```
+
+herdr shows what the plugin runs and asks "Install this plugin? [y/N]". The user answers y.
+If your shell cannot take input, run it with the user's yes already given:
+
+```sh
+herdr plugin install --yes aryanVijaywargia/herdr-brain
+```
+
+Expected:
+
+- The build prints `brain build: bin/brain <version> (built from source)`.
+- `herdr plugin list --plugin brain` lists the plugin.
+- Within about a minute, the setup popup "Brain setup" opens in each running herdr session that has no Brain binding.
+
+If it fails:
+
+- `brain build: this ref needs Go 1.23 or later`: install Go 1.23 or later, then install again.
+- `brain build: go build failed`: show the user the build output.
+- The clone fails: the user has no access to the private repo, or git cannot sign in to GitHub.
+
+## 3. Run setup
+
+Setup binds this herdr session to the main store `~/.local/share/brain/main`, adds the hook entries for Claude Code, Codex and agy when they are on `PATH`, offers the `~/.local/bin/brain` link, and records the extractor choice.
+It shows all of this in one plan and asks once. "No" writes nothing.
+
+There are two ways to run it. Use one.
+
+**A. The user answers in the popup.** The popup opens by itself after the install. If it did not open, run:
+
+```sh
+herdr plugin action invoke brain.setup
+```
+
+The user reads the plan and answers in the popup.
+
+**B. You run setup and relay the questions.** `brain` is not on `PATH` before setup.
+The binary of a GitHub install is at `~/.config/herdr/plugins/github/brain-bbbf7a6412d6/bin/brain`.
+
+```sh
+BRAIN=~/.config/herdr/plugins/github/brain-bbbf7a6412d6/bin/brain
+"$BRAIN" setup < /dev/null
+```
+
+With no input, setup takes no extractor and answers no, so it writes nothing.
+It prints the herdr check, the paragraph about where the excerpts of learning go, and the plan under "Step 3: the changes."
+
+Now ask your user:
+
+1. Which CLI runs the extractor: `claude`, `codex` or `none`? Show them the paragraph about where the excerpts go.
+   Skip this question when the plan says "Extractor: ... Already done".
+2. For `claude` or `codex`: which model? Empty means the default model of that CLI.
+3. Show them the plan, with the extractor line that matches their choice. Ask: "Apply all of this? [y/N]".
+
+Then run setup again and give each answer on its own line, in the order setup asks:
+
+```sh
+printf '%s\n' "<cli>" "<model>" "<yes or no>" | "$BRAIN" setup
+```
+
+Leave out the CLI and model lines when setup does not ask for them: with `none` it asks no model, and with a recorded choice it asks neither.
+A line that answers the wrong question does no harm: any answer except `y` to the last question writes nothing.
+
+Expected after a yes:
+
+- `herdr <version>: OK.` at the start. `herdr <version>: not tested with Brain yet. Brain works, and brain status warns.` is fine too.
+- Each plan line was written, or it says "Already done".
+- For Codex, a "Step 4" block with the Codex trust steps. Do step 4 below.
+- A "First use" guide at the end.
+- With nothing to write, setup prints "Every step is already done. Setup changes nothing." and asks nothing.
+
+If it fails:
+
+- `herdr has no session "<name>"`: start it with `herdr --session <name>`, then run setup again.
+- `herdr session "<name>" is not running`: start it, then run setup again.
+- herdr older than 0.9.1: setup stops and prints the version. Update herdr.
+- `Setup wrote nothing.`: the answer was not y. Run setup again when the user wants to apply.
+- `<cli> is not on PATH`: each extractor call fails until that CLI is on `PATH`. `brain doctor` says why.
+- The plan says `~/.local/bin/brain` exists and points elsewhere, or is broken: Brain does not change it. Use the binary path that setup prints.
+
+Brain needs `~/.local/bin` on `PATH` to run as `brain`. Setup never edits the shell config. If the folder is not on `PATH`, tell the user and use the full binary path.
+
+To bind a different herdr session, add `--session <name>`. To choose the extractor again later, run `brain setup --extractor`.
+herdr 0.9.1 gives a session no lasting identity. After the user renames or recreates a session, run `brain setup` in it again.
+
+## 4. Trust the Codex hook
+
+Skip this step when the user does not use Codex.
+Codex runs a new hook only after the user trusts it. You cannot do this for them. Tell the user:
+
+1. Start `codex` in a terminal. Codex shows "Hooks need review" and "1 hook is new or changed."
+2. Choose "Review hooks". Find the SessionStart hook with the Brain command, from source `~/.codex/hooks.json`.
+3. Press `t` to trust it. Press `t` on the event list to trust all hooks that need review.
+4. Do not choose "Continue without trusting (hooks won't run)". Brain then gets no context.
+
+Later, `/hooks` in Codex shows the trust state. `codex exec` does not show the review screen and skips an untrusted hook with no warning.
+Each new Brain hook entry needs trust again, also after an update.
+
+## 5. Check the setup
+
+```sh
+brain doctor
+brain status
+```
+
+Expected:
+
+- `brain doctor` ends with `all checks passed`.
+- `brain status` shows `binding: herdr session "<name>", ...`, the herdr version, and the agent CLIs.
+
+If `brain doctor` fails, it prints one line for each failed check, with its fix after `fix:`. Do the fix, then run `brain doctor` again.
+`brain doctor` asks before a repair that writes a hook entry. `brain doctor --fix` applies each repair that `brain doctor` offers, with no question.
+
+## 6. Try it
+
+```sh
+brain remember "use pnpm, not npm"
+```
+
+Expected: `proposal <id>: ... draft, waiting for your review in pane <pane> (or brain review)`. A review pane opens beside the pane, and the user approves it there.
+
+If it fails:
+
+- `workspace <id> is not mapped yet (herdr saves a new workspace after about 5 s)`: wait about 5 seconds and run it again, or use `--global`.
+- `the review pane did not open: <reason>`: the draft still waits. The user approves it with `brain review`.
+The next Claude Code or Codex session in that workspace gets the item at start. Codex gets it at its first prompt.
+
+## Common failures
+
+| Output | Cause | Fix |
+|---|---|---|
+| `not in a herdr pane: run brain <cmd> in a pane of a herdr session` | The shell is not in a herdr pane | Run the command in a pane of a herdr session |
+| `herdr session "<name>" has no Brain binding, so Brain gives its agents nothing.` | Setup did not run in this session | `brain setup --session <name>` |
+| The shell cannot find `brain` | `~/.local/bin` is not on `PATH`, or setup made no link | Use the full binary path that setup prints |
+| `herdr pane list: ...` | The herdr server of the session does not answer | Check that the herdr server of that session runs, then run `brain doctor` again |
+| `<cli>: no Brain hook in <file>, so <cli> sessions get no Brain items` | The hook entry is missing | `brain setup` |
+| `<cli>: the Brain hook in <file> runs <command>` | The hook points to an old binary | Run `brain doctor` again and answer y, or `brain setup` |
+| `holds the Brain <event> entry that you edited` | The user edited a Brain hook entry | Brain keeps it. The user edits it by hand. |
+| `codex: Codex hook not trusted` | Codex skips the hook | Step 4: start codex, type `/hooks`, and press t on the Brain hook |
+| `codex: Codex hook not trusted: the Brain hook is disabled in Codex` | The user turned the hook off | Enable it in `/hooks` in Codex |
+| `codex: Codex reads <dir>/hooks.json, which holds no Brain hook entry` | `CODEX_HOME` points Codex to another folder. `brain setup` writes only `~/.codex/hooks.json` and does not read `CODEX_HOME`, so a new setup run does not fix this. | Run Codex with `CODEX_HOME` unset, or set to `~/.codex`, so that it reads `~/.codex/hooks.json` |
+| `hook records off for <cli>` | A newer Brain has hook record entries that are missing | `brain update` |
+| `hook not trusted or not firing: <n> live agent(s) with no Brain receipt` | A session started before setup, or the hook does not run | Start a new session. If it gets no receipt either, the CLI sandbox may block the herdr socket. |
+| `extraction: signals wait, and no extractor CLI is chosen` | No extractor | `brain setup --extractor` |
+| `extraction: the last extractor call for workspace <key> failed` | The extractor CLI fails | Run that CLI in a terminal and check that it works and is signed in. Brain tries again later. |
+| `extraction: ..., so Brain makes no extractor call` | A bad `[gates]` or `[caps]` key in the Brain config | Correct or remove the `[gates]` and `[caps]` keys |
+| `fix: brain repair --confirm deletes them` | Output conflicts | `brain repair` lists them. `brain repair --confirm` deletes them. |
+
+## Update
+
+```sh
+brain update --check
+brain update
+```
+
+`brain update --check` compares the installed commit with the newest commit of the repo and changes nothing.
+`brain update` installs the newest commit, shows the missing hook record entries and asks once, then runs `brain doctor --fix`.
+Ask the user before you answer that question. For Codex, each new entry needs trust again (step 4).
+
+If the plugin was installed with `--ref`, `brain update` prints the install command instead. Run it after the user agrees.
+
+## Uninstall
+
+Run the steps in this order:
+
+```sh
+brain uninstall
+brain uninstall --apply
+herdr plugin uninstall brain
+```
+
+1. `brain uninstall` is a dry run. It lists what would change. Show the list to the user.
+2. `brain uninstall --apply` removes the Brain hook entries, the install record, the `~/.local/bin/brain` link and the session bindings file. It keeps the stores in `~/.local/share/brain`.
+   Add `--data` only when the user wants their stores removed too. It also removes `~/.local/share/brain`, `~/.config/herdr/plugins/config/brain` and `~/.local/state/herdr/plugins/brain`.
+3. `herdr plugin uninstall brain` removes the plugin.
+
+If it fails:
+
+- `brain uninstall --apply` keeps a hook entry that the user edited, and tells them to remove it by hand.
+- If `herdr plugin uninstall brain` ran first, the hook entries point to a missing binary. Install the plugin again, which gets the same path, run `brain uninstall --apply`, then uninstall the plugin. The README "Uninstall" part also gives the steps to edit the files by hand.
