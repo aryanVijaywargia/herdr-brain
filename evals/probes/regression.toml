@@ -1,7 +1,7 @@
 # Regression cases (HLD §12.1, E20-S1 #265): each bug that real use found gets its own case,
 # named with its issue number (bug-<issue>), so one fix cannot hide another failure and a bug
-# cannot come back in silence. The bugs come from the M2 real-use test and the M2 eval run
-# (2026-10-07).
+# cannot come back in silence. The bugs come from the M2 real-use test, the M2 eval run
+# (2026-10-07), its rerun (2026-10-08) and the reviews of their fixes.
 #
 # A case runs the Go tests that hold the fixture of its bug: the made screens, hook inputs,
 # fake herdr replies and stores that the fix added. brain-eval runs them with go test in the
@@ -230,6 +230,42 @@ tests = [
 issue = 296
 tests = ["cmd/brain-eval:TestLastSessionLine"]
 
+# M2 eval rerun (2026-10-08, N1): one claim with no evidence makes the whole extractor batch
+# invalid. Fix: PR #321.
+[[bug]]
+issue = 310
+tests = [
+  "internal/extract:TestCheckDropsBadClaim",
+  "internal/extract:TestCheckInvalidResult",
+  "internal/extract:TestBatchDropsBadClaim",
+  "internal/extract:TestDropReasonNoModelText",
+  "internal/extract:TestChangeRequestInvalid",
+]
+
+# M2 eval rerun (2026-10-08, N2): a pane read after the hook stop hides the stop, so the learned
+# automation never sees it. Fix: PR #320.
+[[bug]]
+issue = 311
+tests = ["internal/store:TestStopCallsPaneRead"]
+
+# M2 eval rerun (2026-10-08, N3): a reworded claim of an approved or remembered item makes a
+# duplicate proposal. Fix: PR #325.
+[[bug]]
+issue = 312
+tests = [
+  "internal/extract:TestRememberClaimsInPrompt",
+  "internal/extract:TestRestatedRememberItem",
+  "internal/extract:TestRestatedClaim",
+  "internal/extract:TestRestatedCommandChain",
+  "internal/extract:TestSameAsRejectedClaim",
+  "internal/extract:TestRestatedForgottenClaim",
+  "internal/extract:TestRestatedRememberedPermissionRule",
+  "internal/store:TestScopeClaimsRememberItems",
+  "internal/store:TestClaimHeld",
+  "internal/store:TestCheckEvidence",
+  "internal/store:TestClaimText",
+]
+
 # M2 eval rerun (2026-10-08, N4): a procedure told in several sessions becomes a one-line rule,
 # never a skill; a reworded telling after a skill draft makes a second skill. Fix: PR #332.
 [[bug]]
@@ -244,4 +280,92 @@ tests = [
   "internal/extract:TestProcedureSkillPatch",
   "internal/extract:TestPromptAsksForSkillOnce",
   "internal/cli:TestSkillDraftAcrossSessions",
+]
+
+# M2 eval rerun (2026-10-08, N5): the first telling of a procedure or a repeated prompt is never
+# evidence, so the gate of 3 needs 4 tellings. Fix: PR #329.
+[[bug]]
+issue = 314
+tests = [
+  "internal/extract:TestFirstTellingCounts",
+  "internal/extract:TestEarlierOccurrenceChecks",
+  "internal/extract:TestEarlierOccurrenceCountsOnce",
+  "internal/extract:TestPlaceholderTool",
+]
+
+# M2 eval rerun (2026-10-08, N6): brain update adds no hook record entry, status and doctor do
+# not say that hook records are off, and doctor passes with untrusted codex record entries.
+# Fix: PR #324.
+[[bug]]
+issue = 315
+tests = [
+  "cmd/brain:TestUpdateHookRecords",
+  "cmd/brain:TestUpdateRecordsStartGone",
+  "cmd/brain:TestUpdateRecordsNeedsStart",
+  "internal/update:TestManagedUpdate",
+  "internal/update:TestLinked",
+  "internal/update:TestAfterFails",
+  "internal/update:TestRecordsOnly",
+  "internal/cli:TestDoctorRecordsM2",
+  "internal/cli:TestRecordsPartly",
+  "internal/cli:TestDoctorEditedRecordTrust",
+  "internal/cli:TestStatusM2",
+  "internal/harness:TestCodexTrustEdited",
+]
+
+# M2 eval rerun (2026-10-08, N7): more CLI screen text is stored as user text: the claude
+# placeholder and footer, the MCP warning, fold lines, the shell line, the codex hooks dialog and
+# the lines of a stopped turn. Fix: PR #323.
+[[bug]]
+issue = 316
+tests = [
+  "internal/adapter:TestScreen/claude-fold",
+  "internal/adapter:TestScreen/claude-mcp",
+  "internal/adapter:TestScreen/claude-placeholder-footer",
+  "internal/adapter:TestScreen/claude-placeholder-rule",
+  "internal/adapter:TestScreen/claude-shell",
+  "internal/adapter:TestScreen/claude-trust",
+  "internal/adapter:TestScreen/claude-words-keep",
+  "internal/adapter:TestScreen/codex-approval",
+  "internal/adapter:TestScreen/codex-hooks-narrow",
+  "internal/adapter:TestScreen/codex-hooks-review",
+  "internal/adapter:TestScreen/codex-hooks-table",
+  "internal/adapter:TestScreen/codex-shell",
+  "internal/adapter:TestScreen/codex-stop",
+  "internal/adapter:TestScreen/codex-trust",
+  "internal/adapter:TestScreen/codex-words-keep",
+  "internal/adapter:TestScreenRules",
+  "internal/brained:TestCaptureCLINoise",
+]
+
+# M2 eval rerun (2026-10-08, N8): brain commands in a shell pane make empty agent sessions: herdr
+# detects their CLI version probe as an agent. Fix: PR #326.
+[[bug]]
+issue = 317
+tests = [
+  "internal/brained:TestEventsShellProbe",
+  "internal/brained:TestEventsRealAgentKept",
+  "internal/herdr:TestSocketProcesses",
+  "internal/herdr:TestSocketProcessesShape",
+]
+
+# M2 eval rerun (2026-10-08, N9): brain update --help is an error, and the regression stage
+# prints no summary line. Fix: PR #324.
+[[bug]]
+issue = 318
+tests = [
+  "cmd/brain:TestRun",
+  "cmd/brain-eval:TestRunRegressionOnly",
+  "cmd/brain-eval:TestRunRegression",
+  "cmd/brain-eval:TestRunRegressionNoGo",
+]
+
+# brain forget leaves the key text of a claim linked by same_as (Sol review of PR #325).
+# Fix: PR #328.
+[[bug]]
+issue = 327
+tests = [
+  "internal/extract:TestForgetRestatedRememberItem",
+  "internal/extract:TestForgetMergedClaim",
+  "internal/store:TestEraseItemLinkedClaim",
 ]
