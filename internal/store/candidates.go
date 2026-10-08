@@ -135,11 +135,23 @@ func ScopeClaims(ctx context.Context, tx *sql.Tx, workspaceKey string) ([]Claim,
 // review with a pending proposal. A claim that means the same then adds no proposal of its own
 // (#312, §7.3 order for a known claim).
 func ClaimHeld(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string) (bool, error) {
+	return claimHeld(ctx, tx, claimID, workspaceKey, "")
+}
+
+// SkillHeld reports whether a skill holds claim claimID in the scope of workspaceKey, as
+// ClaimHeld does: an active skill item, or a skill item that waits for review. A skill that
+// means the same then adds no second skill (#313).
+func SkillHeld(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string) (bool, error) {
+	return claimHeld(ctx, tx, claimID, workspaceKey, KindSkill)
+}
+
+// claimHeld is ClaimHeld for items of kind, or of any kind for "".
+func claimHeld(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string, kind Kind) (bool, error) {
 	var held bool
 	err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM items i WHERE i.claim_id = ?1
-		AND COALESCE(i.workspace_key, '') IN (?2, '')
+		AND COALESCE(i.workspace_key, '') IN (?2, '') AND ?5 IN ('', i.kind)
 		AND (i.state = ?3 OR EXISTS (SELECT 1 FROM proposals p WHERE p.item_id = i.id AND p.status = ?4)))`,
-		claimID, workspaceKey, StateActive, ProposalPending).Scan(&held)
+		claimID, workspaceKey, StateActive, ProposalPending, kind).Scan(&held)
 	if err != nil {
 		return false, fmt.Errorf("read held state of claim %s: %w", claimID, err)
 	}

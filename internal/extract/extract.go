@@ -739,16 +739,22 @@ func linkTarget(ctx context.Context, tx *sql.Tx, claim string, c Claim) (store.C
 // heldBy returns the claim of the proposed same_as link of claim c with claim id claim when a
 // pending proposal or an active item holds that claim in the scope with key (store.ClaimHeld),
 // else "". c then restates a lesson that you have or review already (#312, §7.2). A skill or a
-// tool is another thing than the rule that it restates (§10): it keeps its own candidate.
+// tool is another thing than the rule that it restates (§10): it keeps its own candidate. A
+// skill restates a skill, so a procedure that comes again in other words makes no second skill
+// (#313): only a skill must hold the claim then (store.SkillHeld).
 func heldBy(ctx context.Context, tx *sql.Tx, claim string, c Claim, key string) (string, error) {
-	if c.Skill != nil || c.Tool != "" {
+	if c.Tool != "" {
 		return "", nil
 	}
 	other, ok, err := linkTarget(ctx, tx, claim, c)
 	if err != nil || !ok {
 		return "", err
 	}
-	if held, err := store.ClaimHeld(ctx, tx, other.ID, key); err != nil || !held {
+	held := store.ClaimHeld
+	if c.Skill != nil {
+		held = store.SkillHeld
+	}
+	if ok, err := held(ctx, tx, other.ID, key); err != nil || !ok {
 		return "", err
 	}
 	return other.ID, nil
@@ -790,7 +796,7 @@ func (p Pass) restate(ctx context.Context, tx *sql.Tx, j job, claim, held string
 // Brain keeps both claim ids and the link, and marks the merged evidence (store.Candidate.Via).
 func mergeInto(ctx context.Context, tx *sql.Tx, claim string, c Claim, key string, kind store.CandidateKind) (string, error) {
 	other, ok, err := linkTarget(ctx, tx, claim, c)
-	if err != nil || !ok || other.Kind != c.Kind {
+	if err != nil || !ok || mergeKind(other.Kind) != mergeKind(c.Kind) {
 		return claim, err
 	}
 	cand, err := store.CandidateOf(ctx, tx, other.ID, key)
@@ -814,6 +820,15 @@ func mergeInto(ctx context.Context, tx *sql.Tx, claim string, c Claim, key strin
 		return claim, err
 	}
 	return other.ID, nil
+}
+
+// mergeKind is claim kind k for a same_as merge (mergeInto): a skill is a procedure with its
+// steps written out, so a skill telling joins the open procedure of the earlier tellings (#313).
+func mergeKind(k string) string {
+	if k == kindSkill {
+		return "procedure"
+	}
+	return k
 }
 
 // corrections returns the new corrections of refs, the evidence that Attach accepted for a
