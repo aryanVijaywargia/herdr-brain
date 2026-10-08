@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // The frame of every brief (§8.1). The marker text is a Brain choice [NEW] (§8.1).
@@ -194,6 +195,72 @@ func LastSession(workspace, harness string, at time.Time, transcript string) str
 	}
 	return workspace + "Last session in this workspace: " + harness + ", " + at.Format("2006-01-02 15:04") +
 		", transcript " + transcript + "\n"
+}
+
+// The handoff lines below the last session line (E20-S8, §8.3). [NEW] the line forms,
+// maxApproved, maxCommand and the cut mark.
+const (
+	approvedLine = "Approved since that session started: "
+	failedLine   = "Failed in that session (last run): "
+	// maxApproved is the most item ids that the approved line names.
+	maxApproved = 10
+	// maxCommand is the longest command of a failed line in characters, its cut mark included.
+	maxCommand = 80
+	cutMark    = "..."
+)
+
+// Failure is a command whose last run in the last session failed, with its exit status.
+type Failure struct {
+	Command string
+	Exit    int
+}
+
+// Handoff adds the handoff lines of the last session (E20-S8, §8.3) to workspace, the workspace
+// part that ends with the last session line: the line of the items that you approved since that
+// session started, then one line for each failed command, in the order given. A line goes in only
+// while the whole brief, with the global part global, stays within the brief budget; the first
+// line that does not fit stays out, with the lines after it. As the last session line, the lines
+// are in no built part and no manifest, so a full part never fails to build for them.
+func Handoff(global, workspace string, approved []int64, failed []Failure) string {
+	var lines []string
+	if len(approved) > 0 {
+		lines = append(lines, approvedText(approved))
+	}
+	for _, f := range failed {
+		lines = append(lines, failedLine+oneCommand(f.Command)+" (exit "+strconv.Itoa(f.Exit)+")\n")
+	}
+	size := len(frame) + len(global) + len(workspace)
+	for _, l := range lines {
+		if size += len(l); size > briefBudget {
+			break
+		}
+		workspace += l
+	}
+	return workspace
+}
+
+// approvedText is the approved line of ids: the first maxApproved ids in the "[id]" form of the
+// item entries, then the count of the rest.
+func approvedText(ids []int64) string {
+	shown := ids[:min(len(ids), maxApproved)]
+	words := make([]string, len(shown))
+	for i, id := range shown {
+		words[i] = "[" + strconv.FormatInt(id, 10) + "]"
+	}
+	text := approvedLine + strings.Join(words, ", ")
+	if rest := len(ids) - len(shown); rest > 0 {
+		text += ", and " + strconv.Itoa(rest) + " more"
+	}
+	return text + "\n"
+}
+
+// oneCommand is command c on one line, cut to maxCommand characters with the cut mark at the end.
+func oneCommand(c string) string {
+	c = strings.Join(strings.Fields(c), " ")
+	if utf8.RuneCountInString(c) <= maxCommand {
+		return c
+	}
+	return string([]rune(c)[:maxCommand-len(cutMark)]) + cutMark
 }
 
 // part renders a label, the items in id order, the skills in name order and the tools in the
