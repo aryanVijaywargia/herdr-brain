@@ -62,6 +62,10 @@ type ref struct {
 	kind      signal.Kind          // the kind of the signal of the observation
 	lesson    bool                 // the observation starts a lesson signal too (§7.1)
 	cmd       *store.CommandRecord // the command record of the observation; nil for none
+	// earlier are the earlier occurrences of the procedures and repeated prompts that the
+	// observation starts, in the workspace key of the batch (#314). They join its evidence,
+	// but they are not input: the prompt holds a text in its own batch only (§7.3).
+	earlier []ref
 }
 
 // job is one batch to extract: its stable id and start watermark, and its input. The known
@@ -292,7 +296,8 @@ func (p Pass) allowed(ctx context.Context, tx *sql.Tx, j job) (bool, error) {
 
 // refs returns the input of run: the observations in run of each signal that starts in run,
 // by id. An observation outside run is the input of its own batch, so nothing is extracted
-// twice (§7.3); its claim id still joins the evidence of both batches.
+// twice (§7.3); its claim id still joins the evidence of both batches. The earlier occurrence
+// of a procedure or a repeated prompt joins the evidence of its later one (ref.earlier).
 func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.SignalInput) []ref {
 	in := func(id int64) bool {
 		return slices.ContainsFunc(run, func(o store.SignalInput) bool { return o.ID == id })
@@ -301,6 +306,7 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 	// A lesson is a mark beside the kind, so a lesson that is a correction too keeps its
 	// correction kind for the comebacks (§5.4).
 	lessons := map[int64]bool{}
+	earlier := map[int64][]int64{}
 	for _, s := range sigs {
 		if len(s.Observations) == 0 || !in(s.Observations[0]) {
 			continue
@@ -308,6 +314,9 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 		if s.Kind == signal.Lesson {
 			lessons[s.Observations[0]] = true
 			continue
+		}
+		if s.Kind == signal.Procedure || s.Kind == signal.RepeatedPrompt {
+			earlier[s.Observations[0]] = append(earlier[s.Observations[0]], s.Observations[1:]...)
 		}
 		for i, id := range s.Observations {
 			if in(id) {
@@ -331,9 +340,25 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 			o.Excerpt = o.Command.Argv
 		}
 		rs = append(rs, ref{id: fmt.Sprintf("e%d", id), obs: id, identity: o.CaptureIdentity, workspace: o.WorkspaceKey,
-			sender: o.Sender, excerpt: o.Excerpt, kind: k, lesson: lessons[id], cmd: o.Command})
+			sender: o.Sender, excerpt: o.Excerpt, kind: k, lesson: lessons[id], cmd: o.Command,
+			earlier: occurrences(earlier[id], o.WorkspaceKey, byID)})
 	}
 	slices.SortFunc(rs, func(a, b ref) int { return int(a.obs - b.obs) })
+	return rs
+}
+
+// occurrences returns the refs of ids, the earlier occurrences of an observation, that are in
+// workspace key ws, each once. checkClaim keeps the evidence of a claim in the key of its batch,
+// so the earlier occurrences stay there too. Attach reads the rest of each from the store.
+func occurrences(ids []int64, ws string, byID map[int64]store.SignalInput) []ref {
+	var rs []ref
+	for _, id := range ids {
+		o := byID[id]
+		if o.WorkspaceKey != ws || slices.ContainsFunc(rs, func(r ref) bool { return r.obs == id }) {
+			continue
+		}
+		rs = append(rs, ref{obs: id, identity: o.CaptureIdentity, workspace: ws})
+	}
 	return rs
 }
 
@@ -617,6 +642,8 @@ func (p Pass) keptKind(ctx context.Context, tx *sql.Tx, claim, key string, kind 
 
 // attach adds each of refs as evidence of the candidate of cand, and returns its id (0 when
 // Brain refused every ref) and the accepted refs. cand.Via marks evidence that a merge brought.
+// The earlier occurrences of each accepted ref join too (attachEarlier), but they are not in the
+// accepted refs, so they record no outcome.
 func (p Pass) attach(ctx context.Context, tx *sql.Tx, cand store.Candidate, refs []ref) (int64, []ref, error) {
 	var id int64
 	var accepted []ref
@@ -631,7 +658,46 @@ func (p Pass) attach(ctx context.Context, tx *sql.Tx, cand store.Candidate, refs
 		id = got
 		accepted = append(accepted, r)
 	}
-	return id, accepted, nil
+	return id, accepted, p.attachEarlier(ctx, tx, cand, id, accepted)
+}
+
+// attachEarlier adds the earlier occurrences of accepted, the refs that Attach accepted for
+// candidate id of cand, as evidence of it (#314): the first telling of a procedure or a repeated
+// prompt counts too, so three tellings reach the gate of 3 (§7.2). Each joins only when it may
+// (joins). Attach makes the other checks of any ref, and adds an occurrence once.
+func (p Pass) attachEarlier(ctx context.Context, tx *sql.Tx, cand store.Candidate, id int64, accepted []ref) error {
+	for _, r := range accepted {
+		for _, e := range r.earlier {
+			ok, err := joins(ctx, tx, e, id)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				continue
+			}
+			_, err = store.Attach(ctx, tx, cand, e.obs, p.gates(), signal.Supports)
+			if err != nil && !errors.Is(err, store.ErrEvidenceRefused) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// joins reports whether earlier occurrence e may join candidate id: a forget did not remove it,
+// no tombstone names it, and no other candidate holds it. It is not input of the batch, so a
+// forget of it drops only it (stale discards a batch for its input). A text that another claim
+// holds stays its evidence only: else a same_as link that does not merge (#279) would count it
+// twice.
+func joins(ctx context.Context, tx *sql.Tx, e ref, id int64) (bool, error) {
+	if held, err := store.ObservationHeld(ctx, tx, e.obs, e.identity); err != nil || !held {
+		return false, err
+	}
+	if stopped, err := store.Tombstoned(ctx, tx, e.identity); err != nil || stopped {
+		return false, err
+	}
+	elsewhere, err := store.EvidenceElsewhere(ctx, tx, e.obs, id)
+	return err == nil && !elsewhere, err
 }
 
 // checked returns the refs that Attach would accept as evidence of cand, and writes nothing.
