@@ -22,7 +22,7 @@ delivery to observed sessions:
 
 review queue: empty
 extraction: no extractor CLI is chosen, so Brain makes no extractor call; run brain setup
-  last 24h: 0 of 10 extractor calls, 0 of 5 new proposals
+  last 24h: 0 of 40 extractor calls, 0 of 15 new proposals
   waiting: none
   failed batches: none
 

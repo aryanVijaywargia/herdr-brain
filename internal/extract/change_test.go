@@ -299,21 +299,32 @@ func TestChangeRequestCallCap(t *testing.T) {
 	}
 }
 
-// A reply with more than one claim is invalid; the request waits for a retry.
+// A reply with more than one claim is invalid; the request waits for a retry. A second claim
+// that check drops counts too (#310).
 func TestChangeRequestInvalid(t *testing.T) {
-	f := newFixture(t)
-	p := f.proposed()
-	cr := f.ask(p, "split it")
-	f.cli.reply = func(_ context.Context, prompt string) ([]byte, error) {
-		refs := refID.FindAllStringSubmatch(prompt, -1)
-		one := map[string]any{"kind": "correction", "situation": "s", "rule": "r", "scope_guess": "workspace",
-			"evidence_refs": []string{refs[0][1]}, "same_as": nil, "conflicts_with": nil, "touches_permission": false,
-			"expected_benefit": ""}
-		return claudeReply(map[string]any{"claims": []any{one, one}})
-	}
-	f.mustRun()
-	if got := f.request(cr.ID); got.Status != store.ChangeInvalid || len(f.proposals()) != 1 {
-		t.Errorf("request %+v, want invalid and no draft", got)
+	for name, dropped := range map[string]bool{"two claims": false, "a dropped second claim": true} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			p := f.proposed()
+			cr := f.ask(p, "split it")
+			f.cli.reply = func(_ context.Context, prompt string) ([]byte, error) {
+				refs := []string{refID.FindStringSubmatch(prompt)[1]}
+				claim := func(evidence []string) map[string]any {
+					return map[string]any{"kind": "correction", "situation": "s", "rule": "r", "scope_guess": "workspace",
+						"evidence_refs": evidence, "same_as": nil, "conflicts_with": nil, "touches_permission": false,
+						"expected_benefit": ""}
+				}
+				second := claim(refs)
+				if dropped {
+					second = claim([]string{})
+				}
+				return claudeReply(map[string]any{"claims": []any{claim(refs), second}})
+			}
+			f.mustRun()
+			if got := f.request(cr.ID); got.Status != store.ChangeInvalid || len(f.proposals()) != 1 {
+				t.Errorf("request %+v, want invalid and no draft", got)
+			}
+		})
 	}
 }
 

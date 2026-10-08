@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -214,44 +215,78 @@ func senderMark(s store.Sender) string {
 }
 
 // check checks the result out of the extractor against the schema and the refs of batch j,
-// outside the model (§7.3), and returns its claims. An error wraps ErrInvalid: an evidence ref
-// that is not in the input or not in the scope of the batch, or a same_as or conflicts_with
-// that names no claim of the input, refuses the whole result.
-func check(out json.RawMessage, j job) ([]Claim, error) {
+// outside the model (§7.3), and returns its claims. A result that does not match the schema,
+// in any claim too, is invalid: the error wraps ErrInvalid. A claim that fails its own check is
+// dropped and the other claims stay (#310): for example no evidence, an evidence ref that is not
+// in the input or not in the scope of the batch, or a same_as or conflicts_with that names no
+// claim of the input. The second result says which claims were dropped and why, with no claim
+// text. A result with claims that are all dropped is invalid, so the batch waits for its retry
+// (#263).
+func check(out json.RawMessage, j job) ([]Claim, []string, error) {
 	var res struct {
 		Claims *[]rawClaim `json:"claims"`
 	}
 	dec := json.NewDecoder(bytes.NewReader(out))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&res); err != nil {
-		return nil, fmt.Errorf("result does not match the schema: %w", ErrInvalid)
+		return nil, nil, fmt.Errorf("result does not match the schema: %w", ErrInvalid)
 	}
 	if dec.More() {
-		return nil, fmt.Errorf("result has data after the object: %w", ErrInvalid)
+		return nil, nil, fmt.Errorf("result has data after the object: %w", ErrInvalid)
 	}
 	if res.Claims == nil {
-		return nil, fmt.Errorf("result has no claims field: %w", ErrInvalid)
+		return nil, nil, fmt.Errorf("result has no claims field: %w", ErrInvalid)
+	}
+	for i, r := range *res.Claims {
+		if err := r.schema(); err != nil {
+			return nil, nil, fmt.Errorf("claim %d: %w: %w", i+1, err, ErrInvalid)
+		}
 	}
 	claims := make([]Claim, 0, len(*res.Claims))
+	var dropped []string
 	for i, r := range *res.Claims {
 		c, err := checkClaim(r, j)
 		if err != nil {
-			return nil, fmt.Errorf("claim %d: %w: %w", i+1, err, ErrInvalid)
+			dropped = append(dropped, fmt.Sprintf("claim %d: %v", i+1, err))
+			continue
 		}
 		claims = append(claims, c)
 	}
-	return claims, nil
+	if len(claims) == 0 && len(dropped) > 0 {
+		return nil, nil, fmt.Errorf("%s: %w", strings.Join(dropped, "; "), ErrInvalid)
+	}
+	return claims, dropped, nil
 }
 
-func checkClaim(r rawClaim, j job) (Claim, error) {
+// schema returns why claim r does not match the schema: a missing field, a kind or a scope out
+// of its enum, or a same_as, conflicts_with or covered_by that is not a string or null. The
+// decoder finds the other type errors. No error holds model text.
+func (r rawClaim) schema() error {
 	switch {
 	case r.Kind == nil || r.Situation == nil || r.Rule == nil || r.ScopeGuess == nil || r.EvidenceRefs == nil ||
 		r.SameAs == nil || r.ConflictsWith == nil || r.TouchesPermission == nil || r.ExpectedBenefit == nil:
-		return Claim{}, fmt.Errorf("a field is missing")
+		return errors.New("a field is missing")
 	case !slices.Contains([]string{"correction", kindLesson, "preference", "procedure", "fact", kindSkill, kindTool}, *r.Kind):
-		return Claim{}, fmt.Errorf("unknown kind")
+		return errors.New("unknown kind")
 	case *r.ScopeGuess != string(store.ScopeWorkspace) && *r.ScopeGuess != string(store.ScopeGlobal):
-		return Claim{}, fmt.Errorf("unknown scope")
+		return errors.New("unknown scope")
+	}
+	for _, f := range []struct {
+		name string
+		v    json.RawMessage
+	}{{"same_as", r.SameAs}, {"conflicts_with", r.ConflictsWith}, {"covered_by", r.CoveredBy}} {
+		var id *string
+		if f.v != nil && json.Unmarshal(f.v, &id) != nil {
+			return fmt.Errorf("%s: not a string or null", f.name)
+		}
+	}
+	return nil
+}
+
+// checkClaim returns claim r, which matches the schema, checked against the refs and the known
+// claims of batch j. An error says why the claim is dropped, with no model text (#310).
+func checkClaim(r rawClaim, j job) (Claim, error) {
+	switch {
 	case strings.TrimSpace(*r.Situation) == "" || strings.TrimSpace(*r.Rule) == "":
 		return Claim{}, fmt.Errorf("empty situation or rule")
 	case len(*r.EvidenceRefs) == 0:
@@ -334,9 +369,9 @@ func knownSkill(f json.RawMessage, j job) (string, error) {
 
 // checkSkill returns the skill of claim r of kind skill. It refuses a bad name, and a missing
 // description, required tools, example or steps: the skill text must pass store.ParseSkill.
-// The secret filter runs first (Redact), so the checks see the text that Brain stores, and no
-// error holds model text. [NEW] a header field is one line: its white space folds to single
-// spaces.
+// The secret filter runs first (Redact), so the checks see the text that Brain stores. No error
+// holds model text: a ParseSkill error can quote the name, so it becomes a fixed reason (#310).
+// [NEW] a header field is one line: its white space folds to single spaces.
 func checkSkill(r rawClaim) (store.Skill, error) {
 	field := func(f *string) string {
 		if f == nil {
@@ -356,7 +391,7 @@ func checkSkill(r rawClaim) (store.Skill, error) {
 		return store.Skill{}, fmt.Errorf("the skill has no example")
 	}
 	if _, err := store.ParseSkill(sk.Text()); err != nil {
-		return store.Skill{}, err
+		return store.Skill{}, errors.New("the skill text is not valid")
 	}
 	return sk, nil
 }

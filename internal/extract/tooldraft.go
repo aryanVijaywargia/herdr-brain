@@ -537,8 +537,11 @@ func checkTool(r rawClaim, refs []ref) (text, cwd string, steps [][]string, err 
 	if d.Cwd = toolFolder(steps, refs); d.Cwd == "" {
 		return "", "", nil, errors.New("the tool commands are not commands of the evidence in one folder")
 	}
-	text, err = d.text(steps)
-	return text, d.Cwd, steps, err
+	// A tool.Parse error can quote a model field, such as the name or a pattern.
+	if text, err = d.text(steps); err != nil {
+		return "", "", nil, errors.New("the tool contract is not valid")
+	}
+	return text, d.Cwd, steps, nil
 }
 
 // toolFolder returns the newest folder of refs in which each of steps fits a command of refs

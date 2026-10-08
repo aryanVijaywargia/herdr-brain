@@ -243,8 +243,8 @@ func TestExtractionConfig(t *testing.T) {
 	putFile(t, config, "live_suggestions = \"on\"\n[gates]\ncorrection = 3\n[caps]\nproposals_per_day = 8\n")
 	status := f.mustStatus(t)
 	for _, want := range []string{
-		"  config: gates.correction = 3 (default 2), caps.proposals_per_day = 8 (default 5)\n",
-		"  last 24h: 0 of 10 extractor calls, 0 of 8 new proposals\n",
+		"  config: gates.correction = 3 (default 2), caps.proposals_per_day = 8 (default 15)\n",
+		"  last 24h: 0 of 40 extractor calls, 0 of 8 new proposals\n",
 	} {
 		if !strings.Contains(status, want) {
 			t.Errorf("brain status:\n%s\nwant %q", status, want)
