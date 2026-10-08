@@ -226,6 +226,30 @@ func TestRecordCodex(t *testing.T) {
 	}
 }
 
+// #341: the prompt record of your answer to a question of Codex 0.160.1 (request_user_input)
+// holds only the answer, also in the prompt index: not the tag, the JSON or the question of
+// Codex. prompt-question.json is made in the shape of the M2 eval run 3 report, with no real
+// session data.
+func TestRecordCodexQuestion(t *testing.T) {
+	p, err := adapter.Load("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := recordFixtureOf(t, "codex")
+	clock := testNow
+	if err := runRecord(t, f, p, adapter.EventPrompt, "w14:p1", string(codexPayload(t, "prompt-question.json")), &clock); err != nil {
+		t.Fatal(err)
+	}
+	const answer = "Create it from the seed with ./scripts/reset-db.sh, then measure."
+	obs, _ := recordRows(t, f)
+	if len(obs) != 1 || obs[0].Excerpt != answer || obs[0].Sender != store.SenderUnconfirmed || !obs[0].Counts {
+		t.Fatalf("observations = %+v, want one counted prompt %q", obs, answer)
+	}
+	if es := promptEntries(t, f); len(es) != 1 || es[0].Text != answer || es[0].Hash != fingerprint.Prompt(answer) {
+		t.Errorf("prompt index = %+v, want one row of %q", es, answer)
+	}
+}
+
 // codexPayload reads the payload file name of the codex-cli 0.160.1 live hook test (#285).
 func codexPayload(t *testing.T, name string) []byte {
 	t.Helper()

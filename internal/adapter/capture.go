@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // The events of `brain hook --event` (E11-S5, §6.1). Start delivers the brief; the others
@@ -61,7 +62,8 @@ type Record struct {
 // ParseRecord reads the input of Brain event event (prompt, tool or stop) by the profile's
 // JSON paths. It returns an error that wraps ErrRetest when the input is not a JSON object, or
 // when the session id, the prompt or the command has no non-empty string. The cwd, the error
-// and the reply are optional: a reply can be null.
+// and the reply are optional: a reply can be null. A prompt that answers a question of the CLI
+// gives only the answers (answers).
 func (p *Profile) ParseRecord(event string, raw []byte) (Record, error) {
 	var doc map[string]any
 	if err := json.Unmarshal(raw, &doc); err != nil {
@@ -75,7 +77,9 @@ func (p *Profile) ParseRecord(event string, raw []byte) (Record, error) {
 	r.CWD = optional(doc, p.Input.CWD)
 	switch event {
 	case EventPrompt:
-		r.Text, err = text(doc, p.Input.Prompt)
+		if r.Text, err = text(doc, p.Input.Prompt); err == nil {
+			r.Text, err = p.answers(r.Text)
+		}
 	case EventTool:
 		r.Command, err = text(doc, p.Input.Command)
 		if m := p.match(optional(doc, p.Input.Error)); m != "" {
@@ -92,6 +96,33 @@ func (p *Profile) ParseRecord(event string, raw []byte) (Record, error) {
 		return Record{}, err
 	}
 	return r, nil
+}
+
+// answers returns the text of prompt that you wrote. A prompt that answers a question of the
+// CLI starts with the tag of input.question_reply and a JSON list, one object for each
+// question: the CLI's question and your answer. Only the answers are yours, one on each line
+// (#341). Codex-cli 0.160.1 sends "<send_user_message_question_reply> [{"answer": ...,
+// "question": ..., "questionItemId": ...}]" [NEW: the M2 eval run 3 report gives the shape]. A
+// list that is not JSON, or an answer that is not a string, is a new input shape: an error that
+// wraps ErrRetest.
+func (p *Profile) answers(prompt string) (string, error) {
+	list, ok := strings.CutPrefix(prompt, p.Input.QuestionReply)
+	if p.Input.QuestionReply == "" || !ok {
+		return prompt, nil
+	}
+	var items []struct {
+		Answer string `json:"answer"`
+	}
+	if err := json.Unmarshal([]byte(list), &items); err != nil {
+		return "", fmt.Errorf("%w: question reply: %w", ErrRetest, err)
+	}
+	var as []string
+	for _, it := range items {
+		if it.Answer != "" {
+			as = append(as, it.Answer)
+		}
+	}
+	return strings.Join(as, "\n"), nil
 }
 
 // match returns the first group of the exit pattern in s, or "".
