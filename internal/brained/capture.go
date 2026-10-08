@@ -200,7 +200,7 @@ func (c *Capture) baseline(ctx context.Context, s Step, gap string) error {
 	stale := false
 	err = c.write(ctx, s, func(tx *sql.Tx, now time.Time, learning Learning) error {
 		if old != nil && old.session != 0 && !c.held(old.key, s.PaneID) {
-			if err := store.EndSession(ctx, tx, old.key, now); err != nil {
+			if err := endSession(ctx, tx, old.key, now); err != nil {
 				return err
 			}
 		}
@@ -581,7 +581,7 @@ func (c *Capture) end(ctx context.Context, s Step, cp *capturePane) error {
 	ended := cp != nil && cp.session != 0 && !c.held(cp.key, s.PaneID)
 	if ended {
 		err := c.write(ctx, s, func(tx *sql.Tx, now time.Time, _ Learning) error {
-			return store.EndSession(ctx, tx, cp.key, now)
+			return endSession(ctx, tx, cp.key, now)
 		})
 		if err != nil {
 			return err // the state stays, so the next end step closes the session
@@ -599,6 +599,15 @@ func (c *Capture) end(ctx context.Context, s Step, cp *capturePane) error {
 		return fmt.Errorf("stale check of workspace %s: %w", key, err)
 	}
 	return nil
+}
+
+// endSession ends the session with key k at at. A session with no evidence, such as a CLI
+// version probe in a shell pane, goes: it is no agent session (#317).
+func endSession(ctx context.Context, tx *sql.Tx, k store.SessionKey, at time.Time) error {
+	if err := store.EndSession(ctx, tx, k, at); err != nil {
+		return err
+	}
+	return store.DropEmptySession(ctx, tx, k)
 }
 
 // held says whether a pane other than paneID holds session key k. After a move, the pane

@@ -263,3 +263,107 @@ func TestForgetSessionGeneration(t *testing.T) {
 		return nil
 	})
 }
+
+// #317: an ended session with no agent session id and no evidence goes, with its segments, gap
+// observations and cursors. A session with text, a hook record, an agent session id or a
+// forget stays, and so does an open one.
+func TestDropEmptySession(t *testing.T) {
+	ctx := context.Background()
+	gap := func(id string) Observation {
+		return Observation{CaptureIdentity: id, Source: SourceHerdr, Event: "agent detected again", Status: ObservationGap, At: testNow}
+	}
+	for _, tc := range []struct {
+		name string
+		obs  []Observation
+		// prep runs on the session before its end; nil for none.
+		prep func(tx *sql.Tx, k SessionKey, id int64) error
+		open bool // the session does not end
+		kept bool
+	}{
+		{name: "no observation"},
+		{name: "gaps only", obs: []Observation{gap("g1"), gap("g2")}},
+		{name: "pane text", kept: true, obs: []Observation{gap("g1"),
+			{CaptureIdentity: "t1", Source: SourceHerdr, Event: "idle", Excerpt: "• done", Status: ObservationComplete, At: testNow}}},
+		{name: "hook record only", kept: true, obs: []Observation{
+			{CaptureIdentity: "h1", Source: SourceHook, Event: "prompt", Excerpt: "fix it", Status: ObservationComplete, At: testNow}}},
+		{name: "agent session id", kept: true, prep: func(tx *sql.Tx, k SessionKey, _ int64) error {
+			return EnrichSession(ctx, tx, k, "6a345ec1")
+		}},
+		{name: "forgotten", kept: true, prep: func(tx *sql.Tx, _ SessionKey, id int64) error {
+			return ForgetSession(ctx, tx, id)
+		}},
+		{name: "open", open: true, kept: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := openM1(t)
+			k := SessionKey{HerdrSession: "default", Harness: "codex", Kind: KeyCapture, ID: "cap-1"}
+			other := SessionKey{HerdrSession: "default", Harness: "codex", Kind: KeyCapture, ID: "cap-2"}
+			var before, after int64
+			write(t, s, func(tx *sql.Tx) (err error) {
+				if _, err := OpenSession(ctx, tx, other, "w1:p2", "", testNow); err != nil {
+					return err
+				}
+				id, err := OpenSession(ctx, tx, k, "w1:p1", "", testNow)
+				if err != nil {
+					return err
+				}
+				seg, err := StartSegment(ctx, tx, id, "w1:p1", "", "visible", testNow)
+				if err != nil {
+					return err
+				}
+				for _, o := range tc.obs {
+					o.SegmentID = seg
+					if _, err := AddObservation(ctx, tx, o); err != nil {
+						return err
+					}
+					if err := MoveCursor(ctx, tx, id, o.Source, o.CaptureIdentity); err != nil {
+						return err
+					}
+				}
+				if tc.prep != nil {
+					if err := tc.prep(tx, k, id); err != nil {
+						return err
+					}
+				}
+				if before, err = Forgets(ctx, tx); err != nil {
+					return err
+				}
+				if !tc.open {
+					if err := EndSession(ctx, tx, k, testNow.Add(time.Second)); err != nil {
+						return err
+					}
+				}
+				if err := DropEmptySession(ctx, tx, k); err != nil {
+					return err
+				}
+				after, err = Forgets(ctx, tx)
+				return err
+			})
+			var ss []Session
+			var segs []Segment
+			var c Coverage
+			write(t, s, func(tx *sql.Tx) (err error) {
+				if ss, err = Sessions(ctx, tx); err != nil {
+					return err
+				}
+				if segs, err = Segments(ctx, tx); err != nil {
+					return err
+				}
+				c, err = Observed(ctx, tx)
+				return err
+			})
+			if before != after {
+				t.Errorf("Forgets went from %d to %d", before, after)
+			}
+			if !tc.kept {
+				if len(ss) != 1 || ss[0].Key != other || len(segs) != 0 || c != (Coverage{}) {
+					t.Errorf("sessions %+v, segments %+v, coverage %+v: want only the other session", ss, segs, c)
+				}
+				return
+			}
+			if len(ss) != 2 || ss[1].Key != k || len(segs) != 1 {
+				t.Errorf("sessions %+v, segments %+v: want the session and its segment kept", ss, segs)
+			}
+		})
+	}
+}

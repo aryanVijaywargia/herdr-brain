@@ -149,6 +149,41 @@ func EndSession(ctx context.Context, tx *sql.Tx, k SessionKey, at time.Time) err
 	return nil
 }
 
+// emptySession is the WHERE clause of the session with key ?1…?4 when it holds no evidence: a
+// short CLI run in a shell pane, such as a --version probe, that herdr saw as an agent (#317).
+// herdr gave it no agent session id, its observations are gaps only, it was never forgotten,
+// and no other row names it. A session with a pane text, a hook record or a git record holds
+// an observation that is no gap.
+const emptySession = keyWhere + ` AND ended IS NOT NULL AND agent_session_id IS NULL AND generation = 0
+	AND NOT EXISTS (SELECT 1 FROM segments g JOIN observations o ON o.segment_id = g.id
+		WHERE g.session_id = sessions.id AND o.status != 'gap')
+	AND NOT EXISTS (SELECT 1 FROM evidence_links WHERE session_id = sessions.id)
+	AND NOT EXISTS (SELECT 1 FROM extraction_batches WHERE session_id = sessions.id)
+	AND NOT EXISTS (SELECT 1 FROM extraction_watermarks WHERE session_id = sessions.id)
+	AND NOT EXISTS (SELECT 1 FROM prompt_index WHERE session_id = sessions.id)
+	AND NOT EXISTS (SELECT 1 FROM suggestions WHERE session_id = sessions.id)
+	AND NOT EXISTS (SELECT 1 FROM outcomes WHERE session_id = sessions.id)
+	AND NOT EXISTS (SELECT 1 FROM tool_calls WHERE session_id = sessions.id)`
+
+// DropEmptySession deletes the ended session with key k, with its segments, gap observations
+// and cursors, when it holds no evidence (emptySession). So it is no session observed. Its
+// capture generation is 0, so the sum of Forgets stays the same.
+func DropEmptySession(ctx context.Context, tx *sql.Tx, k SessionKey) error {
+	const empty = `SELECT id FROM sessions WHERE ` + emptySession
+	const segments = `SELECT id FROM segments WHERE session_id IN (` + empty + `)`
+	for _, q := range []string{
+		`DELETE FROM observations WHERE segment_id IN (` + segments + `)`,
+		`DELETE FROM cursors WHERE session_id IN (` + empty + `)`,
+		`DELETE FROM segments WHERE id IN (` + segments + `)`,
+		`DELETE FROM sessions WHERE ` + emptySession,
+	} {
+		if _, err := tx.ExecContext(ctx, q, keyArgs(k)...); err != nil {
+			return fmt.Errorf("drop empty session: %w", err)
+		}
+	}
+	return nil
+}
+
 // ErrForgotten says that brain forget --session raised the capture generation of a session
 // after a pane read or a hook record noted it: the text may be forgotten text, so the write
 // stores nothing (§6.7).
@@ -165,8 +200,8 @@ func Generation(ctx context.Context, tx *sql.Tx, sessionID int64) (int64, error)
 }
 
 // Forgets returns the sum of the capture generations of all sessions. Each brain forget
-// --session raises it, and session rows are never deleted, so a changed sum says that a forget
-// ran in between. A pane read notes it before a baseline, when the session is not yet known.
+// --session raises it, and only a session with generation 0 is ever deleted (DropEmptySession),
+// so a changed sum says that a forget ran in between. A pane read notes it before a baseline, when the session is not yet known.
 func Forgets(ctx context.Context, tx *sql.Tx) (int64, error) {
 	var n int64
 	err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(generation), 0) FROM sessions`).Scan(&n)
