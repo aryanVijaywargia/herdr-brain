@@ -9,7 +9,7 @@ One memory for every coding agent in herdr.
 
 You tell Claude Code "from now on, use pnpm, not npm". Then you open Codex in the same project, and it uses npm. Each agent keeps its own memory, and each new session starts blank.
 
-Brain is a herdr plugin that fixes this. It keeps one store of facts, preferences and lessons, and it gives them to every new Claude Code and Codex session in herdr when the session starts. You approve each item before any agent sees it. Everything stays on your machine.
+Brain is a herdr plugin that fixes this. It keeps one store of facts, preferences and lessons, and it gives them to every new Claude Code and Codex session in herdr when the session starts. You approve each item before any agent sees it. Brain keeps its data on your machine. If you choose an extractor CLI in setup, Brain sends short, filtered excerpts of your sessions to that CLI's provider. [Your data stays local](#your-data-stays-local) has the details.
 
 The name is temporary.
 

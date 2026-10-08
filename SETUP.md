@@ -5,7 +5,7 @@ People can read [`README.md`](README.md) instead.
 
 Each step gives the command, the result to expect, and what to do when it fails.
 Run every command in a shell inside a pane of the herdr session that the user wants Brain in.
-Brain needs that pane: outside herdr, `brain` prints "not in a herdr pane" and does nothing.
+`brain status`, `brain doctor` and `brain remember` need that pane. Outside herdr they print "not in a herdr pane".
 
 Two steps ask the user. Do not answer for them:
 
@@ -160,7 +160,12 @@ If `brain doctor` fails, it prints one line for each failed check, with its fix 
 brain remember "use pnpm, not npm"
 ```
 
-Expected: a draft for this workspace, and a review pane opens beside the pane. The user approves it there.
+Expected: `proposal <id>: ... draft, waiting for your review in pane <pane> (or brain review)`. A review pane opens beside the pane, and the user approves it there.
+
+If it fails:
+
+- `workspace <id> is not mapped yet (herdr saves a new workspace after about 5 s)`: wait about 5 seconds and run it again, or use `--global`.
+- `the review pane did not open: <reason>`: the draft still waits. The user approves it with `brain review`.
 The next Claude Code or Codex session in that workspace gets the item at start. Codex gets it at its first prompt.
 
 ## Common failures
@@ -176,7 +181,7 @@ The next Claude Code or Codex session in that workspace gets the item at start. 
 | `holds the Brain <event> entry that you edited` | The user edited a Brain hook entry | Brain keeps it. The user edits it by hand. |
 | `codex: Codex hook not trusted` | Codex skips the hook | Step 4: start codex, type `/hooks`, and press t on the Brain hook |
 | `codex: Codex hook not trusted: the Brain hook is disabled in Codex` | The user turned the hook off | Enable it in `/hooks` in Codex |
-| `codex: Codex reads <dir>/hooks.json, which holds no Brain hook entry` | Codex uses another `CODEX_HOME` | `brain setup` with the same `CODEX_HOME` |
+| `codex: Codex reads <dir>/hooks.json, which holds no Brain hook entry` | `CODEX_HOME` points Codex to another folder. `brain setup` writes only `~/.codex/hooks.json` and does not read `CODEX_HOME`, so a new setup run does not fix this. | Run Codex with `CODEX_HOME` unset, or set to `~/.codex`, so that it reads `~/.codex/hooks.json` |
 | `hook records off for <cli>` | A newer Brain has hook record entries that are missing | `brain update` |
 | `hook not trusted or not firing: <n> live agent(s) with no Brain receipt` | A session started before setup, or the hook does not run | Start a new session. If it gets no receipt either, the CLI sandbox may block the herdr socket. |
 | `extraction: signals wait, and no extractor CLI is chosen` | No extractor | `brain setup --extractor` |
