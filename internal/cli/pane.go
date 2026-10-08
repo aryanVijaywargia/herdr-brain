@@ -21,7 +21,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-const paneUsage = `usage: brain pane review --proposal <id> | brain pane recall`
+const paneUsage = `usage: brain pane review --proposal <id> | brain pane recall | brain pane retired`
 
 // linger is how long the pane shows its last message before it exits, and herdr closes it.
 // [NEW] 2 s.
@@ -34,12 +34,30 @@ const (
 	keyBS       = 0x08
 )
 
+// popupOf returns the popup of `brain pane` args, with its keys and its screen size, or nil.
+// herdr opens each popup from a plugin action, with no HERDR_PANE_ID (D6): the caller is the
+// focused pane of the action context (popupEnv).
+func popupOf(args []string) func(ctx context.Context, e Env, keys *bufio.Reader, size func() (rows, cols int)) error {
+	switch strings.Join(args, " ") {
+	case "recall":
+		return recallPopup // E20-S3
+	case "retired":
+		return retiredPopup // E20-S11
+	}
+	return nil
+}
+
 // Pane runs `brain pane` with args after "pane" (E5-S1): the review pane of one proposal, or
-// the recall popup (E20-S3). herdr runs it in a plugin pane, and the proposal id comes from the
-// pane's --env (§5.1).
+// a popup. herdr runs it in a plugin pane, and the proposal id comes from the pane's --env
+// (§5.1).
 func Pane(ctx context.Context, e Env, args []string) error {
-	if len(args) == 1 && args[0] == "recall" {
-		return paneRecall(ctx, e)
+	if popup := popupOf(args); popup != nil {
+		restore, err := cbreak(os.Stdin)
+		if err != nil {
+			return err
+		}
+		defer restore()
+		return popup(ctx, e, bufio.NewReader(os.Stdin), func() (int, int) { return termSize(os.Stdin) })
 	}
 	id, err := parsePane(args)
 	if err != nil {
