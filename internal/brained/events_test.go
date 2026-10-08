@@ -121,7 +121,39 @@ func (l *live) rows(t *testing.T) rows {
 		r.obs, err = store.Observations(ctx, tx)
 		return err
 	})
+	wantSenders(t, r)
 	return r
+}
+
+// wantSenders checks the attribution of each text observation (§6.5): a prompt line has the
+// sender not confirmed, and an agent line is assistant text.
+func wantSenders(t *testing.T, r rows) {
+	t.Helper()
+	for _, o := range r.obs {
+		want := store.SenderAssistant
+		if strings.HasPrefix(o.Excerpt, "›") {
+			want = store.SenderUnconfirmed
+		}
+		if o.Status != store.ObservationGap && o.Sender != want {
+			t.Errorf("observation %q has sender %q, want %q", o.Excerpt, o.Sender, want)
+		}
+	}
+}
+
+// holdFirst blocks the first change until release, and closes entered when it blocks.
+type holdFirst struct {
+	entered, release chan struct{}
+	next             Handler
+	done             bool
+}
+
+func (b *holdFirst) Handle(ctx context.Context, s Step) error {
+	if s.Kind == Change && !b.done {
+		b.done = true
+		close(b.entered)
+		<-b.release
+	}
+	return b.next.Handle(ctx, s)
 }
 
 func (l *live) tx(t *testing.T, fn func(tx *sql.Tx) error) {
@@ -204,8 +236,8 @@ func TestEventsLost(t *testing.T) {
 func TestEventsDropped(t *testing.T) {
 	h := newHarness(t, bindings.KindMain)
 	c := NewCapture(herdr.Socket{Path: h.f.path}, nil)
-	release := make(chan struct{})
-	h.d.handler = &blockOnce{release: release, next: tap{c, h.steps}}
+	entered, release := make(chan struct{}), make(chan struct{})
+	h.d.handler = &holdFirst{entered: entered, release: release, next: tap{c, h.steps}}
 	h.d.queue = 1
 	dropped := make(chan struct{})
 	var once sync.Once
@@ -218,6 +250,11 @@ func TestEventsDropped(t *testing.T) {
 
 	l.screen("w1:p1", "• base", "• one")
 	l.subs["w1:p1"].send(statusLine("w1:p1", "working")) // the handler blocks on this change
+	select {
+	case <-entered:
+	case <-time.After(wait):
+		t.Fatal("the handler got no change")
+	}
 	for range 3 {
 		l.subs["w1:p1"].send(statusLine("w1:p1", "idle"))
 	}
@@ -338,11 +375,6 @@ func TestPaneSplit(t *testing.T) {
 	if sessions["w1:p1"] != codexRun1 || sessions["w1:p2"] != codexRun2 {
 		t.Errorf("sessions by pane = %v, want run 1 in w1:p1 and run 2 in w1:p2", sessions)
 	}
-	for _, o := range r.obs {
-		if o.Status != store.ObservationGap && o.Sender != store.SenderAssistant {
-			t.Errorf("observation %q has sender %q, want the assistant (§6.5)", o.Excerpt, o.Sender)
-		}
-	}
 }
 
 // AC 2, S36: a pane moves to another workspace during a session, and gets a new id. The read
@@ -411,7 +443,7 @@ func TestPaneClose(t *testing.T) {
 			delete(l.f.panes, "w1:p1")
 			l.f.mu.Unlock()
 			if lost {
-				_ = l.subs["w1:p1"].conn.Close()
+				_ = l.subs["w1:p1"].conn.Close() // herdr ends the stream; a close error changes no step
 			} else {
 				l.main.send(paneLine("pane_closed", "w1:p1"))
 			}
@@ -471,4 +503,53 @@ func TestEventsLostRelease(t *testing.T) {
 	}
 	wantLines(t, run1, "gap "+string(GapStart), "• one")
 	wantLines(t, run2, "gap "+gapSession, "• run 2 text")
+}
+
+// AC 1: herdr detects the agent again in a pane with no agent session id. Brain cannot tell a
+// new run of the same harness, so the text since the last read is a recorded gap, and the
+// text after it is kept.
+func TestEventsRepeatedNoID(t *testing.T) {
+	l := newLive(t, map[string]string{"w1:p1": ""})
+	l.screen("w1:p1", "• start of w1:p1", "• one")
+	l.status(t, "w1:p1", "working")
+	l.screen("w1:p1", "• start of w1:p1", "• one", "• two")
+	l.main.send(paneLine("pane_agent_detected", "w1:p1"))
+	l.step(t)
+	l.screen("w1:p1", "• start of w1:p1", "• one", "• two", "• three")
+	l.status(t, "w1:p1", "idle")
+
+	lines, gaps := l.rows(t).texts("w1:p1")
+	wantLines(t, lines, "• one", "• three")
+	wantGaps(t, gaps, string(GapStart), gapDetected)
+	if n := l.statusGaps(t); n != 2 {
+		t.Errorf("status capture gaps = %d, want 2", n)
+	}
+}
+
+// AC 1, AC 3, §6.4: a repeated agent_detected starts no turn. A prompt that the screen still
+// shows is one occurrence; the same prompt sent again in a new turn is a real repeat (S40).
+func TestEventsRepeatedPrompt(t *testing.T) {
+	l := newLive(t, map[string]string{"w1:p1": codexRun1})
+	l.screen("w1:p1", "• start of w1:p1", "› fix the bug", "• fixing")
+	l.status(t, "w1:p1", "working")
+	l.screen("w1:p1", "• start of w1:p1", "› fix the bug", "• fixing", "• fixed")
+	l.main.send(paneLine("pane_agent_detected", "w1:p1"))
+	l.step(t)
+	l.status(t, "w1:p1", "idle")
+	l.screen("w1:p1", "• start of w1:p1", "› fix the bug", "• fixing", "• fixed", "› fix the bug", "• fixing again")
+	l.status(t, "w1:p1", "working")
+
+	r := l.rows(t)
+	lines, gaps := r.texts("w1:p1")
+	wantLines(t, lines, "› fix the bug", "• fixing", "• fixed", "› fix the bug", "• fixing again")
+	wantGaps(t, gaps, string(GapStart))
+	prompts := 0
+	for _, o := range r.obs {
+		if strings.HasPrefix(o.Excerpt, "› fix the bug") && o.Counts {
+			prompts++
+		}
+	}
+	if prompts != 2 {
+		t.Errorf("counted prompts = %d, want 2 (one each turn)", prompts)
+	}
 }
