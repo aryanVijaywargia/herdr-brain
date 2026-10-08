@@ -110,6 +110,87 @@ func TestSkillDraftS8(t *testing.T) {
 	}
 }
 
+// releaseTelling is release telling n of the M2 eval rerun (2026-10-08), with a new version
+// each time: the procedure signal finds two of them similar.
+func releaseTelling(n int) string {
+	v := fmt.Sprintf("0.%d.0", n+1)
+	return fmt.Sprintf("Release %s: update the version in package.json to %s, then run npm test, then commit as "+
+		"'Release %s' and tag that commit 'v%s'. Push the tag when it is done.", v, v, v, v)
+}
+
+// releaseSessions adds the ended agent sessions of release tellings 1 to n in workspace key
+// ws, one telling in each, codex and claude in turn, and runs an extraction pass with cli after
+// each session.
+func (f *fixture) releaseSessions(t *testing.T, ws string, n int, cli extract.Runner) {
+	t.Helper()
+	for i := 1; i <= n; i++ {
+		at, pane := testNow.Add(time.Duration(i)*time.Minute), fmt.Sprintf("w14:p%d", i)
+		f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
+			key := store.SessionKey{HerdrSession: "default", Harness: []string{"codex", "claude"}[(i-1)%2],
+				Kind: store.KeyAgent, ID: fmt.Sprintf("release-%d", i)}
+			id, err := store.OpenSession(ctx, tx, key, pane, ws, at)
+			if err != nil {
+				return err
+			}
+			seg, err := store.StartSegment(ctx, tx, id, pane, ws, "recent_unwrapped", at)
+			if err != nil {
+				return err
+			}
+			if _, err := store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: fmt.Sprintf("release-%d", i),
+				Source: store.SourceHerdr, SegmentID: seg, Event: "working", Excerpt: releaseTelling(i),
+				Status: store.ObservationComplete, Sender: store.SenderYou, Counts: true, At: at}); err != nil {
+				return err
+			}
+			return store.EndSession(ctx, tx, key, at)
+		})
+		s := openStore(t, f.store)
+		err := extract.Pass{Store: s, Runner: cli, HerdrSession: "default", DefaultOn: true,
+			Now: func() time.Time { return testNow.Add(time.Hour) }}.Run(context.Background())
+		closeStore(t, s)
+		if err != nil {
+			t.Fatalf("Run() after telling %d = %v", i, err)
+		}
+	}
+}
+
+// AC 2 (#313, S8): the release of the M2 eval rerun, one telling in each of four sessions, codex
+// and claude in turn, gives one workspace skill draft, not a preference. The review shows the
+// whole file. After approval the "shop" brief lists the skill with the path of its file (the
+// input of the #165 kept-skill check); "blog" does not.
+func TestSkillDraftAcrossSessions(t *testing.T) {
+	f := newFixture(t)
+	f.setClaude(t)
+	cli := &skillCLI{}
+	f.releaseSessions(t, "ws_a14", 4, cli)
+	if cli.calls != 3 {
+		t.Errorf("calls = %d, want 3: the first telling has no signal", cli.calls)
+	}
+	ps := f.rows(t).proposals
+	if len(ps) != 1 {
+		t.Fatalf("proposals = %+v, want one skill draft", ps)
+	}
+	id := fmt.Sprint(ps[0].ID)
+	out := f.mustReview(t, id)
+	for _, want := range []string{skillLine, "text:\n  ---\n  name: release\n", "scope:    workspace\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("brain review %s:\n%s\nwant %q", id, out, want)
+		}
+	}
+
+	f.mustReview(t, id, "--approve")
+	item := *f.rows(t).proposal(t, ps[0].ID).ItemID
+	if b := f.brief(t); !strings.Contains(b, "- release: Release a new version.") || !strings.Contains(b, f.skillFile(item, 2)) {
+		t.Errorf("shop brief = %q, want the release skill", b)
+	}
+	blog, err := output.Read(filepath.Join(f.store, outDir), "ws_a15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(blog.Global+blog.Workspace, "release") {
+		t.Errorf("blog brief = %q, want no release skill", blog.Global+blog.Workspace)
+	}
+}
+
 // AC: a patch proposal shows the diff of the changed lines only. Approve makes a new revision,
 // and the next build writes its file and points the brief at it.
 func TestSkillPatch(t *testing.T) {
