@@ -157,7 +157,7 @@ func TestEvidenceFromAnotherWorkspace(t *testing.T) {
 	// A ref of the input that is from another workspace is refused too.
 	j := job{batch: store.Batch{WorkspaceKey: "ws-A"}, refs: []ref{{id: "e1", workspace: "ws-A"}, {id: "e2", workspace: "ws-B"}}}
 	out := fmt.Sprintf(`{"claims":[%s]}`, mustJSON(t, replyOf(map[string]any{"evidence_refs": []string{"e1", "e2"}})))
-	if _, err := check(json.RawMessage(out), j); !errors.Is(err, ErrInvalid) {
+	if _, _, err := check(json.RawMessage(out), j); !errors.Is(err, ErrInvalid) {
 		t.Errorf("check(ref of ws-B) = %v, want ErrInvalid", err)
 	}
 }
@@ -189,7 +189,7 @@ func TestPermissionKeywordCheck(t *testing.T) {
 	j := job{refs: []ref{{id: "e1"}}}
 	for rule, want := range map[string]bool{"always allow push": true, "use pnpm": false} {
 		out := fmt.Sprintf(`{"claims":[%s]}`, mustJSON(t, replyOf(map[string]any{"rule": rule, "evidence_refs": []string{"e1"}})))
-		claims, err := check(json.RawMessage(out), j)
+		claims, _, err := check(json.RawMessage(out), j)
 		if err != nil || claims[0].TouchesPermission != want {
 			t.Errorf("check(%q) = %+v, %v, want the permission flag %v", rule, claims, err, want)
 		}
@@ -203,11 +203,11 @@ func TestCheckKnownClaims(t *testing.T) {
 		return json.RawMessage(fmt.Sprintf(`{"claims":[%s]}`, mustJSON(t, replyOf(map[string]any{
 			"evidence_refs": []string{"e1"}, "same_as": sameAs, "conflicts_with": conflicts}))))
 	}
-	claims, err := check(claim("cl_a", "cl_b"), j)
+	claims, _, err := check(claim("cl_a", "cl_b"), j)
 	if err != nil || claims[0].SameAs != "cl_a" || claims[0].ConflictsWith != "cl_b" {
 		t.Fatalf("check(known) = %+v, %v", claims, err)
 	}
-	if claims, err := check(claim(nil, nil), j); err != nil || claims[0].SameAs != "" || claims[0].ConflictsWith != "" {
+	if claims, _, err := check(claim(nil, nil), j); err != nil || claims[0].SameAs != "" || claims[0].ConflictsWith != "" {
 		t.Errorf("check(null) = %+v, %v", claims, err)
 	}
 	for name, out := range map[string]json.RawMessage{
@@ -215,7 +215,7 @@ func TestCheckKnownClaims(t *testing.T) {
 		"unknown conflicts_with": claim(nil, "cl_other"),
 		"bad conflicts_with":     claim(nil, 1),
 	} {
-		if _, err := check(out, j); !errors.Is(err, ErrInvalid) {
+		if _, _, err := check(out, j); !errors.Is(err, ErrInvalid) {
 			t.Errorf("check(%s) = %v, want ErrInvalid", name, err)
 		}
 	}

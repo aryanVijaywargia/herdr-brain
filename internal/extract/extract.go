@@ -39,6 +39,9 @@ type Pass struct {
 	// Suggest starts the review pane of a new lesson proposal after its commit (#253, §7.2);
 	// nil for none.
 	Suggest func(ctx context.Context, s Suggestion) error
+	// Note gets one line for the brained log about a committed batch that dropped claims: how
+	// many and why, with no claim text (#310). nil for none.
+	Note func(line string)
 }
 
 // Suggestion is the reserved suggestion of a new lesson proposal (#253): the review pane opens
@@ -374,21 +377,24 @@ func (p Pass) extract(ctx context.Context, j job) error {
 		return ctx.Err()
 	}
 	var claims []Claim
+	var dropped []string
 	if err == nil {
-		claims, err = check(out, j)
+		claims, dropped, err = check(out, j)
 	}
-	return p.commit(ctx, j, b.ID, claims, err)
+	return p.commit(ctx, j, b.ID, claims, dropped, err)
 }
 
 // commit is the one transaction of batch id (G3, §7.3). A batch that is no longer active adds
 // nothing: a retry of a committed batch, or a batch that a newer one replaced. A failure or an
 // invalid response keeps the watermark. Else it checks the settings, the watermark and the
 // input again; a forget that touched the input discards the whole result. Then it writes the
-// evidence links, candidates and proposals, and moves the watermark.
-func (p Pass) commit(ctx context.Context, j job, id int64, claims []Claim, callErr error) error {
+// evidence links, candidates and proposals, and moves the watermark. The claims that check
+// dropped go to Note once the batch is committed.
+func (p Pass) commit(ctx context.Context, j job, id int64, claims []Claim, dropped []string, callErr error) error {
 	var lessons []Suggestion
+	committed := false
 	err := p.Store.Write(ctx, func(tx *sql.Tx) error {
-		lessons = nil
+		lessons, committed = nil, false
 		now := p.Now()
 		b, err := store.BatchByID(ctx, tx, id)
 		if err != nil || b.Status != store.BatchActive {
@@ -426,10 +432,18 @@ func (p Pass) commit(ctx context.Context, j job, id int64, claims []Claim, callE
 		if _, err := store.EndBatch(ctx, tx, id, status, "", now); err != nil {
 			return err
 		}
+		committed = true
 		return store.MoveWatermark(ctx, tx, j.batch)
 	})
-	if err != nil || p.Suggest == nil {
+	if err != nil {
 		return err
+	}
+	if committed && len(dropped) > 0 && p.Note != nil {
+		p.Note(fmt.Sprintf("batch %d: dropped %d of %d claims: %s", id, len(dropped), len(claims)+len(dropped),
+			strings.Join(dropped, "; ")))
+	}
+	if p.Suggest == nil {
+		return nil
 	}
 	var errs []error
 	for _, s := range lessons {

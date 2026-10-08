@@ -286,7 +286,7 @@ func TestCrashAfterCommit(t *testing.T) {
 	last := bs[len(bs)-1]
 	c := Claim{Kind: "correction", Situation: "s", Rule: "another rule", Scope: store.ScopeWorkspace,
 		Refs: []ref{{id: "e1", obs: last.LastObservation, identity: last.LastCapture}}}
-	if err := f.pass().commit(context.Background(), job{batch: last}, last.ID, []Claim{c}, nil); err != nil {
+	if err := f.pass().commit(context.Background(), job{batch: last}, last.ID, []Claim{c}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	f.mustRun()
@@ -535,7 +535,7 @@ func TestCheck(t *testing.T) {
 	j := job{refs: []ref{{id: "e1"}, {id: "e2"}}, known: []store.Claim{{ID: "c1"}}}
 	valid := `{"kind":"fact","situation":"s","rule":"r","scope_guess":"global","evidence_refs":["e1","e1"],` +
 		`"same_as":"c1","conflicts_with":null,"touches_permission":true,"expected_benefit":"b"}`
-	claims, err := check(json.RawMessage(`{"claims":[`+valid+`]}`), j)
+	claims, _, err := check(json.RawMessage(`{"claims":[`+valid+`]}`), j)
 	if err != nil || len(claims) != 1 || len(claims[0].Refs) != 1 || claims[0].SameAs != "c1" || claims[0].Scope != store.ScopeGlobal {
 		t.Fatalf("check(valid) = %+v, %v", claims, err)
 	}
@@ -550,7 +550,7 @@ func TestCheck(t *testing.T) {
 		"missing field": `{"claims":[` + strings.Replace(valid, `,"expected_benefit":"b"`, ``, 1) + `]}`,
 		"bad same_as":   `{"claims":[` + strings.Replace(valid, `"same_as":"c1"`, `"same_as":1`, 1) + `]}`,
 	} {
-		if _, err := check(json.RawMessage(out), j); !errors.Is(err, ErrInvalid) {
+		if _, _, err := check(json.RawMessage(out), j); !errors.Is(err, ErrInvalid) {
 			t.Errorf("check(%s) = %v, want ErrInvalid", name, err)
 		}
 	}

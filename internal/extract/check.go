@@ -214,33 +214,41 @@ func senderMark(s store.Sender) string {
 }
 
 // check checks the result out of the extractor against the schema and the refs of batch j,
-// outside the model (§7.3), and returns its claims. An error wraps ErrInvalid: an evidence ref
-// that is not in the input or not in the scope of the batch, or a same_as or conflicts_with
-// that names no claim of the input, refuses the whole result.
-func check(out json.RawMessage, j job) ([]Claim, error) {
+// outside the model (§7.3), and returns its claims. A result that does not match the schema is
+// invalid: the error wraps ErrInvalid. A claim that fails its own check is dropped and the
+// other claims stay (#310): for example no evidence, an evidence ref that is not in the input
+// or not in the scope of the batch, or a same_as or conflicts_with that names no claim of the
+// input. The second result says which claims were dropped and why, with no claim text. A result
+// with claims that are all dropped is invalid, so the batch waits for its retry (#263).
+func check(out json.RawMessage, j job) ([]Claim, []string, error) {
 	var res struct {
 		Claims *[]rawClaim `json:"claims"`
 	}
 	dec := json.NewDecoder(bytes.NewReader(out))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&res); err != nil {
-		return nil, fmt.Errorf("result does not match the schema: %w", ErrInvalid)
+		return nil, nil, fmt.Errorf("result does not match the schema: %w", ErrInvalid)
 	}
 	if dec.More() {
-		return nil, fmt.Errorf("result has data after the object: %w", ErrInvalid)
+		return nil, nil, fmt.Errorf("result has data after the object: %w", ErrInvalid)
 	}
 	if res.Claims == nil {
-		return nil, fmt.Errorf("result has no claims field: %w", ErrInvalid)
+		return nil, nil, fmt.Errorf("result has no claims field: %w", ErrInvalid)
 	}
 	claims := make([]Claim, 0, len(*res.Claims))
+	var dropped []string
 	for i, r := range *res.Claims {
 		c, err := checkClaim(r, j)
 		if err != nil {
-			return nil, fmt.Errorf("claim %d: %w: %w", i+1, err, ErrInvalid)
+			dropped = append(dropped, fmt.Sprintf("claim %d: %v", i+1, err))
+			continue
 		}
 		claims = append(claims, c)
 	}
-	return claims, nil
+	if len(claims) == 0 && len(dropped) > 0 {
+		return nil, nil, fmt.Errorf("%s: %w", strings.Join(dropped, "; "), ErrInvalid)
+	}
+	return claims, dropped, nil
 }
 
 func checkClaim(r rawClaim, j job) (Claim, error) {

@@ -327,11 +327,14 @@ func (p Pass) runChange(ctx context.Context, j job) error {
 		return ctx.Err()
 	}
 	var claims []Claim
+	var dropped []string
 	if err == nil {
-		claims, err = check(out, j)
+		claims, dropped, err = check(out, j)
 	}
-	if err == nil && len(claims) > 1 {
-		err = fmt.Errorf("%d claims for one change request: %w", len(claims), ErrInvalid)
+	// A change request wants one claim: a dropped claim counts too, so a reply with a second
+	// claim stays invalid, as before #310.
+	if n := len(claims) + len(dropped); err == nil && n > 1 {
+		err = fmt.Errorf("%d claims for one change request: %w", n, ErrInvalid)
 	}
 	if err == nil && len(claims) == 1 && ((claims[0].Skill != nil) != (j.change.kind == store.KindSkill) ||
 		(claims[0].Tool != "") != (j.change.kind == store.KindTool)) {
