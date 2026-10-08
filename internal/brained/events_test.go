@@ -553,3 +553,175 @@ func TestEventsRepeatedPrompt(t *testing.T) {
 		t.Errorf("counted prompts = %d, want 2 (one each turn)", prompts)
 	}
 }
+
+// shellPane is the shell pane of the probe tests (#317).
+const shellPane = "w1:p2"
+
+// probeLine is a pane_agent_detected event of codex in shellPane, as herdr sends it; a release
+// has the final status and released.
+func probeLine(released bool) string {
+	if released {
+		return `{"data":{"agent":"codex","final_status":"idle","pane_id":"w1:p2","released":true,"workspace_id":"w1"},"event":"pane_agent_detected"}`
+	}
+	return `{"data":{"agent":"codex","pane_id":"w1:p2","type":"pane_agent_detected","workspace_id":"w1"},"event":"pane_agent_detected"}`
+}
+
+// The foreground processes of shellPane, as pane.process_info gives them.
+const (
+	// procsProbe: brain status runs its codex version probe.
+	procsProbe = `[{"name":"brain","argv":["/Users/me/.local/bin/brain","status"],"pid":10},` +
+		`{"name":"codex","argv":["codex","--version"],"pid":11}]`
+	// procsBrain: the probe has exited, and brain doctor still runs.
+	procsBrain = `[{"name":"brain","argv":["brain","doctor"],"pid":12}]`
+	// procsShell: brain review and its probe have exited.
+	procsShell = `[{"name":"zsh","argv":["-zsh"],"pid":1}]`
+	// procsAsh: the probe has exited in an ash login shell.
+	procsAsh = `[{"name":"ash","argv":["-ash"],"pid":1}]`
+	// procsCodex: a real codex runs.
+	procsCodex = `[{"name":"codex","argv":["codex"],"pid":13}]`
+	// procsNoArgv: herdr cannot read the argv.
+	procsNoArgv = `[{"name":"codex","argv":null,"pid":14}]`
+)
+
+// shell adds shellPane, with no agent, and waits for its status stream.
+func (l *live) shell(t *testing.T) {
+	t.Helper()
+	l.f.addPane(shellPane, "")
+	l.screen(shellPane, "$ ")
+	l.created(t, shellPane)
+}
+
+// agent sets the agent of shellPane ("" when it left) and its foreground processes.
+func (l *live) agent(agent, procs string) {
+	l.f.mu.Lock()
+	defer l.f.mu.Unlock()
+	l.f.panes[shellPane].agent = agent
+	l.f.panes[shellPane].procs = procs
+}
+
+// detect sends the detection of codex in shellPane with procs and waits for its baseline.
+func (l *live) detect(t *testing.T, procs string) {
+	t.Helper()
+	l.agent("codex", procs)
+	l.main.send(probeLine(false))
+	wantStep(t, l.step(t), Baseline, shellPane, GapNone, "")
+}
+
+// release sends the release of codex in shellPane and waits for its end.
+func (l *live) release(t *testing.T) {
+	t.Helper()
+	l.agent("", "")
+	l.main.send(probeLine(true))
+	wantStep(t, l.step(t), End, shellPane, "", ReasonAgentLeft)
+}
+
+// observed returns the sessions observed and the capture gaps that brain status prints for
+// codex.
+func (l *live) observed(t *testing.T) store.DeliveryGap {
+	t.Helper()
+	var d store.DeliveryGap
+	l.tx(t, func(tx *sql.Tx) (err error) {
+		d, err = store.DeliveryGaps(context.Background(), tx, "s1", "codex")
+		return err
+	})
+	return d
+}
+
+// #317 AC 1, AC 3: brain status, doctor and review run "codex --version" in a shell pane.
+// herdr detects codex for under a second, with no agent session id. At the baseline the probe
+// still runs, or only brain runs, or only the shell is left; herdr may also lose a release.
+// No probe makes a session, and brain status counts no session observed for them.
+func TestEventsShellProbe(t *testing.T) {
+	l := newLive(t, map[string]string{"w1:p1": codexRun1})
+	l.shell(t)
+
+	l.screen(shellPane, "$ brain status", "codex-cli 0.160.1")
+	l.detect(t, procsProbe)
+	l.release(t)
+	l.screen(shellPane, "$ brain doctor", "codex-cli 0.160.1")
+	l.detect(t, procsBrain)
+	// herdr loses this release, and detects the next probe.
+	l.screen(shellPane, "$ brain doctor", "codex-cli 0.160.1", "$ brain review", "codex-cli 0.160.1")
+	l.detect(t, procsShell)
+	l.status(t, shellPane, "idle") // a status change with no base takes a baseline too
+	l.release(t)
+	l.detect(t, procsAsh)
+	l.release(t)
+
+	r := l.rows(t)
+	if len(r.sessions) != 1 || r.sessions[0].PaneID != "w1:p1" {
+		t.Errorf("sessions = %+v, want only the codex session of w1:p1", r.sessions)
+	}
+	if lines, gaps := r.texts(shellPane); len(lines) != 0 || len(gaps) != 0 {
+		t.Errorf("%s holds lines %q and gaps %q, want none", shellPane, lines, gaps)
+	}
+	if d := l.observed(t); d.Sessions != 1 || d.Gaps != 1 {
+		t.Errorf("status codex: sessions observed %d, capture gaps %d, want 1 and 1 (the start of w1:p1)", d.Sessions, d.Gaps)
+	}
+}
+
+// #317 AC 2, AC 3: a real codex with no agent session id keeps its session: one left at its
+// first prompt with no text (it holds only its baseline), one that ends fast with text, one
+// with a hook record only, and one whose argv herdr cannot read.
+func TestEventsRealAgentKept(t *testing.T) {
+	for _, tc := range []struct {
+		name, procs string
+		text        bool // a change shows new text before the end
+		hook        bool // brain hook stores a record before the end
+		lines       []string
+	}{
+		{name: "first prompt", procs: procsCodex},
+		{name: "fast with text", procs: procsCodex, text: true, lines: []string{"• done"}},
+		{name: "hook record only", procs: procsCodex, hook: true, lines: []string{"• Ran npm test"}},
+		{name: "no argv", procs: procsNoArgv},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l := newLive(t, map[string]string{"w1:p1": codexRun1})
+			l.shell(t)
+			l.screen(shellPane, "$ codex", "› ")
+			l.detect(t, tc.procs)
+			if tc.text {
+				l.screen(shellPane, "$ codex", "• done")
+				l.status(t, shellPane, "idle")
+			}
+			if tc.hook {
+				l.hookRecord(t)
+			}
+			l.release(t)
+
+			r := l.rows(t)
+			if len(r.sessions) != 2 || r.sessions[1].PaneID != shellPane || r.sessions[1].Key.Kind != store.KeyCapture ||
+				r.sessions[1].Ended.IsZero() {
+				t.Fatalf("sessions = %+v, want the ended capture session of %s", r.sessions, shellPane)
+			}
+			if want := 1 + btoi(tc.text || tc.hook); l.observed(t).Sessions != want {
+				t.Errorf("status codex: sessions observed %d, want %d", l.observed(t).Sessions, want)
+			}
+			lines, _ := r.texts(shellPane)
+			wantLines(t, lines, tc.lines...)
+		})
+	}
+}
+
+// hookRecord stores a tool hook record of codex in shellPane, as brain hook does.
+func (l *live) hookRecord(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	l.tx(t, func(tx *sql.Tx) error {
+		_, segment, err := store.HookSegment(ctx, tx, "s1", "codex", shellPane, "")
+		if err != nil || segment == 0 {
+			return fmt.Errorf("no open segment: %w", err)
+		}
+		_, err = store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: fmt.Sprintf("s1/%d/hook/tool", segment),
+			Source: store.SourceHook, SegmentID: segment, Event: "tool", Excerpt: "• Ran npm test", Status: store.ObservationComplete,
+			Sender: store.SenderAssistant, Counts: true, At: time.Date(2026, 10, 8, 10, 0, 30, 0, time.UTC)})
+		return err
+	})
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}

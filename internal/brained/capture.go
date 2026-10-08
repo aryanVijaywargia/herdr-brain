@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -161,7 +162,8 @@ func (c *Capture) baseline(ctx context.Context, s Step, gap string) error {
 	switch {
 	case err != nil:
 		return c.lose(ctx, s, cp, err)
-	case r.agent == "":
+	case r.agent == "" || nativeID(r.pane) == "" && c.probe(ctx, s.PaneID):
+		// No agent, or a CLI probe that is no agent session (#317).
 		return c.end(ctx, s, cp)
 	case r.pane.ID != s.PaneID || r.pane.WorkspaceID != s.WorkspaceID:
 		// The pane moved: its new id or workspace gets its own baseline.
@@ -669,6 +671,39 @@ func (c *Capture) read(ctx context.Context, id string) (read, error) {
 	return read{pane: after, agent: agent, read: rd, lines: all, senders: senders(agent, all),
 		clean: redact(agent, all), head: head(agent, all),
 		full: source == herdr.ReadRecentUnwrapped && raw < lines && !rd.Truncated}, nil
+}
+
+// shell reports whether name is the name of a shell that a pane runs [NEW]: a shell is no
+// agent run.
+func shell(name string) bool {
+	switch name {
+	case "sh", "bash", "zsh", "fish", "dash", "ash", "ksh", "mksh", "oksh", "yash", "tcsh", "csh", "nu", "pwsh",
+		"elvish", "xonsh":
+		return true
+	}
+	return false
+}
+
+// probe reports whether herdr saw a short CLI run as an agent in pane id, such as the
+// "codex --version" of brain status in a shell pane (#317): each foreground process of the
+// pane is a shell, Brain's own CLI or a run with --version or -v, so no agent runs there. A
+// real agent is its own foreground process while it runs. When herdr gives no process or no
+// argv, it reports false, and the baseline opens the session as before.
+func (c *Capture) probe(ctx context.Context, id string) bool {
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	ps, err := c.sock.Processes(ctx, id)
+	if err != nil || len(ps) == 0 {
+		return false
+	}
+	return !slices.ContainsFunc(ps, func(p herdr.Process) bool {
+		if len(p.Argv) == 0 {
+			return true
+		}
+		name := strings.TrimPrefix(filepath.Base(p.Argv[0]), "-")
+		version := slices.ContainsFunc(p.Argv[1:], func(a string) bool { return a == "--version" || a == "-v" })
+		return !shell(name) && name != "brain" && !version
+	})
 }
 
 // lines splits text into lines without trailing space, and drops blank lines. The screen
