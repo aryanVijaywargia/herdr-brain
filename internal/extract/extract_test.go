@@ -70,6 +70,7 @@ type fixture struct {
 	now   time.Time
 	panes int
 	full  map[string]string // the full prompt of an excerpt, for the prompt index; none when it is the excerpt
+	caps  Caps              // the caps of the pass; the zero value for DefaultCaps
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -101,7 +102,8 @@ func (f *fixture) write(fn func(context.Context, *sql.Tx) error) {
 }
 
 func (f *fixture) pass() Pass {
-	return Pass{Store: f.s, Runner: f.cli, HerdrSession: "default", DefaultOn: true, Now: func() time.Time { return f.now }}
+	return Pass{Store: f.s, Runner: f.cli, HerdrSession: "default", DefaultOn: true, Now: func() time.Time { return f.now },
+		Caps: f.caps}
 }
 
 func (f *fixture) run() error { return f.pass().Run(context.Background()) }

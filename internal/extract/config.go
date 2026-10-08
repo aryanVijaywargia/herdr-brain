@@ -16,7 +16,7 @@ import (
 //	[gates]
 //	correction = 3
 //	[caps]
-//	proposals_per_day = 10
+//	proposals_per_day = 20
 //
 // [gates] takes a minimum for each candidate kind: correction, lesson, failure, procedure,
 // command_chain. [caps] takes calls_per_day, proposals_per_day and input_bytes. [NEW] table and
