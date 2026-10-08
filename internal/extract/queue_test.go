@@ -82,8 +82,7 @@ func (f *fixture) hookStore() *store.Store {
 // inside the hook cap (S42).
 func TestQueueFairAndBounded(t *testing.T) {
 	f := newFixture(t)
-	f.caps = DefaultCaps()
-	f.caps.Calls = 10 // [NEW] test limit: the 16 batches need two days
+	f.caps = Caps{Calls: 10, Proposals: 15, InputBytes: 32 << 10} // [NEW] test limit of 10 calls: the 16 batches need two days
 	keys := f.manyWorkspaces()
 	hook := f.hookStore()
 	f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {
