@@ -110,7 +110,7 @@ func (l *itemsPane) act(ctx context.Context, restore bool) error {
 	out, err := l.call(ctx, func(cl caller) error { return cl.setRetired(ctx, ids, restore) })
 	if err != nil {
 		l.msg = err.Error()
-		return nil
+		return nil //nolint:nilerr // the error is on the screen, and the list goes on
 	}
 	l.last, l.picked = ids, map[int64]bool{}
 	l.msg = fmt.Sprintf("%s %s; u undoes it\n%s", done, itemWords(ids), out)
