@@ -215,3 +215,61 @@ func TestTools(t *testing.T) {
 		t.Errorf("Tools()[3].State = %s, want draft", ts[3].State)
 	}
 }
+
+// ToolTexts gives the tools that a pane of a workspace sees, active or pending: the current
+// text of each active or disputed tool item and the text of each pending proposal of a tool
+// item, global or of that workspace. A retired tool, a draft with no pending proposal, a
+// decided proposal and a tool of another workspace are not in it (#337, #339).
+func TestToolTexts(t *testing.T) {
+	s, add := toolStore(t)
+	k1, k2 := "k1", "k2"
+	ids := map[string]int64{}
+	for _, it := range []struct {
+		name  string
+		key   *string
+		state State
+	}{{"global", nil, StateActive}, {"active", &k1, StateActive}, {"disputed", &k1, StateDisputed},
+		{"retired", &k1, StateRetired}, {"other", &k2, StateActive}, {"pending", &k1, StateDraft},
+		{"rejected", &k1, StateDraft}, {"quiet", &k1, StateDraft}} {
+		id, err := add(it.key, it.state, toolText(it.name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[it.name] = id
+	}
+	ctx := context.Background()
+	write(t, s, func(tx *sql.Tx) error {
+		for name, status := range map[string]ProposalStatus{"pending": ProposalPending, "rejected": ProposalRejected,
+			"active": ProposalPending} {
+			id, base := ids[name], int64(1)
+			if _, err := InsertProposal(ctx, tx, Proposal{ItemID: &id, BaseRevision: &base, Text: toolText(name + "-next"),
+				Scope: ScopeWorkspace, Target: "k1", Status: status, Created: time.Now()}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	names := func(key string) []string {
+		t.Helper()
+		var got []string
+		write(t, s, func(tx *sql.Tx) error {
+			ts, err := ToolTexts(ctx, tx, key)
+			for _, tt := range ts {
+				c, err := tool.Parse(tt.Text)
+				if err != nil || tt.ClaimID != toolText(strings.TrimSuffix(c.Name, "-next")) {
+					t.Errorf("tool text %+v: %v; want a tool text with the claim of its item", tt, err)
+				}
+				got = append(got, c.Name)
+			}
+			return err
+		})
+		slices.Sort(got)
+		return got
+	}
+	if got, want := names("k1"), []string{"active", "active-next", "disputed", "global", "pending-next"}; !slices.Equal(got, want) {
+		t.Errorf("ToolTexts(k1) = %q, want %q", got, want)
+	}
+	if got, want := names(""), []string{"global"}; !slices.Equal(got, want) {
+		t.Errorf("ToolTexts(global) = %q, want %q", got, want)
+	}
+}

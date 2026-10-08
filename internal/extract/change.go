@@ -422,6 +422,16 @@ func redraftKind(k store.Kind) string {
 func (p Pass) redraft(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Time) (int64, error) {
 	ch := j.change
 	c = redactClaim(c)
+	if c.Tool != "" {
+		var key string // a global item sees the global tools only
+		if ch.item.WorkspaceKey != nil {
+			key = *ch.item.WorkspaceKey
+		}
+		var err error
+		if c.Tool, err = freeName(ctx, tx, c.Tool, key, ch.item.ItemID); err != nil {
+			return 0, err
+		}
+	}
 	text, diff := draft(c)
 	switch {
 	case ch.item.State == store.StateDraft:

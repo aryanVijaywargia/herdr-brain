@@ -36,25 +36,7 @@ type turn struct {
 // as the hook does. It returns the session id.
 func (f *fixture) commandSession(id string, turns ...turn) int64 {
 	f.t.Helper()
-	key := store.SessionKey{HerdrSession: "default", Harness: "claude", Kind: store.KeyAgent, ID: id}
-	f.panes++
-	pane := fmt.Sprintf("w1:p%d", f.panes)
-	var sid int64
-	f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
-		if sid, err = store.OpenSession(ctx, tx, key, pane, "ws-A", t0); err != nil {
-			return err
-		}
-		seg, err := store.StartSegment(ctx, tx, sid, pane, "ws-A", "recent_unwrapped", t0)
-		if err != nil {
-			return err
-		}
-		at, n := t0, 0
-		add := func(o store.Observation) (int64, error) {
-			at, n = at.Add(time.Second), n+1
-			o.CaptureIdentity, o.SegmentID, o.Status, o.Counts, o.At = fmt.Sprintf("%s-%d", id, n), seg,
-				store.ObservationComplete, true, at
-			return store.AddObservation(ctx, tx, o)
-		}
+	return f.agentSession("claude", id, func(ctx context.Context, tx *sql.Tx, add adder) error {
 		for _, tn := range turns {
 			if _, err := add(store.Observation{Source: store.SourceHerdr, Event: "working", Excerpt: tn.prompt,
 				Sender: store.SenderYou}); err != nil {
@@ -81,9 +63,92 @@ func (f *fixture) commandSession(id string, turns ...turn) int64 {
 				}
 			}
 		}
+		return nil
+	})
+}
+
+// adder adds one observation of a session and returns its id.
+type adder func(store.Observation) (int64, error)
+
+// agentSession stores an ended session of agent id of harness in ws-A, in a new pane, with the
+// observations that fill adds, one second apart from t0. It returns the session id.
+func (f *fixture) agentSession(harness, id string, fill func(context.Context, *sql.Tx, adder) error) int64 {
+	f.t.Helper()
+	key := store.SessionKey{HerdrSession: "default", Harness: harness, Kind: store.KeyAgent, ID: id}
+	f.panes++
+	pane := fmt.Sprintf("w1:p%d", f.panes)
+	var sid int64
+	f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
+		if sid, err = store.OpenSession(ctx, tx, key, pane, "ws-A", t0); err != nil {
+			return err
+		}
+		seg, err := store.StartSegment(ctx, tx, sid, pane, "ws-A", "recent_unwrapped", t0)
+		if err != nil {
+			return err
+		}
+		at, n := t0, 0
+		add := func(o store.Observation) (int64, error) {
+			at, n = at.Add(time.Second), n+1
+			o.CaptureIdentity, o.SegmentID, o.Status, o.Counts, o.At = fmt.Sprintf("%s-%d", id, n), seg,
+				store.ObservationComplete, true, at
+			return store.AddObservation(ctx, tx, o)
+		}
+		if err := fill(ctx, tx, add); err != nil {
+			return err
+		}
 		return store.EndSession(ctx, tx, key, at)
 	})
 	return sid
+}
+
+// rec is one record of a Codex session with hook records: a hook prompt record, a pane line
+// that capture keeps as unconfirmed text, or a hook tool record with its command record.
+type rec struct {
+	o   store.Observation
+	cmd *store.CommandRecord
+}
+
+// promptRec is the hook prompt record of text.
+func promptRec(text string) rec {
+	return rec{o: store.Observation{Source: store.SourceHook, Event: "prompt", Excerpt: text,
+		Sender: store.SenderUnconfirmed}}
+}
+
+// paneRec is a pane line of text that capture keeps as unconfirmed, as tool output with no
+// tool mark above it in the same read (#337).
+func paneRec(text string) rec {
+	return rec{o: store.Observation{Source: store.SourceHerdr, Event: "working", Excerpt: text,
+		Sender: store.SenderUnconfirmed}}
+}
+
+// codexRec is the hook tool record of command argv in the shop folder. It has no exit status:
+// a Codex hook record has none.
+func codexRec(argv string) rec {
+	return rec{o: store.Observation{Source: store.SourceHook, Event: "tool", Excerpt: argv, Sender: store.SenderTool},
+		cmd: &store.CommandRecord{Argv: argv, CWD: shop}}
+}
+
+// codexSession stores an ended Codex session of agent id in ws-A with recs, in order. It
+// returns the session id.
+func (f *fixture) codexSession(id string, recs ...rec) int64 {
+	f.t.Helper()
+	return f.agentSession("codex", id, func(ctx context.Context, tx *sql.Tx, add adder) error {
+		for _, r := range recs {
+			o, err := add(r.o)
+			if err != nil {
+				return err
+			}
+			if r.cmd == nil {
+				continue
+			}
+			c := *r.cmd
+			c.ObservationID = o
+			if err := store.AddCommandRecord(ctx, tx, c); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // toolProposals returns the pending proposals of tool items.
@@ -549,5 +614,198 @@ func TestToolFolder(t *testing.T) {
 				t.Errorf("toolFolder() = %q, want %q", got, c.want)
 			}
 		})
+	}
+}
+
+// The task of the M2 eval run 3 (#337): reset the local db, then run the tests.
+const (
+	resetTask = "Reset the local db and run the tests: run exactly ./scripts/reset-db.sh and then exactly npm test"
+	resetCmd  = "./scripts/reset-db.sh"
+	testCmd   = "npm test"
+)
+
+// #337 AC: the 3 chain shapes of one task in Codex give one chain key, so 3 sessions give one
+// tool proposal: a sandbox retry (npm test twice, with no exit status), an approval first (npm
+// test once), and a line of git status output between the two runs, which capture kept as
+// unconfirmed text. Only the hook prompt record ends a turn.
+func TestToolFromCodexRuns(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = noClaims
+	f.codexSession("s5", promptRec(resetTask), codexRec(resetCmd), codexRec(testCmd), codexRec(testCmd))
+	f.codexSession("s7", promptRec(resetTask), codexRec(resetCmd), codexRec(testCmd))
+	f.mustRun()
+	if ps := f.toolProposals(); len(ps) != 0 {
+		t.Fatalf("tool drafts after 2 sessions = %+v, want none below the gate", ps)
+	}
+	f.codexSession("s9", promptRec(resetTask), codexRec(resetCmd), codexRec(testCmd), paneRec("?? src/routes/"),
+		codexRec(testCmd))
+	f.mustRun()
+	ps := f.toolProposals()
+	if len(ps) != 1 {
+		t.Fatalf("tool drafts = %+v, want one", ps)
+	}
+	c, err := tool.Parse(ps[0].Text)
+	want := [][]string{{resetCmd}, {"npm", "test"}}
+	if err != nil || !slices.EqualFunc(c.Steps, want, slices.Equal) || c.Name != "reset-db-sh" || c.Cwd != shop {
+		t.Errorf("draft = %+v, %v; want reset-db-sh with the steps %q in %s", c, err, want, shop)
+	}
+	if n := f.count(`SELECT COUNT(*) FROM candidates WHERE kind = 'command_chain'`); n != 1 {
+		t.Errorf("command candidates = %d, want 1: one task gives one chain", n)
+	}
+}
+
+// yourTool is a tool item in a workspace that you made: its claim is no claim of a chain.
+type yourTool struct {
+	key, name, cwd string
+	pending        bool // a draft item with a pending proposal; else an active item
+	steps          [][]string
+}
+
+// addTool stores tool y and returns its item id.
+func (f *fixture) addTool(y yourTool) int64 {
+	f.t.Helper()
+	text, err := draftToml{Name: y.name, Description: "Run the recorded commands", Cwd: y.cwd, TimeoutS: draftTimeout,
+		Effects: draftEffects}.text(y.steps)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	state := store.StateActive
+	if y.pending {
+		state = store.StateDraft
+	}
+	var id int64
+	f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
+		id, _, err = store.CreateItem(ctx, tx, store.Item{ClaimID: "cl_" + y.key + "_" + y.name, Kind: store.KindTool,
+			Created: t0}, store.ItemRevision{Text: text, Scope: store.ScopeWorkspace, WorkspaceKey: &y.key, State: state,
+			Author: store.AuthorYou, Origin: store.OriginReview, Created: t0})
+		if err != nil || !y.pending {
+			return err
+		}
+		base := int64(1)
+		_, err = store.InsertProposal(ctx, tx, store.Proposal{ItemID: &id, BaseRevision: &base, Text: text,
+			Scope: store.ScopeWorkspace, Target: y.key, Status: store.ProposalPending, Created: t0})
+		return err
+	})
+	return id
+}
+
+// #337 AC: a chain that only adds a rerun to the steps of an active or pending tool makes no new
+// tool proposal and uses no cap, also when the tool has another claim, as a tool that you made.
+// A tool whose own steps hold the rerun, as the duplicate draft of the M2 eval run 3, is the
+// same tool too. The same commands in another folder are another tool.
+func TestNoDuplicateTool(t *testing.T) {
+	reset, test := []string{resetCmd}, []string{"npm", "test"}
+	for _, tc := range []struct {
+		name      string
+		tool      yourTool
+		proposals int
+	}{
+		{"active", yourTool{"ws-A", "reset-and-test", shop, false, [][]string{reset, test}}, 0},
+		{"pending", yourTool{"ws-A", "reset-and-test", shop, true, [][]string{reset, test}}, 0},
+		{"rerun in the tool", yourTool{"ws-A", "reset-db-sh", shop, false, [][]string{reset, test, test}}, 0},
+		{"other folder", yourTool{"ws-A", "reset-and-test", "/src/blog", false, [][]string{reset, test}}, 2},
+		{"other workspace", yourTool{"ws-B", "reset-and-test", shop, false, [][]string{reset, test}}, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.cli.reply = noClaims
+			f.addTool(tc.tool)
+			for i := range 3 {
+				f.commandSession(fmt.Sprintf("s%d", i), turn{"reset the db and test", []store.CommandRecord{
+					command(resetCmd), command(testCmd), command(testCmd)}})
+			}
+			f.mustRun()
+			if n := f.count(`SELECT COUNT(*) FROM candidates WHERE kind = 'command_chain' AND sessions = 3`); n != 1 {
+				t.Errorf("command candidates with 3 sessions = %d, want 1: the chain stays evidence", n)
+			}
+			var d Day
+			f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
+				d, err = f.pass().Day(ctx, tx)
+				return err
+			})
+			// A new tool draft comes with its script proposal.
+			if d.Proposals != tc.proposals {
+				t.Errorf("proposals of the day = %d, want %d", d.Proposals, tc.proposals)
+			}
+		})
+	}
+}
+
+// #339 AC: a tool draft never gets the name of an active or pending tool that a pane of its
+// workspace sees: it gets that name with the first free number. A tool of another workspace
+// takes no name from it.
+func TestToolDraftFreeName(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = noClaims
+	f.addTool(yourTool{"ws-A", "reset-db-sh", shop, false, [][]string{{resetCmd}, {"npm", "test"}}})
+	f.addTool(yourTool{"ws-A", "reset-db-sh-2", shop, true, [][]string{{"npm", "run", "seed"}}})
+	f.addTool(yourTool{"ws-B", "reset-db-sh-3", shop, false, [][]string{{"npm", "run", "seed"}}})
+	for i := range 3 {
+		f.commandSession(fmt.Sprintf("s%d", i), turn{"reset the db", []store.CommandRecord{command(resetCmd)}})
+	}
+	f.mustRun()
+	var names []string
+	for _, p := range f.toolProposals() {
+		c, err := tool.Parse(p.Text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.CandidateID != nil {
+			names = append(names, c.Name)
+		}
+	}
+	if want := []string{"reset-db-sh-3"}; !slices.Equal(names, want) {
+		t.Errorf("names of the new tool drafts = %q, want %q", names, want)
+	}
+}
+
+// #339: the model's draft gets a free name too, and a new draft of a tool item keeps its own
+// name (a change request): its own texts are no clash.
+func TestFreeName(t *testing.T) {
+	f := newFixture(t)
+	own := f.addTool(yourTool{"ws-A", "test-package", shop, true, [][]string{{"pnpm", "test"}}})
+	f.addTool(yourTool{"ws-B", "test-package-2", shop, false, [][]string{{"pnpm", "test"}}})
+	text, err := draftToml{Name: "test-package", Description: "Run the tests", Cwd: shop, TimeoutS: draftTimeout,
+		Effects: draftEffects}.text([][]string{{"pnpm", "test", "--filter", "api"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		key  string
+		item int64
+		want string
+	}{{"new draft", "ws-A", 0, "test-package-2"}, {"its own item", "ws-A", own, "test-package"},
+		{"global", "", 0, "test-package"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got string
+			f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
+				got, err = freeName(ctx, tx, text, tc.key, tc.item)
+				return err
+			})
+			c, err := tool.Parse(got)
+			if err != nil || c.Name != tc.want || c.Argv[3] != "api" {
+				t.Errorf("freeName(%s) = %+v, %v; want the draft named %s", tc.name, c, err, tc.want)
+			}
+		})
+	}
+}
+
+// #339: the extractor's tool draft gets a free name too.
+func TestPlaceholderToolFreeName(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = toolReply(nil)
+	f.addTool(yourTool{"ws-A", "test-package", shop, false, [][]string{{"pnpm", "test"}}})
+	for i, pkg := range []string{"api", "web", "api"} {
+		f.commandSession(fmt.Sprintf("s%d", i), turn{"run the tests of " + pkg, []store.CommandRecord{
+			command("pnpm test --filter " + pkg)}})
+	}
+	f.mustRun()
+	ps := f.toolProposals()
+	if len(ps) != 1 {
+		t.Fatalf("tool drafts = %+v, want one", ps)
+	}
+	if c, err := tool.Parse(ps[0].Text); err != nil || c.Name != "test-package-2" {
+		t.Errorf("draft = %+v, %v; want the name test-package-2", c, err)
 	}
 }

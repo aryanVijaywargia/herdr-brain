@@ -1059,6 +1059,11 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 	if err != nil {
 		return Suggestion{}, err
 	}
+	if c.Tool != "" {
+		if c.Tool, err = freeName(ctx, tx, c.Tool, cand.WorkspaceKey, 0); err != nil {
+			return Suggestion{}, err
+		}
+	}
 	item, err := store.InsertItem(ctx, tx, store.Item{ClaimID: cand.ClaimID, CurrentRevision: 1, Kind: itemKind(c),
 		Scope: cand.Scope, WorkspaceKey: key, State: store.StateDraft, Created: now})
 	if err != nil {
