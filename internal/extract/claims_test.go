@@ -177,8 +177,9 @@ func TestKindFollowsClaim(t *testing.T) {
 }
 
 // A same_as link merges nothing when the known claim is flagged as a permission rule by the
-// model, is a claim of another claim kind with the same gate, has an item in the scope, or when
-// the new claim is rejected there (#279 review). Each keeps a proposed link and two candidates.
+// model, is a claim of another claim kind with the same gate, or when the new claim is rejected
+// there (#279 review). Each keeps a proposed link and two candidates. A known claim with an
+// active item holds the new claim instead (#312, TestRestatedClaim).
 func TestSameAsMergeStops(t *testing.T) {
 	for name, tc := range map[string]struct {
 		first  map[string]any
@@ -187,18 +188,6 @@ func TestSameAsMergeStops(t *testing.T) {
 	}{
 		"known claim flagged as a permission rule": {first: map[string]any{"touches_permission": true}},
 		"fact and preference":                      {first: map[string]any{"kind": "fact"}, second: map[string]any{"kind": "preference"}},
-		"known claim has an item": {setup: func(f *fixture) {
-			f.write(func(ctx context.Context, tx *sql.Tx) error {
-				var claim string
-				if err := tx.QueryRowContext(ctx, `SELECT id FROM claims`).Scan(&claim); err != nil {
-					return err
-				}
-				key := "ws-A"
-				_, err := store.InsertItem(ctx, tx, store.Item{ClaimID: claim, CurrentRevision: 1, Kind: store.KindPreference,
-					Scope: store.ScopeWorkspace, WorkspaceKey: &key, State: store.StateActive, Created: t0})
-				return err
-			})
-		}},
 		"new claim rejected": {setup: func(f *fixture) {
 			f.write(func(ctx context.Context, tx *sql.Tx) error {
 				claim, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: normal(c2Situation), Rule: normal(logRule)}, t0)

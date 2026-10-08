@@ -504,9 +504,11 @@ func untombstoned(ctx context.Context, tx *sql.Tx, refs []ref) ([]ref, error) {
 // evidence of the candidate of the claim in its scope. A tombstoned claim or ref adds nothing
 // (§6.7): a forget erases the claim key, so the tombstone source keys stop the same evidence.
 // A known claim (the same claim id) gets the evidence first; propose then drops the duplicate
-// proposal (§7.3). A same_as link to an open claim of the same kind in the same scope adds the
-// evidence to that claim's candidate (merge). A candidate that reaches its gate gets a proposal,
-// but a claim that an active skill covers goes to that skill: it makes no proposal (E20-S5).
+// proposal (§7.3). A same_as link to a claim that a proposal or an active item holds gives the
+// evidence to that claim (restate). A same_as link to an open claim of the same kind in the same
+// scope adds the evidence to that claim's candidate (merge). A candidate that reaches its gate
+// gets a proposal, but a claim that an active skill covers goes to that skill: it makes no
+// proposal (E20-S5).
 func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Time) (Suggestion, error) {
 	kept, err := untombstoned(ctx, tx, c.Refs)
 	if c.Refs = kept; err != nil || len(kept) == 0 {
@@ -530,6 +532,12 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	key := j.batch.WorkspaceKey
 	if c.Scope == store.ScopeGlobal {
 		key = ""
+	}
+	switch held, err := heldBy(ctx, tx, claim, c, key); {
+	case err != nil:
+		return Suggestion{}, err
+	case held != "":
+		return Suggestion{}, p.restate(ctx, tx, j, claim, held, c, key, now)
 	}
 	kind := candidateKind(c)
 	into, err := mergeInto(ctx, tx, claim, c, key, kind)
@@ -621,6 +629,83 @@ func (p Pass) attach(ctx context.Context, tx *sql.Tx, cand store.Candidate, refs
 	return id, accepted, nil
 }
 
+// checked returns the refs that Attach would accept as evidence of cand, and writes nothing.
+func checked(ctx context.Context, tx *sql.Tx, cand store.Candidate, refs []ref) ([]ref, error) {
+	var accepted []ref
+	for _, r := range refs {
+		err := store.CheckEvidence(ctx, tx, cand, r.obs, signal.Supports)
+		switch {
+		case errors.Is(err, store.ErrEvidenceRefused):
+			continue
+		case err != nil:
+			return nil, err
+		}
+		accepted = append(accepted, r)
+	}
+	return accepted, nil
+}
+
+// linkTarget returns the claim that the proposed same_as link of claim names, for claim c with
+// claim id claim. It returns false for no link, and when either claim is a permission or a
+// safety rule: Brain never merges those without review (§7.2), so the link stays for review.
+func linkTarget(ctx context.Context, tx *sql.Tx, claim string, c Claim) (store.Claim, bool, error) {
+	cl, err := store.ClaimByID(ctx, tx, claim)
+	if err != nil || cl.SameAs == "" || cl.SameAsStatus != store.SameAsProposed || c.TouchesPermission || cl.TouchesPermission {
+		return store.Claim{}, false, err
+	}
+	other, err := store.ClaimByID(ctx, tx, cl.SameAs)
+	if err != nil || other.TouchesPermission || store.TouchesPermission(other.Key.Situation+" "+other.Key.Rule) {
+		return store.Claim{}, false, err
+	}
+	return other, true, nil
+}
+
+// heldBy returns the claim of the proposed same_as link of claim c with claim id claim when a
+// pending proposal or an active item holds that claim in the scope with key (store.ClaimHeld),
+// else "". c then restates a lesson that you have or review already (#312, §7.2). A skill or a
+// tool is another thing than the rule that it restates (§10): it keeps its own candidate.
+func heldBy(ctx context.Context, tx *sql.Tx, claim string, c Claim, key string) (string, error) {
+	if c.Skill != nil || c.Tool != "" {
+		return "", nil
+	}
+	other, ok, err := linkTarget(ctx, tx, claim, c)
+	if err != nil || !ok {
+		return "", err
+	}
+	if held, err := store.ClaimHeld(ctx, tx, other.ID, key); err != nil || !held {
+		return "", err
+	}
+	return other.ID, nil
+}
+
+// restate stores the evidence of claim c with claim id claim, which restates claim held
+// (heldBy): no candidate of its own and no proposal (§7.3 order for a known claim). The
+// candidate of held in the scope with key gets the evidence that it accepts, of its own kind,
+// marked as merged (store.Candidate.Via), so the evidence view of its proposal shows it. With
+// no such candidate, as for an item of brain remember, the evidence has no place and is
+// dropped. Either way the corrections that the evidence check accepts count for the active
+// items of held, as an uncertain comeback (§5.4).
+func (p Pass) restate(ctx context.Context, tx *sql.Tx, j job, claim, held string, c Claim, key string, now time.Time) error {
+	kind := candidateKind(c)
+	var accepted []ref
+	cand, err := store.CandidateOf(ctx, tx, held, key)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		accepted, err = checked(ctx, tx, store.Candidate{ClaimID: claim, Scope: c.Scope, WorkspaceKey: key, Kind: kind}, c.Refs)
+	case err == nil:
+		cand.Via, kind = claim, cand.Kind
+		_, accepted, err = p.attach(ctx, tx, cand, c.Refs)
+	}
+	if err != nil {
+		return err
+	}
+	base := store.Outcome{SessionID: j.session.ID, ClaimID: held, At: now}
+	if _, err := skillOutcomes(ctx, tx, j, c.CoveredBy, failures(kind, accepted, c.Refs), base); err != nil {
+		return err
+	}
+	return outcomes(ctx, tx, j, claim, corrections(kind, accepted), base)
+}
+
 // mergeInto returns the claim whose candidate gets the evidence of claim c with claim id claim,
 // in the scope with key: the claim of its proposed same_as link, else claim (#279, §7.2). The
 // link merges only into an open candidate of kind in the same scope, of a claim of the same
@@ -628,13 +713,8 @@ func (p Pass) attach(ctx context.Context, tx *sql.Tx, cand store.Candidate, refs
 // and the claim of c is not rejected there. Else the link stays a proposed link for review.
 // Brain keeps both claim ids and the link, and marks the merged evidence (store.Candidate.Via).
 func mergeInto(ctx context.Context, tx *sql.Tx, claim string, c Claim, key string, kind store.CandidateKind) (string, error) {
-	cl, err := store.ClaimByID(ctx, tx, claim)
-	if err != nil || cl.SameAs == "" || cl.SameAsStatus != store.SameAsProposed || c.TouchesPermission || cl.TouchesPermission {
-		return claim, err
-	}
-	other, err := store.ClaimByID(ctx, tx, cl.SameAs)
-	if err != nil || other.Kind != c.Kind || other.TouchesPermission ||
-		store.TouchesPermission(other.Key.Situation+" "+other.Key.Rule) {
+	other, ok, err := linkTarget(ctx, tx, claim, c)
+	if err != nil || !ok || other.Kind != c.Kind {
 		return claim, err
 	}
 	cand, err := store.CandidateOf(ctx, tx, other.ID, key)
