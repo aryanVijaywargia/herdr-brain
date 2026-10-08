@@ -236,3 +236,28 @@ func entryBin(t *testing.T) string {
 	}
 	return bin
 }
+
+// AC #315 (Sol review of PR #324): a Codex hook record entry that you edited, here its
+// timeout, is not missing, and Brain keeps it. Codex needs trust again for it, so doctor
+// reports it as modified until you trust it in Codex.
+func TestDoctorEditedRecordTrust(t *testing.T) {
+	f := newDoctorFixture(t)
+	rec, err := install.Read(filepath.Join(f.data, "install.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooks := filepath.Join(f.codexHome, "hooks.json")
+	b, err := os.ReadFile(hooks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := rec.Records["codex Stop"].Text
+	edited := strings.Replace(stop, `"timeout":5`, `"timeout":9`, 1)
+	if err := os.WriteFile(hooks, []byte(strings.Replace(string(b), stop, edited, 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := f.failed(t, "", "codex: Codex hook record entries not trusted: Stop (modified), so Codex skips them")
+	if strings.Contains(out, "hook records off") {
+		t.Errorf("brain doctor:\n%s\nwant the edited entry not missing", out)
+	}
+}

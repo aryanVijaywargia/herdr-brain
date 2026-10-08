@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
+	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
+	"github.com/aryanVijaywargia/herdr-brain/internal/install"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 )
 
@@ -111,6 +114,9 @@ func TestUpdateHookRecords(t *testing.T) {
 			}
 		}
 	}
+	// Codex does not trust the new entries yet: the doctor check (TestDoctorRecordsM2 in
+	// internal/cli shows its line) finds each one untrusted.
+	untrusted(t, home, "UserPromptSubmit", "PostToolUse", "Stop")
 
 	before = snapshot(t, home)
 	code, out, _ = runUpdate(t, "", "--records")
@@ -119,6 +125,78 @@ func TestUpdateHookRecords(t *testing.T) {
 	}
 	if after := snapshot(t, home); !maps.Equal(before, after) {
 		t.Error("update --records with nothing to add changed the home")
+	}
+}
+
+// untrusted checks that Codex trusts none of the Brain hook record entries of events in home,
+// as brain doctor checks them.
+func untrusted(t *testing.T, home string, events ...string) {
+	t.Helper()
+	file, err := paths.InstallFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := install.Read(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range events {
+		e, ok := rec.Records["codex "+ev]
+		if !ok {
+			t.Errorf("install record has no codex %s entry", ev)
+			continue
+		}
+		if got, err := harness.CodexTrust(filepath.Join(home, ".codex"), e, ev); err != nil || got != harness.Untrusted {
+			t.Errorf("CodexTrust(codex %s) = %q, %v; want %q", ev, got, err, harness.Untrusted)
+		}
+	}
+}
+
+// startGone is an answer of brain update that removes the Brain start entry of claude before
+// update reads it, as you can while update waits for the answer.
+type startGone struct {
+	t      *testing.T
+	answer io.Reader
+	gone   bool
+}
+
+func (r *startGone) Read(b []byte) (int, error) {
+	if !r.gone {
+		r.gone = true
+		bin, err := paths.BinaryPath()
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		inst, err := installer(bin)
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		p, err := adapter.Load("claude")
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		if st, err := inst.UninstallHook(p, p.Hooks()[0]); err != nil || st != install.Removed {
+			r.t.Fatalf("UninstallHook(claude start) = %q, %v", st, err)
+		}
+	}
+	return r.answer.Read(b)
+}
+
+// Rule 14 (Sol review of PR #324): a start entry that goes away while update waits for the
+// answer gets no hook record entry; the other CLIs still get theirs.
+func TestUpdateRecordsStartGone(t *testing.T) {
+	home := updateHome(t, true)
+	var out, errOut bytes.Buffer
+	if code := run([]string{"update", "--records"}, &startGone{t: t, answer: strings.NewReader("y\n")}, &out, &errOut); code != 0 {
+		t.Fatalf("update --records = %d: %s\n%s", code, errOut.String(), out.String())
+	}
+	settings := filepath.Join(home, ".claude", "settings.json")
+	if !strings.Contains(out.String(), settings+" no longer holds the Brain hook entry for claude, so brain update adds no hook record entry") ||
+		!strings.Contains(out.String(), "Added the hook record entries for codex.") {
+		t.Errorf("update --records:\n%s\nwant no claude entries and the codex entries", out.String())
+	}
+	if s := string(mustRead(t, settings)); strings.Contains(s, "--event prompt") {
+		t.Errorf("settings.json has a hook record entry with no start entry:\n%s", s)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
@@ -127,6 +128,35 @@ func TestCodexTrust(t *testing.T) {
 				t.Errorf("CodexTrust() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// AC #315: an entry that you edited, here its timeout, is found by its command, and its trust
+// state is the one of its new hash: the trust of the old entry makes it modified.
+func TestCodexTrustEdited(t *testing.T) {
+	dir, e, key, old := trustEnv(t)
+	file := filepath.Join(dir, "hooks.json")
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := strings.Replace(e.Text, `"timeout":5`, `"timeout":9`, 1)
+	if err := os.WriteFile(file, []byte(strings.Replace(string(b), e.Text, edited, 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sum, err := hookHash("SessionStart", "session_start", nil, handler{Type: "command", Command: e.Command,
+		Timeout: ptr[uint64](9), AdditionalContextLimit: ptr[uint64](0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		hash string
+		want Trust
+	}{{old, Modified}, {sum, Trusted}} {
+		writeConfig(t, dir, fmt.Sprintf("[hooks.state.%q]\ntrusted_hash = %q\n", key, tt.hash))
+		if got, err := CodexTrust(dir, e, "SessionStart"); err != nil || got != tt.want {
+			t.Errorf("CodexTrust(edited, trusted %s) = %q, %v; want %q", tt.hash, got, err, tt.want)
+		}
 	}
 }
 
