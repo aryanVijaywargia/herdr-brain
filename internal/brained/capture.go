@@ -326,6 +326,9 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 			if p.unsure {
 				o.Counts = false // the sender is not known (§6.4, #281)
 			}
+			if p.sender == store.SenderTool && fileRead(r, p.at) {
+				o.Counts = false // text of files, no error of a run: it supports no failure (#363)
+			}
 			if err := record(ctx, tx, cp, o, panePrompt(cp.agent, p.lines)); err != nil {
 				return err
 			}

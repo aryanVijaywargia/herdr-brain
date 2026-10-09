@@ -318,6 +318,32 @@ func TestFailure(t *testing.T) {
 	}
 }
 
+// #363 (M2 eval run 5, R5-3): a TAP line of a test that passed, and the name line of a test, name
+// a test, so they start no failure, also with an error word in the name. The first case is the
+// passing TAP line of proposal 16, under the Codex tool mark; the eval report shows no error word
+// in it, so the other lines of its read are not known. A test that fails still starts a failure:
+// its "not ok" line or its error line holds the error.
+func TestFailureTestName(t *testing.T) {
+	runRule(t, Failure, []ruleCase{
+		{"run 5 TAP line", []store.SignalInput{obs(1, 1, tool,
+			"  └ ok 1 - all note routes return 500 and log the file path when the database is missing\n"+
+				"    # Subtest: GET /notes returns a JSON error when the database cannot be read\n"+
+				"    ok 2 - GET /notes returns a JSON error when the database cannot be read\n    # fail 0")}, nil},
+		{"claude TAP line", []store.SignalInput{obs(1, 1, tool, "  ⎿  ok 4 - logs an error at error level")}, nil},
+		{"test that fails", []store.SignalInput{obs(1, 1, tool,
+			"  └ # Subtest: GET /notes returns a JSON error when the database cannot be read\n"+
+				"    not ok 2 - GET /notes returns a JSON error when the database cannot be read")}, [][]int64{{1}}},
+		{"error line of a test that fails", []store.SignalInput{obs(1, 1, tool,
+			"  └ ok 1 - lists the notes\n    not ok 2 - POST /notes without a title\n    error: expected 400, got 500")},
+			[][]int64{{1}}},
+	})
+	sigs := Find([]store.SignalInput{obs(1, 1, tool, "  └ # Subtest: returns an error\n    not ok 1 - returns an error"),
+		obs(2, 2, tool, "  └ not ok 1 - returns an error")})
+	if ks := keys(sigs, Failure); len(ks) != 2 || ks[0] != ks[1] {
+		t.Errorf("failure keys = %v, want one key: the signature is the not ok line, not the name line", ks)
+	}
+}
+
 const (
 	codexApproval = "  Would you like to run the following command?\n\n  Environment: local\n\n" +
 		"  Reason: Do you want to allow touch made.txt to run with escalated permissions?\n\n  $ touch made.txt"
