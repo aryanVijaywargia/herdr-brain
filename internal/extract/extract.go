@@ -684,12 +684,19 @@ func (p Pass) keptKind(ctx context.Context, tx *sql.Tx, claim, key string, kind 
 	case old.Kind == kind:
 		return kind, nil
 	}
-	tool := old.Kind == store.CandidateFailure || old.Kind == store.CandidateCommandChain
-	user := kind == store.CandidateCorrection || kind == store.CandidateProcedure
-	if kind == store.CandidateLesson || (tool && user) {
+	if kind == store.CandidateLesson || overTool(old.Kind, kind) {
 		return kind, store.SetCandidateKind(ctx, tx, old.ID, kind, p.gates())
 	}
 	return old.Kind, nil
+}
+
+// overTool reports whether your text, new evidence of kind, turns a candidate of kind old, of
+// tool output alone, into its kind (#280): the kind follows the claim, and the tool output stops
+// counting (store.SetCandidateKind). So the tellings of a procedure count together also when a
+// claim of the agent's own commands for the same task came first (#361).
+func overTool(old, kind store.CandidateKind) bool {
+	tool := old == store.CandidateFailure || old == store.CandidateCommandChain
+	return tool && (kind == store.CandidateCorrection || kind == store.CandidateProcedure)
 }
 
 // attach adds each of refs as evidence of the candidate of cand, and returns its id (0 when
@@ -857,10 +864,11 @@ func (p Pass) restate(ctx context.Context, tx *sql.Tx, j job, claim, held string
 
 // mergeInto returns the claim whose candidate gets the evidence of claim c with claim id claim,
 // in the scope with key: the claim of its proposed same_as link, else claim (#279, §7.2). The
-// link merges only into an open candidate of kind in the same scope, of a claim of the same
-// claim kind with no item there, and only when neither claim is a permission or a safety rule
-// and the claim of c is not rejected there. Else the link stays a proposed link for review.
-// Brain keeps both claim ids and the link, and marks the merged evidence (store.Candidate.Via).
+// link merges only into an open candidate of kind in the same scope, or of tool output alone
+// that kind turns into its kind (overTool, #361), of a claim of the same claim kind with no
+// item there, and only when neither claim is a permission or a safety rule and the claim of c
+// is not rejected there. Else the link stays a proposed link for review. Brain keeps both
+// claim ids and the link, and marks the merged evidence (store.Candidate.Via).
 func mergeInto(ctx context.Context, tx *sql.Tx, claim string, c Claim, key string, kind store.CandidateKind) (string, error) {
 	other, ok, err := linkTarget(ctx, tx, claim, c)
 	if err != nil || !ok || mergeKind(other.Kind) != mergeKind(c.Kind) {
@@ -872,7 +880,7 @@ func mergeInto(ctx context.Context, tx *sql.Tx, claim string, c Claim, key strin
 		return claim, nil
 	case err != nil:
 		return claim, err
-	case cand.Scope != c.Scope || cand.Kind != kind || cand.Status != store.CandidateOpen:
+	case cand.Scope != c.Scope || cand.Kind != kind && !overTool(cand.Kind, kind) || cand.Status != store.CandidateOpen:
 		return claim, nil
 	}
 	for _, held := range []func(context.Context, *sql.Tx, string, string) (bool, error){store.ClaimHasItem, store.Rejected} {

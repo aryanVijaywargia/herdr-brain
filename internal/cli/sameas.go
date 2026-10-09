@@ -30,7 +30,8 @@ func (cl caller) sameAsLinks(ctx context.Context, tx *sql.Tx) ([]extract.Link, e
 }
 
 // linkLines are the lines of the same_as links that wait for review and that the caller sees:
-// the text of both claims, the reason, and the two actions (#358).
+// the text of both claims, the reason, and the two actions (#358). A link whose merge would
+// move no evidence offers keep apart only, and says why (#361).
 func (cl caller) linkLines(ctx context.Context, tx *sql.Tx) ([]string, error) {
 	ls, err := cl.sameAsLinks(ctx, tx)
 	if err != nil {
@@ -38,14 +39,17 @@ func (cl caller) linkLines(ctx context.Context, tx *sql.Tx) ([]string, error) {
 	}
 	lines := make([]string, len(ls))
 	for i, l := range ls {
-		lines[i] = fmt.Sprintf("%s\n  merge: brain review --merge %d | keep apart: brain review --apart %d",
-			cl.linkView(l), l.Candidate.ID, l.Candidate.ID)
+		actions := fmt.Sprintf("merge: brain review --merge %d | keep apart: brain review --apart %d", l.Candidate.ID, l.Candidate.ID)
+		if l.Stuck != "" {
+			actions = fmt.Sprintf("keep apart: brain review --apart %d", l.Candidate.ID)
+		}
+		lines[i] = fmt.Sprintf("%s\n  %s", cl.linkView(l), actions)
 	}
 	return lines, nil
 }
 
 // linkView is the text of link l: its candidate, its scope and the reason in the first line,
-// then the text of each claim with its candidate.
+// then the text of each claim with its candidate, and why a merge would move no evidence.
 func (cl caller) linkView(l extract.Link) string {
 	reason := "an unclear match: Brain did not merge them"
 	if l.Permission {
@@ -55,9 +59,13 @@ func (cl caller) linkView(l extract.Link) string {
 	if l.OtherCandidateID != 0 {
 		other = fmt.Sprintf("candidate %d, %d occurrences", l.OtherCandidateID, l.OtherCount)
 	}
-	return fmt.Sprintf("link %d  %s  %s\n  claim %s: %s (candidate %d, %d occurrences)\n  same as %s: %s (%s)",
+	v := fmt.Sprintf("link %d  %s  %s\n  claim %s: %s (candidate %d, %d occurrences)\n  same as %s: %s (%s)",
 		l.Candidate.ID, cl.target(l.Candidate.Scope), reason, l.Claim.ID, oneLine(l.Text), l.Candidate.ID,
 		l.Candidate.Count, l.Other.ID, oneLine(l.OtherText), other)
+	if l.Stuck != "" {
+		v += "\n  no merge: " + l.Stuck
+	}
+	return v
 }
 
 // linkCandidate checks that the caller sees candidate id of a link. When other is not "", the

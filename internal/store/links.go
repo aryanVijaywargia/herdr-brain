@@ -156,19 +156,20 @@ func KeepApart(ctx context.Context, tx *sql.Tx, id string) (string, error) {
 	return c.SameAs, nil
 }
 
-// EvidenceLink is one evidence link of a candidate: its observation, and the claim whose key
-// brought it through a same_as merge ("" for the candidate's own evidence).
+// EvidenceLink is one evidence link of a candidate: its observation, the claim whose key
+// brought it through a same_as merge ("" for the candidate's own evidence), and its sender.
 type EvidenceLink struct {
 	Observation int64
 	Via         string
+	Sender      Sender
 }
 
 // CandidateEvidence returns the evidence links of candidate id, by observation id.
 func CandidateEvidence(ctx context.Context, tx *sql.Tx, id int64) ([]EvidenceLink, error) {
-	return query(ctx, tx, `SELECT observation_id, COALESCE(via_claim, '') FROM evidence_links WHERE candidate_id = ?
-		ORDER BY observation_id`, func(rows *sql.Rows) (EvidenceLink, error) {
+	return query(ctx, tx, `SELECT observation_id, COALESCE(via_claim, ''), sender FROM evidence_links
+		WHERE candidate_id = ? ORDER BY observation_id`, func(rows *sql.Rows) (EvidenceLink, error) {
 		var e EvidenceLink
-		err := rows.Scan(&e.Observation, &e.Via)
+		err := rows.Scan(&e.Observation, &e.Via, &e.Sender)
 		return e, err
 	}, id)
 }
