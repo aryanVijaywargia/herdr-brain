@@ -511,3 +511,25 @@ func TestCaptureRun4ToolLines(t *testing.T) {
 		}
 	}
 }
+
+// #353 review: a new Codex prompt whose first line is the same as an old prompt line, with
+// other lines under it, is no known prompt: the line diff takes its first line as old, and its
+// other lines are still user text, and they count.
+func TestCapturePromptSameFirstLine(t *testing.T) {
+	const (
+		foot   = "\n\n  gpt-6.1-sol high · ~/brain-eval/notes-api-u\n"
+		first  = "› Fix the API\n  Add validation."
+		second = "› Fix the API\n  Add authentication."
+	)
+	k := newCapture(t, "s1", t.TempDir())
+	k.pane("w1:p1", "codex", codexRun2)
+	k.raw("• Earlier."+foot, "• Earlier.\n"+first+foot, "• Earlier.\n"+first+"\n\n• Done."+foot, second+foot)
+	k.must(t, Baseline, "w1:p1", "", GapNone)
+	for _, st := range []string{"working", "idle", "working"} {
+		k.must(t, Change, "w1:p1", st, GapNone)
+	}
+	excerpts, counted := k.rows(t).prompts()
+	if len(excerpts) != 2 || counted != 2 || excerpts[0] != first || !strings.Contains(excerpts[1], "Add authentication.") {
+		t.Errorf("user text = %q (%d counted), want the first prompt and the new lines of the second, each counted", excerpts, counted)
+	}
+}

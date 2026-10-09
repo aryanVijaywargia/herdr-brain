@@ -72,19 +72,20 @@ type capturePane struct {
 	agent     string // the harness
 	native    string // the agent session id from herdr; "" while it has none
 	key       store.SessionKey
-	session   int64      // the sessions row; 0 until it is stored
-	gen       int64      // the capture generation of the session, noted at the baseline
-	segment   int64      // the open segment; 0 when there is none
-	workspace string     // the herdr workspace id of the last read
-	base      Learning   // the learning state of the last baseline
-	lines     []string   // the last read, without noise and blank lines
-	back      []string   // the read before lines
-	ok        bool       // lines is a usable base
-	open      *block     // the injected block that the last read ends in; nil when none
-	reserved  []Dispatch // the suggestions that the write of the current read reserved
-	status    string     // the status of the last step
-	turn      int        // the number of turns that the steps showed: a working or blocked status after another one
-	sent      []sent     // the prompts that the session shows, from its reads
+	session   int64         // the sessions row; 0 until it is stored
+	gen       int64         // the capture generation of the session, noted at the baseline
+	segment   int64         // the open segment; 0 when there is none
+	workspace string        // the herdr workspace id of the last read
+	base      Learning      // the learning state of the last baseline
+	lines     []string      // the last read, without noise and blank lines
+	back      []string      // the read before lines
+	ok        bool          // lines is a usable base
+	open      *block        // the injected block that the last read ends in; nil when none
+	reserved  []Dispatch    // the suggestions that the write of the current read reserved
+	status    string        // the status of the last step
+	turn      int           // the number of turns that the steps showed: a working or blocked status after another one
+	sent      []sent        // the prompts that the session shows, from its reads
+	hooks     map[int64]int // the turn in which capture first saw each prompt hook record, by id (#349)
 }
 
 // sent is one prompt that a read of the session showed: its text without the mark and white
@@ -162,7 +163,7 @@ func (c *Capture) baseline(ctx context.Context, s Step, gap string) error {
 	switch {
 	case err != nil:
 		return c.lose(ctx, s, cp, err)
-	case r.agent == "" || nativeID(r.pane) == "" && c.probe(ctx, s.PaneID):
+	case r.agent == "" || nativeID(r.pane) == "" && c.probe(ctx, s.PaneID, r.agent):
 		// No agent, or a CLI probe that is no agent session (#317).
 		return c.end(ctx, s, cp)
 	case r.pane.ID != s.PaneID || r.pane.WorkspaceID != s.WorkspaceID:
@@ -248,7 +249,7 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 		var hooks []hookPrompt
 		if cp.session != 0 && slices.ContainsFunc(ps, func(p part) bool { return p.sender == store.SenderUnconfirmed && !p.brain }) {
 			var err error
-			if hooks, err = hookPrompts(ctx, tx, cp.session); err != nil {
+			if hooks, err = cp.hookPrompts(ctx, tx); err != nil {
 				return err
 			}
 		}
@@ -300,12 +301,12 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 			o := store.Observation{CaptureIdentity: fmt.Sprintf("%s/%d", identity(s, cp.segment, now), i+1),
 				Source: store.SourceHerdr, SegmentID: cp.segment, Event: eventOf(s), Excerpt: excerpt, Truncated: truncated,
 				Status: status, Sender: p.sender, Counts: true, BrainOrigin: p.brain, At: now}
-			copied, err := hookCopy(ctx, tx, cp, p, o, hooks)
+			copied, err := hookCopy(ctx, tx, cp, p, o, hooks, lastPrompt(r))
 			if err != nil {
 				return err
 			}
 			if copied {
-				continue // a copy of a sent prompt: its hook record holds the occurrence (#349)
+				continue // a copy of a sent prompt (#349)
 			}
 			if status == store.ObservationPartial {
 				// A partial read does not start inside the old text, so a text that the segment
@@ -375,17 +376,15 @@ func busy(status string) bool {
 // the last prompt is the prompt of the turn, also when it is only the start of a known one,
 // unless its first line is cut (cp.cut): Codex shows a long prompt again as its first line and
 // "…", and a prompt that you send is shown in full (#338, testdata/codex-i278-2-blocked.txt).
-// A cut copy is one line, so the lines under it are lines of the next block, whose mark the
-// read does not show: their sender is not known (#349). A part with no prompt mark and the
-// sender of a prompt, as the wrapped end of a prompt, is dropped when all its lines are text of
-// a known prompt. copies returns the parts that stay and the prompts that they send.
+// A Codex cut copy is one line, so the lines under it are lines of the next block (#349).
+// copies marks a cut copy, and the write drops it unless it is the first read of its own hook
+// record (hookCopy). A part with no prompt mark and the sender of a prompt, as the wrapped end
+// of a prompt, is dropped when all its lines are text of a known prompt. In Codex, such a part
+// under a whole known prompt is the end of a block whose first line is above the screen, so its
+// sender is not known (cp.under, #353). copies returns the parts that stay and the prompts that
+// they send.
 func (cp *capturePane) copies(r read, added []int, ps []part, hooks []hookPrompt) ([]part, []sent) {
-	last := -1
-	for i, l := range r.lines {
-		if _, ok := promptLine(r.agent, l); ok {
-			last = i
-		}
-	}
+	last := lastPrompt(r)
 	var kept []part
 	var fresh []sent
 	for _, p := range ps {
@@ -396,14 +395,14 @@ func (cp *capturePane) copies(r read, added []int, ps []part, hooks []hookPrompt
 		k := keyOf(r.agent, p)
 		if !k.mark {
 			if !slices.ContainsFunc(cp.sent, func(s sent) bool { return k.within(s.text) }) {
+				p.unsure = p.unsure || inMarks[r.agent] && cp.under(r, added, p.at, hooks)
 				kept = append(kept, p)
 			}
 			continue
 		}
-		if cp.cut(r.agent, p.lines[0], hooks) {
-			if len(p.lines) > 1 {
-				kept = append(kept, part{sender: p.sender, lines: p.lines[1:], brain: p.brain, at: p.at + 1, unsure: true})
-			}
+		if (len(p.lines) == 1 || inMarks[r.agent]) && cp.cut(r.agent, p.lines[0], hooks) {
+			p.cut = true
+			kept = append(kept, p)
 			continue
 		}
 		var known []sent
@@ -421,6 +420,40 @@ func (cp *capturePane) copies(r read, added []int, ps []part, hooks []hookPrompt
 		}
 	}
 	return kept, fresh
+}
+
+// lastPrompt returns the last line of r that starts with the prompt mark, or -1.
+func lastPrompt(r read) int {
+	last := -1
+	for i, l := range r.lines {
+		if _, ok := promptLine(r.agent, l); ok {
+			last = i
+		}
+	}
+	return last
+}
+
+// under reports whether new line at of r, with no mark, is under a whole known prompt in old
+// lines: the lines from the prompt line above it to it hold the text of a known prompt or of a
+// prompt hook record, or they are one cut copy. Codex draws a prompt at once, so the line is no
+// text of that prompt: Codex draws a tall block from its bottom, and the end of its tool output
+// or reply shows under the prompt, with the first line of the block above the screen (#353).
+// A new prompt whose first line is the same as an old one, with other lines, is no known prompt.
+func (cp *capturePane) under(r read, added []int, at int, hooks []hookPrompt) bool {
+	start := at - 1
+	for start >= 0 && !marked(r.agent, r.lines[start]) {
+		start--
+	}
+	if start < 0 || slices.ContainsFunc(added, func(i int) bool { return i >= start && i < at }) {
+		return false
+	}
+	if _, ok := promptLine(r.agent, r.lines[start]); !ok {
+		return false
+	}
+	text := keyOf(r.agent, part{lines: r.clean[start:at]}).text
+	return at-start == 1 && cp.cut(r.agent, r.lines[start], hooks) ||
+		slices.ContainsFunc(cp.sent, func(s sent) bool { return s.text == text }) ||
+		slices.ContainsFunc(hooks, func(h hookPrompt) bool { return h.text == text })
 }
 
 // cut reports whether prompt line l of harness is a cut copy of a known prompt: it ends with
@@ -496,10 +529,12 @@ func answered(lines []string, hooks []hookPrompt) int {
 }
 
 // hookPrompt is a prompt hook record of the session: the text of its excerpt, as promptKey
-// takes it, and whether the excerpt limit cut it (#349).
+// takes it, whether the excerpt limit cut it, and the turn in which capture first saw it
+// (#349).
 type hookPrompt struct {
 	text      string
 	truncated bool
+	turn      int
 }
 
 // shows reports whether pane prompt text, as promptKey takes it, shows hook prompt h: the text
@@ -508,31 +543,52 @@ func (h hookPrompt) shows(text string) bool {
 	return text != "" && (strings.HasPrefix(h.text, text) || h.truncated && strings.HasPrefix(text, h.text))
 }
 
-// hookPrompts returns the prompt hook records of session.
-func hookPrompts(ctx context.Context, tx *sql.Tx, session int64) ([]hookPrompt, error) {
-	obs, err := store.HookPrompts(ctx, tx, session)
+// hookPrompts returns the prompt hook records of the session of cp. A record that capture sees
+// for the first time gets the current turn.
+func (cp *capturePane) hookPrompts(ctx context.Context, tx *sql.Tx) ([]hookPrompt, error) {
+	obs, err := store.HookPrompts(ctx, tx, cp.session)
 	if err != nil {
 		return nil, err
 	}
+	if cp.hooks == nil {
+		cp.hooks = map[int64]int{}
+	}
 	hs := make([]hookPrompt, len(obs))
 	for i, o := range obs {
-		hs[i] = hookPrompt{keyOf("", part{lines: strings.Split(o.Excerpt, "\n")}).text, o.Truncated}
+		turn, ok := cp.hooks[o.ID]
+		if !ok {
+			turn = cp.turn
+			cp.hooks[o.ID] = turn
+		}
+		hs[i] = hookPrompt{keyOf("", part{lines: strings.Split(o.Excerpt, "\n")}).text, o.Truncated, turn}
 	}
 	return hs, nil
 }
 
 // hookCopy reports whether prompt part p, to be stored as observation o of the session of cp,
-// shows a prompt hook record of hooks again: one send is one occurrence (§6.4, #349). The
-// first read of a sent prompt is the pane counterpart of its hook record (S35), and it stays.
-// Any other read that shows the text of a hook record, or a start of it, is a copy: a repaint,
-// a cut copy, or the prompt after the read at its send failed, when its hook record counts
-// alone. A prompt that you send again has a hook record of its own.
-func hookCopy(ctx context.Context, tx *sql.Tx, cp *capturePane, p part, o store.Observation, hooks []hookPrompt) (bool, error) {
+// is a copy of a sent prompt that a prompt hook record of hooks holds: one send is one
+// occurrence (§6.4, #349). The first read of a sent prompt is the pane counterpart of its hook
+// record (S35), and it stays. A cut copy (copies) is a copy. Any other read that shows the text
+// of a hook record, or a start of it, is a copy too: a repaint, or the prompt after the read at
+// its send failed, when its hook record counts alone. Only the last prompt of the read, last,
+// in a turn after the turn in which capture saw each such hook record, is a new send without a
+// hook record of its own, as copies takes it: a hook can fail.
+func hookCopy(ctx context.Context, tx *sql.Tx, cp *capturePane, p part, o store.Observation, hooks []hookPrompt, last int) (bool, error) {
 	if p.sender != store.SenderUnconfirmed || p.brain || p.unsure {
 		return false, nil
 	}
-	text := keyOf(cp.agent, p).text
-	if !slices.ContainsFunc(hooks, func(h hookPrompt) bool { return h.shows(text) }) {
+	k := keyOf(cp.agent, p)
+	var shown []hookPrompt
+	for _, h := range hooks {
+		if h.shows(k.text) {
+			shown = append(shown, h)
+		}
+	}
+	switch {
+	case p.cut && len(hooks) == 0:
+		return true, nil
+	case !p.cut && len(shown) == 0,
+		!p.cut && k.mark && p.at == last && !slices.ContainsFunc(shown, func(h hookPrompt) bool { return h.turn == cp.turn }):
 		return false, nil
 	}
 	c, err := counterpart(ctx, tx, cp.agent, cp.session, o)
@@ -833,23 +889,25 @@ func shell(name string) bool {
 	return false
 }
 
-// probe reports whether herdr saw a short CLI run as an agent in pane id, such as the
+// probe reports whether herdr saw a short CLI run as agent in pane id, such as the
 // "codex --version" of brain status in a shell pane (#317): each foreground process of the
 // pane is a shell, Brain's own CLI or a run with --version or -v, so no agent runs there. A
 // real agent is its own foreground process while it runs. The leader of the foreground process
 // group is the first process of the command line that the shell runs: when it is Brain's CLI
 // or such a run, the line runs no agent either, also when the other processes of a pipe run
 // with it, as grep in "brain status | grep codex" (#351). An agent and the tools that it runs
-// have the agent, or a script that starts it, as their leader. When herdr gives no process or
-// no argv, it reports false, and the baseline opens the session as before.
-func (c *Capture) probe(ctx context.Context, id string) bool {
+// have the agent, or a script that starts it, as their leader; a process that runs the agent
+// in a pipe after Brain's CLI keeps the session. When herdr gives no process or no argv, it
+// reports false, and the baseline opens the session as before.
+func (c *Capture) probe(ctx context.Context, id, agent string) bool {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	pi, err := c.sock.Processes(ctx, id)
 	if err != nil || len(pi.Processes) == 0 {
 		return false
 	}
-	if i := slices.IndexFunc(pi.Processes, func(p herdr.Process) bool { return p.PID == pi.Group }); i >= 0 && probeRun(pi.Processes[i]) {
+	if i := slices.IndexFunc(pi.Processes, func(p herdr.Process) bool { return p.PID == pi.Group }); i >= 0 && probeRun(pi.Processes[i]) &&
+		!slices.ContainsFunc(pi.Processes, func(p herdr.Process) bool { return runsAgent(p, agent) }) {
 		return true
 	}
 	return !slices.ContainsFunc(pi.Processes, func(p herdr.Process) bool {
@@ -868,6 +926,17 @@ func program(p herdr.Process) string {
 func probeRun(p herdr.Process) bool {
 	return len(p.Argv) > 0 &&
 		(program(p) == "brain" || slices.ContainsFunc(p.Argv[1:], func(a string) bool { return a == "--version" || a == "-v" }))
+}
+
+// runsAgent reports whether foreground process p runs agent, and not as a probe: its program or
+// its name is the agent, or it runs the agent as a script path, as "node /usr/local/bin/codex"
+// [spike/m0/data/e11s1b-capture.txt]. A word "claude" that grep looks for is no script path.
+func runsAgent(p herdr.Process, agent string) bool {
+	if len(p.Argv) == 0 || probeRun(p) {
+		return false
+	}
+	return program(p) == agent || p.Name == agent ||
+		len(p.Argv) > 1 && strings.Contains(p.Argv[1], "/") && filepath.Base(p.Argv[1]) == agent
 }
 
 // lines splits text into lines without trailing space, and drops blank lines. The screen

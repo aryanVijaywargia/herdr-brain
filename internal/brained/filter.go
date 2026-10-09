@@ -49,10 +49,7 @@ var marks = map[string][]mark{
 // with no mark there is no prompt: it is the rest of a line that the terminal wrapped, or text
 // that the CLI did not indent, as a line of tool output whose └ is above the read. So it
 // continues the block above it, as an indented line does. The head of a read holds no prompt
-// text there: the screen rules drop the indented lines at the top of a Codex read. Codex draws
-// a prompt at once, so a new line with no mark under an old prompt line is no text of that
-// prompt either: Codex draws a tall block from its bottom, so the end of tool output or of a
-// reply shows under the prompt, with its first line above the screen (#353, M2 eval run 4).
+// text there: the screen rules drop the indented lines at the top of a Codex read.
 var inMarks = map[string]bool{"codex": true}
 
 // quoteMark is the start of a Codex prompt line that quotes text: Codex 0.160.1 shows your
@@ -127,18 +124,18 @@ type part struct {
 	brain  bool // the part holds a Brain block, so its text after the block is Brain-origin
 	at     int  // the line of the read where the part starts
 	// unsure says that the sender of the part is not known: it is in the head of the read, or
-	// under an old prompt line or a cut copy in a Codex read.
+	// under a whole known prompt in a Codex read (#353).
 	unsure bool
+	cut    bool // the first line is a cut copy of a known prompt (copies)
 }
 
 // parts drops the injected text from the new lines idx of r and groups the rest into runs of
 // one sender. A prompt mark starts a new part, so each prompt is one part (#278), and the head
-// of the read is a part of its own. For a harness of inMarks, new lines with no mark under an
-// old prompt line are a part of their own too, whose sender is not known (#353). open is the
-// block that the last read ended in: the scan runs over the whole read from it, so a block
-// that opened in old text or in an earlier read still drops its lines. parts returns the block
-// that r ends in. Pane text has no reliable tags: a marker can be lost, and other text can copy
-// it. So the filters lower noise; they do not prove clean text (§6.3, S41).
+// of the read is a part of its own. open is the block that the last read ended in: the scan
+// runs over the whole read from it, so a block that opened in old text or in an earlier read
+// still drops its lines. parts returns the block that r ends in. Pane text has no reliable
+// tags: a marker can be lost, and other text can copy it. So the filters lower noise; they do
+// not prove clean text (§6.3, S41).
 func parts(r read, idx []int, open *block) ([]part, *block) {
 	added := make(map[int]bool, len(idx))
 	for _, i := range idx {
@@ -146,7 +143,6 @@ func parts(r read, idx []int, open *block) ([]part, *block) {
 	}
 	var ps []part
 	in := open
-	old := false // the last line with a sender mark is old
 	for i, l := range r.lines {
 		if added[i] && in == nil && compacted(l) {
 			break
@@ -156,12 +152,9 @@ func parts(r read, idx []int, open *block) ([]part, *block) {
 			in = opens(l)
 			starts = in != nil
 		}
-		if marked(r.agent, l) {
-			old = !added[i]
-		}
 		if added[i] {
 			_, prompt := promptLine(r.agent, l)
-			unsure := i < r.head || inMarks[r.agent] && old && r.senders[i] == store.SenderUnconfirmed
+			unsure := i < r.head
 			if len(ps) == 0 || ps[len(ps)-1].sender != r.senders[i] || ps[len(ps)-1].unsure != unsure ||
 				(starts || prompt) && len(ps[len(ps)-1].lines) > 0 ||
 				in == nil && ps[len(ps)-1].brain && !strings.HasPrefix(l, " ") {

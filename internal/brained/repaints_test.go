@@ -148,28 +148,81 @@ func TestCaptureQuoteRepaint(t *testing.T) {
 }
 
 // #349, S40: with hook records, a cut copy and a full repaint of a sent prompt are no new
-// occurrence, and the same prompt sent again in a new turn is: its own hook record enriches
-// its pane read. Each send counts once.
+// occurrence, and the same prompt sent again in a new turn is: its own hook record enriches its
+// pane read, also when the hook comes after the read. A resend with no hook record of its own
+// still counts (#349 review): a hook can fail, and an old hook record does not hold the new
+// send. Each send counts once.
 func TestCapturePromptResendHooks(t *testing.T) {
-	k := newCapture(t, "s1", t.TempDir())
-	k.pane("w1:p1", "codex", codexRun2)
-	k.raw(repaintShell+repaintFoot,
-		repaintShell+statsRows+"\n\n• Working (1s • esc to interrupt)"+repaintFoot,
-		repaintBanner+statsCut+"\n  I'll read src/server.js and the tests first."+repaintFoot,
-		repaintBanner+statsRows+"\n\n• Added GET /stats."+repaintFoot,
-		"• Added GET /stats."+repaintFoot,
-		"• Added GET /stats.\n"+statsRows+"\n\n• Working (1s • esc to interrupt)"+repaintFoot)
-	k.must(t, Baseline, "w1:p1", "", GapNone)
-	first := k.hookRecord(t, "prompt", store.SenderUnconfirmed, stats, k.clock)
-	for _, st := range []string{"working", "working", "idle", "idle"} {
-		k.must(t, Change, "w1:p1", st, GapNone)
-	}
-	again := k.hookRecord(t, "prompt", store.SenderUnconfirmed, stats, k.clock)
-	k.must(t, Change, "w1:p1", "working", GapNone)
+	for _, tc := range []struct {
+		name string
+		hook int // the resend has a hook record: 1 before its read, 2 after it; 0 none
+	}{{"hook before the read", 1}, {"hook after the read", 2}, {"no hook of its own", 0}} {
+		t.Run(tc.name, func(t *testing.T) {
+			k := newCapture(t, "s1", t.TempDir())
+			k.pane("w1:p1", "codex", codexRun2)
+			k.raw(repaintShell+repaintFoot,
+				repaintShell+statsRows+"\n\n• Working (1s • esc to interrupt)"+repaintFoot,
+				repaintBanner+statsCut+"\n  I'll read src/server.js and the tests first."+repaintFoot,
+				repaintBanner+statsRows+"\n\n• Added GET /stats."+repaintFoot,
+				"• Added GET /stats."+repaintFoot,
+				"• Added GET /stats.\n"+statsRows+"\n\n• Working (1s • esc to interrupt)"+repaintFoot)
+			k.must(t, Baseline, "w1:p1", "", GapNone)
+			first := k.hookRecord(t, "prompt", store.SenderUnconfirmed, stats, k.clock)
+			for _, st := range []string{"working", "working", "idle", "idle"} {
+				k.must(t, Change, "w1:p1", st, GapNone)
+			}
+			k.clock = k.clock.Add(6 * time.Minute)
+			var again int64
+			if tc.hook == 1 {
+				again = k.hookRecord(t, "prompt", store.SenderUnconfirmed, stats, k.clock)
+			}
+			k.must(t, Change, "w1:p1", "working", GapNone)
+			if tc.hook == 2 {
+				again = k.hookRecord(t, "prompt", store.SenderUnconfirmed, stats, k.clock)
+			}
 
-	r := k.rows(t)
-	got := r.counted("GET /stats endpoint")
-	if len(got) != 2 || got[0].EnrichedBy != first || got[1].EnrichedBy != again {
-		t.Errorf("counted observations of the request = %+v, want the two sends, enriched by hooks %d and %d", got, first, again)
+			got := k.rows(t).counted("GET /stats endpoint")
+			if len(got) != 2 || got[0].Source != store.SourceHerdr || got[0].EnrichedBy != first ||
+				got[1].Source != store.SourceHerdr || got[1].EnrichedBy != again {
+				t.Errorf("counted observations of the request = %+v, want the two pane reads, enriched by hooks %d and %d",
+					got, first, again)
+			}
+		})
+	}
+}
+
+// #349 review: a literal "…" at the end of the first line of a new prompt of more lines, after
+// a known prompt with that first line, is a new send, not a cut copy. Claude takes only a cut
+// copy of one line. Codex takes the new prompt as the first read of its own hook record.
+func TestCapturePromptEllipsis(t *testing.T) {
+	for _, tc := range []struct {
+		harness, mark, reply string
+		hooks                bool
+	}{
+		{"claude", "❯ ", "⏺ ", false},
+		{"codex", "› ", "• ", true},
+	} {
+		t.Run(tc.harness, func(t *testing.T) {
+			first := tc.mark + "Run the tests\n  and the build."
+			next := tc.mark + "Run the tests…\n  Only the API package this time."
+			k := newCapture(t, "s1", t.TempDir())
+			k.pane("w1:p1", tc.harness, codexRun2)
+			k.raw(tc.mark+"\n", first+"\n", first+"\n\n"+tc.reply+"Done.\n", tc.reply+"Done.\n",
+				tc.reply+"Done.\n"+next+"\n")
+			k.must(t, Baseline, "w1:p1", "", GapNone)
+			if tc.hooks {
+				k.hookRecord(t, "prompt", store.SenderUnconfirmed, "Run the tests\nand the build.", k.clock)
+			}
+			for _, st := range []string{"working", "idle", "idle"} {
+				k.must(t, Change, "w1:p1", st, GapNone)
+			}
+			if tc.hooks {
+				k.hookRecord(t, "prompt", store.SenderUnconfirmed, "Run the tests…\nOnly the API package this time.", k.clock)
+			}
+			k.must(t, Change, "w1:p1", "working", GapNone)
+			if excerpts, counted := k.rows(t).pane().prompts(); !slices.Equal(excerpts, []string{first, next}) || counted != 2 {
+				t.Errorf("user text = %q (%d counted), want both prompts, each counted", excerpts, counted)
+			}
+		})
 	}
 }

@@ -461,6 +461,7 @@ tests = [
   "internal/brained:TestCapturePromptReadFailed",
   "internal/brained:TestCaptureQuoteRepaint",
   "internal/brained:TestCapturePromptResendHooks",
+  "internal/brained:TestCapturePromptEllipsis",
   "internal/brained:TestCapturePromptTurns",
   "internal/brained:TestCapturePromptCut",
 ]
@@ -482,4 +483,5 @@ tests = [
 issue = 353
 tests = [
   "internal/brained:TestCaptureRun4ToolLines",
+  "internal/brained:TestCapturePromptSameFirstLine",
 ]

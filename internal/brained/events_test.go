@@ -723,7 +723,8 @@ const (
 // first prompt with no text (it holds only its baseline), one that ends fast with text, one
 // with a hook record only, and one whose argv herdr cannot read. #351 AC 2: a real agent
 // that leads its process group keeps its session, also when it runs Brain's CLI as a tool, when
-// it runs under a node wrapper and when a script starts it.
+// it runs under a node wrapper and when a script starts it. A real agent in a pipe that Brain's
+// CLI leads keeps its session too (#351 review).
 func TestEventsRealAgentKept(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -740,6 +741,7 @@ func TestEventsRealAgentKept(t *testing.T) {
 		{name: "claude runs brain", job: job{"claude", procsClaudeTool, 40}, text: "⏺ done"},
 		{name: "codex under node", job: job{"codex", procsNode, 50}, text: "• done"},
 		{name: "script starts claude", job: job{"claude", procsScript, 60}, text: "⏺ done"},
+		{name: "brain pipe into claude", job: job{"claude", procsBrainPipe, 20}, text: "⏺ done"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			l := newLive(t, map[string]string{"w1:p1": codexRun1})
@@ -790,6 +792,10 @@ const (
 		`{"name":"node","argv":["node","/usr/local/bin/codex"],"pid":50}]`
 	// procsScript: a shell script that starts claude leads the group.
 	procsScript = `[{"name":"bash","argv":["bash","./agent.sh"],"pid":60},{"name":"2.1.295","argv":["claude","--model","opus"],"pid":61}]`
+	// procsBrainPipe: "brain status | claude -p 'Summarize this status'": brain leads the
+	// group, and a real claude runs in it.
+	procsBrainPipe = `[{"name":"brain","argv":["brain","status"],"pid":20},` +
+		`{"name":"2.1.295","argv":["claude","-p","Summarize this status"],"pid":21}]`
 )
 
 // hookRecord stores a tool hook record of codex in shellPane, as brain hook does.
