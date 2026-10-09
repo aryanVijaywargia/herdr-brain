@@ -98,28 +98,36 @@ func (p *Profile) ParseRecord(event string, raw []byte) (Record, error) {
 	return r, nil
 }
 
-// answers returns the text of prompt that you wrote. A prompt that answers a question of the
-// CLI starts with the tag of input.question_reply and a JSON list, one object for each
-// question: the CLI's question and your answer. Only the answers are yours, one on each line
-// (#341). Codex-cli 0.160.1 sends "<send_user_message_question_reply> [{"answer": ...,
-// "question": ..., "questionItemId": ...}]" [NEW: the M2 eval run 3 report gives the shape]. A
-// list that is not JSON, or an answer that is not a string, is a new input shape: an error that
+// answers returns the text of prompt that you wrote. A prompt that answers questions of the
+// CLI is the tag of input.question_reply around a JSON reply, or a list of them: the CLI's
+// question and your answer. Only the answers are yours, one on each line (#341). Codex-cli
+// 0.160.1 sends "<send_user_message_question_reply>", a list of {"questionItemId", "question",
+// "answer"} and the end tag (the Codex source, tui/src/async_question_reply.rs). The M2 eval
+// run 3 report shows the stored prompt with no end tag, so the end tag is optional. A reply
+// that is not JSON, or an answer that is not a string, is a new input shape: an error that
 // wraps ErrRetest.
 func (p *Profile) answers(prompt string) (string, error) {
-	list, ok := strings.CutPrefix(prompt, p.Input.QuestionReply)
-	if p.Input.QuestionReply == "" || !ok {
+	tag := p.Input.QuestionReply
+	body, ok := strings.CutPrefix(strings.TrimSpace(prompt), "<"+tag+">")
+	if tag == "" || !ok {
 		return prompt, nil
 	}
-	var items []struct {
+	body = strings.TrimSuffix(strings.TrimSpace(body), "</"+tag+">")
+	type reply struct {
 		Answer string `json:"answer"`
 	}
-	if err := json.Unmarshal([]byte(list), &items); err != nil {
-		return "", fmt.Errorf("%w: question reply: %w", ErrRetest, err)
+	var rs []reply
+	if err := json.Unmarshal([]byte(body), &rs); err != nil {
+		var one reply
+		if err := json.Unmarshal([]byte(body), &one); err != nil {
+			return "", fmt.Errorf("%w: question reply: %w", ErrRetest, err)
+		}
+		rs = []reply{one}
 	}
 	var as []string
-	for _, it := range items {
-		if it.Answer != "" {
-			as = append(as, it.Answer)
+	for _, r := range rs {
+		if r.Answer != "" {
+			as = append(as, r.Answer)
 		}
 	}
 	return strings.Join(as, "\n"), nil

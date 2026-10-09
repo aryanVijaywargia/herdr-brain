@@ -89,8 +89,8 @@ type Profile struct {
 		// ExitPattern is a regular expression on the error text; its first group is the exit
 		// status. With no match the exit status is unknown.
 		ExitPattern string `toml:"exit_pattern"`
-		// QuestionReply [NEW] is the tag that starts a prompt that answers a question of the
-		// CLI; a JSON list of the answers follows it (#341). "" for none.
+		// QuestionReply [NEW] is the name of the tag around the answers when a prompt answers
+		// questions of the CLI (#341). "" for none.
 		QuestionReply string `toml:"question_reply"`
 	} `toml:"input"`
 	TestedVersion string `toml:"tested_version"`

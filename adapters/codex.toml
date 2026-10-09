@@ -30,9 +30,10 @@ input.prompt = "prompt"
 input.command = "tool_input.command"
 input.reply = "last_assistant_message"
 # Codex 0.160.1 (#341, M2 eval run 3 2026-10-09): your answer to a question of Codex
-# (request_user_input) comes as a prompt with this tag and a JSON list of the questions and the
-# answers. The record keeps only the answers: the question is Codex's text.
-input.question_reply = "<send_user_message_question_reply>"
+# (request_user_input) comes as a prompt with the questions and the answers in JSON inside this
+# tag (tui/src/async_question_reply.rs). The record keeps only the answers: the question is
+# Codex's text.
+input.question_reply = "send_user_message_question_reply"
 # Codex runs a new or changed hook entry only after you trust it (E8-S3): setup shows the
 # steps, and brain doctor checks the trust state.
 hook_trust = "codex"

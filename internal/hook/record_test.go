@@ -228,8 +228,8 @@ func TestRecordCodex(t *testing.T) {
 
 // #341: the prompt record of your answer to a question of Codex 0.160.1 (request_user_input)
 // holds only the answer, also in the prompt index: not the tag, the JSON or the question of
-// Codex. prompt-question.json is made in the shape of the M2 eval run 3 report, with no real
-// session data.
+// Codex. prompt-question.json is made from the M2 eval run 3 report and the reply shape of the
+// Codex source (tui/src/async_question_reply.rs), with no real session data.
 func TestRecordCodexQuestion(t *testing.T) {
 	p, err := adapter.Load("codex")
 	if err != nil {
