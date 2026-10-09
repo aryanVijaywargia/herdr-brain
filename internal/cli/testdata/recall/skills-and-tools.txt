@@ -1,0 +1,10 @@
+Brain items for "release", best match first:
+- [2] Tag a release after the changelog
+### Skills
+Read the file of a skill before you do a task that matches it.
+- release: Do the release task. File: <tmp>/main/skills/3/r2/SKILL.md
+- release-notes: Do the release-notes task. File: <tmp>/main/skills/5/r3/SKILL.md
+### Tools
+Run a tool with: brain run <name> --<input> <value>. brain tools lists all tools and their inputs.
+- release-check: Tool release-check Inputs: package
+- release-tag: Tool release-tag Inputs: package
