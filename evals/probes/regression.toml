@@ -467,7 +467,7 @@ tests = [
 ]
 
 # M2 eval run 4 (2026-10-09, R4-4): the learned automation misses a stop call when herdr stores
-# the pane read of the run's working status a few ms before the call row. Fix: PR #TBD.
+# the pane read of the run's working status a few ms before the call row. Fix: PR #356.
 [[bug]]
 issue = 350
 tests = [
@@ -488,7 +488,7 @@ tests = [
 ]
 
 # M2 eval run 4 (2026-10-09, R4-6): a failed automation run gives no cause: the run record and
-# the status line name the failed step and its exit code. Fix: PR #TBD.
+# the status line name the failed step and its exit code. Fix: PR #356.
 [[bug]]
 issue = 352
 tests = [
