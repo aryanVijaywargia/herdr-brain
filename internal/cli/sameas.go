@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
 	"errors"
@@ -59,32 +60,45 @@ func (cl caller) linkView(l extract.Link) string {
 		l.Candidate.Count, l.Other.ID, oneLine(l.OtherText), other)
 }
 
-// linkCandidate checks that the caller sees candidate id of a link.
-func (cl caller) linkCandidate(ctx context.Context, tx *sql.Tx, id int64) error {
+// linkCandidate checks that the caller sees candidate id of a link. When other is not "", the
+// link must still name claim other: the claim that a pane showed before it waited for your key
+// (go-quality rule 14).
+func (cl caller) linkCandidate(ctx context.Context, tx *sql.Tx, id int64, other string) error {
 	c, err := store.CandidateByID(ctx, tx, id)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && !cl.sees(scopeKey(c.Scope, c.WorkspaceKey)) {
 		return fmt.Errorf("candidate %d: %w", id, errNotFound)
+	}
+	if err != nil || other == "" {
+		return err
+	}
+	k, err := store.ClaimByID(ctx, tx, c.ClaimID)
+	if err == nil && (k.SameAs != other || k.SameAsStatus != store.SameAsProposed) {
+		err = fmt.Errorf("the link of candidate %d changed while you looked at it: look again", id)
 	}
 	return err
 }
 
 // mergeLink runs the review action merge on the same_as link of candidate id (#358,
-// extract.MergeLink): the two claims mean the same, and their evidence counts together. It
-// approves nothing: it prints the candidate that got the evidence, with its proposal for your
-// review when it has one.
-func (cl caller) mergeLink(ctx context.Context, id int64) error {
+// extract.MergeLink), which names claim other ("" for any): the two claims mean the same, and
+// their evidence counts together. It approves nothing: it prints the candidate that got the
+// evidence, with its proposal for your review when it has one, and the proposals of the merged
+// claim that it superseded.
+func (cl caller) mergeLink(ctx context.Context, id int64, other string) error {
 	var lines []string
 	gates := cl.gates()
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		lines = nil
-		if err := cl.linkCandidate(ctx, tx, id); err != nil {
+		if err := cl.linkCandidate(ctx, tx, id, other); err != nil {
 			return err
 		}
-		got, err := extract.MergeLink(ctx, tx, id, gates, cl.Now())
+		m, err := extract.MergeLink(ctx, tx, id, gates, cl.Now())
 		if err != nil {
 			return err
 		}
-		for _, to := range got {
+		for _, p := range m.Superseded {
+			lines = append(lines, fmt.Sprintf("proposal %d of the merged claim superseded: the candidate below has its evidence", p))
+		}
+		for _, to := range m.Candidates {
 			c, err := store.CandidateByID(ctx, tx, to)
 			if err != nil {
 				return err
@@ -110,11 +124,11 @@ func (cl caller) mergeLink(ctx context.Context, id int64) error {
 }
 
 // keepApart runs the review action keep apart on the same_as link of candidate id (#358,
-// extract.KeepApart): the link ends and does not come back for the same pair.
-func (cl caller) keepApart(ctx context.Context, id int64) error {
-	var other string
+// extract.KeepApart), which names claim other ("" for any): the link ends and does not come
+// back for the same pair.
+func (cl caller) keepApart(ctx context.Context, id int64, other string) error {
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) (err error) {
-		if err := cl.linkCandidate(ctx, tx, id); err != nil {
+		if err := cl.linkCandidate(ctx, tx, id, other); err != nil {
 			return err
 		}
 		other, err = extract.KeepApart(ctx, tx, id)
@@ -127,20 +141,40 @@ func (cl caller) keepApart(ctx context.Context, id int64) error {
 	return err
 }
 
-// linksKeys are the keys of the links list of the review pane.
-const linksKeys = "j down  k up  m merge  n keep apart  q back"
+// The keys of the links list: in the review pane, q goes back to the proposal; in the popup,
+// q closes it.
+const (
+	linksKeys      = "j down  k up  m merge  n keep apart  q back"
+	linksPopupKeys = "j down  k up  m merge  n keep apart  q close"
+)
 
-// linksPane is the list of the same_as links that wait for review in the review pane (#358),
-// as brain review lists them: m merges the link at the cursor, and n keeps it apart, each with
-// one confirm. [NEW keys].
+// linksPane is the list of the same_as links that wait for review in the review pane, key m,
+// and in the popup of the action brain.links, with no proposal (#358), as brain review lists
+// them: m merges the link at the cursor, and n keeps it apart, each with one confirm. [NEW
+// keys].
 type linksPane struct {
 	Env
+	popup  bool // the list is the popup of brain.links
 	keys   io.RuneReader
 	size   func() (rows, cols int)
 	links  []string // the view of each link
 	ids    []int64  // the candidate of each link
+	others []string // the claim that each link names, as the view shows it
 	cursor int
 	msg    string
+}
+
+// linksPopup runs `brain pane links`, the popup of the action brain.links (#358): the links
+// list of the focused pane's workspace, with no proposal. herdr closes the popup when brain
+// exits, so an error shows until a key.
+func linksPopup(ctx context.Context, e Env, keys *bufio.Reader, size func() (rows, cols int)) (err error) {
+	if e.Environ, err = popupEnv(e.Environ); err == nil {
+		err = (&linksPane{Env: e, popup: true, keys: keys, size: size}).run(ctx)
+	}
+	if err != nil {
+		return popupFail(e.Stdout, keys, err)
+	}
+	return nil
 }
 
 // run shows the list and reads keys until q or the end of input. It reads the list again
@@ -153,9 +187,9 @@ func (l *linksPane) run(ctx context.Context) error {
 				if err != nil {
 					return err
 				}
-				l.links, l.ids = make([]string, len(ls)), make([]int64, len(ls))
+				l.links, l.ids, l.others = make([]string, len(ls)), make([]int64, len(ls)), make([]string, len(ls))
 				for i, k := range ls {
-					l.links[i], l.ids[i] = cl.linkView(k), k.Candidate.ID
+					l.links[i], l.ids[i], l.others[i] = cl.linkView(k), k.Candidate.ID, k.Other.ID
 				}
 				return nil
 			})
@@ -186,20 +220,21 @@ func (l *linksPane) key(ctx context.Context, k rune) error {
 	case 'k':
 		l.cursor = max(l.cursor-1, 0)
 	case 'm':
-		return l.act(ctx, "merge", "the two claims mean the same", func(cl caller, id int64) error { return cl.mergeLink(ctx, id) })
+		return l.act(ctx, "merge", "the two claims mean the same", caller.mergeLink)
 	case 'n':
-		return l.act(ctx, "keep apart", "the two claims differ", func(cl caller, id int64) error { return cl.keepApart(ctx, id) })
+		return l.act(ctx, "keep apart", "the two claims differ", caller.keepApart)
 	}
 	return nil
 }
 
-// act runs fn on the link at the cursor after one confirm.
-func (l *linksPane) act(ctx context.Context, verb, means string, fn func(caller, int64) error) error {
+// act runs fn on the link at the cursor after one confirm, with the claim that the screen
+// showed, so a link that changed meanwhile is not decided.
+func (l *linksPane) act(ctx context.Context, verb, means string, fn func(caller, context.Context, int64, string) error) error {
 	if len(l.links) == 0 {
 		l.msg = "no link to " + verb
 		return nil
 	}
-	id := l.ids[l.cursor]
+	id, other := l.ids[l.cursor], l.others[l.cursor]
 	l.draw(fmt.Sprintf("%s link %d (%s)? press y to confirm, another key to go back", verb, id, means))
 	k, _, err := l.keys.ReadRune()
 	if err != nil {
@@ -209,7 +244,7 @@ func (l *linksPane) act(ctx context.Context, verb, means string, fn func(caller,
 		l.msg = "nothing changed"
 		return nil
 	}
-	out, err := callPane(ctx, l.Env, func(cl caller) error { return fn(cl, id) })
+	out, err := callPane(ctx, l.Env, func(cl caller) error { return fn(cl, ctx, id, other) })
 	l.msg = out
 	if err != nil {
 		l.msg = err.Error()
@@ -224,7 +259,11 @@ func (l *linksPane) draw(prompt string) {
 	if l.msg != "" {
 		fmt.Fprintf(&foot, "\n%s\n", strings.TrimSpace(l.msg))
 	}
-	fmt.Fprintf(&foot, "\n%s\n%s", linksKeys, prompt)
+	keys := linksKeys
+	if l.popup {
+		keys = linksPopupKeys
+	}
+	fmt.Fprintf(&foot, "\n%s\n%s", keys, prompt)
 	head := "same_as links that wait for review (global and this workspace)"
 	var body strings.Builder
 	if len(l.links) == 0 {

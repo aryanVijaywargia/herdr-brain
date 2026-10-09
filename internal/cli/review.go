@@ -150,9 +150,9 @@ func (cl caller) runQueueAction(ctx context.Context, r review) error {
 	case r.makeTool != 0:
 		return cl.makeTool(ctx, r.makeTool)
 	case r.merge != 0:
-		return cl.mergeLink(ctx, r.merge)
+		return cl.mergeLink(ctx, r.merge, "")
 	case r.apart != 0:
-		return cl.keepApart(ctx, r.apart)
+		return cl.keepApart(ctx, r.apart, "")
 	case r.rejected:
 		return cl.listRejections(ctx)
 	case r.reopen != 0 || r.reset != 0:

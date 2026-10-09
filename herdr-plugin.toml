@@ -103,6 +103,23 @@ title = "Brain retired items"
 placement = "popup"
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" pane retired"]
 
+# #358: the popup lists the same_as links that wait for review in the focused pane's workspace
+# and in global, as key m of the review pane does, with no proposal: m merges a link, n keeps it
+# apart. Also: `herdr plugin action invoke brain.links`.
+[[actions]]
+id = "links"
+title = "Brain: links to review"
+contexts = ["workspace", "pane"]
+command = ["sh", "-c", "exec \"$HERDR_BIN_PATH\" plugin pane open --plugin brain --entrypoint links"]
+
+# A popup, as the retired popup: `brain pane links` takes the focused pane and its workspace
+# from HERDR_PLUGIN_CONTEXT_JSON (D6). q closes it.
+[[panes]]
+id = "links"
+title = "Brain links to review"
+placement = "popup"
+command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" pane links"]
+
 # D4 (E2-S6): a close marks the workspace closed, because herdr reuses a closed id after a
 # restart. herdr runs the command once for each event; there is no listener process.
 [[events]]

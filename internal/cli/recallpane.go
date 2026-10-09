@@ -62,7 +62,7 @@ func popupEnv(environ []string) ([]string, error) {
 	}
 	raw := lookupEnv(environ, "HERDR_PLUGIN_CONTEXT_JSON")
 	if raw == "" {
-		return nil, errors.New("no HERDR_PANE_ID and no HERDR_PLUGIN_CONTEXT_JSON: open the popup from its herdr action (brain.recall, brain.retired)")
+		return nil, errors.New("no HERDR_PANE_ID and no HERDR_PLUGIN_CONTEXT_JSON: open the popup from its herdr action (brain.recall, brain.retired, brain.links)")
 	}
 	if err := json.Unmarshal([]byte(raw), &ctx); err != nil {
 		return nil, fmt.Errorf("read HERDR_PLUGIN_CONTEXT_JSON: %w", err)

@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -263,5 +265,68 @@ func TestChangeNext(t *testing.T) {
 		if got := changeNext(tc.r); got != tc.want {
 			t.Errorf("changeNext(%+v) = %q, want %q", tc.r, got, tc.want)
 		}
+	}
+}
+
+// Sol review of #360 (go-quality rule 14): a link that names another claim after the pane
+// showed it, as after a new telling, is not merged at the y: the pane says so, and nothing
+// changes.
+func TestPaneLinkChanged(t *testing.T) {
+	f := newFixture(t)
+	link, _ := f.sameAsLink(t)
+	id := f.remember(t, "use yarn")
+	k := typed("mmyqq")
+	k.before = map[int]func(){2: func() {
+		s := openStore(t, f.store)
+		defer closeStore(t, s)
+		write(t, s, func(tx *sql.Tx) error {
+			ctx := context.Background()
+			other, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: "installing packages", Rule: "use bun"}, testNow)
+			if err != nil {
+				return err
+			}
+			_, err = store.SameAs(ctx, tx, link.ClaimID, other, store.Match{})
+			return err
+		})
+	}}
+	out, err := f.pane(t, id, k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := fmt.Sprintf("the link of candidate %d changed while you looked at it: look again", link.ID); !strings.Contains(out, want) {
+		t.Errorf("pane:\n%s\nwant %q", out, want)
+	}
+	if r := f.rows(t); len(r.proposals) != 1 {
+		t.Errorf("proposals = %+v, want only the remember draft: no merge", r.proposals)
+	}
+}
+
+// Sol review of #360 (AC #358 and 2): with no proposal, as in the run 4 shape, the popup of the
+// action brain.links lists the link of the focused pane's workspace; m and y merge it, and q
+// closes the popup.
+func TestLinksPopup(t *testing.T) {
+	f := newFixture(t)
+	link, other := f.sameAsLink(t)
+	var out bytes.Buffer
+	e := f.env(f.sock, "", "", &out)
+	e.Environ = f.popupEnviron("w14:p1", "w14")
+	popup := popupOf([]string{"links"})
+	if popup == nil || !strings.Contains(paneUsage, "brain pane links") {
+		t.Fatalf("popupOf(links) = nil or usage %q, want the links popup", paneUsage)
+	}
+	if err := popup(context.Background(), e, bufio.NewReader(strings.NewReader("myq")), func() (int, int) { return 0, 0 }); err != nil {
+		t.Fatalf("pane links = %v\n%s", err, out.String())
+	}
+	for _, want := range []string{
+		fmt.Sprintf("> link %d  workspace w14 (shop)", link.ID),
+		fmt.Sprintf("candidate %d: 2 occurrences, gate reached; proposal", other.ID),
+		"\n" + linksPopupKeys + "\n",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("popup:\n%s\nwant %q", out.String(), want)
+		}
+	}
+	if r := f.rows(t); len(r.proposals) != 1 || r.proposals[0].Status != store.ProposalPending {
+		t.Errorf("proposals = %+v, want the pending proposal of the merge", r.proposals)
 	}
 }

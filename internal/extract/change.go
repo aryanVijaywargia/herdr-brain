@@ -52,6 +52,13 @@ func (p Pass) requests(ctx context.Context, tx *sql.Tx) ([]job, error) {
 			r.Status == store.ChangeActive && p.Now().Sub(r.At) < changeStale {
 			continue
 		}
+		// A request that a Brain before #359 called to the end gives its proposal back now, so
+		// that changeJob finds it current.
+		if spent {
+			if err := giveBack(ctx, tx, r); err != nil {
+				return nil, err
+			}
+		}
 		if r.WorkspaceKey != "" {
 			w, err := store.WorkspaceByKey(ctx, tx, r.WorkspaceKey)
 			if errors.Is(err, sql.ErrNoRows) || err == nil && w.HerdrSession != p.HerdrSession {

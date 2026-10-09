@@ -21,7 +21,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-const paneUsage = `usage: brain pane review --proposal <id> | brain pane recall | brain pane retired`
+const paneUsage = `usage: brain pane review --proposal <id> | brain pane recall | brain pane retired | brain pane links`
 
 // linger is how long the pane shows its last message before it exits, and herdr closes it.
 // [NEW] 2 s.
@@ -43,6 +43,8 @@ func popupOf(args []string) func(ctx context.Context, e Env, keys *bufio.Reader,
 		return recallPopup // E20-S3
 	case "retired":
 		return retiredPopup // E20-S11
+	case "links":
+		return linksPopup // #358
 	}
 	return nil
 }

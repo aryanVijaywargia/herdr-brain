@@ -78,14 +78,14 @@ func (f *fixture) linkOf(situation string) int64 {
 }
 
 // merge merges the link of candidate id, as brain review --merge does.
-func (f *fixture) merge(id int64) ([]int64, error) {
+func (f *fixture) merge(id int64) (Merged, error) {
 	f.t.Helper()
-	var got []int64
+	var m Merged
 	err := f.s.Write(context.Background(), func(tx *sql.Tx) (err error) {
-		got, err = MergeLink(context.Background(), tx, id, store.DefaultGates(), f.now)
+		m, err = MergeLink(context.Background(), tx, id, store.DefaultGates(), f.now)
 		return err
 	})
-	return got, err
+	return m, err
 }
 
 // AC #358 with the run 4 shape of #348 and a permission word in the steps: Links shows the link
@@ -104,8 +104,8 @@ func TestMergeWaitingLink(t *testing.T) {
 	}
 	calls, other := f.cli.calls(), ls[0].OtherCandidateID
 	got, err := f.merge(ls[0].Candidate.ID)
-	if err != nil || len(got) != 1 || got[0] != other {
-		t.Fatalf("MergeLink = %v, %v, want candidate %d", got, err, other)
+	if err != nil || len(got.Candidates) != 1 || got.Candidates[0] != other || len(got.Superseded) != 0 {
+		t.Fatalf("MergeLink = %+v, %v, want candidate %d and nothing superseded", got, err, other)
 	}
 	if f.cli.calls() != calls {
 		t.Errorf("calls = %d, want %d: a merge makes no model call", f.cli.calls(), calls)
@@ -247,5 +247,35 @@ func TestMergeUnclearLink(t *testing.T) {
 	ps := f.proposals()
 	if len(ps) != 1 || ps[0].Text != "When shipping a new version: bump, test, commit and tag" || ps[0].PermissionWarning {
 		t.Errorf("proposals = %+v, want the text of the newest telling", ps)
+	}
+}
+
+// Sol review of #360 (AC #358): a link whose candidate reached its gate on its own still waits
+// for review: tellings 3 to 5 in other words give that claim its own skill proposal. A merge
+// supersedes that proposal, and the merged candidate proposes the newest telling once.
+func TestMergeProposedLink(t *testing.T) {
+	f := newFixture(t)
+	f.waitingLink()
+	f.release(4)
+	f.release(5)
+	own := f.proposals()
+	if len(own) != 1 || own[0].Status != store.ProposalPending {
+		t.Fatalf("proposals = %+v, want the own proposal of the later tellings", own)
+	}
+	ls := f.links()
+	if len(ls) != 1 || ls[0].Candidate.Status != store.CandidateProposed || ls[0].Candidate.Count != 3 {
+		t.Fatalf("links = %+v, want the link of the proposed candidate", ls)
+	}
+	m, err := f.merge(ls[0].Candidate.ID)
+	if err != nil || len(m.Superseded) != 1 || m.Superseded[0] != own[0].ID || len(m.Candidates) != 1 {
+		t.Fatalf("MergeLink = %+v, %v, want proposal %d superseded", m, err, own[0].ID)
+	}
+	ps := f.proposals()
+	if len(ps) != 2 || ps[0].Status != store.ProposalSuperseded || ps[1].Status != store.ProposalPending ||
+		*ps[1].CandidateID != m.Candidates[0] || ps[1].Text != own[0].Text {
+		t.Fatalf("proposals = %+v, want the own one superseded and one pending of the merged candidate", ps)
+	}
+	if n := f.count(`SELECT count FROM candidates`); n != 5 || f.count(`SELECT COUNT(*) FROM candidates`) != 1 {
+		t.Errorf("candidates = %d of count %d, want one with the 5 tellings", f.count(`SELECT COUNT(*) FROM candidates`), n)
 	}
 }

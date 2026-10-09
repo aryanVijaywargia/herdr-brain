@@ -536,6 +536,8 @@ tests = [
   "internal/extract:TestMergeWaitingLink",
   "internal/extract:TestMergeNewestTelling",
   "internal/extract:TestKeepApartLink",
+  "internal/extract:TestMergeProposedLink",
   "internal/cli:TestReviewSameAsLink",
   "internal/cli:TestPaneLinks",
+  "internal/cli:TestLinksPopup",
 ]

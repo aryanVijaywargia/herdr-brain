@@ -193,3 +193,54 @@ func TestSpentChangeRequestDecided(t *testing.T) {
 		t.Errorf("request = %+v, calls %d, want discarded with no call", got, f.cli.calls()-calls)
 	}
 }
+
+// Sol review of #360 (AC #359): a request that a Brain before the try limit called to the end
+// still has a changed proposal. The next pass gives that proposal back to review, with no call,
+// and the request stays failed: also for the redraft of an item draft.
+func TestSpentRequestBeforeLimit(t *testing.T) {
+	for name, tc := range map[string]struct {
+		status store.ChangeStatus
+		calls  int
+	}{
+		"invalid": {store.ChangeInvalid, 5},
+		"failed":  {store.ChangeFailed, 4},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			p := f.proposed()
+			cr := f.ask(p, "split it")
+			f.write(func(ctx context.Context, tx *sql.Tx) error {
+				_, err := tx.ExecContext(ctx, `UPDATE change_requests SET status = ?, model_calls = ?, reason = 'old'`,
+					tc.status, tc.calls)
+				return err
+			})
+			calls := f.cli.calls()
+			f.mustRun()
+			if got := f.request(cr.ID); got.Status != tc.status || f.cli.calls() != calls {
+				t.Errorf("request = %+v, %d calls, want it %s with no call", got, f.cli.calls()-calls, tc.status)
+			}
+			if got := f.proposal(p.ID); got.Status != store.ProposalPending {
+				t.Errorf("proposal = %+v, want it back in review", got)
+			}
+		})
+	}
+	t.Run("item draft", func(t *testing.T) {
+		f := newFixture(t)
+		item := f.revisedItem(2)
+		f.comebacks(item, 2, 2)
+		f.cli.reply = claimOf("use pnpm, never npm, for every install")
+		f.mustRun()
+		draft := f.proposals()[0]
+		f.write(func(ctx context.Context, tx *sql.Tx) error {
+			if _, err := store.AskItemChange(ctx, tx, draft.ID, "make it shorter", store.SurfaceCLI, f.now); err != nil {
+				return err
+			}
+			_, err := tx.ExecContext(ctx, `UPDATE change_requests SET status = 'invalid', model_calls = 3`)
+			return err
+		})
+		f.mustRun()
+		if got := f.proposal(draft.ID); got.Status != store.ProposalPending {
+			t.Errorf("draft = %+v, want it back in review", got)
+		}
+	})
+}

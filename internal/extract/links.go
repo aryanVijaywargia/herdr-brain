@@ -104,57 +104,72 @@ func linkText(ctx context.Context, tx *sql.Tx, cl store.Claim) (string, error) {
 	return store.ClaimText(ctx, tx, cl.ID)
 }
 
+// Merged is what MergeLink did: the candidates that got the evidence, and the proposals of the
+// merged claim that it superseded.
+type Merged struct {
+	Candidates, Superseded []int64
+}
+
 // MergeLink merges the same_as link that waits for review of candidate id (#358, §7.2): you say
 // that its claim means the same as the claim of the link. The link is confirmed
-// (store.ConfirmLink): the key gets that claim id from now on. The evidence of each open
-// candidate of the claim moves to the candidate of the other claim in the same scope
-// (moveEvidence), as a merge of the extractor does (#279), so it counts together. A merge
-// approves nothing: a candidate at its gate gets a normal proposal for your review, with the
-// text of the newest telling of the two claims (#348) and no model call. A claim with no draft
-// proposes at its next telling. It returns the candidates that got the evidence.
-func MergeLink(ctx context.Context, tx *sql.Tx, id int64, gates store.Gates, now time.Time) ([]int64, error) {
+// (store.ConfirmLink): the key gets that claim id from now on. The evidence of each candidate of
+// the claim whose link waits (store.LinkWaits) moves to the candidate of the other claim in the
+// same scope (moveEvidence), as a merge of the extractor does (#279), so it counts together; a
+// proposal of such a candidate that waits for your review is superseded. A merge approves
+// nothing: a candidate at its gate gets a normal proposal for your review, with the text of the
+// newest telling of the two claims (#348) and no model call. A claim with no draft proposes at
+// its next telling.
+func MergeLink(ctx context.Context, tx *sql.Tx, id int64, gates store.Gates, now time.Time) (Merged, error) {
 	cand, err := linkCandidate(ctx, tx, id)
 	if err != nil {
-		return nil, err
+		return Merged{}, err
 	}
 	cl, err := store.ClaimByID(ctx, tx, cand.ClaimID)
 	if err != nil {
-		return nil, err
-	}
-	into, err := store.ConfirmLink(ctx, tx, cl.ID)
-	if err != nil {
-		return nil, err
-	}
-	c, ok, err := newest(ctx, tx, cl, into)
-	if err != nil {
-		return nil, err
+		return Merged{}, err
 	}
 	cs, err := store.ClaimCandidates(ctx, tx, cl.ID)
 	if err != nil {
-		return nil, err
+		return Merged{}, err
+	}
+	into, err := store.ConfirmLink(ctx, tx, cl.ID)
+	if err != nil {
+		return Merged{}, err
+	}
+	c, ok, err := newest(ctx, tx, cl, into)
+	if err != nil {
+		return Merged{}, err
 	}
 	p := Pass{Gates: gates, Now: func() time.Time { return now }}
-	var got []int64
+	var m Merged
 	for _, from := range cs {
-		if from.Status != store.CandidateOpen {
+		if waits, err := store.LinkWaits(ctx, tx, from.ID); err != nil || !waits {
+			if err != nil {
+				return Merged{}, err
+			}
 			continue
 		}
-		to, err := p.moveEvidence(ctx, tx, from, into)
+		ids, err := store.SupersedePending(ctx, tx, from.ID, now)
 		if err != nil {
-			return nil, err
+			return Merged{}, err
 		}
-		if to == 0 {
+		m.Superseded = append(m.Superseded, ids...)
+		to, err := p.moveEvidence(ctx, tx, from, into)
+		if err != nil || to == 0 {
+			if err != nil {
+				return Merged{}, err
+			}
 			continue
 		}
-		got = append(got, to)
+		m.Candidates = append(m.Candidates, to)
 		if !ok {
 			continue
 		}
 		if _, _, err := p.proposal(ctx, tx, to, c, now); err != nil {
-			return nil, err
+			return Merged{}, err
 		}
 	}
-	return got, nil
+	return m, nil
 }
 
 // newest returns the claim of the newest telling of claim cl and of claim into, the claim that
@@ -221,12 +236,16 @@ func KeepApart(ctx context.Context, tx *sql.Tx, id int64) (string, error) {
 	return store.KeepApart(ctx, tx, cand.ClaimID)
 }
 
-// linkCandidate reads candidate id of a link to review: only an open candidate has one
-// (store.LinkCandidates). The store checks the link.
+// linkCandidate reads candidate id of a link to review (store.LinkWaits). The store checks the
+// link.
 func linkCandidate(ctx context.Context, tx *sql.Tx, id int64) (store.Candidate, error) {
 	cand, err := store.CandidateByID(ctx, tx, id)
-	if err == nil && cand.Status != store.CandidateOpen {
-		err = fmt.Errorf("candidate %d is %s: only an open candidate has a link to review", id, cand.Status)
+	if err != nil {
+		return store.Candidate{}, err
+	}
+	waits, err := store.LinkWaits(ctx, tx, id)
+	if err == nil && !waits {
+		err = fmt.Errorf("candidate %d is %s with no proposal that waits: it has no link to review", id, cand.Status)
 	}
 	return cand, err
 }
