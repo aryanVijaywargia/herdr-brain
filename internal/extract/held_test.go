@@ -134,9 +134,10 @@ func (f *fixture) reject(p store.Proposal, c store.Candidate) {
 
 // AC #365 with the run 5 shape of proposals 7 and 8: you reject the rule of the T2 request,
 // and the same request comes in other words in two sessions, with a same_as link to the
-// rejected claim (an unclear match). It stays rejected: no candidate of its own, no link to
-// review and no proposal. Its evidence goes to the rejected candidate, as new evidence since the
-// rejection (brain review --rejected).
+// rejected claim (an unclear match). It reaches its gate, but the rejection holds it: no
+// proposal while the link waits for review (§7.2: an unclear match goes to review, never to a
+// silent merge). A merge keeps the rejection: the evidence counts with the rejected claim, as
+// new evidence since the rejection, and no proposal comes.
 func TestRejectedRequestInOtherWords(t *testing.T) {
 	f := newFixture(t)
 	f.cli.reply = ruleReply(t2Situation, t2Rule, nil)
@@ -154,14 +155,21 @@ func TestRejectedRequestInOtherWords(t *testing.T) {
 	f.harnessSession("codex", "s11", true, line{"ws-A", "again: reset the db with the script first, then the tests",
 		t0.Add(2 * time.Hour)})
 	f.mustRun()
+	ls := f.links()
+	if len(ls) != 1 || ls[0].Candidate.Count != 2 || ls[0].OtherCandidateID != cs[0].ID || ls[0].Stuck != "" {
+		t.Fatalf("links = %+v, want the link of the new claim at its gate to the rejected candidate %d", ls, cs[0].ID)
+	}
+	if got := f.proposals(); len(got) != 1 {
+		t.Errorf("proposals = %+v, want only the rejected one", got)
+	}
+	if _, err := f.merge(ls[0].Candidate.ID); err != nil {
+		t.Fatal(err)
+	}
 	if got := f.candidates(); len(got) != 1 || got[0].ID != cs[0].ID || got[0].Count != 4 {
 		t.Errorf("candidates = %+v, want only the rejected candidate %d with the 2 new tellings", got, cs[0].ID)
 	}
-	if ls := f.links(); len(ls) != 0 {
-		t.Errorf("links = %+v, want none to review", ls)
-	}
 	if got := f.proposals(); len(got) != 1 || got[0].Status != store.ProposalRejected {
-		t.Errorf("proposals = %+v, want only the rejected one", got)
+		t.Errorf("proposals after the merge = %+v, want only the rejected one", got)
 	}
 }
 

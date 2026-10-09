@@ -575,14 +575,14 @@ tests = [
 ]
 
 # M2 eval run 5 (2026-10-09, R5-6): one-time requests become rules: a question asked twice, a
-# request that a tool runs, the same request in other words after its rejection, and a request
-# with the lesson word "always". Fix: the PR of #361.
+# request that a tool runs, the same request in other words after its rejection (its link waited,
+# and the rejection did not hold it), and a request with the lesson word "always". Fix: the PR
+# of #361.
 [[bug]]
 issue = 365
 tests = [
   "internal/extract:TestToolCoversRequest",
   "internal/extract:TestRejectedRequestInOtherWords",
-  "internal/extract:TestSameAsRejectedClaim",
   "internal/extract:TestOneTimeRequests",
   "internal/extract:TestPromptOneTimeRule",
 ]

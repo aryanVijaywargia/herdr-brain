@@ -823,11 +823,11 @@ func permissionPair(ctx context.Context, tx *sql.Tx, cl, other store.Claim, c Cl
 //     keeps its own candidate, and only a skill holds a skill (store.SkillHeld, #313);
 //   - when c is the agent's own commands alone (ownCommands) and an item of that claim, in the
 //     workspace of batch j or global, is active or waits for review, whatever c is: the agent
-//     follows the item, as it runs a rule's chain because the rule says so (#366);
-//   - when you rejected that claim in the scope: the same request in other words stays rejected
-//     (§7.2, #365).
+//     follows the item, as it runs a rule's chain because the rule says so (#366).
 //
-// Else an active or pending tool that c asks to run holds a rule (toolHolds, #365).
+// Else an active or pending tool that c asks to run holds a rule (toolHolds, #365). A link to a
+// rejected claim holds no evidence: it goes to review, and the rejection holds the proposal
+// (linkRejected).
 func heldBy(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim, key string) (string, error) {
 	other, ok, err := linkTarget(ctx, tx, claim, c)
 	if err != nil {
@@ -861,10 +861,7 @@ func linkHeld(ctx context.Context, tx *sql.Tx, j job, other string, c Claim, key
 	if c.Skill != nil {
 		held = store.SkillHeld
 	}
-	if ok, err := held(ctx, tx, other, key); err != nil || ok {
-		return ok, err
-	}
-	return store.Rejected(ctx, tx, other, key)
+	return held(ctx, tx, other, key)
 }
 
 // ownCommands reports whether the evidence of claim c is the agent's own commands and tool output
@@ -1229,6 +1226,9 @@ func (p Pass) proposal(ctx context.Context, tx *sql.Tx, id int64, c Claim, now t
 	if held, err := store.Rejected(ctx, tx, cand.ClaimID, cand.WorkspaceKey); err != nil || held {
 		return cand, 0, err
 	}
+	if held, err := linkRejected(ctx, tx, cand); err != nil || held {
+		return cand, 0, err
+	}
 	var key *string
 	if cand.Scope == store.ScopeWorkspace {
 		key = &cand.WorkspaceKey
@@ -1273,6 +1273,18 @@ func (p Pass) proposal(ctx context.Context, tx *sql.Tx, id int64, c Claim, now t
 		return cand, 0, err
 	}
 	return cand, pid, store.MarkProposed(ctx, tx, id)
+}
+
+// linkRejected reports whether the claim of candidate cand has a same_as link that waits for
+// review to a claim that you rejected in its scope: the same request in other words, as the
+// extractor says. The rejection holds it until you decide the link (#365, §7.2): a merge keeps
+// the rejection, and keep apart frees the claim.
+func linkRejected(ctx context.Context, tx *sql.Tx, cand store.Candidate) (bool, error) {
+	cl, err := store.ClaimByID(ctx, tx, cand.ClaimID)
+	if err != nil || cl.SameAs == "" || cl.SameAsStatus != store.SameAsProposed {
+		return false, err
+	}
+	return store.Rejected(ctx, tx, cl.SameAs, cand.WorkspaceKey)
 }
 
 // lessonSuggestion reserves the suggestion of proposal pid of lesson candidate cand beside the
