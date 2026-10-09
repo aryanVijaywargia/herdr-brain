@@ -557,13 +557,21 @@ func TestEventsRepeatedPrompt(t *testing.T) {
 // shellPane is the shell pane of the probe tests (#317).
 const shellPane = "w1:p2"
 
-// probeLine is a pane_agent_detected event of codex in shellPane, as herdr sends it; a release
+// probeLine is a pane_agent_detected event of agent in shellPane, as herdr sends it; a release
 // has the final status and released.
-func probeLine(released bool) string {
+func probeLine(agent string, released bool) string {
 	if released {
-		return `{"data":{"agent":"codex","final_status":"idle","pane_id":"w1:p2","released":true,"workspace_id":"w1"},"event":"pane_agent_detected"}`
+		return fmt.Sprintf(`{"data":{"agent":%q,"final_status":"idle","pane_id":"w1:p2","released":true,"workspace_id":"w1"},"event":"pane_agent_detected"}`, agent)
 	}
-	return `{"data":{"agent":"codex","pane_id":"w1:p2","type":"pane_agent_detected","workspace_id":"w1"},"event":"pane_agent_detected"}`
+	return fmt.Sprintf(`{"data":{"agent":%q,"pane_id":"w1:p2","type":"pane_agent_detected","workspace_id":"w1"},"event":"pane_agent_detected"}`, agent)
+}
+
+// job is a command line in shellPane: the agent that herdr detects there, its foreground
+// processes as pane.process_info gives them, and the id of their process group, the pid of its
+// leader (0: herdr gives none).
+type job struct {
+	agent, procs string
+	group        int
 }
 
 // The foreground processes of shellPane, as pane.process_info gives them.
@@ -591,37 +599,39 @@ func (l *live) shell(t *testing.T) {
 	l.created(t, shellPane)
 }
 
-// agent sets the agent of shellPane ("" when it left) and its foreground processes.
-func (l *live) agent(agent, procs string) {
+// run sets the agent of shellPane and its foreground processes to those of j; a zero j is a
+// pane with no agent.
+func (l *live) run(j job) {
 	l.f.mu.Lock()
 	defer l.f.mu.Unlock()
-	l.f.panes[shellPane].agent = agent
-	l.f.panes[shellPane].procs = procs
+	l.f.panes[shellPane].agent = j.agent
+	l.f.panes[shellPane].procs = j.procs
+	l.f.panes[shellPane].group = j.group
 }
 
-// detect sends the detection of codex in shellPane with procs and waits for its baseline.
-func (l *live) detect(t *testing.T, procs string) {
+// detect sends the detection of the agent of j in shellPane and waits for its baseline.
+func (l *live) detect(t *testing.T, j job) {
 	t.Helper()
-	l.agent("codex", procs)
-	l.main.send(probeLine(false))
+	l.run(j)
+	l.main.send(probeLine(j.agent, false))
 	wantStep(t, l.step(t), Baseline, shellPane, GapNone, "")
 }
 
-// release sends the release of codex in shellPane and waits for its end.
-func (l *live) release(t *testing.T) {
+// release sends the release of agent in shellPane and waits for its end.
+func (l *live) release(t *testing.T, agent string) {
 	t.Helper()
-	l.agent("", "")
-	l.main.send(probeLine(true))
+	l.run(job{})
+	l.main.send(probeLine(agent, true))
 	wantStep(t, l.step(t), End, shellPane, "", ReasonAgentLeft)
 }
 
 // observed returns the sessions observed and the capture gaps that brain status prints for
-// codex.
-func (l *live) observed(t *testing.T) store.DeliveryGap {
+// harness.
+func (l *live) observed(t *testing.T, harness string) store.DeliveryGap {
 	t.Helper()
 	var d store.DeliveryGap
 	l.tx(t, func(tx *sql.Tx) (err error) {
-		d, err = store.DeliveryGaps(context.Background(), tx, "s1", "codex")
+		d, err = store.DeliveryGaps(context.Background(), tx, "s1", harness)
 		return err
 	})
 	return d
@@ -636,17 +646,17 @@ func TestEventsShellProbe(t *testing.T) {
 	l.shell(t)
 
 	l.screen(shellPane, "$ brain status", "codex-cli 0.160.1")
-	l.detect(t, procsProbe)
-	l.release(t)
+	l.detect(t, job{agent: "codex", procs: procsProbe})
+	l.release(t, "codex")
 	l.screen(shellPane, "$ brain doctor", "codex-cli 0.160.1")
-	l.detect(t, procsBrain)
+	l.detect(t, job{agent: "codex", procs: procsBrain})
 	// herdr loses this release, and detects the next probe.
 	l.screen(shellPane, "$ brain doctor", "codex-cli 0.160.1", "$ brain review", "codex-cli 0.160.1")
-	l.detect(t, procsShell)
+	l.detect(t, job{agent: "codex", procs: procsShell})
 	l.status(t, shellPane, "idle") // a status change with no base takes a baseline too
-	l.release(t)
-	l.detect(t, procsAsh)
-	l.release(t)
+	l.release(t, "codex")
+	l.detect(t, job{agent: "codex", procs: procsAsh})
+	l.release(t, "codex")
 
 	r := l.rows(t)
 	if len(r.sessions) != 1 || r.sessions[0].PaneID != "w1:p1" {
@@ -655,53 +665,138 @@ func TestEventsShellProbe(t *testing.T) {
 	if lines, gaps := r.texts(shellPane); len(lines) != 0 || len(gaps) != 0 {
 		t.Errorf("%s holds lines %q and gaps %q, want none", shellPane, lines, gaps)
 	}
-	if d := l.observed(t); d.Sessions != 1 || d.Gaps != 1 {
+	if d := l.observed(t, "codex"); d.Sessions != 1 || d.Gaps != 1 {
 		t.Errorf("status codex: sessions observed %d, capture gaps %d, want 1 and 1 (the start of w1:p1)", d.Sessions, d.Gaps)
 	}
 }
 
+// #351 AC 2: brain status in a pipe, and after another brain command on the same line, in a
+// shell pane. brain status runs "claude --version", and herdr detects claude there for under a
+// second, with no agent session id. The #317 rule saw grep, a process of the pipe, as a
+// possible agent, and the baseline opened an empty claude session. Brain's CLI leads the
+// process group of the line: no session, and brain status counts no claude session observed.
+func TestEventsShellPipe(t *testing.T) {
+	l := newLive(t, map[string]string{"w1:p1": codexRun1})
+	l.shell(t)
+
+	l.screen(shellPane, "$ brain status | grep -i learning")
+	l.detect(t, job{"claude", procsPipe, 20})
+	l.release(t, "claude")
+	l.detect(t, job{"claude", procsPipeDone, 20})
+	l.release(t, "claude")
+	l.screen(shellPane, "$ brain review 7 --reject --reason dup; brain status | grep -c claude")
+	l.detect(t, job{"claude", procsReview, 30})
+	l.release(t, "claude")
+	l.detect(t, job{"claude", procsChain, 31})
+	l.release(t, "claude")
+
+	r := l.rows(t)
+	if len(r.sessions) != 1 || r.sessions[0].PaneID != "w1:p1" {
+		t.Errorf("sessions = %+v, want only the codex session of w1:p1", r.sessions)
+	}
+	if lines, gaps := r.texts(shellPane); len(lines) != 0 || len(gaps) != 0 {
+		t.Errorf("%s holds lines %q and gaps %q, want none", shellPane, lines, gaps)
+	}
+	if d := l.observed(t, "claude"); d.Sessions != 0 || d.Gaps != 0 {
+		t.Errorf("status claude: sessions observed %d, capture gaps %d, want none", d.Sessions, d.Gaps)
+	}
+}
+
+// The foreground processes of a brain command line in shellPane (#351). The native claude
+// binary is named by its version [spike/m0/data/e11s1-capture.txt].
+const (
+	// procsPipe: "brain status | grep -i learning" while brain status runs its claude probe.
+	procsPipe = `[{"name":"brain","argv":["/Users/me/.local/bin/brain","status"],"pid":20},` +
+		`{"name":"grep","argv":["grep","-i","learning"],"pid":21},{"name":"2.1.295","argv":["claude","--version"],"pid":22}]`
+	// procsPipeDone: the probe has exited; brain status and grep still run.
+	procsPipeDone = `[{"name":"brain","argv":["/Users/me/.local/bin/brain","status"],"pid":20},` +
+		`{"name":"grep","argv":["grep","-i","learning"],"pid":21}]`
+	// procsReview: the first command of the line, brain review, with its probe.
+	procsReview = `[{"name":"brain","argv":["brain","review","7","--reject","--reason","dup"],"pid":30},` +
+		`{"name":"2.1.295","argv":["claude","--version"],"pid":32}]`
+	// procsChain: the second command of the line, "brain status | grep -c claude", after its
+	// probe: grep names the agent.
+	procsChain = `[{"name":"brain","argv":["brain","status"],"pid":31},{"name":"grep","argv":["grep","-c","claude"],"pid":33}]`
+)
+
 // #317 AC 2, AC 3: a real codex with no agent session id keeps its session: one left at its
 // first prompt with no text (it holds only its baseline), one that ends fast with text, one
-// with a hook record only, and one whose argv herdr cannot read.
+// with a hook record only, and one whose argv herdr cannot read. #351 AC 2: a real agent
+// that leads its process group keeps its session, also when it runs Brain's CLI as a tool, when
+// it runs under a node wrapper and when a script starts it. A real agent in a pipe that Brain's
+// CLI leads keeps its session too (#351 review).
 func TestEventsRealAgentKept(t *testing.T) {
 	for _, tc := range []struct {
-		name, procs string
-		text        bool // a change shows new text before the end
-		hook        bool // brain hook stores a record before the end
-		lines       []string
+		name string
+		job  job
+		text string // a change shows this new line before the end; "" for none
+		hook bool   // brain hook stores a record before the end
 	}{
-		{name: "first prompt", procs: procsCodex},
-		{name: "fast with text", procs: procsCodex, text: true, lines: []string{"• done"}},
-		{name: "hook record only", procs: procsCodex, hook: true, lines: []string{"• Ran npm test"}},
-		{name: "no argv", procs: procsNoArgv},
+		{name: "first prompt", job: job{agent: "codex", procs: procsCodex}},
+		{name: "fast with text", job: job{agent: "codex", procs: procsCodex}, text: "• done"},
+		{name: "hook record only", job: job{agent: "codex", procs: procsCodex}, hook: true},
+		{name: "no argv", job: job{agent: "codex", procs: procsNoArgv}},
+		// #351: herdr gives the process group, and the agent leads it.
+		{name: "claude", job: job{"claude", procsClaude, 40}, text: "⏺ done"},
+		{name: "claude runs brain", job: job{"claude", procsClaudeTool, 40}, text: "⏺ done"},
+		{name: "codex under node", job: job{"codex", procsNode, 50}, text: "• done"},
+		{name: "script starts claude", job: job{"claude", procsScript, 60}, text: "⏺ done"},
+		{name: "brain pipe into claude", job: job{"claude", procsBrainPipe, 20}, text: "⏺ done"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			l := newLive(t, map[string]string{"w1:p1": codexRun1})
 			l.shell(t)
-			l.screen(shellPane, "$ codex", "› ")
-			l.detect(t, tc.procs)
-			if tc.text {
-				l.screen(shellPane, "$ codex", "• done")
+			l.screen(shellPane, "$ "+tc.job.agent)
+			l.detect(t, tc.job)
+			if tc.text != "" {
+				l.screen(shellPane, "$ "+tc.job.agent, tc.text)
 				l.status(t, shellPane, "idle")
 			}
 			if tc.hook {
 				l.hookRecord(t)
 			}
-			l.release(t)
+			l.release(t, tc.job.agent)
 
 			r := l.rows(t)
 			if len(r.sessions) != 2 || r.sessions[1].PaneID != shellPane || r.sessions[1].Key.Kind != store.KeyCapture ||
 				r.sessions[1].Ended.IsZero() {
 				t.Fatalf("sessions = %+v, want the ended capture session of %s", r.sessions, shellPane)
 			}
-			if want := 1 + btoi(tc.text || tc.hook); l.observed(t).Sessions != want {
-				t.Errorf("status codex: sessions observed %d, want %d", l.observed(t).Sessions, want)
+			want := btoi(tc.text != "" || tc.hook) + btoi(tc.job.agent == "codex") // w1:p1 is a codex session
+			if got := l.observed(t, tc.job.agent).Sessions; got != want {
+				t.Errorf("status %s: sessions observed %d, want %d", tc.job.agent, got, want)
 			}
 			lines, _ := r.texts(shellPane)
-			wantLines(t, lines, tc.lines...)
+			switch {
+			case tc.text != "":
+				wantLines(t, lines, tc.text)
+			case tc.hook:
+				wantLines(t, lines, "• Ran npm test")
+			default:
+				wantLines(t, lines)
+			}
 		})
 	}
 }
+
+// The foreground processes of a real agent in shellPane, with the pid of their group leader
+// (#351). The native claude binary is named by its version [spike/m0/data/e11s1-capture.txt].
+const (
+	// procsClaude: claude leads its group.
+	procsClaude = `[{"name":"2.1.295","argv":["claude"],"pid":40}]`
+	// procsClaudeTool: claude runs brain recall in its group.
+	procsClaudeTool = `[{"name":"2.1.295","argv":["claude"],"pid":40},{"name":"brain","argv":["brain","recall","tests"],"pid":41}]`
+	// procsNode: the npm codex, a node wrapper that leads the group and the codex binary
+	// [spike/m0/data/e11s1b-capture.txt].
+	procsNode = `[{"name":"codex","argv":["/usr/local/lib/node_modules/@openai/codex/bin/codex-aarch64-apple-darwin"],"pid":51},` +
+		`{"name":"node","argv":["node","/usr/local/bin/codex"],"pid":50}]`
+	// procsScript: a shell script that starts claude leads the group.
+	procsScript = `[{"name":"bash","argv":["bash","./agent.sh"],"pid":60},{"name":"2.1.295","argv":["claude","--model","opus"],"pid":61}]`
+	// procsBrainPipe: "brain status | claude -p 'Summarize this status'": brain leads the
+	// group, and a real claude runs in it.
+	procsBrainPipe = `[{"name":"brain","argv":["brain","status"],"pid":20},` +
+		`{"name":"2.1.295","argv":["claude","-p","Summarize this status"],"pid":21}]`
+)
 
 // hookRecord stores a tool hook record of codex in shellPane, as brain hook does.
 func (l *live) hookRecord(t *testing.T) {

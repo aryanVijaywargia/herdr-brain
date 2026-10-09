@@ -148,6 +148,17 @@ func Counterparts(ctx context.Context, tx *sql.Tx, sessionID int64, source strin
 	return obs, nil
 }
 
+// HookPrompts returns the prompt hook records of session sessionID in order: the observations
+// of source hook with text that Brain did not cause, from a sender that is not confirmed. Each
+// one is a prompt that the CLI sent (#349).
+func HookPrompts(ctx context.Context, tx *sql.Tx, sessionID int64) ([]Observation, error) {
+	return query(ctx, tx, `SELECT o.id, o.capture_identity, o.source, o.segment_id, o.event, o.excerpt, o.truncated,
+		o.status, o.sender, o.counts, o.brain_origin, o.at, COALESCE(o.enriched_by, 0)
+		FROM observations o JOIN segments s ON s.id = o.segment_id
+		WHERE s.session_id = ? AND o.source = ? AND o.sender = ? AND o.status != 'gap' AND NOT o.brain_origin
+		AND o.excerpt != '' ORDER BY o.id`, scanObservation, sessionID, SourceHook, SenderUnconfirmed)
+}
+
 // Enrich links hook observation hook to pane observation pane: the hook record adds detail to
 // the pane text and is not a second occurrence, so it does not count (§6.4, S35). Both rows
 // stay, so both references are kept.

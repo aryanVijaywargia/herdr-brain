@@ -436,3 +436,100 @@ func TestSendersApproval(t *testing.T) {
 		t.Errorf("senders = %v, want %v", got, want)
 	}
 }
+
+// #353: the codex tool output lines and the reply line of M2 eval run 4 (codex 0.160.1), made
+// from the lines of its report, through Capture. Codex draws a tall block from its bottom, so
+// the end of tool output or of a reply shows under the prompt line, and the • and └ lines of
+// the block are above the screen. These lines are no user text: no user text observation and
+// no prompt index row holds them, and no signal starts at them. Each prompt counts once.
+func TestCaptureRun4ToolLines(t *testing.T) {
+	const (
+		foot   = "\n\n  gpt-6.1-sol high · ~/brain-eval/notes-api-u\n"
+		banner = "user@host notes-api-u % codex -m gpt-6.1-sol\n\n  >_ OpenAI Codex (v0.160.1)\n     ~/brain-eval/notes-api-u\n\n"
+		done   = "\n\n• Done.\n"
+	)
+	turns := []struct {
+		prompt string
+		under  string // the end of the block under the prompt
+	}{
+		{"› Build the package and tell me the version.", "    build: dist/ for notes-api 0.2.0"},
+		{"› Run the tests and show the timing.", "    # duration_ms 412.71"},
+		{"› Run them again.", "    # duration_ms 98.40"},
+		{"› Start the server and show me its log.", `    {"level":"info","msg":"listening","port":3000,"time":"2026-10-09T10:12:03Z"}`},
+		{"› Show me package.json.", "    \"main\": \"src/server.js\",\n    \"private\": true,"},
+		{"› What is in the changelog?", "    - First version: health check, notes CRUD and pagination."},
+		{"› Add the error tests for POST /notes.",
+			"  Every new endpoint must have error-case tests and a README entry listing its error codes."},
+	}
+	k := newCapture(t, "s1", t.TempDir())
+	k.pane("w1:p1", "codex", codexRun2)
+	texts := []string{banner + foot}
+	var prompts, statuses []string
+	top := banner
+	for _, tc := range turns {
+		texts = append(texts, top+tc.prompt+foot, top+tc.prompt+"\n"+tc.under+foot, top+tc.prompt+"\n"+tc.under+done+foot)
+		statuses = append(statuses, "working", "working", "idle")
+		prompts = append(prompts, tc.prompt)
+		top = "• Done.\n\n"
+	}
+	k.raw(texts...)
+	k.must(t, Baseline, "w1:p1", "", GapNone)
+	for _, st := range statuses {
+		k.must(t, Change, "w1:p1", st, GapNone)
+	}
+	r := k.rows(t)
+	if excerpts, counted := r.prompts(); !slices.Equal(excerpts, prompts) || counted != len(prompts) {
+		t.Errorf("user text = %q (%d counted), want %q, each counted", excerpts, counted, prompts)
+	}
+	var es []store.PromptEntry
+	k.tx(t, func(tx *sql.Tx) (err error) {
+		es, err = store.PromptEntries(context.Background(), tx)
+		return err
+	})
+	if len(es) != len(prompts) {
+		t.Errorf("prompt index = %d rows, want %d", len(es), len(prompts))
+	}
+	sigs, text := k.signals(t)
+	for _, tc := range turns {
+		for _, line := range strings.Split(tc.under, "\n") {
+			line = strings.TrimSpace(line)
+			for _, o := range r.obs {
+				if o.Sender == store.SenderUnconfirmed && strings.Contains(o.Excerpt, line) {
+					t.Errorf("user text observation %q holds %q", o.Excerpt, line)
+				}
+			}
+			for _, e := range es {
+				if strings.Contains(e.Text, line) {
+					t.Errorf("prompt index row %q holds %q", e.Text, line)
+				}
+			}
+			for _, sg := range sigs {
+				if strings.Contains(text[sg.Observations[0]], line) {
+					t.Errorf("%s signal starts at %q", sg.Kind, text[sg.Observations[0]])
+				}
+			}
+		}
+	}
+}
+
+// #353 review: a new Codex prompt whose first line is the same as an old prompt line, with
+// other lines under it, is no known prompt: the line diff takes its first line as old, and its
+// other lines are still user text, and they count.
+func TestCapturePromptSameFirstLine(t *testing.T) {
+	const (
+		foot   = "\n\n  gpt-6.1-sol high · ~/brain-eval/notes-api-u\n"
+		first  = "› Fix the API\n  Add validation."
+		second = "› Fix the API\n  Add authentication."
+	)
+	k := newCapture(t, "s1", t.TempDir())
+	k.pane("w1:p1", "codex", codexRun2)
+	k.raw("• Earlier."+foot, "• Earlier.\n"+first+foot, "• Earlier.\n"+first+"\n\n• Done."+foot, second+foot)
+	k.must(t, Baseline, "w1:p1", "", GapNone)
+	for _, st := range []string{"working", "idle", "working"} {
+		k.must(t, Change, "w1:p1", st, GapNone)
+	}
+	excerpts, counted := k.rows(t).prompts()
+	if len(excerpts) != 2 || counted != 2 || excerpts[0] != first || !strings.Contains(excerpts[1], "Add authentication.") {
+		t.Errorf("user text = %q (%d counted), want the first prompt and the new lines of the second, each counted", excerpts, counted)
+	}
+}

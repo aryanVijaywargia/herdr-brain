@@ -95,11 +95,16 @@ func senders(harness string, lines []string) []store.Sender {
 // or the rest of a reply, not only user text (#281, #338).
 func head(harness string, lines []string) int {
 	for i, l := range lines {
-		if !strings.HasPrefix(l, " ") && !inMarks[harness] || slices.ContainsFunc(marks[harness], func(m mark) bool { return strings.HasPrefix(l, m.prefix) }) {
+		if !strings.HasPrefix(l, " ") && !inMarks[harness] || marked(harness, l) {
 			return i
 		}
 	}
 	return len(lines)
+}
+
+// marked reports whether line l of harness starts with a sender mark.
+func marked(harness, l string) bool {
+	return slices.ContainsFunc(marks[harness], func(m mark) bool { return strings.HasPrefix(l, m.prefix) })
 }
 
 // promptLine returns line l of harness without its prompt mark, and whether l starts with it.
@@ -118,16 +123,19 @@ type part struct {
 	lines  []string
 	brain  bool // the part holds a Brain block, so its text after the block is Brain-origin
 	at     int  // the line of the read where the part starts
-	unsure bool // the part is in the head of the read, so its sender is not known
+	// unsure says that the sender of the part is not known: it is in the head of the read, or
+	// under a whole known prompt in a Codex read (#353).
+	unsure bool
+	cut    bool // the first line is a cut copy of a known prompt (copies)
 }
 
 // parts drops the injected text from the new lines idx of r and groups the rest into runs of
 // one sender. A prompt mark starts a new part, so each prompt is one part (#278), and the head
-// of the read is a part of its own. open is the block that the last read ended in: the scan runs over the whole
-// read from it, so a block that opened in old text or in an earlier read still drops its
-// lines. parts returns the block that r ends in. Pane text has no reliable tags: a marker can
-// be lost, and other text can copy it. So the filters lower noise; they do not prove clean
-// text (§6.3, S41).
+// of the read is a part of its own. open is the block that the last read ended in: the scan
+// runs over the whole read from it, so a block that opened in old text or in an earlier read
+// still drops its lines. parts returns the block that r ends in. Pane text has no reliable
+// tags: a marker can be lost, and other text can copy it. So the filters lower noise; they do
+// not prove clean text (§6.3, S41).
 func parts(r read, idx []int, open *block) ([]part, *block) {
 	added := make(map[int]bool, len(idx))
 	for _, i := range idx {

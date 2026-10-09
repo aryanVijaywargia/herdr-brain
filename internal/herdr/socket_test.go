@@ -210,7 +210,8 @@ func TestSocketReadShape(t *testing.T) {
 	}
 }
 
-// The reply shape of herdr 0.9.1 pane.process_info; argv may be null.
+// The reply shape of herdr 0.9.1 pane.process_info; argv and shell_pid may be null. The
+// foreground process group id is the pid of its leader (#351).
 func TestSocketProcesses(t *testing.T) {
 	path := serveOne(t, "pane.process_info",
 		`{"id":"brain","result":{"type":"pane_process_info","process_info":{"foreground_process_group_id":80590,"foreground_processes":[`+
@@ -220,7 +221,8 @@ func TestSocketProcesses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Process{{Name: "codex", Argv: []string{"codex", "--version"}, PID: 80590}, {Name: "zsh", PID: 80255}}
+	want := ProcessInfo{Group: 80590, Processes: []Process{{Name: "codex", Argv: []string{"codex", "--version"}, PID: 80590},
+		{Name: "zsh", PID: 80255}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Processes = %+v, want %+v", got, want)
 	}

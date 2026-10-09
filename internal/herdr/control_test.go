@@ -120,7 +120,7 @@ func TestPaneProcessInfo(t *testing.T) {
 	info := fixture(t, "pane-process-info-sleep.json")
 	c, _ := fakeClient(t, map[string]reply{cmd: {Stdout: info}})
 	got, err := c.PaneProcessInfo(deadline(t), "w1:p2")
-	want := ProcessInfo{ShellPID: 80255, Processes: []Process{{Name: "sleep", Argv: []string{"sleep", "300"}, PID: 80590}}}
+	want := ProcessInfo{ShellPID: 80255, Group: 80590, Processes: []Process{{Name: "sleep", Argv: []string{"sleep", "300"}, PID: 80590}}}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("PaneProcessInfo() = %+v, %v, want %+v", got, err, want)
 	}

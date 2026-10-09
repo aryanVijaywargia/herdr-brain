@@ -47,8 +47,21 @@ func HookText(harness, text string) (excerpt string, truncated, brain bool) {
 // and is not a second occurrence. The nearest counterpart in time wins. o.ID is the stored
 // row; o.Source is herdr or hook.
 func Match(ctx context.Context, tx *sql.Tx, harness string, session int64, o store.Observation) error {
+	c, err := counterpart(ctx, tx, harness, session, o)
+	if err != nil || c == 0 {
+		return err
+	}
+	if o.Source == store.SourceHook {
+		return store.Enrich(ctx, tx, c, o.ID)
+	}
+	return store.Enrich(ctx, tx, o.ID, c)
+}
+
+// counterpart returns the id of the observation from the other source that Match links to
+// observation o of session, or 0 when none matches.
+func counterpart(ctx context.Context, tx *sql.Tx, harness string, session int64, o store.Observation) (int64, error) {
 	if o.Status == store.ObservationGap || o.Excerpt == "" {
-		return nil
+		return 0, nil
 	}
 	other := store.SourceHook
 	if o.Source == store.SourceHook {
@@ -56,20 +69,19 @@ func Match(ctx context.Context, tx *sql.Tx, harness string, session int64, o sto
 	}
 	cs, err := store.Counterparts(ctx, tx, session, other, o.At, matchWindow)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	for _, c := range cs {
 		pane, hook := o, c
 		if o.Source == store.SourceHook {
 			pane, hook = c, o
 		}
-		if pane.Sender != paneSender(hook) ||
-			!sameText(normalized(harness, pane.Excerpt), normalized(harness, hook.Excerpt)) {
-			continue
+		if pane.Sender == paneSender(hook) &&
+			sameText(normalized(harness, pane.Excerpt), normalized(harness, hook.Excerpt)) {
+			return c.ID, nil
 		}
-		return store.Enrich(ctx, tx, pane.ID, hook.ID)
 	}
-	return nil
+	return 0, nil
 }
 
 // paneSender is the sender that a pane read gives the text of hook observation h [NEW]: the

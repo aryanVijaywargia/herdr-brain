@@ -54,8 +54,10 @@ type fakePane struct {
 	status, cwd, terminal string
 	seq                   uint64
 	// procs is the pane.process_info reply of the foreground processes; "" gives the agent
-	// as its own process, or a shell when the pane has no agent.
+	// as its own process, or a shell when the pane has no agent. group is the id of their
+	// process group; 0 gives none.
 	procs string
+	group int
 }
 
 // agentJSON is the agent.get state of pane id.
@@ -196,6 +198,11 @@ func (f *fakeHerdr) answer(conn net.Conn) {
 	}
 	reply := f.reply(req.Method, pane, req.Params.Source, req.Params.Lines, req.Params.Subscriptions)
 	f.mu.Unlock()
+	if reply == readFails {
+		_, _ = io.WriteString(conn, `{"id":"brain","error":{"code":"internal_error","message":"read failed"}}`+"\n")
+		_ = conn.Close()
+		return
+	}
 	if reply == "" {
 		_, _ = io.WriteString(conn, `{"id":"brain","error":{"code":"pane_not_found","message":"no pane"}}`+"\n")
 		_ = conn.Close()
@@ -237,8 +244,12 @@ func (f *fakeHerdr) reply(method, paneID, source string, lines int, subs []herdr
 		reply = f.read(paneID, source, lines)
 	case "pane.process_info":
 		if p, ok := f.panes[paneID]; ok {
-			reply = fmt.Sprintf(`{"type":"pane_process_info","process_info":{"pane_id":%q,"shell_pid":1,"foreground_processes":%s}}`,
-				paneID, p.processes())
+			group := "null"
+			if p.group != 0 {
+				group = fmt.Sprint(p.group)
+			}
+			reply = fmt.Sprintf(`{"type":"pane_process_info","process_info":{"pane_id":%q,"shell_pid":1,"foreground_process_group_id":%s,"foreground_processes":%s}}`,
+				paneID, group, p.processes())
 		}
 	case "agent.get":
 		if f.gets != nil {
@@ -260,6 +271,9 @@ func (f *fakeHerdr) reply(method, paneID, source string, lines int, subs []herdr
 	return reply
 }
 
+// readFails is a queued read that herdr answers with an error other than pane_not_found.
+const readFails = "\x00read fails"
+
 // read answers pane.read of pane id from its next recorded read; the last one repeats. It
 // runs onRead after the read, as a change that comes while the read is pending.
 func (f *fakeHerdr) read(id, source string, lines int) string {
@@ -271,6 +285,9 @@ func (f *fakeHerdr) read(id, source string, lines int) string {
 	text := rs[0]
 	if len(rs) > 1 {
 		f.reads[id] = rs[1:]
+	}
+	if text == readFails {
+		return readFails
 	}
 	if lines > 0 {
 		ls := strings.Split(strings.TrimRight(text, "\n"), "\n")
