@@ -80,13 +80,16 @@ func StartRun(ctx context.Context, tx *sql.Tx, id int64, pid int, now time.Time)
 
 // FinishRun writes result and its cause to run id when the run has not ended, and the result
 // to its automation as the last result when the run has a launch mark. It reports whether it
-// wrote: a cancel that came first keeps cancelled.
+// wrote: a cancel that came first keeps cancelled. The cause names a program of the tool, so a
+// run that ends after forget of its tool or its automation keeps no cause (§6.7).
 func FinishRun(ctx context.Context, tx *sql.Tx, id int64, result RunResult, cause string, now time.Time) (bool, error) {
 	r, err := AutomationRunByID(ctx, tx, id)
 	if err != nil || !r.Finished.IsZero() {
 		return false, err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE automation_runs SET finished_at = ?, result = ?, cause = NULLIF(?, '')
+	if _, err := tx.ExecContext(ctx, `UPDATE automation_runs SET finished_at = ?, result = ?,
+		cause = CASE WHEN EXISTS (SELECT 1 FROM automations a JOIN tools t ON t.id = a.tool_id
+			WHERE a.id = automation_runs.automation_id AND a.folder != '' AND t.contract != '') THEN NULLIF(?, '') END
 		WHERE id = ?`, timeArg(now), result, cause, id); err != nil {
 		return false, fmt.Errorf("finish run %d: %w", id, err)
 	}

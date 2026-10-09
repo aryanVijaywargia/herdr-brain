@@ -116,15 +116,18 @@ func (ln launcher) run(ctx context.Context, l brained.Launch) (err error) {
 }
 
 // runResult is the result of a tool run and its cause: for a failure, the failed step and its
-// exit code, or the refusal of the call when no step ran (#352).
+// exit code, or a fixed line for a refusal of the call (#352). The text of any other error can
+// hold herdr or store text, so it is no cause. [NEW] the refusal line.
 func runResult(res ToolResult, err error) (store.RunResult, string) {
 	switch {
 	case err == nil:
 		return store.RunOK, ""
 	case res.Step != "":
 		return store.RunFailed, res.Step
+	case errors.Is(err, ErrRefused):
+		return store.RunFailed, "the call was refused; nothing ran"
 	}
-	return store.RunFailed, err.Error()
+	return store.RunFailed, ""
 }
 
 // check builds the caller context of run r from its pane and resolves it again (§10.4 step 3):

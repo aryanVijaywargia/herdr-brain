@@ -493,6 +493,7 @@ tests = [
 issue = 352
 tests = [
   "internal/cli:TestLaunchFailed",
+  "internal/cli:TestRunResult",
   "internal/store:TestRunCause",
 ]
 

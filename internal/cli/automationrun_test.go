@@ -579,3 +579,26 @@ func TestProcessCommand(t *testing.T) {
 		t.Errorf("processCommand(%d) = %q, %v, want \"\"", pid, got, err)
 	}
 }
+
+// The cause of a failed run is the failed step, or a fixed line for a refusal. The text of
+// any other error is no cause: it can hold herdr or store text (#352).
+func TestRunResult(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		res    ToolResult
+		err    error
+		result store.RunResult
+		cause  string
+	}{
+		{"ok", ToolResult{}, nil, store.RunOK, ""},
+		{"step", ToolResult{Step: "step 2: npm: exit status 1"}, errors.New("tool t: step 2: npm: exit status 1 (exit code 1)"),
+			store.RunFailed, "step 2: npm: exit status 1"},
+		{"refused", ToolResult{ExitCode: 1}, fmt.Errorf("tool t: the hash changed: %w", ErrRefused), store.RunFailed,
+			"the call was refused; nothing ran"},
+		{"other", ToolResult{}, errors.New("herdr: token=abc123"), store.RunFailed, ""},
+	} {
+		if result, cause := runResult(tc.res, tc.err); result != tc.result || cause != tc.cause {
+			t.Errorf("%s: runResult() = %s, %q, want %s, %q", tc.name, result, cause, tc.result, tc.cause)
+		}
+	}
+}

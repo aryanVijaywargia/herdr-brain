@@ -237,6 +237,18 @@ func TestRunCause(t *testing.T) {
 			if r := readRun(t, s, failed); len(left) != 0 || r.Cause != "" {
 				t.Errorf("after forget of the %s: text left %v, cause %q", forget, left, r.Cause)
 			}
+			// A run that ends after the forget writes no cause back.
+			late := claim(t, s, a, "k3")
+			write(t, s, func(tx *sql.Tx) error {
+				if err := StartRun(ctx, tx, late, 7, at); err != nil {
+					return err
+				}
+				_, err := FinishRun(ctx, tx, late, RunFailed, "step 2: npm: exit status 1", at)
+				return err
+			})
+			if r := readRun(t, s, late); r.Result != RunFailed || r.Cause != "" {
+				t.Errorf("run that ends after forget of the %s = %+v, want failed with no cause", forget, r)
+			}
 		})
 	}
 }
