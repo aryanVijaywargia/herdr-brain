@@ -450,7 +450,7 @@ tests = [
 ]
 
 # M2 eval run 4 (2026-10-09, R4-1): a batch whose answer the per-claim check made invalid is
-# called again at every later pass, with no end, and uses the call cap. Fix: PR #PRNUM.
+# called again at every later pass, with no end, and uses the call cap. Fix: PR #357.
 [[bug]]
 issue = 347
 tests = [
@@ -461,7 +461,7 @@ tests = [
 
 # M2 eval run 4 (2026-10-09, R4-2): the extractor flags the release procedure as a permission
 # claim, so the same_as link of the third telling waits for a review that no surface shows, and
-# the skill needs 5 tellings. Fix: PR #PRNUM.
+# the skill needs 5 tellings. Fix: PR #357.
 [[bug]]
 issue = 348
 tests = [
