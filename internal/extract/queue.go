@@ -225,13 +225,13 @@ func (p Pass) why(ctx context.Context, tx *sql.Tx, j job, d Day) (why, failed st
 	case err != nil:
 		return "", "", err
 	case b.Status == store.BatchFailed || b.Status == store.BatchInvalid:
+		worked, err := store.LastWorkedCall(ctx, tx)
+		if err != nil || p.retries(b, worked, j.newest) {
+			return d.Full(), "", err
+		}
 		last := fmt.Sprintf("the last %s call %s: %s", s.CLI, b.Status, b.Reason)
 		if spent(b) {
 			return last + "; " + noTry, "", nil
-		}
-		worked, err := store.LastWorkedCall(ctx, tx)
-		if err != nil || p.retries(b, worked) {
-			return d.Full(), "", err
 		}
 		return last, b.Reason, nil
 	case b.Status == store.BatchActive:

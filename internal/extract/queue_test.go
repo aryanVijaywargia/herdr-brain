@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -398,39 +399,56 @@ func TestFailedBatchTries(t *testing.T) {
 	}
 }
 
-// AC #347: new evidence of the session of a batch with no try left makes a new batch, which
-// replaces it and gets its own tries.
+// AC #347: new evidence of the session of a batch with no try left gives it a try. Mostly it
+// makes a new batch, which replaces the batch and gets its own tries. When the input cap cut the
+// run, the new evidence is after the cut: the batch keeps its range and gets one call, and its
+// commit moves the watermark, so the rest of the session goes next.
 func TestSpentBatchNewEvidence(t *testing.T) {
-	f := newFixture(t)
-	sid, _ := f.session("a", false, line{"ws-A", pnpm, t0})
-	f.cli.reply = func(context.Context, string) ([]byte, error) { return claudeReply(nil) }
-	for range maxTries + 2 {
-		f.mustRun()
-		f.now = f.now.Add(retryAfter)
-	}
-	if got := f.cli.calls(); got != maxTries {
-		t.Fatalf("calls = %d, want %d", got, maxTries)
-	}
-	var obs int64
-	f.write(func(ctx context.Context, tx *sql.Tx) error {
-		seg, err := store.StartSegment(ctx, tx, sid, "w1:p1", "ws-A", "recent_unwrapped", f.now)
-		if err != nil {
-			return err
-		}
-		obs, err = store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: "a-new", Source: store.SourceHerdr,
-			SegmentID: seg, Event: "working", Excerpt: "no, use tabs in go files", Status: store.ObservationComplete,
-			Sender: store.SenderYou, Counts: true, At: f.now})
-		return err
-	})
-	f.now = f.now.Add(idle)
-	f.cli.reply = claimOf("use pnpm")
-	f.mustRun()
-	if got := f.cli.calls(); got != maxTries+1 || f.watermark(sid, "ws-A") != obs {
-		t.Errorf("calls %d, watermark %d, want %d calls and watermark %d", got, f.watermark(sid, "ws-A"), maxTries+1, obs)
-	}
-	bs := f.batches()
-	if len(bs) != 2 || bs[0].Status != store.BatchDiscarded || bs[1].Status != store.BatchCommitted {
-		t.Errorf("batches = %+v, want the spent batch replaced by a committed one", bs)
+	for name, tc := range map[string]struct {
+		input    int                 // the input cap; 0 for the default
+		statuses []store.BatchStatus // the batches after the new evidence
+	}{
+		"new batch":     {statuses: []store.BatchStatus{store.BatchDiscarded, store.BatchCommitted}},
+		"input cap cut": {input: len(pnpm) + 1, statuses: []store.BatchStatus{store.BatchCommitted}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			if tc.input > 0 {
+				f.caps = Caps{Calls: 40, Proposals: 15, InputBytes: tc.input} // [NEW] test limits: one excerpt a call
+			}
+			sid, obs := f.session("a", false, line{"ws-A", pnpm, t0}, line{"ws-A", "wrong, run make lint first", t0})
+			f.cli.reply = func(context.Context, string) ([]byte, error) { return claudeReply(nil) }
+			for range maxTries + 2 {
+				f.mustRun()
+				f.now = f.now.Add(retryAfter)
+			}
+			if got := f.cli.calls(); got != maxTries {
+				t.Fatalf("calls = %d, want %d", got, maxTries)
+			}
+			f.write(func(ctx context.Context, tx *sql.Tx) error {
+				seg, err := store.StartSegment(ctx, tx, sid, "w1:p1", "ws-A", "recent_unwrapped", f.now)
+				if err != nil {
+					return err
+				}
+				_, err = store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: "a-new", Source: store.SourceHerdr,
+					SegmentID: seg, Event: "working", Excerpt: "no, use tabs in go files", Status: store.ObservationComplete,
+					Sender: store.SenderYou, Counts: true, At: f.now})
+				return err
+			})
+			f.now = f.now.Add(idle)
+			f.cli.reply = claimOf("use pnpm")
+			f.mustRun()
+			if got := f.cli.calls(); got != maxTries+1 || f.watermark(sid, "ws-A") < obs[0] {
+				t.Errorf("calls %d, watermark %d, want %d calls and a watermark", got, f.watermark(sid, "ws-A"), maxTries+1)
+			}
+			var got []store.BatchStatus
+			for _, b := range f.batches() {
+				got = append(got, b.Status)
+			}
+			if !slices.Equal(got, tc.statuses) {
+				t.Errorf("batch statuses = %v, want %v", got, tc.statuses)
+			}
+		})
 	}
 }
 

@@ -82,6 +82,9 @@ type job struct {
 	skills  map[string]string    // the name of each active skill of the scope, by claim id (E20-S5)
 	brief   []store.ItemRevision // the current brief items
 	change  *change              // a change request instead of a batch; nil for a batch
+	// newest is the time of the newest observation of the run of the batch: new evidence after
+	// the last call of a batch with no try left gives it one (retries, #347).
+	newest time.Time
 }
 
 // Run runs the pass: it runs the learned automation case, forms the batches of the finished
@@ -244,9 +247,9 @@ func uncovered(obs []store.SignalInput, wm map[string]int64) [][]store.SignalInp
 func (p Pass) job(r pending, sigs []signal.Signal, byID map[int64]store.SignalInput) job {
 	run, rs := p.fit(r.obs, refs(r.obs, sigs, byID), sigs)
 	last := run[len(run)-1]
-	return job{session: r.s, refs: rs, batch: store.Batch{SessionID: r.s.ID, WorkspaceKey: last.WorkspaceKey,
-		FirstCapture: run[0].CaptureIdentity, LastCapture: last.CaptureIdentity, StartWatermark: r.start,
-		LastObservation: last.ID}}
+	return job{session: r.s, refs: rs, newest: r.obs[len(r.obs)-1].At, batch: store.Batch{SessionID: r.s.ID,
+		WorkspaceKey: last.WorkspaceKey, FirstCapture: run[0].CaptureIdentity, LastCapture: last.CaptureIdentity,
+		StartWatermark: r.start, LastObservation: last.ID}}
 }
 
 // batch reports whether job j is extracted now. It returns false when the batch waits:
@@ -273,7 +276,7 @@ func (p Pass) batch(ctx context.Context, tx *sql.Tx, j job) (bool, error) {
 		return false, nil
 	case old.Status == store.BatchFailed || old.Status == store.BatchInvalid:
 		worked, err := store.LastWorkedCall(ctx, tx)
-		return err == nil && !spent(old) && p.retries(old, worked), err
+		return err == nil && p.retries(old, worked, j.newest), err
 	}
 	return true, nil
 }
@@ -288,8 +291,7 @@ func (p Pass) waits(at, worked time.Time) bool {
 // spent reports whether failed or invalid batch b has no try left (#347): an invalid batch after
 // maxTries calls, as the CLI answered and its input gives the invalid answer, and a failed batch
 // after one more, as all its first calls can come while the CLI is down. Then the batch waits
-// for new evidence of its session and key: their next batch replaces it and gets its own tries
-// (store.StartBatch). brain status still shows it.
+// for new evidence of its session and key (retries). brain status still shows it.
 func spent(b store.Batch) bool {
 	if b.Status == store.BatchFailed {
 		return b.ModelCalls > maxTries
@@ -297,12 +299,19 @@ func spent(b store.Batch) bool {
 	return b.ModelCalls >= maxTries
 }
 
-// retries reports whether failed or invalid batch b, with a try left (spent), gets its call now,
-// with worked the end of the last call that worked: after that call, or retryAfter after its own
-// (waits). Its last call, the one after maxTries, waits for a later call that works: that call
-// shows that the CLI is back, so a failure after it is the batch's own.
-func (p Pass) retries(b store.Batch, worked time.Time) bool {
-	if b.ModelCalls >= maxTries {
+// retries reports whether failed or invalid batch b gets its call now, with worked the end of the
+// last call that worked and newest the time of the newest observation of its run (job.newest).
+// With a try left (spent), it gets one after a later call works, or retryAfter after its own
+// (waits). The last call of a failed batch, the one after maxTries, waits for a later call that
+// works: that call shows that the CLI is back, so a failure after it is the batch's own. With no
+// try left, it waits for new evidence of its session and key. Mostly that evidence makes a new
+// batch, which replaces it (store.StartBatch); when the input cap cut the run, the new evidence
+// is after the cut, so the batch keeps its range and gets one call for each new evidence.
+func (p Pass) retries(b store.Batch, worked, newest time.Time) bool {
+	switch {
+	case spent(b):
+		return newest.After(b.At)
+	case b.ModelCalls >= maxTries:
 		return worked.After(b.At)
 	}
 	return !p.waits(b.At, worked)
@@ -630,12 +639,12 @@ func recordOutcomes(ctx context.Context, tx *sql.Tx, j job, claim string, c Clai
 	return covered, outcomes(ctx, tx, j, claim, corrections(kind, accepted), base)
 }
 
-// link records the claim kind and the permission flag (permission) of claim c on its claim id
-// claim, and its same_as link. The model guess alone is not proof (§5.4, §7.2): the link stays
-// proposed, so an active item of the other claim gets no comeback from it (outcomes). check
-// found c.SameAs in the input.
+// link records the claim kind and the permission flag of claim c on its claim id claim, and
+// its same_as link. The model guess alone is not proof (§5.4, §7.2): the link stays proposed,
+// so an active item of the other claim gets no comeback from it (outcomes). check found
+// c.SameAs in the input.
 func link(ctx context.Context, tx *sql.Tx, claim string, c Claim) error {
-	if err := store.MarkClaim(ctx, tx, claim, c.Kind, permission(c)); err != nil {
+	if err := store.MarkClaim(ctx, tx, claim, c.Kind, c.TouchesPermission); err != nil {
 		return err
 	}
 	if c.SameAs == "" || c.SameAs == claim {
@@ -643,19 +652,6 @@ func link(ctx context.Context, tx *sql.Tx, claim string, c Claim) error {
 	}
 	_, err := store.SameAs(ctx, tx, claim, c.SameAs, store.Match{Permissions: c.TouchesPermission})
 	return err
-}
-
-// permission is the permission flag of claim c that link records and the merge check reads
-// (linkTarget): Brain never merges two permissions or safety rules without review (§7.2). A
-// procedure is no rule: it says how to do a job, and a model flag on it marks a step that
-// touches a permission, as the commit and the tag of a release do (#348). That flag stays the
-// warning of its proposal, so approve needs --confirm, but for the merge only Brain's own check
-// counts (brainFlag, §7.3 Output).
-func permission(c Claim) bool {
-	if mergeKind(c.Kind) == "procedure" {
-		return brainFlag(c)
-	}
-	return c.TouchesPermission
 }
 
 // keptKind returns the kind of the candidate of claim in the scope with key for new evidence
@@ -757,22 +753,30 @@ func checked(ctx context.Context, tx *sql.Tx, cand store.Candidate, refs []ref) 
 	return accepted, nil
 }
 
-// linkTarget returns the claim that the proposed same_as link of claim id claim names. It
-// returns false for no link, and when either claim is a permission or a safety rule, by the flag
-// that link recorded (permission): Brain never merges those without review (§7.2), so the link
-// stays for review. The text of a brain remember item counts as the key of its claim
-// (store.ClaimText).
-func linkTarget(ctx context.Context, tx *sql.Tx, claim string) (store.Claim, bool, error) {
+// linkTarget returns the claim that the proposed same_as link of claim names, for claim c with
+// claim id claim. It returns false for no link, and when either claim is a permission or a
+// safety rule: Brain never merges those without review (§7.2), so the link stays for review.
+// The text of a brain remember item counts as the key of its claim (store.ClaimText). For two
+// procedures only Brain's own check counts, not the recorded flags (§7.3 Output, #348): a
+// procedure is no rule, and a model flag on it marks a step that touches a permission, as the
+// commit and the tag of a release do. That flag stays the warning of the proposal. Brain checks
+// the whole text of c and the key of the other claim: a merge proposes the text of c (propose),
+// never the steps of an earlier telling.
+func linkTarget(ctx context.Context, tx *sql.Tx, claim string, c Claim) (store.Claim, bool, error) {
 	cl, err := store.ClaimByID(ctx, tx, claim)
-	if err != nil || cl.SameAs == "" || cl.SameAsStatus != store.SameAsProposed || cl.TouchesPermission {
+	if err != nil || cl.SameAs == "" || cl.SameAsStatus != store.SameAsProposed {
 		return store.Claim{}, false, err
 	}
 	other, err := store.ClaimByID(ctx, tx, cl.SameAs)
-	if err != nil || other.TouchesPermission {
+	if err != nil {
 		return store.Claim{}, false, err
 	}
+	flagged := c.TouchesPermission || cl.TouchesPermission || other.TouchesPermission
+	if mergeKind(c.Kind) == "procedure" && mergeKind(other.Kind) == "procedure" {
+		flagged = brainFlag(c)
+	}
 	text, err := store.ClaimText(ctx, tx, other.ID)
-	if err != nil || store.TouchesPermission(text) {
+	if err != nil || flagged || store.TouchesPermission(text) {
 		return store.Claim{}, false, err
 	}
 	return other, true, nil
@@ -788,7 +792,7 @@ func heldBy(ctx context.Context, tx *sql.Tx, claim string, c Claim, key string) 
 	if c.Tool != "" {
 		return "", nil
 	}
-	other, ok, err := linkTarget(ctx, tx, claim)
+	other, ok, err := linkTarget(ctx, tx, claim, c)
 	if err != nil || !ok {
 		return "", err
 	}
@@ -837,7 +841,7 @@ func (p Pass) restate(ctx context.Context, tx *sql.Tx, j job, claim, held string
 // and the claim of c is not rejected there. Else the link stays a proposed link for review.
 // Brain keeps both claim ids and the link, and marks the merged evidence (store.Candidate.Via).
 func mergeInto(ctx context.Context, tx *sql.Tx, claim string, c Claim, key string, kind store.CandidateKind) (string, error) {
-	other, ok, err := linkTarget(ctx, tx, claim)
+	other, ok, err := linkTarget(ctx, tx, claim, c)
 	if err != nil || !ok || mergeKind(other.Kind) != mergeKind(c.Kind) {
 		return claim, err
 	}

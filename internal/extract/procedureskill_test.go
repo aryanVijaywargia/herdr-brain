@@ -184,9 +184,10 @@ func TestProcedureThenSkill(t *testing.T) {
 
 // AC #348 with the run 4 shape: the extractor flags each release telling as touching a
 // permission, and the third telling has " in that order" added to the rule and a same_as link to
-// the claim of the first two. Brain's own check finds no permission words in the procedure, so
-// the link merges: three tellings give one skill proposal, which keeps the permission warning.
-// A procedure whose text holds permission words is a real permission claim: the link stays for
+// the claim of the first two. The store keeps the model flag on that claim, as in a store from
+// before the fix. Brain's own check finds no permission words in the procedure, so the link
+// merges: three tellings give one skill proposal, which keeps the permission warning. A
+// procedure whose text holds permission words is a real permission claim: the link stays for
 // review, and the third telling makes a second candidate and no proposal.
 func TestPermissionFlaggedProcedure(t *testing.T) {
 	for name, tc := range map[string]struct {
@@ -203,6 +204,9 @@ func TestPermissionFlaggedProcedure(t *testing.T) {
 			f.cli.reply = skillReply(flagged)
 			f.release(1)
 			f.release(2)
+			if n := f.count(`SELECT COUNT(*) FROM claims WHERE situation = 'releasing' AND touches_permission = 1`); n != 1 {
+				t.Fatalf("claims of the first tellings with the permission flag = %d, want 1", n)
+			}
 			f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {
 				m := knownKey(skillSituation).FindStringSubmatch(prompt)
 				if m == nil {
