@@ -46,11 +46,11 @@ func newReleaseFixture(t *testing.T) *releaseFixture {
 func (f *releaseFixture) canon(t *testing.T, out string) string {
 	t.Helper()
 	dir := filepath.Dir(f.store)
-	real, err := filepath.EvalSymlinks(dir)
+	canon, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return strings.ReplaceAll(strings.ReplaceAll(out, real, "<tmp>"), dir, "<tmp>")
+	return strings.ReplaceAll(strings.ReplaceAll(out, canon, "<tmp>"), dir, "<tmp>")
 }
 
 // recallGolden compares out with testdata/recall/<name>.txt; -update rewrites the file.
