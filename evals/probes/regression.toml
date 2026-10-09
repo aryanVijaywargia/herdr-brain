@@ -543,15 +543,16 @@ tests = [
 ]
 
 # M2 eval run 5 (2026-10-09, R5-3): README lines that the agent printed and a passing TAP test
-# line made a failure proposal. Capture does not count the text of files that a command of
-# readers printed, and a TAP test name is no error line; a failed command and an error of a run
-# still give a failure. Fix: the PR of #363.
+# line made a failure proposal. Pane text of files that a command of readers printed, and a TAP
+# test name, give no failure; a failed command and an error of a run still do. Fix: the PR of
+# #363.
 [[bug]]
 issue = 363
 tests = [
   "internal/brained:TestCaptureFileRead",
   "internal/brained:TestCaptureRealFailure",
-  "internal/brained:TestFileRead",
+  "internal/signal:TestFileText",
+  "internal/signal:TestFailureFileText",
   "internal/signal:TestFailureTestName",
 ]
 

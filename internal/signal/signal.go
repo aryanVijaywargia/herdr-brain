@@ -296,11 +296,15 @@ const maxSignature = 200
 // gate is E12-S2's (§7.2). A command record fails when its exit status is not 0. Tool text
 // fails when a line that names no test holds an error; its signature is that line with the
 // numbers taken out. A tool hook record holds the command, not its output, so only its exit
-// status counts. Capture does not count the text of files that a command printed (#363), so it
-// gives no failure either.
+// status counts. Pane text of files that a command printed is no failure (#363): the call line
+// is in the pane text above it, the last text of the segment that is no tool output.
 func failures(ins []store.SignalInput) []Signal {
 	var sigs []Signal
+	above := map[int64]store.SignalInput{}
 	for _, in := range ins {
+		if in.Source == store.SourceHerdr && in.Sender != store.SenderTool {
+			above[in.SegmentID] = in
+		}
 		if !eligible(Failure, in.Sender) {
 			continue
 		}
@@ -312,6 +316,10 @@ func failures(ins []store.SignalInput) []Signal {
 			}
 			sig = "exit " + strconv.Itoa(*in.Command.ExitStatus) + "\n" + strings.Join(strings.Fields(in.Command.Argv), " ")
 		case in.Counts:
+			a, ok := above[in.SegmentID]
+			if in.Source == store.SourceHerdr && ok && fileText(a.Excerpt, a.Truncated, in.Excerpt) {
+				continue
+			}
 			line := firstMatch(in.Excerpt, isError)
 			if line == "" {
 				continue

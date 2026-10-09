@@ -1,7 +1,6 @@
 package brained
 
 import (
-	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -106,125 +105,6 @@ func head(harness string, lines []string) int {
 // marked reports whether line l of harness starts with a sender mark.
 func marked(harness, l string) bool {
 	return slices.ContainsFunc(marks[harness], func(m mark) bool { return strings.HasPrefix(l, m.prefix) })
-}
-
-// call is how the screen of a harness shows a shell command above its tool output (#363).
-type call struct {
-	// line matches the call line. Its group is the command; a match with no group is a call
-	// that only reads files.
-	line *regexp.Regexp
-	// failed matches the first line of the output of a command that failed; nil when the call
-	// line shows the failure.
-	failed *regexp.Regexp
-	// end is the text that closes the command on its last line, or "".
-	end string
-}
-
-// calls lists the shell calls of each harness [NEW, the recorded reads in testdata, #363, M2 eval
-// run 5]. Codex shows a read, a search or a list of files as "• Exploring" and then "• Explored",
-// with the files and the search words under it, a command that worked as "• Ran {command}" and
-// a command that failed as "• Failed (exit N) {command}"; the lines of a long command start with
-// │. Claude shows "⏺ Bash({command})", and the output of a command that failed starts with
-// "Error:".
-var calls = map[string]call{
-	"codex":  {line: regexp.MustCompile(`^• (?:Explor(?:ing|ed)|Ran (.+))$`)},
-	"claude": {line: regexp.MustCompile(`^⏺ Bash\((.+)$`), failed: regexp.MustCompile(`^  ⎿  Error: `), end: ")"},
-}
-
-// readers are the programs that print only the text of files, a list of files or their own
-// arguments, or that change the folder [NEW, #363]. A run of them prints no error of a run of
-// another program. An error of their own fails the command, unless a pipe hides its exit status.
-// Programs that run other programs, as awk and xargs, are not readers.
-var readers = []string{"cat", "cd", "column", "cut", "echo", "egrep", "fgrep", "find", "grep", "head", "jq", "ls",
-	"nl", "printf", "rg", "sed", "sort", "tail", "tr", "tree", "uniq", "wc"}
-
-// substitution is the start of shell text that runs another command and puts its output in the
-// command line.
-var substitution = regexp.MustCompile("[$<>]\\(|`")
-
-// fileRead reports whether the tool output at line at of read r is text of files that a command
-// printed, as a README that the agent reads (#363): the call line, the nearest line above with
-// the mark of another sender, shows a command that worked, and each program of the command is
-// one of readers. Such text is no error that a run printed, so it supports no failure (§6.5,
-// §7.1). A call line above the read, a command cut with "…", a command substitution, or a
-// program that is not listed keeps the output as it is.
-func fileRead(r read, at int) bool {
-	c, ok := calls[r.agent]
-	if !ok {
-		return false
-	}
-	i := at - 1
-	for i >= 0 && (r.senders[i] == store.SenderTool || !marked(r.agent, r.lines[i])) {
-		i--
-	}
-	if i < 0 {
-		return false
-	}
-	m := c.line.FindStringSubmatch(r.lines[i])
-	switch {
-	case m == nil:
-		return false
-	case m[1] == "":
-		return true
-	}
-	lines := []string{m[1]}
-	for i++; i < at && r.senders[i] != store.SenderTool; i++ {
-		lines = append(lines, strings.TrimPrefix(strings.TrimSpace(r.lines[i]), "│ "))
-	}
-	if c.failed != nil && c.failed.MatchString(r.lines[i]) {
-		return false
-	}
-	cmd, closed := strings.CutSuffix(strings.Join(lines, "\n"), c.end)
-	if !closed || strings.Contains(cmd, "…") || substitution.MatchString(cmd) {
-		return false
-	}
-	for _, s := range commands(cmd) {
-		f := strings.Fields(s)
-		for len(f) > 0 && strings.Contains(f[0], "=") {
-			f = f[1:] // a variable for the command
-		}
-		if len(f) == 0 {
-			continue
-		}
-		prog := path.Base(f[0])
-		if !slices.Contains(readers, prog) || prog == "find" && slices.ContainsFunc(f, runs) {
-			return false
-		}
-	}
-	return true
-}
-
-// runs reports whether a is an argument of find that runs another program.
-func runs(a string) bool { return strings.HasPrefix(a, "-exec") || strings.HasPrefix(a, "-ok") }
-
-// commands splits shell command s at the pipes, the lists (&&, ||, ;, &) and the new lines
-// outside quotes. An & of a redirect, as in 2>&1 or &>, does not split it.
-func commands(s string) []string {
-	var cs []string
-	var b strings.Builder
-	var quote rune
-	rs := []rune(s)
-	for i := 0; i < len(rs); i++ {
-		r := rs[i]
-		switch {
-		case quote != 0:
-			if r == quote {
-				quote = 0
-			}
-		case r == '\'' || r == '"':
-			quote = r
-		case r == '&' && (i > 0 && (rs[i-1] == '>' || rs[i-1] == '<') || i+1 < len(rs) && rs[i+1] == '>'):
-		case r == '|' || r == '&' || r == ';' || r == '\n':
-			if i+1 < len(rs) && rs[i+1] == r && r != '\n' {
-				i++
-			}
-			cs = append(cs, b.String())
-			b.Reset()
-			continue
-		}
-		b.WriteRune(r)
-	}
-	return append(cs, b.String())
 }
 
 // promptLine returns line l of harness without its prompt mark, and whether l starts with it.
