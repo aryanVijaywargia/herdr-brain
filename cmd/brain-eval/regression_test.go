@@ -23,7 +23,8 @@ func TestRegressionCases(t *testing.T) {
 		"bug-257", "bug-258", "bug-263", "bug-276", "bug-277", "bug-278", "bug-279", "bug-280", "bug-281", "bug-282",
 		"bug-283", "bug-284", "bug-285", "bug-291", "bug-296", "bug-310", "bug-311", "bug-312", "bug-313", "bug-314",
 		"bug-315", "bug-316", "bug-317", "bug-318", "bug-327", "bug-333", "bug-337", "bug-338", "bug-339", "bug-340",
-		"bug-341", "bug-345", "bug-347", "bug-348", "bug-349", "bug-350", "bug-351", "bug-352", "bug-353"}
+		"bug-341", "bug-345", "bug-347", "bug-348", "bug-349", "bug-350", "bug-351", "bug-352", "bug-353",
+		"bug-358"}
 	var got []string
 	for _, c := range cases {
 		if c.Stage != regressionStage {
