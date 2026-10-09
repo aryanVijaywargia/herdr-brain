@@ -405,6 +405,7 @@ tests = [
   "internal/brained:TestSenders",
   "internal/brained:TestCaptureRun3Noise",
   "internal/brained:TestCapturePromptCut",
+  "internal/brained:TestCapturePromptTurns",
 ]
 
 # M2 eval run 3 (2026-10-09, B3): a tool draft gets the name of an active tool, with no warning.
