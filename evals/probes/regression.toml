@@ -466,6 +466,16 @@ tests = [
   "internal/brained:TestCapturePromptCut",
 ]
 
+# M2 eval run 4 (2026-10-09, R4-4): the learned automation misses a stop call when herdr stores
+# the pane read of the run's working status a few ms before the call row. Fix: PR #TBD.
+[[bug]]
+issue = 350
+tests = [
+  "internal/store:TestStopCallsRunRead",
+  "internal/store:TestStopCallsPaneRead",
+  "internal/store:TestStopCalls",
+]
+
 # M2 eval run 4 (2026-10-09, R4-5): `brain status` in a pipe in a shell pane still makes empty
 # claude sessions: grep runs with Brain's CLI. Fix: PR #354.
 [[bug]]
@@ -475,6 +485,15 @@ tests = [
   "internal/brained:TestEventsShellPipe",
   "internal/brained:TestEventsShellProbe",
   "internal/brained:TestEventsRealAgentKept",
+]
+
+# M2 eval run 4 (2026-10-09, R4-6): a failed automation run gives no cause: the run record and
+# the status line name the failed step and its exit code. Fix: PR #TBD.
+[[bug]]
+issue = 352
+tests = [
+  "internal/cli:TestLaunchFailed",
+  "internal/store:TestRunCause",
 ]
 
 # M2 eval run 4 (2026-10-09, R4-7): codex tool output lines and a reply line under a prompt line,
