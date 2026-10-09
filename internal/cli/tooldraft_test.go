@@ -85,7 +85,7 @@ func TestMakeToolAction(t *testing.T) {
 		t.Errorf("item = %+v, want a draft tool", it)
 	}
 	show := f.mustReview(t, fmt.Sprint(p.ID))
-	for _, want := range []string{`"pnpm" "test" "--filter" "api"`, "/src/shop"} {
+	for _, want := range []string{`"pnpm" "test" "--filter" "api"`, "/src/shop", "source:   the exact repeat rule ("} {
 		if !strings.Contains(show, want) {
 			t.Errorf("review show =\n%s\nwant %q", show, want)
 		}
@@ -101,5 +101,21 @@ func TestMakeToolAction(t *testing.T) {
 	}
 	if _, err := f.review(t, "3", "--tool", fmt.Sprint(cand)); err == nil {
 		t.Error("review <id> --tool = nil, want a refusal")
+	}
+}
+
+// #345 AC: the review of an exact tool draft names the exact repeat rule as its source: no
+// model call made it. The extractor is not its source.
+func TestExactToolSource(t *testing.T) {
+	f := newFixture(t)
+	for i := range 3 {
+		f.chainSession(t, "ws_a14", fmt.Sprintf("s%d", i))
+	}
+	f.extractChains(t)
+	_, draft := scriptAndTool(t, f.rows(t))
+	out := f.mustReview(t, fmt.Sprint(draft.ID))
+	want := "\nsource:   the exact repeat rule (the recorded commands of a command chain, as they ran; no model call), "
+	if !strings.Contains(out, want) || strings.Contains(out, "extractor") {
+		t.Errorf("review =\n%s\nwant the source line of the exact repeat rule, and no extractor", out)
 	}
 }
