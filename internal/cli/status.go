@@ -604,8 +604,21 @@ func (h herdrState) noReceipt(ctx context.Context, kind string, p herdr.Pane) st
 
 // queue prints the count and the oldest age of the pending proposals that the caller sees in
 // the default brain review list: a proposal of a candidate below its gate in the config
-// (§7.2) is not counted.
+// (§7.2) is not counted. Then it counts the same_as links that wait for review there (#358).
 func (s *statusCall) queue(ctx context.Context, tx *sql.Tx) error {
+	if err := s.proposalQueue(ctx, tx); err != nil {
+		return err
+	}
+	ls, err := s.sameAsLinks(ctx, tx)
+	if err != nil {
+		return err
+	}
+	s.w.printf("links to review: %d\n", len(ls))
+	return nil
+}
+
+// proposalQueue prints the review queue line of queue.
+func (s *statusCall) proposalQueue(ctx context.Context, tx *sql.Tx) error {
 	gates, _, err := extract.ReadConfig(s.Config)
 	if err != nil {
 		s.w.printf("\nreview queue: unknown: %v\n", err)
@@ -694,6 +707,7 @@ func (s *statusCall) archive(ctx context.Context, tx *sql.Tx) error {
 // this herdr session that waits with its oldest age and why by workspace key (§7.3, S15), and
 // the batches that failed or gave an invalid response (S70). Their watermark stays, so their
 // evidence waits for a retry, or, with no try left, for new evidence of its session (#347).
+// The change requests that failed follow (failedChanges).
 func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
 	if err := s.extractor(ctx, tx); err != nil {
 		return err
@@ -731,15 +745,59 @@ func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
 	}
 	if len(bs) == 0 {
 		s.w.printf("  failed batches: none\n")
-		return nil
+	} else {
+		s.w.printf("  failed batches: %d; their evidence waits for a retry, or with no try left for new evidence of its session\n",
+			len(bs))
 	}
-	s.w.printf("  failed batches: %d; their evidence waits for a retry, or with no try left for new evidence of its session\n",
-		len(bs))
 	for _, b := range bs {
 		s.w.printf("    batch %d, session %d, workspace %s: %s, %s, %s ago\n", b.ID, b.SessionID, b.WorkspaceKey,
 			b.Status, b.Reason, age(s.Now().Sub(b.At)))
 	}
+	return s.failedChanges(ctx, tx)
+}
+
+// failedChanges prints the change requests whose last call failed or gave an invalid response,
+// when there are any: each waits for a retry, or, with no try left, stays failed (#359). Then
+// its proposal is back in brain review, where you edit or drop it. A request of an item
+// revision with no draft has no proposal: you edit the item.
+func (s *statusCall) failedChanges(ctx context.Context, tx *sql.Tx) error {
+	rs, err := store.OpenChangeRequests(ctx, tx)
+	if err != nil {
+		return err
+	}
+	rs = slices.DeleteFunc(rs, func(r store.ChangeRequest) bool {
+		return r.Status != store.ChangeFailed && r.Status != store.ChangeInvalid
+	})
+	if len(rs) == 0 {
+		return nil
+	}
+	s.w.printf("  failed change requests: %d\n", len(rs))
+	for _, r := range rs {
+		s.w.printf("    request %d of %s, workspace %s: %s, %s, %s ago; %s\n", r.ID, changeSource(r),
+			cmp.Or(r.WorkspaceKey, "global"), r.Status, r.Reason, age(s.Now().Sub(r.At)), changeNext(r))
+	}
 	return nil
+}
+
+// changeSource names what change request r redrafts.
+func changeSource(r store.ChangeRequest) string {
+	if r.Source == store.ChangeProposal {
+		return fmt.Sprintf("proposal %d", r.SourceID)
+	}
+	return fmt.Sprintf("item %d revision %d", r.SourceID, r.Revision)
+}
+
+// changeNext says what comes next for failed change request r (#359).
+func changeNext(r store.ChangeRequest) string {
+	switch {
+	case !extract.ChangeSpent(r):
+		return "it waits for a retry"
+	case r.Source == store.ChangeProposal:
+		return fmt.Sprintf("no try left: proposal %d is back in brain review", r.SourceID)
+	case r.NewProposalID != nil:
+		return fmt.Sprintf("no try left: proposal %d is back in brain review", *r.NewProposalID)
+	}
+	return fmt.Sprintf("no try left: edit the item with brain review --item %d --edit \"<text>\"", r.SourceID)
 }
 
 // configSet returns the gates and caps of the config that are not the defaults (§7.2, §7.3),

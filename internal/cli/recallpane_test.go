@@ -363,7 +363,7 @@ func TestPopupEnv(t *testing.T) {
 			want: []string{"HOME=/h", ctxJSON(`{"workspace_id":"w2","focused_pane_id":"w2:p1"}`), "HERDR_PANE_ID=w2:p1", "HERDR_WORKSPACE_ID=w2"}},
 		{name: "own pane", environ: []string{"HERDR_PANE_ID=w1:p1", "HERDR_WORKSPACE_ID=w1", ctxJSON(`{"workspace_id":"w2","focused_pane_id":"w2:p1"}`)},
 			want: []string{"HERDR_PANE_ID=w1:p1", "HERDR_WORKSPACE_ID=w1", ctxJSON(`{"workspace_id":"w2","focused_pane_id":"w2:p1"}`)}},
-		{name: "no context", environ: []string{"HOME=/h"}, err: "herdr action (brain.recall, brain.retired)"},
+		{name: "no context", environ: []string{"HOME=/h"}, err: "herdr action (brain.recall, brain.retired, brain.links)"},
 		{name: "bad context", environ: []string{ctxJSON("{")}, err: "read HERDR_PLUGIN_CONTEXT_JSON"},
 		{name: "no focused pane", environ: []string{ctxJSON(`{"workspace_id":"w2"}`)}, err: "no focused pane"},
 	}

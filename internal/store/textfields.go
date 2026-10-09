@@ -25,6 +25,8 @@ func ItemTextFields() []Field {
 		// claim id stays.
 		{"claims", "situation"},
 		{"claims", "rule"},
+		// The claim of the newest telling of the key, for a merge in review (#358).
+		{"claims", "draft"},
 		// Your reason for a rejection of the claim of the item (§6.7, §7.2).
 		{"rejections", "reason"},
 		// The prompts that led to a proposal of the item or matched it (§6.7, E14-S1). Forget
@@ -149,6 +151,9 @@ func noItemTextFields() []Field {
 		{"claims", "same_as_status"},
 		{"claims", "created"},
 		{"claims", "kind"}, // A fixed claim kind of the extractor schema; no model text.
+		{"claims", "drafted"},
+		{"claims_apart", "claim_id"}, // Claim ids: no text (§7.2).
+		{"claims_apart", "other_id"},
 		{"candidates", "claim_id"},
 		{"candidates", "scope"},
 		{"candidates", "workspace_key"},

@@ -21,6 +21,7 @@ delivery to observed sessions:
   codex: no session observed
 
 review queue: empty
+links to review: 0
 extraction: no extractor CLI is chosen, so Brain makes no extractor call; run brain setup
   last 24h: 0 of 40 extractor calls, 0 of 15 new proposals
   waiting: none

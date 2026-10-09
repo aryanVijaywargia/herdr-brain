@@ -524,3 +524,20 @@ tests = [
   "internal/brained:TestCaptureRun4ToolLines",
   "internal/brained:TestCapturePromptSameFirstLine",
 ]
+
+# Review of PR #357 (2026-10-09), the root of #348: a same_as link that waits for review (a
+# permission or safety rule, or an unclear match) is shown by no surface, so permission tellings
+# in other words never add up. brain review lists each such link with both claims and the
+# reason; merge counts the evidence together (one proposal of the newest telling, no model
+# call), and keep apart stops the pair. Fix: the PR of #358.
+[[bug]]
+issue = 358
+tests = [
+  "internal/extract:TestMergeWaitingLink",
+  "internal/extract:TestMergeNewestTelling",
+  "internal/extract:TestKeepApartLink",
+  "internal/extract:TestMergeProposedLink",
+  "internal/cli:TestReviewSameAsLink",
+  "internal/cli:TestPaneLinks",
+  "internal/cli:TestLinksPopup",
+]

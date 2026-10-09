@@ -21,7 +21,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-const paneUsage = `usage: brain pane review --proposal <id> | brain pane recall | brain pane retired`
+const paneUsage = `usage: brain pane review --proposal <id> | brain pane recall | brain pane retired | brain pane links`
 
 // linger is how long the pane shows its last message before it exits, and herdr closes it.
 // [NEW] 2 s.
@@ -43,6 +43,8 @@ func popupOf(args []string) func(ctx context.Context, e Env, keys *bufio.Reader,
 		return recallPopup // E20-S3
 	case "retired":
 		return retiredPopup // E20-S11
+	case "links":
+		return linksPopup // #358
 	}
 	return nil
 }
@@ -141,6 +143,7 @@ type reviewPane struct {
 	script   bool   // the proposal is a script (E17-S8): approve takes it as it is
 	detail   bool   // show the claim id and the revision too (#254)
 	evidence bool   // show the evidence view instead of the proposal (E20-S4)
+	links    int    // the same_as links that wait for review (#358): key m lists them
 	// size returns the rows and the columns of the pane, read before each screen; nil or 0 rows
 	// shows the whole view.
 	size func() (rows, cols int)
@@ -156,6 +159,9 @@ func (p *reviewPane) run(ctx context.Context) error {
 			return p.close(ctx, err)
 		}
 		p.view = view
+		if p.links, err = linkCount(ctx, p.Env); err != nil {
+			return p.close(ctx, err)
+		}
 		if !p.evidence {
 			// The evidence view has no kind lines: the kind stays as the proposal view found it.
 			p.dispute, p.skill = strings.Contains(view, "\n"+disputeLine), strings.Contains(view, "\n"+skillLine)
@@ -197,7 +203,8 @@ func (p *reviewPane) viewArgs() []string {
 // queue with later. Any other error is on the screen, and the pane goes on. d turns the detail
 // view on and off for every kind [NEW key d], and v the evidence view (E20-S4); each shows the
 // proposal again in place of the other. i opens the list of retired items and archive
-// candidates (E20-S7) [NEW key i].
+// candidates (E20-S7) [NEW key i], and m the same_as links that wait for review (#358) [NEW
+// key m].
 func (p *reviewPane) key(ctx context.Context, k rune) (done bool, err error) {
 	switch {
 	case k == 'd':
@@ -208,10 +215,11 @@ func (p *reviewPane) key(ctx context.Context, k rune) (done bool, err error) {
 		return false, nil
 	case k == 'i':
 		// The list of retired items and archive candidates (E20-S7); q or i comes back here.
-		p.msg = ""
-		if err := (&itemsPane{Env: p.Env, keys: p.keys, size: p.size}).run(ctx); err != nil {
-			p.msg = err.Error()
-		}
+		p.list(ctx, (&itemsPane{Env: p.Env, keys: p.keys, size: p.size}).run)
+		return false, nil
+	case k == 'm':
+		// The links list; q comes back here.
+		p.list(ctx, (&linksPane{Env: p.Env, keys: p.keys, size: p.size}).run)
 		return false, nil
 	case p.dispute:
 		return p.disputeKey(ctx, k)
@@ -239,6 +247,15 @@ func (p *reviewPane) key(ctx context.Context, k rune) (done bool, err error) {
 		p.pin, p.msg = !p.pin, ""
 	}
 	return false, nil
+}
+
+// list runs the list run in the pane until you go back to the proposal; its error, such as a
+// lost store, is on the screen of the proposal.
+func (p *reviewPane) list(ctx context.Context, run func(context.Context) error) {
+	p.msg = ""
+	if err := run(ctx); err != nil {
+		p.msg = err.Error()
+	}
 }
 
 // disputeKey runs the action of key k on a dispute: keep, edit then approve, retire or later
@@ -414,6 +431,9 @@ func (p *reviewPane) draw(prompt string) {
 	}
 	if p.msg != "" {
 		fmt.Fprintf(&foot, "\n%s\n", strings.TrimSpace(p.msg))
+	}
+	if p.links > 0 {
+		fmt.Fprintf(&foot, "\nlinks to review: %d (m shows them)\n", p.links)
 	}
 	fmt.Fprintf(&foot, "\n%s\n", keys)
 	if prompt != "" {

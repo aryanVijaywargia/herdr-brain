@@ -194,7 +194,8 @@ func (k ClaimKey) touchesPermission() bool { return TouchesPermission(k.Situatio
 // clear match is confirmed. An unclear match, and any match of two permission or safety
 // rules, waits for review (§7.2). The link keeps both claim ids and their evidence links.
 // The claim of an item that brain remember made has no row yet: the link adds it, with no key
-// text, so the link has its target (#312).
+// text, so the link has its target (#312). A pair that you keep apart in review gets no link
+// again, and the status is "" (#358).
 func SameAs(ctx context.Context, tx *sql.Tx, id, other string, m Match) (SameAsStatus, error) {
 	source, err := ClaimByID(ctx, tx, id)
 	if err != nil {
@@ -214,6 +215,14 @@ func SameAs(ctx context.Context, tx *sql.Tx, id, other string, m Match) (SameAsS
 	// A link points at the claim id that other has, so a key never needs two hops.
 	if target.SameAsStatus == SameAsConfirmed {
 		other = target.SameAs
+	}
+	var apart bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM claims_apart
+		WHERE claim_id = ?1 AND other_id = ?2 OR claim_id = ?2 AND other_id = ?1)`, id, other).Scan(&apart); err != nil {
+		return "", fmt.Errorf("read the kept-apart pairs of claim %s: %w", id, err)
+	}
+	if apart {
+		return "", nil
 	}
 	status := SameAsProposed
 	if m.Clear && !m.Permissions {

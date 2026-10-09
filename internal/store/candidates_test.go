@@ -423,6 +423,10 @@ func TestEraseItemClaimText(t *testing.T) {
 			})
 			tc.other(t, e, claim)
 			write(t, e.Store, func(tx *sql.Tx) error {
+				// The draft of the newest telling goes with the key text (#358).
+				if err := SetDraft(ctx, tx, claim, `{"Rule":"use pnpm"}`, testNow); err != nil {
+					return err
+				}
 				if err := EraseItem(ctx, tx, item, testNow); err != nil {
 					return err
 				}
@@ -443,7 +447,11 @@ func TestEraseItemClaimText(t *testing.T) {
 				if !tc.kept && c.Key != (ClaimKey{}) {
 					t.Errorf("claim %s keeps its key %+v after the forget", claim, c.Key)
 				}
-				return nil
+				draft, _, err := ClaimDraft(ctx, tx, claim)
+				if err == nil && tc.kept == (draft == "") {
+					t.Errorf("claim %s draft %q after the forget, want it kept: %v", claim, draft, tc.kept)
+				}
+				return err
 			})
 		})
 	}

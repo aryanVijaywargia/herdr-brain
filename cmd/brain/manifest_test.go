@@ -166,26 +166,28 @@ func TestHLDRecallPopup(t *testing.T) {
 	}
 }
 
-// E20-S11 AC 1: the action "Brain: retired items" opens the retired popup for the focused
-// pane's workspace, and the popup runs `brain pane retired`, which takes that pane from the
-// action context, as the recall popup does.
+// E20-S11 AC 1 and #358: the actions "Brain: retired items" and "Brain: links to review" open
+// their popup for the focused pane's workspace, and each popup runs `brain pane <id>`, which
+// takes that pane from the action context, as the recall popup does.
 func TestManifestRetiredAction(t *testing.T) {
-	action := findTable(manifestTables(t, "actions"), "retired")
-	if action == nil {
-		t.Fatal("no [[actions]] with id retired")
-	}
-	if action["title"] != `"Brain: retired items"` || action["contexts"] != `["workspace", "pane"]` {
-		t.Errorf("retired action = %v, want title Brain: retired items in the workspace and pane contexts", action)
-	}
-	if !strings.Contains(action["command"], `plugin pane open --plugin brain --entrypoint retired`) {
-		t.Errorf("retired action command = %s, want it to open the retired pane", action["command"])
-	}
-	pane := findTable(manifestTables(t, "panes"), "retired")
-	if pane == nil {
-		t.Fatal("no [[panes]] with id retired")
-	}
-	if pane["placement"] != `"popup"` || !strings.Contains(pane["command"], `exec \"$HERDR_PLUGIN_ROOT/bin/brain\" pane retired"`) {
-		t.Errorf("retired pane = %v, want a popup that runs bin/brain pane retired", pane)
+	for id, title := range map[string]string{"retired": "Brain: retired items", "links": "Brain: links to review"} {
+		action := findTable(manifestTables(t, "actions"), id)
+		if action == nil {
+			t.Fatalf("no [[actions]] with id %s", id)
+		}
+		if action["title"] != `"`+title+`"` || action["contexts"] != `["workspace", "pane"]` {
+			t.Errorf("%s action = %v, want title %s in the workspace and pane contexts", id, action, title)
+		}
+		if !strings.Contains(action["command"], `plugin pane open --plugin brain --entrypoint `+id) {
+			t.Errorf("%s action command = %s, want it to open the %s pane", id, action["command"], id)
+		}
+		pane := findTable(manifestTables(t, "panes"), id)
+		if pane == nil {
+			t.Fatalf("no [[panes]] with id %s", id)
+		}
+		if pane["placement"] != `"popup"` || !strings.Contains(pane["command"], `exec \"$HERDR_PLUGIN_ROOT/bin/brain\" pane `+id+`"`) {
+			t.Errorf("%s pane = %v, want a popup that runs bin/brain pane %s", id, pane, id)
+		}
 	}
 }
 

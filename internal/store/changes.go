@@ -73,15 +73,19 @@ const openChanges = `('queued', 'active', 'failed', 'invalid')`
 
 // AskChange records your change request text on pending proposal id of candidate cand, sets
 // the proposal to changed, so it is not published, and queues the request (S56). The queue
-// key is the proposal id and its base revision. The caller filters text for secrets.
+// key is the proposal id and its base revision. A proposal that its last request gave back
+// with no try left (ReturnChanged) queues that key again, as a new request with new tries
+// (#359). The caller filters text for secrets.
 func AskChange(ctx context.Context, tx *sql.Tx, id int64, cand Candidate, text string, surface Surface, now time.Time) (ChangeRequest, error) {
 	if err := markChanged(ctx, tx, id, text, surface, now); err != nil {
 		return ChangeRequest{}, err
 	}
 	var cr int64
 	err := tx.QueryRowContext(ctx, `INSERT INTO change_requests (source, source_id, revision, workspace_key, status,
-		model_calls, reason, created, at) SELECT ?, id, base_revision, ?, ?, 0, '', ?, ? FROM proposals WHERE id = ?
-		RETURNING id`, ChangeProposal, cand.WorkspaceKey, ChangeQueued, timeArg(now), timeArg(now), id).Scan(&cr)
+		model_calls, reason, created, at) SELECT ?1, id, base_revision, ?2, ?3, 0, '', ?4, ?4 FROM proposals WHERE id = ?5
+		ON CONFLICT (source, source_id, revision) DO UPDATE SET workspace_key = ?2, status = ?3, model_calls = 0,
+			reason = '', new_proposal_id = NULL, created = ?4, at = ?4
+		RETURNING id`, ChangeProposal, cand.WorkspaceKey, ChangeQueued, timeArg(now), id).Scan(&cr)
 	if err != nil {
 		return ChangeRequest{}, fmt.Errorf("queue the change request of proposal %d: %w", id, err)
 	}
@@ -134,19 +138,47 @@ func ItemChangeOf(ctx context.Context, tx *sql.Tx, id int64) (c ChangeRequest, o
 // AskItemChange records your change request text on pending proposal id, the draft of the
 // change request of an item revision, and queues that request again on its key (item id,
 // revision): its next draft redrafts proposal id with your text. The request keeps the
-// proposal as its new_proposal_id until that draft. The caller filters text for secrets.
+// proposal as its new_proposal_id until that draft. It is a new request: it starts with new
+// tries (#359), also after a redraft that gave the proposal back with no try left. The caller
+// filters text for secrets.
 func AskItemChange(ctx context.Context, tx *sql.Tx, id int64, text string, surface Surface, now time.Time) (ChangeRequest, error) {
 	if err := markChanged(ctx, tx, id, text, surface, now); err != nil {
 		return ChangeRequest{}, err
 	}
 	var cr int64
-	err := tx.QueryRowContext(ctx, `UPDATE change_requests SET status = ?, reason = '', at = ?
-		WHERE source = ? AND new_proposal_id = ? AND status = ? RETURNING id`,
-		ChangeQueued, timeArg(now), ChangeItem, id, ChangeCommitted).Scan(&cr)
+	err := tx.QueryRowContext(ctx, `UPDATE change_requests SET status = ?, model_calls = 0, reason = '', at = ?
+		WHERE source = ? AND new_proposal_id = ? AND status IN (?, ?, ?) RETURNING id`,
+		ChangeQueued, timeArg(now), ChangeItem, id, ChangeCommitted, ChangeFailed, ChangeInvalid).Scan(&cr)
 	if err != nil {
 		return ChangeRequest{}, fmt.Errorf("queue the item change request of proposal %d: %w", id, err)
 	}
 	return ChangeRequestByID(ctx, tx, cr)
+}
+
+// ReturnChanged gives changed proposal id back to review: its change request has no try left
+// (#359). It waits for your decision again, with your request text; nothing is published. You
+// approve it, edit it, reject it, or ask for a change again.
+func ReturnChanged(ctx context.Context, tx *sql.Tx, id int64) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE proposals SET status = ?, surface = NULL, decided = NULL
+		WHERE id = ? AND status = ?`, ProposalPending, id, ProposalChanged); err != nil {
+		return fmt.Errorf("give proposal %d back to review: %w", id, err)
+	}
+	return nil
+}
+
+// ProposalChangeOf returns the change request of proposal id: the request that you asked on it,
+// or that redrafts it (AskItemChange). ok is false for none.
+func ProposalChangeOf(ctx context.Context, tx *sql.Tx, id int64) (c ChangeRequest, ok bool, err error) {
+	c, err = scanChange(tx.QueryRowContext(ctx, `SELECT `+changeColumns+` FROM change_requests
+		WHERE source = ?1 AND source_id = ?2 OR source = ?3 AND new_proposal_id = ?2 ORDER BY id DESC LIMIT 1`,
+		ChangeProposal, id, ChangeItem))
+	if errors.Is(err, sql.ErrNoRows) {
+		return ChangeRequest{}, false, nil
+	}
+	if err != nil {
+		return ChangeRequest{}, false, fmt.Errorf("read the change request of proposal %d: %w", id, err)
+	}
+	return c, true, nil
 }
 
 // ChangeRequestByID returns change request id, or sql.ErrNoRows.
@@ -187,11 +219,14 @@ func StartChange(ctx context.Context, tx *sql.Tx, id int64, now, stale time.Time
 }
 
 // EndChange sets the status of open change request id to status, with reason and the new
-// proposal. It returns false when the request is not active: a forget discarded it, or its
-// commit is done. Only an active request commits, so a retry makes no second draft.
+// proposal. A nil proposal keeps the one that the request has: a failed redraft of a draft
+// (AskItemChange) still redrafts that draft at its retry. It returns false when the request is
+// not active: a forget discarded it, or its commit is done. Only an active request commits, so
+// a retry makes no second draft.
 func EndChange(ctx context.Context, tx *sql.Tx, id int64, status ChangeStatus, reason string, proposal *int64, now time.Time) (bool, error) {
-	res, err := tx.ExecContext(ctx, `UPDATE change_requests SET status = ?, reason = ?, new_proposal_id = ?, at = ?
-		WHERE id = ? AND status IN `+openChanges, status, reason, proposal, timeArg(now), id)
+	res, err := tx.ExecContext(ctx, `UPDATE change_requests SET status = ?, reason = ?,
+		new_proposal_id = COALESCE(?, new_proposal_id), at = ? WHERE id = ? AND status IN `+openChanges,
+		status, reason, proposal, timeArg(now), id)
 	if err != nil {
 		return false, fmt.Errorf("end change request %d: %w", id, err)
 	}

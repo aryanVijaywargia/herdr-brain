@@ -25,9 +25,10 @@ const (
 	// call works first (#263). [NEW] 1 hour: the evidence waits, and brain status shows the
 	// failure.
 	retryAfter = time.Hour
-	// maxTries is the calls of an invalid batch (#347); a failed batch gets one more (spent).
-	// [NEW] 3: a valid answer can come at a retry, as the model answers anew each time, but the
-	// same input that gave an invalid answer 3 times gives it again, and each call uses the cap.
+	// maxTries is the calls of an invalid batch (#347) or change request (#359); a failed one
+	// gets one more (noTryLeft). [NEW] 3: a valid answer can come at a retry, as the model
+	// answers anew each time, but the same input that gave an invalid answer 3 times gives it
+	// again, and each call uses the cap.
 	maxTries = 3
 )
 
@@ -288,33 +289,44 @@ func (p Pass) waits(at, worked time.Time) bool {
 	return p.Now().Sub(at) < retryAfter && !worked.After(at)
 }
 
-// spent reports whether failed or invalid batch b has no try left (#347): an invalid batch after
-// maxTries calls, as the CLI answered and its input gives the invalid answer, and a failed batch
-// after one more, as all its first calls can come while the CLI is down. Then the batch waits
-// for new evidence of its session and key (retries). brain status still shows it.
-func spent(b store.Batch) bool {
-	if b.Status == store.BatchFailed {
-		return b.ModelCalls > maxTries
+// spent reports whether failed or invalid batch b has no try left (noTryLeft). Then the batch
+// waits for new evidence of its session and key (retries). brain status still shows it.
+func spent(b store.Batch) bool { return noTryLeft(b.Status == store.BatchFailed, b.ModelCalls) }
+
+// noTryLeft reports whether a failed or invalid batch or change request with calls model calls
+// has no try left (#347, #359): an invalid one after maxTries calls, as the CLI answered and its
+// input gives the invalid answer, and a failed one after one more, as all its first calls can
+// come while the CLI is down.
+func noTryLeft(failed bool, calls int) bool {
+	if failed {
+		return calls > maxTries
 	}
-	return b.ModelCalls >= maxTries
+	return calls >= maxTries
 }
 
 // retries reports whether failed or invalid batch b gets its call now, with worked the end of the
 // last call that worked and newest the time of the newest observation of its run (job.newest).
-// With a try left (spent), it gets one after a later call works, or retryAfter after its own
-// (waits). The last call of a failed batch, the one after maxTries, waits for a later call that
-// works: that call shows that the CLI is back, so a failure after it is the batch's own. With no
-// try left, it waits for new evidence of its session and key. Mostly that evidence makes a new
-// batch, which replaces it (store.StartBatch); when the input cap cut the run, the new evidence
-// is after the cut, so the batch keeps its range and gets one call for each new evidence.
+// With a try left (spent), it gets one as tryAgain says. With no try left, it waits for new
+// evidence of its session and key. Mostly that evidence makes a new batch, which replaces it
+// (store.StartBatch); when the input cap cut the run, the new evidence is after the cut, so the
+// batch keeps its range and gets one call for each new evidence.
 func (p Pass) retries(b store.Batch, worked, newest time.Time) bool {
-	switch {
-	case spent(b):
+	if spent(b) {
 		return newest.After(b.At)
-	case b.ModelCalls >= maxTries:
-		return worked.After(b.At)
 	}
-	return !p.waits(b.At, worked)
+	return p.tryAgain(b.ModelCalls, b.At, worked)
+}
+
+// tryAgain reports whether a failed or invalid batch or change request with a try left gets its
+// call now: calls is its model calls, at the end of its last call and worked the end of the last
+// call that worked. It gets one after a later call works, or retryAfter after its own (waits).
+// The last call of a failed one, the one after maxTries, waits for a later call that works: that
+// call shows that the CLI is back, so a failure after it is its own.
+func (p Pass) tryAgain(calls int, at, worked time.Time) bool {
+	if calls >= maxTries {
+		return worked.After(at)
+	}
+	return !p.waits(at, worked)
 }
 
 // allowed reports whether batch j may call the extractor: extraction is on for its workspace
@@ -591,6 +603,9 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	if err := link(ctx, tx, claim, c); err != nil {
 		return Suggestion{}, err
 	}
+	if err := setDraft(ctx, tx, claim, c, now); err != nil {
+		return Suggestion{}, err
+	}
 	key := j.batch.WorkspaceKey
 	if c.Scope == store.ScopeGlobal {
 		key = ""
@@ -771,15 +786,21 @@ func linkTarget(ctx context.Context, tx *sql.Tx, claim string, c Claim) (store.C
 	if err != nil {
 		return store.Claim{}, false, err
 	}
+	if held, err := permissionPair(ctx, tx, cl, other, c); err != nil || held {
+		return store.Claim{}, false, err
+	}
+	return other, true, nil
+}
+
+// permissionPair reports whether the same_as link of claim cl, told as claim c, to claim other
+// joins a permission or a safety rule, so that only you can merge it (§7.2), as linkTarget says.
+func permissionPair(ctx context.Context, tx *sql.Tx, cl, other store.Claim, c Claim) (bool, error) {
 	flagged := c.TouchesPermission || cl.TouchesPermission || other.TouchesPermission
 	if mergeKind(c.Kind) == "procedure" && mergeKind(other.Kind) == "procedure" {
 		flagged = brainFlag(c)
 	}
 	text, err := store.ClaimText(ctx, tx, other.ID)
-	if err != nil || flagged || store.TouchesPermission(text) {
-		return store.Claim{}, false, err
-	}
-	return other, true, nil
+	return flagged || store.TouchesPermission(text), err
 }
 
 // heldBy returns the claim of the proposed same_as link of claim c with claim id claim when a
@@ -1077,18 +1098,28 @@ func candidateKind(c Claim) store.CandidateKind {
 // proposal holds the hashes of its trigger prompts (store.ProposeCandidate) and the items that
 // it conflicts with.
 func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now time.Time) (Suggestion, error) {
+	cand, pid, err := p.proposal(ctx, tx, id, c, now)
+	if err != nil || pid == 0 || cand.Kind != store.CandidateLesson {
+		return Suggestion{}, err
+	}
+	return lessonSuggestion(ctx, tx, cand, pid, now)
+}
+
+// proposal makes the proposal of propose with the draft of claim c, and returns candidate id
+// and the new proposal: 0 for none.
+func (p Pass) proposal(ctx context.Context, tx *sql.Tx, id int64, c Claim, now time.Time) (store.Candidate, int64, error) {
 	cand, err := store.CandidateByID(ctx, tx, id)
 	if err != nil || !p.gates().Reached(cand) {
-		return Suggestion{}, err
+		return cand, 0, err
 	}
 	if pending, err := store.PendingCandidateProposalIDs(ctx, tx, id); err != nil || len(pending) > 0 {
-		return Suggestion{}, err
+		return cand, 0, err
 	}
 	if has, err := store.ClaimHasItem(ctx, tx, cand.ClaimID, cand.WorkspaceKey); err != nil || has {
-		return Suggestion{}, err
+		return cand, 0, err
 	}
 	if held, err := store.Rejected(ctx, tx, cand.ClaimID, cand.WorkspaceKey); err != nil || held {
-		return Suggestion{}, err
+		return cand, 0, err
 	}
 	var key *string
 	if cand.Scope == store.ScopeWorkspace {
@@ -1097,27 +1128,27 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 	target, err := target(ctx, tx, cand)
 	switch {
 	case errors.Is(err, sql.ErrNoRows): // the item needs the workspace row: the next evidence tries again
-		return Suggestion{}, nil
+		return cand, 0, nil
 	case err != nil:
-		return Suggestion{}, err
+		return cand, 0, err
 	}
 	conflicts, err := conflictItems(ctx, tx, cand, c)
 	if err != nil {
-		return Suggestion{}, err
+		return cand, 0, err
 	}
 	if c.Tool != "" {
 		known, err := knownDraft(ctx, tx, cand, c.Tool)
 		if err != nil || known {
-			return Suggestion{}, err
+			return cand, 0, err
 		}
 		if c.Tool, err = freeName(ctx, tx, c.Tool, cand.WorkspaceKey, 0); err != nil {
-			return Suggestion{}, err
+			return cand, 0, err
 		}
 	}
 	item, err := store.InsertItem(ctx, tx, store.Item{ClaimID: cand.ClaimID, CurrentRevision: 1, Kind: itemKind(c),
 		Scope: cand.Scope, WorkspaceKey: key, State: store.StateDraft, Created: now})
 	if err != nil {
-		return Suggestion{}, err
+		return cand, 0, err
 	}
 	text, diff := draft(c)
 	base := int64(1)
@@ -1126,17 +1157,14 @@ func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now ti
 		PermissionWarning: c.TouchesPermission, ConflictsWith: conflicts,
 		Status: store.ProposalPending, Created: now})
 	if err != nil {
-		return Suggestion{}, err
+		return cand, 0, err
 	}
 	if err := store.InsertItemRevision(ctx, tx, store.ItemRevision{ItemID: item, Revision: 1, Text: text,
 		Scope: cand.Scope, WorkspaceKey: key, State: store.StateDraft, Author: store.AuthorBrain,
 		Origin: store.OriginExtractor, ProposalID: &pid, Created: now}); err != nil {
-		return Suggestion{}, err
+		return cand, 0, err
 	}
-	if err := store.MarkProposed(ctx, tx, id); err != nil || cand.Kind != store.CandidateLesson {
-		return Suggestion{}, err
-	}
-	return lessonSuggestion(ctx, tx, cand, pid, now)
+	return cand, pid, store.MarkProposed(ctx, tx, id)
 }
 
 // lessonSuggestion reserves the suggestion of proposal pid of lesson candidate cand beside the

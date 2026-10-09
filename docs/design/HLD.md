@@ -713,6 +713,7 @@ The rules are wide on purpose. The extractor removes the false positives.
 - **Claim identity is shared. Everything else is scoped.** Candidates, support counts, rejection and active items belong to one scope (a workspace, or global).
 - Each supporting observation records its workspace, harness, sender and capture identity. Brain checks that each evidence reference belongs to an allowed scope.
 - A model merge (`same_as`) is a proposal. Brain keeps the old claim ids and evidence links. An unclear match goes to review, not to a silent merge. Brain never merges two permissions or safety rules without review.
+- `brain review` lists each same_as link that waits for review: the text of both claims and the reason (a permission or safety rule, or an unclear match). A link waits while the candidate of the newer claim is open, or while its own proposal waits. **Merge** (`brain review --merge <candidate>`) confirms the link: the key gets the other claim id, and the evidence counts together. A waiting proposal of the newer claim is superseded. A candidate at its gate gets a normal proposal with the text of the newest telling, with no model call. A merge approves nothing. A rejection of the newer claim in a scope holds for the other claim there. **Keep apart** (`brain review --apart <candidate>`) ends the link, and the pair does not come back. The review pane (key `m`) and the herdr action "Brain: links to review" (`brain.links`) show the same list, with `m` merge and `n` keep apart. `brain status` shows "links to review: N" (#358).
 
 **Priority defaults** (you can change them in the config):
 
@@ -759,6 +760,7 @@ The rules are wide on purpose. The extractor removes the false positives.
 - **Drafts for live suggestions:** each proposal stores the normalized prompts that led to it. The prompt index uses them at prompt time (§5.5).
 - **Caps:** 40 calls a day, 15 new proposals a day (owner decision 2026-10-08), and an input byte cap for each call (defaults). A tool proposal and its script form count as one proposal (owner decision 2026-10-09, #355). The rest waits.
 - **Queue:** round robin across workspaces. `brain status` shows the oldest pending age. Pending work stays pending; it does not expire.
+- A change request has the try limit of a batch (#347, #359): an invalid one gets 3 calls, and a failed one gets 1 more after a call that works. Then it stays failed. Its proposal goes back to the review queue, where you approve, edit, reject or ask again, and `brain status` lists it. A new change request starts with new tries.
 - **Order for a known claim:** first attach the new evidence to the claim (and to a comeback, §5.4). Then drop the duplicate proposal. Brain does not read native CLI memory.
 - **Locality (D9):** extraction is **on by default** after setup. The official CLI may send the excerpts to its configured provider. Setup explains this flow and the agent flow. With **extraction off** for a workspace, Brain makes no extractor call there. Only rules and your own text make items.
 - **Extractor CLI (D4):** the one that you pick in `brain setup`. Brain does not guess your quota. It never switches to another provider by itself.
@@ -1157,7 +1159,8 @@ The M column says the first milestone that needs the table. M1 builds only the M
 | `deliveries` | M1 | id, profile, herdr session, pane id, agent session id, agent check, workspace key, brief hash, output generation, item revisions, CLI version, result (emitted/withheld/unmapped), withheld reason, transcript path (E15-S4), at |
 | `review_panes` | M1 | binding (herdr session and its continuity identity), pane id, beside pane id, proposal id, opened, closed. Brain closes or targets only a pane whose full identity (binding and pane id) is in this table, and only after herdr shows that the pane still runs `brain review`. On herdr 0.9.1 the review pane is a plugin pane (§4.2), and `herdr plugin pane close` refuses a pane that is not a plugin pane (`plugin_pane_not_found`) `[M0]`. A loss of continuity makes old rows invalid. [ASTRA7] 2 |
 | `tombstones` | M1 | claim id, source keys, forgotten at. No text. |
-| `claims` | M2 | claim id (no text), claim key text (removable), same-as links (proposed/confirmed) |
+| `claims` | M2 | claim id (no text), claim key text (removable), same-as links (proposed/confirmed), the claim of the newest telling and its time (removable, #358) |
+| `claims_apart` | M2 | claim id, other claim id: the pairs that you keep apart in review (#358) |
 | `rejections` | M2 | claim id, scope, workspace key, reason, evidence count at rejection, at, reopened at |
 | `sessions` | M2 | session key (canonical herdr binding + harness + agent session id, else + local capture id), agent session id (enriched later, never merged), workspace key, started, ended |
 | `segments` | M2 | segment id, session key, workspace key, pane id, started, ended |

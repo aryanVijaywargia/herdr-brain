@@ -68,6 +68,7 @@ var blanks = map[Field]string{
 	{"applied_edits", "content_after"}:  `NULL`,
 	{"claims", "situation"}:             `NULL`,
 	{"claims", "rule"}:                  `NULL`,
+	{"claims", "draft"}:                 `NULL`,
 	{"automation_runs", "cause"}:        `NULL`,
 }
 
