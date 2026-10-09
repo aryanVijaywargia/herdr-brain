@@ -216,3 +216,17 @@ func TestRecallPopupSkillsAndTools(t *testing.T) {
 		}
 	}
 }
+
+// #344 AC 1: an automation never shows in a recall: an agent does not call it. Its tool shows.
+func TestRecallNoAutomation(t *testing.T) {
+	f := newAutomationFixture(t)
+	toolID, id := f.bound(t)
+	out, _, err := f.recall(t, "w14:p1", "w14", "touch", "ran", "write", "file", "claude", "automation")
+	if err != nil || !strings.Contains(out, "- touch-ran: Write a file\n") {
+		t.Errorf("Recall() = %q, %v, want the tool", out, err)
+	}
+	screen, err := f.popup(t, f.popupEnviron("w14:p1", "w14"), "touch ran write file claude automation", 0, 0)
+	if got, want := listed(screen), []string{fmt.Sprint(toolID)}; err != nil || !slices.Equal(got, want) {
+		t.Errorf("popup lists %v, %v, want only the tool %v, not the automation %d", got, err, want, id)
+	}
+}
