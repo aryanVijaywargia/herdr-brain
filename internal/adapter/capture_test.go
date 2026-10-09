@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"encoding/json"
 	"errors"
 	"slices"
 	"testing"
@@ -65,6 +66,56 @@ func TestParseRecord(t *testing.T) {
 	}
 	if _, err := p.ParseRecord(EventTool, []byte(`{"session_id":"s","tool_input":{}}`)); !errors.Is(err, ErrRetest) {
 		t.Errorf("ParseRecord of a tool with no command = %v, want ErrRetest", err)
+	}
+}
+
+// #341: a Codex prompt that answers questions of Codex gives only your answers, one on each
+// line, with no tag, JSON or question: a list or one reply, with the end tag of the Codex
+// source or with none, as the eval report shows it. Another prompt stays as it is, also one
+// that holds the tag after its start, and Claude has no tag. A reply that is not JSON, or an
+// answer that is not a string, is a new input shape.
+func TestParseRecordQuestionReply(t *testing.T) {
+	codex, err := Load("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude, err := Load("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const (
+		tag = "<send_user_message_question_reply>"
+		end = "</send_user_message_question_reply>"
+	)
+	parse := func(p *Profile, prompt string) (string, error) {
+		t.Helper()
+		raw, err := json.Marshal(map[string]string{"session_id": "s", "prompt": prompt})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, err := p.ParseRecord(EventPrompt, raw)
+		return r.Text, err
+	}
+	for _, tc := range []struct {
+		p            *Profile
+		prompt, want string
+	}{
+		{codex, tag + "\n" + `[{"questionItemId":"q-1","question":"Where is the db?","answer":"Use the seed."}]` + "\n" + end,
+			"Use the seed."},
+		{codex, " " + tag + `{"question":"Where?","answer":"Here."}` + end + "\n", "Here."},
+		{codex, tag + ` [{"answer":"Use the seed.","question":"Where is the db?","questionItemId":"q-1"}]`, "Use the seed."},
+		{codex, tag + `[{"answer":"A","question":"Q1"},{"answer":"","question":"Q2"},{"answer":"B","question":"Q3"}]` + end, "A\nB"},
+		{codex, "Explain " + tag, "Explain " + tag},
+		{claude, tag + `[{"answer":"A"}]` + end, tag + `[{"answer":"A"}]` + end},
+	} {
+		if got, err := parse(tc.p, tc.prompt); err != nil || got != tc.want {
+			t.Errorf("ParseRecord(%s, %q) = %q, %v, want %q", tc.p.Kind, tc.prompt, got, err, tc.want)
+		}
+	}
+	for _, prompt := range []string{tag + "not json" + end, tag + `[{"answer":["A"]}]` + end} {
+		if _, err := parse(codex, prompt); !errors.Is(err, ErrRetest) {
+			t.Errorf("ParseRecord(codex, %q) = %v, want ErrRetest", prompt, err)
+		}
 	}
 }
 

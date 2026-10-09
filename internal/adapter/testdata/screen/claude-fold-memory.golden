@@ -1,0 +1,6 @@
+❯ Remember that the tests need the seed db, then run them.
+⏺ Saved it to memory, and the tests pass.
+❯ Explain this line:
+  Ran 2 shell commands, wrote 1 memory
+⏺ It is the fold line of my tool calls.
+❯ Ran 2 shell commands, wrote 1 memory. Why?

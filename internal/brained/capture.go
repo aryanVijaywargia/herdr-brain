@@ -240,6 +240,7 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 	added, status := newPart(cp.lines, cp.back, r)
 	ps, open := parts(r, added, cp.open)
 	cp.step(s)
+	ps = cp.quotes(r, ps)
 	ps, fresh := cp.copies(r, added, ps)
 	cp.reserved = nil
 	err = c.write(ctx, s, func(tx *sql.Tx, now time.Time, learning Learning) error {
@@ -279,6 +280,9 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 			return nil // a repaint or a resize: nothing new (S38)
 		}
 		for i, p := range ps {
+			if p.unsure && inMarks[cp.agent] {
+				continue // the head of a Codex read holds no prompt: tool output or a reply (#338)
+			}
 			excerpt, truncated := filter(strings.Join(p.lines, "\n"))
 			o := store.Observation{CaptureIdentity: fmt.Sprintf("%s/%d", identity(s, cp.segment, now), i+1),
 				Source: store.SourceHerdr, SegmentID: cp.segment, Event: eventOf(s), Excerpt: excerpt, Truncated: truncated,
@@ -348,7 +352,10 @@ func busy(status string) bool {
 // prompt, or the known first line starts it, and its other lines are text of that prompt. A
 // copy is a new send only when it is the last prompt of the read and a new turn started since,
 // or it has the same text and the read shows the known one too, above it (S40). In a new turn
-// the last prompt is the prompt of the turn, also when it is only the start of a known one. A part with
+// the last prompt is the prompt of the turn, also when it is only the start of a known one,
+// unless it is cut: one line that ends with "…" and holds at least the first line of a known
+// prompt of more lines. Codex shows a long prompt again as its first line and "…", and a
+// prompt that you send is shown in full (#338, testdata/codex-i278-2-blocked.txt). A part with
 // no prompt mark and the sender of a prompt, as the wrapped end of a prompt, is dropped when
 // all its lines are text of a known prompt. copies returns the parts that stay and the
 // prompts that they send.
@@ -379,7 +386,10 @@ func (cp *capturePane) copies(r read, added []int, ps []part) ([]part, []sent) {
 				known = append(known, s)
 			}
 		}
-		again := p.at == last && !p.unsure &&
+		cut := len(p.lines) == 1 && strings.HasSuffix(p.lines[0], "…") && slices.ContainsFunc(known, func(s sent) bool {
+			return s.first != s.text && len(k.text) >= len(s.first) && len(k.text) < len(s.text)
+		})
+		again := p.at == last && !p.unsure && !cut &&
 			(!slices.ContainsFunc(known, func(s sent) bool { return s.turn == cp.turn }) ||
 				slices.ContainsFunc(known, func(s sent) bool { return s.text == k.text }) && shownAbove(r, added, k, p.at))
 		if len(known) == 0 || again {
@@ -388,6 +398,43 @@ func (cp *capturePane) copies(r read, added []int, ps []part) ([]part, []sent) {
 		}
 	}
 	return kept, fresh
+}
+
+// quotes splits a Codex prompt part of ps that starts with a quote of text that the last reads
+// showed, outside a prompt line: Codex shows your answer to its question as the quoted question
+// and the answer, and its question was on the screen before, in its question view (#341). The
+// quote, with the next lines while their text goes on in the shown text, is Codex text; the
+// lines after it are yours. A quote of text that the reads did not show is your prompt, and it
+// stays. [NEW: the Codex source, tui/src/async_question_reply.rs and the question views]
+func (cp *capturePane) quotes(r read, ps []part) []part {
+	if !inMarks[r.agent] {
+		return ps
+	}
+	var shown strings.Builder
+	for _, l := range append(slices.Clone(cp.back), cp.lines...) {
+		if _, ok := promptLine(r.agent, l); !ok {
+			shown.WriteString(squash(l))
+		}
+	}
+	var out []part
+	for _, p := range ps {
+		q, ok := strings.CutPrefix(p.lines[0], quoteMark)
+		quote := strings.TrimSuffix(squash(q), "…")
+		if !ok || p.sender != store.SenderUnconfirmed || quote == "" || !strings.Contains(shown.String(), quote) {
+			out = append(out, p)
+			continue
+		}
+		n := 1
+		for n < len(p.lines) && strings.Contains(shown.String(), quote+squash(p.lines[n])) {
+			quote += squash(p.lines[n])
+			n++
+		}
+		out = append(out, part{sender: store.SenderAssistant, lines: p.lines[:n], brain: p.brain, at: p.at, unsure: p.unsure})
+		if n < len(p.lines) {
+			out = append(out, part{sender: p.sender, lines: p.lines[n:], brain: p.brain, at: p.at + n, unsure: p.unsure})
+		}
+	}
+	return out
 }
 
 // shownAbove reports whether a line of r above at, one that the last read holds too, starts

@@ -44,6 +44,19 @@ var marks = map[string][]mark{
 	"codex":  {{"› ", store.SenderUnconfirmed}, {"• ", store.SenderAssistant}, {"  └", store.SenderTool}},
 }
 
+// inMarks lists the harnesses that draw each prompt that you send with the prompt mark, and
+// each other line of a prompt with an indent [NEW, #338, M2 eval run 3]. A line at column 0
+// with no mark there is no prompt: it is the rest of a line that the terminal wrapped, or text
+// that the CLI did not indent, as a line of tool output whose └ is above the read. So it
+// continues the block above it, as an indented line does. The head of a read holds no prompt
+// text there: the screen rules drop the indented lines at the top of a Codex read.
+var inMarks = map[string]bool{"codex": true}
+
+// quoteMark is the start of a Codex prompt line that quotes text: Codex 0.160.1 shows your
+// answer to its question as "> {question}", a blank line and the answer, after the prompt mark
+// (tui/src/async_question_reply.rs, #341).
+const quoteMark = "› > "
+
 // approval matches the question of a Codex approval dialog, and detail the line under it [the
 // recorded reads in testdata, and the M2 eval run]: Codex asks it for the agent, so it starts a
 // block of the assistant, also under a prompt line, and the dialog is no user text (#281). The
@@ -68,7 +81,7 @@ func senders(harness string, lines []string) []store.Sender {
 		switch {
 		case !found && approval.MatchString(l) && i+1 < len(lines) && detail.MatchString(lines[i+1]):
 			sender = store.SenderAssistant
-		case !found && !strings.HasPrefix(l, " "):
+		case !found && !strings.HasPrefix(l, " ") && !inMarks[harness]:
 			sender = store.SenderUnconfirmed
 		}
 		ss[i] = sender
@@ -77,11 +90,12 @@ func senders(harness string, lines []string) []store.Sender {
 }
 
 // head returns the number of lines at the start of a read of harness that continue a block
-// whose first line is above the read: lines that start with a space and no sender mark. Their
-// sender is not known (§6.5): a diff line or the rest of a reply, not only user text (#281).
+// whose first line is above the read: lines with no sender mark that start with a space, or
+// any line with no mark for a harness of inMarks. Their sender is not known (§6.5): a diff line
+// or the rest of a reply, not only user text (#281, #338).
 func head(harness string, lines []string) int {
 	for i, l := range lines {
-		if !strings.HasPrefix(l, " ") || slices.ContainsFunc(marks[harness], func(m mark) bool { return strings.HasPrefix(l, m.prefix) }) {
+		if !strings.HasPrefix(l, " ") && !inMarks[harness] || slices.ContainsFunc(marks[harness], func(m mark) bool { return strings.HasPrefix(l, m.prefix) }) {
 			return i
 		}
 	}

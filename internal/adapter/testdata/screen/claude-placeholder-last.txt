@@ -1,0 +1,6 @@
+
+ ▐▛███▜▌   Claude Code v2.1.294
+▝▜█████▛▘  Opus 5.5 (1M context) · Claude Pro
+  ▘▘ ▝▝    ~/brain-eval/notes-api-t
+
+❯ Try "edit <filepath> to..."
