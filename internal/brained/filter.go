@@ -121,27 +121,33 @@ type call struct {
 }
 
 // calls lists the shell calls of each harness [NEW, the recorded reads in testdata, #363, M2 eval
-// run 5]. Codex shows a read, a search or a list of files as "• Explored" with no output, a
-// command that worked as "• Ran {command}" and a command that failed as "• Failed (exit N)
-// {command}"; the lines of a long command start with │. Claude shows "⏺ Bash({command})", and
-// the output of a command that failed starts with "Error:".
+// run 5]. Codex shows a read, a search or a list of files as "• Exploring" and then "• Explored",
+// with the files and the search words under it, a command that worked as "• Ran {command}" and
+// a command that failed as "• Failed (exit N) {command}"; the lines of a long command start with
+// │. Claude shows "⏺ Bash({command})", and the output of a command that failed starts with
+// "Error:".
 var calls = map[string]call{
-	"codex":  {line: regexp.MustCompile(`^• (?:Explored|Ran (.+))$`)},
+	"codex":  {line: regexp.MustCompile(`^• (?:Explor(?:ing|ed)|Ran (.+))$`)},
 	"claude": {line: regexp.MustCompile(`^⏺ Bash\((.+)$`), failed: regexp.MustCompile(`^  ⎿  Error: `), end: ")"},
 }
 
 // readers are the programs that print only the text of files, a list of files or their own
 // arguments, or that change the folder [NEW, #363]. A run of them prints no error of a run of
 // another program. An error of their own fails the command, unless a pipe hides its exit status.
-var readers = []string{"awk", "cat", "cd", "column", "cut", "echo", "egrep", "fd", "fgrep", "find", "grep", "head",
-	"jq", "ls", "nl", "printf", "rg", "sed", "sort", "tail", "tr", "tree", "uniq", "wc"}
+// Programs that run other programs, as awk and xargs, are not readers.
+var readers = []string{"cat", "cd", "column", "cut", "echo", "egrep", "fgrep", "find", "grep", "head", "jq", "ls",
+	"nl", "printf", "rg", "sed", "sort", "tail", "tr", "tree", "uniq", "wc"}
+
+// substitution is the start of shell text that runs another command and puts its output in the
+// command line.
+var substitution = regexp.MustCompile("[$<>]\\(|`")
 
 // fileRead reports whether the tool output at line at of read r is text of files that a command
 // printed, as a README that the agent reads (#363): the call line, the nearest line above with
 // the mark of another sender, shows a command that worked, and each program of the command is
 // one of readers. Such text is no error that a run printed, so it supports no failure (§6.5,
-// §7.1). A call line above the read, a command cut with "…", or a program that is not listed
-// keeps the output as it is.
+// §7.1). A call line above the read, a command cut with "…", a command substitution, or a
+// program that is not listed keeps the output as it is.
 func fileRead(r read, at int) bool {
 	c, ok := calls[r.agent]
 	if !ok {
@@ -162,14 +168,14 @@ func fileRead(r read, at int) bool {
 		return true
 	}
 	lines := []string{m[1]}
-	for i++; i < len(r.lines) && r.senders[i] != store.SenderTool; i++ {
+	for i++; i < at && r.senders[i] != store.SenderTool; i++ {
 		lines = append(lines, strings.TrimPrefix(strings.TrimSpace(r.lines[i]), "│ "))
 	}
-	if i == len(r.lines) || c.failed != nil && c.failed.MatchString(r.lines[i]) {
+	if c.failed != nil && c.failed.MatchString(r.lines[i]) {
 		return false
 	}
 	cmd, closed := strings.CutSuffix(strings.Join(lines, "\n"), c.end)
-	if !closed || strings.Contains(cmd, "…") {
+	if !closed || strings.Contains(cmd, "…") || substitution.MatchString(cmd) {
 		return false
 	}
 	for _, s := range commands(cmd) {
