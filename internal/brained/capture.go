@@ -734,23 +734,38 @@ func shell(name string) bool {
 // probe reports whether herdr saw a short CLI run as an agent in pane id, such as the
 // "codex --version" of brain status in a shell pane (#317): each foreground process of the
 // pane is a shell, Brain's own CLI or a run with --version or -v, so no agent runs there. A
-// real agent is its own foreground process while it runs. When herdr gives no process or no
-// argv, it reports false, and the baseline opens the session as before.
+// real agent is its own foreground process while it runs. The leader of the foreground process
+// group is the first process of the command line that the shell runs: when it is Brain's CLI
+// or such a run, the line runs no agent either, also when the other processes of a pipe run
+// with it, as grep in "brain status | grep codex" (#351). An agent and the tools that it runs
+// have the agent, or a script that starts it, as their leader. When herdr gives no process or
+// no argv, it reports false, and the baseline opens the session as before.
 func (c *Capture) probe(ctx context.Context, id string) bool {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	ps, err := c.sock.Processes(ctx, id)
-	if err != nil || len(ps) == 0 {
+	pi, err := c.sock.Processes(ctx, id)
+	if err != nil || len(pi.Processes) == 0 {
 		return false
 	}
-	return !slices.ContainsFunc(ps, func(p herdr.Process) bool {
-		if len(p.Argv) == 0 {
-			return true
-		}
-		name := strings.TrimPrefix(filepath.Base(p.Argv[0]), "-")
-		version := slices.ContainsFunc(p.Argv[1:], func(a string) bool { return a == "--version" || a == "-v" })
-		return !shell(name) && name != "brain" && !version
+	if i := slices.IndexFunc(pi.Processes, func(p herdr.Process) bool { return p.PID == pi.Group }); i >= 0 && probeRun(pi.Processes[i]) {
+		return true
+	}
+	return !slices.ContainsFunc(pi.Processes, func(p herdr.Process) bool {
+		return len(p.Argv) == 0 || !probeRun(p) && !shell(program(p))
 	})
+}
+
+// program returns the program name of foreground process p from its argv, without the "-" of a
+// login shell.
+func program(p herdr.Process) string {
+	return strings.TrimPrefix(filepath.Base(p.Argv[0]), "-")
+}
+
+// probeRun reports whether foreground process p is Brain's own CLI or a run with --version or
+// -v.
+func probeRun(p herdr.Process) bool {
+	return len(p.Argv) > 0 &&
+		(program(p) == "brain" || slices.ContainsFunc(p.Argv[1:], func(a string) bool { return a == "--version" || a == "-v" }))
 }
 
 // lines splits text into lines without trailing space, and drops blank lines. The screen

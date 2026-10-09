@@ -165,7 +165,10 @@ func millis(d time.Duration) string { return strconv.FormatInt(d.Milliseconds(),
 
 // ProcessInfo is the process state of a pane.
 type ProcessInfo struct {
-	ShellPID  int
+	ShellPID int
+	// Group is the id of the foreground process group, the pid of its leader: the first process
+	// of the command line that the shell runs. 0 when herdr gives none.
+	Group     int
 	Processes []Process // the foreground processes
 }
 
@@ -179,6 +182,7 @@ func (c *Client) PaneProcessInfo(ctx context.Context, id string) (ProcessInfo, e
 		Info *struct {
 			PaneID    *string `json:"pane_id"`
 			ShellPID  *int    `json:"shell_pid"`
+			Group     *int    `json:"foreground_process_group_id"`
 			Processes []struct {
 				Name *string  `json:"name"`
 				Argv []string `json:"argv"`
@@ -195,6 +199,9 @@ func (c *Client) PaneProcessInfo(ctx context.Context, id string) (ProcessInfo, e
 		ck.fail("process_info.pane_id", fmt.Sprintf("%q, want %q", got, id))
 	}
 	pi := ProcessInfo{ShellPID: req(&ck, info.ShellPID, "process_info.shell_pid"), Processes: make([]Process, len(info.Processes))}
+	if info.Group != nil {
+		pi.Group = *info.Group
+	}
 	for i, p := range info.Processes {
 		f := fmt.Sprintf("process_info.foreground_processes[%d]", i)
 		pi.Processes[i] = Process{Name: req(&ck, p.Name, f+".name"), Argv: p.Argv, PID: req(&ck, p.PID, f+".pid")}

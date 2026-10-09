@@ -255,15 +255,17 @@ func (s Socket) Pane(ctx context.Context, id string) (Pane, error) {
 	return p, nil
 }
 
-// Processes returns the foreground processes of pane id, from pane.process_info (herdr
-// 0.9.1). A pane that is gone gives ErrPaneNotFound.
-func (s Socket) Processes(ctx context.Context, id string) ([]Process, error) {
+// Processes returns the foreground process group of pane id and its processes, from
+// pane.process_info (herdr 0.9.1). A pane that is gone gives ErrPaneNotFound.
+func (s Socket) Processes(ctx context.Context, id string) (ProcessInfo, error) {
 	if err := checkPaneID(id); err != nil {
-		return nil, err
+		return ProcessInfo{}, err
 	}
 	var r struct {
 		Info *struct {
 			PaneID    *string `json:"pane_id"`
+			ShellPID  *int    `json:"shell_pid"`
+			Group     *int    `json:"foreground_process_group_id"`
 			Processes []struct {
 				Name *string  `json:"name"`
 				Argv []string `json:"argv"`
@@ -272,7 +274,7 @@ func (s Socket) Processes(ctx context.Context, id string) ([]Process, error) {
 		} `json:"process_info"`
 	}
 	if err := s.call(ctx, "pane.process_info", map[string]any{"pane_id": id}, "pane_process_info", &r); err != nil {
-		return nil, fmt.Errorf("herdr pane.process_info: %w", err)
+		return ProcessInfo{}, fmt.Errorf("herdr pane.process_info: %w", err)
 	}
 	var ck check
 	info := req(&ck, r.Info, "process_info")
@@ -280,17 +282,23 @@ func (s Socket) Processes(ctx context.Context, id string) ([]Process, error) {
 		ck.fail("process_info.pane_id", fmt.Sprintf("%q, want %q", got, id))
 	}
 	if ck.err != nil {
-		return nil, fmt.Errorf("herdr pane.process_info: %w", ck.err)
+		return ProcessInfo{}, fmt.Errorf("herdr pane.process_info: %w", ck.err)
 	}
-	ps := make([]Process, len(info.Processes))
+	pi := ProcessInfo{Processes: make([]Process, len(info.Processes))}
+	if info.ShellPID != nil {
+		pi.ShellPID = *info.ShellPID
+	}
+	if info.Group != nil {
+		pi.Group = *info.Group
+	}
 	for i, p := range info.Processes {
 		f := fmt.Sprintf("process_info.foreground_processes[%d]", i)
-		ps[i] = Process{Name: req(&ck, p.Name, f+".name"), Argv: p.Argv, PID: req(&ck, p.PID, f+".pid")}
+		pi.Processes[i] = Process{Name: req(&ck, p.Name, f+".name"), Argv: p.Argv, PID: req(&ck, p.PID, f+".pid")}
 	}
 	if ck.err != nil {
-		return nil, fmt.Errorf("herdr pane.process_info: %w", ck.err)
+		return ProcessInfo{}, fmt.Errorf("herdr pane.process_info: %w", ck.err)
 	}
-	return ps, nil
+	return pi, nil
 }
 
 // The read sources of pane.read that Brain uses. Neither moves the pane's scroll.

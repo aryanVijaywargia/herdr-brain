@@ -54,8 +54,10 @@ type fakePane struct {
 	status, cwd, terminal string
 	seq                   uint64
 	// procs is the pane.process_info reply of the foreground processes; "" gives the agent
-	// as its own process, or a shell when the pane has no agent.
+	// as its own process, or a shell when the pane has no agent. group is the id of their
+	// process group; 0 gives none.
 	procs string
+	group int
 }
 
 // agentJSON is the agent.get state of pane id.
@@ -237,8 +239,12 @@ func (f *fakeHerdr) reply(method, paneID, source string, lines int, subs []herdr
 		reply = f.read(paneID, source, lines)
 	case "pane.process_info":
 		if p, ok := f.panes[paneID]; ok {
-			reply = fmt.Sprintf(`{"type":"pane_process_info","process_info":{"pane_id":%q,"shell_pid":1,"foreground_processes":%s}}`,
-				paneID, p.processes())
+			group := "null"
+			if p.group != 0 {
+				group = fmt.Sprint(p.group)
+			}
+			reply = fmt.Sprintf(`{"type":"pane_process_info","process_info":{"pane_id":%q,"shell_pid":1,"foreground_process_group_id":%s,"foreground_processes":%s}}`,
+				paneID, group, p.processes())
 		}
 	case "agent.get":
 		if f.gets != nil {
