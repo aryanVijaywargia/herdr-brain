@@ -601,13 +601,7 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	if ts, err := store.TombstonesByClaim(ctx, tx, claim); err != nil || len(ts) > 0 {
 		return Suggestion{}, err
 	}
-	if c.SameAs, err = restated(ctx, tx, j, claim, c); err != nil {
-		return Suggestion{}, err
-	}
-	if err := link(ctx, tx, claim, c); err != nil {
-		return Suggestion{}, err
-	}
-	if err := setDraft(ctx, tx, claim, c, now); err != nil {
+	if c, err = recordClaim(ctx, tx, j, claim, c, now); err != nil {
 		return Suggestion{}, err
 	}
 	key := j.batch.WorkspaceKey
@@ -643,6 +637,20 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 		return Suggestion{}, err
 	}
 	return p.propose(ctx, tx, id, c, now)
+}
+
+// recordClaim records claim c of batch j with claim id claim, and returns it with its same_as
+// link: Brain's own link of a restatement of an item of the brief (restated), its claim kind and
+// its link (link), and its newest telling (setDraft).
+func recordClaim(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim, now time.Time) (Claim, error) {
+	var err error
+	if c.SameAs, err = restated(ctx, tx, j, claim, c); err != nil {
+		return Claim{}, err
+	}
+	if err := link(ctx, tx, claim, c); err != nil {
+		return Claim{}, err
+	}
+	return c, setDraft(ctx, tx, claim, c, now)
 }
 
 // recordOutcomes records the outcomes of claim c with claim id claim, from accepted, the refs

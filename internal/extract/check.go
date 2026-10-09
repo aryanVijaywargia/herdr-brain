@@ -137,7 +137,7 @@ func input(j job) string {
 // (#365). No local rule tells them from a lesson: "How many times do I have to tell you to use
 // pnpm?" is a correction, and the lesson words stay wide on purpose (§7.1, #253), so the
 // extractor drops them. Brain's own checks hold a request that a tool runs (toolHolds) and a
-// rejected request in other words (heldBy).
+// rejected request in other words (linkRejected).
 const oneTimeHelp = "A question that asks for an answer gives no claim, also when the user asks it again in another " +
 	"session, and nor do the conditions of its answer, such as \"do not change anything yet; just list the steps\". " +
 	"A request for one change now gives no lesson, also with a word such as always: \"make that startup error " +

@@ -144,11 +144,7 @@ func MergeLink(ctx context.Context, tx *sql.Tx, id int64, gates store.Gates, now
 	if err != nil {
 		return Merged{}, err
 	}
-	why, err := stuck(ctx, tx, cand, into)
-	if err == nil && why != "" {
-		err = fmt.Errorf("link of candidate %d: a merge moves no evidence: %s; keep it apart (brain review --apart %d)", id, why, id)
-	}
-	if err != nil {
+	if err := mergeable(ctx, tx, cand, into); err != nil {
 		return Merged{}, err
 	}
 	c, ok, err := newest(ctx, tx, cl, into)
@@ -185,6 +181,17 @@ func MergeLink(ctx context.Context, tx *sql.Tx, id int64, gates store.Gates, now
 		}
 	}
 	return m, nil
+}
+
+// mergeable returns an error that says why when a merge of candidate cand into claim into would
+// move none of its evidence (stuck), else nil.
+func mergeable(ctx context.Context, tx *sql.Tx, cand store.Candidate, into string) error {
+	why, err := stuck(ctx, tx, cand, into)
+	if err != nil || why == "" {
+		return err
+	}
+	return fmt.Errorf("link of candidate %d: a merge moves no evidence: %s; keep it apart (brain review --apart %d)",
+		cand.ID, why, cand.ID)
 }
 
 // stuck returns why a merge of candidate from into claim into would move none of its evidence,
