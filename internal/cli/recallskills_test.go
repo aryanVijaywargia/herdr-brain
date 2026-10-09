@@ -130,13 +130,17 @@ func TestRecallOneOrderAndCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := make([]string, 0, maxRecall-1)
-	for _, id := range items[:maxRecall-1] {
-		want = append(want, fmt.Sprint(id))
+	// The tool has 2 points and comes first; then the items with 1 point, in id order, under
+	// their own heading.
+	var want strings.Builder
+	want.WriteString("Brain items for \"deploy check\", best match first:\n### Tools\n" +
+		"Run a tool with: brain run <name> --<input> <value>. brain tools lists all tools and their inputs.\n" +
+		"- deploy-check: Tool deploy-check Inputs: package\n### Items\n")
+	for i, id := range items[:maxRecall-1] {
+		fmt.Fprintf(&want, "- [%d] deploy step %d\n", id, i)
 	}
-	if got := printed(out); !slices.Equal(got, want) || !strings.Contains(out, "- deploy-check: ") ||
-		strings.Contains(out, "gardening") {
-		t.Errorf("Recall(deploy check) =\n%s\nwant the tool %d and the first %d items", out, tool, maxRecall-1)
+	if out != want.String() {
+		t.Errorf("Recall(deploy check) =\n%s\nwant the tool %d, then the first %d items:\n%s", out, tool, maxRecall-1, want.String())
 	}
 	// The skill matches by its name and by its description.
 	for _, w := range []string{"garden", "task"} {

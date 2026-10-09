@@ -113,38 +113,24 @@ func recallItems(ctx context.Context, tx *sql.Tx, c *Call, words []string) ([]re
 	return bestMatches(ms, words), nil
 }
 
+// itemsLabel is the heading of a run of items that comes after a run of skills or tools in a
+// recall: without it, the items would read as part of that list. [NEW] the heading.
+const itemsLabel = "### Items\n"
+
 // printRecall prints ms, the recall result of query, and then records it in tx: a failed print
-// rolls the record back, so a revision that the agent did not get never counts. The items come
-// first, then the skill list and the tool catalog as the brief shows them, each best match
-// first.
+// rolls the record back, so a revision that the agent did not get never counts.
 func printRecall(ctx context.Context, tx *sql.Tx, e Env, c *Call, ms []recallMatch, query string) error {
 	if len(ms) == 0 {
 		// [NEW] the no-match form.
 		_, err := fmt.Fprintf(e.Stdout, "no Brain item matches %q\n", query)
 		return err
 	}
-	var (
-		items  []brief.Item
-		skills []brief.Skill
-		tools  []brief.Tool
-	)
-	for _, m := range ms {
-		switch m.kind {
-		case store.KindSkill:
-			skills = append(skills, m.skill)
-		case store.KindTool:
-			tools = append(tools, m.tool)
-		default:
-			items = append(items, m.item)
-		}
-	}
-	text, err := brief.Entries(items)
+	text, err := recallText(ms)
 	if err != nil {
 		return err
 	}
 	// [NEW] the output form: one heading line, then the results as the brief shows them.
-	if _, err := fmt.Fprintf(e.Stdout, "Brain items for %q, best match first:\n%s%s%s", query, text,
-		brief.Skills(skills), brief.Tools(tools)); err != nil {
+	if _, err := fmt.Fprintf(e.Stdout, "Brain items for %q, best match first:\n%s", query, text); err != nil {
 		return err
 	}
 	recorded, err := recordRecall(ctx, tx, c, ms, e.Now())
@@ -155,6 +141,50 @@ func printRecall(ctx context.Context, tx *sql.Tx, e Env, c *Call, ms []recallMat
 	// the warning form.
 	_, err = fmt.Fprintln(e.Stderr, "brain: warning: no Brain receipt for the agent session of this pane; this recall is not recorded")
 	return err
+}
+
+// recallText renders ms in their order, best match first (#344). Each run of results of one
+// kind shows as the brief shows it: items as the item entries, skills as the "Skills" list and
+// tools as the "Tools" catalog, each list with its heading and its instruction line. A run of
+// items after another kind gets the itemsLabel heading.
+func recallText(ms []recallMatch) (string, error) {
+	var b strings.Builder
+	for len(ms) > 0 {
+		n := 1
+		for n < len(ms) && ms[n].kind == ms[0].kind {
+			n++
+		}
+		run := ms[:n]
+		ms = ms[n:]
+		switch run[0].kind {
+		case store.KindSkill:
+			skills := make([]brief.Skill, n)
+			for i, m := range run {
+				skills[i] = m.skill
+			}
+			b.WriteString(brief.Skills(skills))
+		case store.KindTool:
+			tools := make([]brief.Tool, n)
+			for i, m := range run {
+				tools[i] = m.tool
+			}
+			b.WriteString(brief.Tools(tools))
+		default:
+			items := make([]brief.Item, n)
+			for i, m := range run {
+				items[i] = m.item
+			}
+			text, err := brief.Entries(items)
+			if err != nil {
+				return "", err
+			}
+			if b.Len() > 0 {
+				b.WriteString(itemsLabel)
+			}
+			b.WriteString(text)
+		}
+	}
+	return b.String(), nil
 }
 
 // briefKey is the workspace key whose part the brief of the calling pane delivers, or "" for
