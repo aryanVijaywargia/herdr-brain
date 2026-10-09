@@ -630,12 +630,12 @@ func recordOutcomes(ctx context.Context, tx *sql.Tx, j job, claim string, c Clai
 	return covered, outcomes(ctx, tx, j, claim, corrections(kind, accepted), base)
 }
 
-// link records the claim kind and the permission flag of claim c on its claim id claim, and
-// its same_as link. The model guess alone is not proof (§5.4, §7.2): the link stays proposed,
-// so an active item of the other claim gets no comeback from it (outcomes). check found
-// c.SameAs in the input.
+// link records the claim kind and the permission flag (permission) of claim c on its claim id
+// claim, and its same_as link. The model guess alone is not proof (§5.4, §7.2): the link stays
+// proposed, so an active item of the other claim gets no comeback from it (outcomes). check
+// found c.SameAs in the input.
 func link(ctx context.Context, tx *sql.Tx, claim string, c Claim) error {
-	if err := store.MarkClaim(ctx, tx, claim, c.Kind, c.TouchesPermission); err != nil {
+	if err := store.MarkClaim(ctx, tx, claim, c.Kind, permission(c)); err != nil {
 		return err
 	}
 	if c.SameAs == "" || c.SameAs == claim {
@@ -643,6 +643,19 @@ func link(ctx context.Context, tx *sql.Tx, claim string, c Claim) error {
 	}
 	_, err := store.SameAs(ctx, tx, claim, c.SameAs, store.Match{Permissions: c.TouchesPermission})
 	return err
+}
+
+// permission is the permission flag of claim c that link records and the merge check reads
+// (linkTarget): Brain never merges two permissions or safety rules without review (§7.2). A
+// procedure is no rule: it says how to do a job, and a model flag on it marks a step that
+// touches a permission, as the commit and the tag of a release do (#348). That flag stays the
+// warning of its proposal, so approve needs --confirm, but for the merge only Brain's own check
+// counts (brainFlag, §7.3 Output).
+func permission(c Claim) bool {
+	if mergeKind(c.Kind) == "procedure" {
+		return brainFlag(c)
+	}
+	return c.TouchesPermission
 }
 
 // keptKind returns the kind of the candidate of claim in the scope with key for new evidence
@@ -744,13 +757,14 @@ func checked(ctx context.Context, tx *sql.Tx, cand store.Candidate, refs []ref) 
 	return accepted, nil
 }
 
-// linkTarget returns the claim that the proposed same_as link of claim names, for claim c with
-// claim id claim. It returns false for no link, and when either claim is a permission or a
-// safety rule: Brain never merges those without review (§7.2), so the link stays for review.
-// The text of a brain remember item counts as the key of its claim (store.ClaimText).
-func linkTarget(ctx context.Context, tx *sql.Tx, claim string, c Claim) (store.Claim, bool, error) {
+// linkTarget returns the claim that the proposed same_as link of claim id claim names. It
+// returns false for no link, and when either claim is a permission or a safety rule, by the flag
+// that link recorded (permission): Brain never merges those without review (§7.2), so the link
+// stays for review. The text of a brain remember item counts as the key of its claim
+// (store.ClaimText).
+func linkTarget(ctx context.Context, tx *sql.Tx, claim string) (store.Claim, bool, error) {
 	cl, err := store.ClaimByID(ctx, tx, claim)
-	if err != nil || cl.SameAs == "" || cl.SameAsStatus != store.SameAsProposed || c.TouchesPermission || cl.TouchesPermission {
+	if err != nil || cl.SameAs == "" || cl.SameAsStatus != store.SameAsProposed || cl.TouchesPermission {
 		return store.Claim{}, false, err
 	}
 	other, err := store.ClaimByID(ctx, tx, cl.SameAs)
@@ -774,7 +788,7 @@ func heldBy(ctx context.Context, tx *sql.Tx, claim string, c Claim, key string) 
 	if c.Tool != "" {
 		return "", nil
 	}
-	other, ok, err := linkTarget(ctx, tx, claim, c)
+	other, ok, err := linkTarget(ctx, tx, claim)
 	if err != nil || !ok {
 		return "", err
 	}
@@ -823,7 +837,7 @@ func (p Pass) restate(ctx context.Context, tx *sql.Tx, j job, claim, held string
 // and the claim of c is not rejected there. Else the link stays a proposed link for review.
 // Brain keeps both claim ids and the link, and marks the merged evidence (store.Candidate.Via).
 func mergeInto(ctx context.Context, tx *sql.Tx, claim string, c Claim, key string, kind store.CandidateKind) (string, error) {
-	other, ok, err := linkTarget(ctx, tx, claim, c)
+	other, ok, err := linkTarget(ctx, tx, claim)
 	if err != nil || !ok || mergeKind(other.Kind) != mergeKind(c.Kind) {
 		return claim, err
 	}

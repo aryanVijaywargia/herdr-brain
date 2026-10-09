@@ -36,7 +36,7 @@ type Claim struct {
 	// Kind is the claim kind of the extractor (#279); "" for a claim made before it was kept.
 	Kind string
 	// TouchesPermission is true once the extractor or the Brain check flagged the claim as a
-	// permission or a safety rule (§7.3).
+	// permission or a safety rule (§7.3); for a procedure, once the Brain check did (#348).
 	TouchesPermission bool
 }
 
