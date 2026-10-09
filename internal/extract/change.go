@@ -32,8 +32,10 @@ type change struct {
 
 // requests returns the change requests to draft again now, as jobs of the queue (§7.3). A
 // request waits while extraction or learning is off for its scope, and after a failed or
-// invalid call until its retry (waits). A request of another herdr session's workspace waits
-// for that pass; a global one goes to any pass. A request that is no longer current is discarded here.
+// invalid call until its retry (tryAgain). A request with no try left gets no call: it stays
+// failed, and its proposal is back in review (ChangeSpent, #359). A request of another herdr
+// session's workspace waits for that pass; a global one goes to any pass. A request that is no
+// longer current is discarded here, also one with no try left.
 func (p Pass) requests(ctx context.Context, tx *sql.Tx) ([]job, error) {
 	rs, err := store.OpenChangeRequests(ctx, tx)
 	if err != nil {
@@ -45,7 +47,8 @@ func (p Pass) requests(ctx context.Context, tx *sql.Tx) ([]job, error) {
 	}
 	var jobs []job
 	for _, r := range rs {
-		if (r.Status == store.ChangeFailed || r.Status == store.ChangeInvalid) && p.waits(r.At, worked) ||
+		spent := ChangeSpent(r)
+		if (r.Status == store.ChangeFailed || r.Status == store.ChangeInvalid) && !spent && !p.tryAgain(r.ModelCalls, r.At, worked) ||
 			r.Status == store.ChangeActive && p.Now().Sub(r.At) < changeStale {
 			continue
 		}
@@ -66,6 +69,9 @@ func (p Pass) requests(ctx context.Context, tx *sql.Tx) ([]job, error) {
 			if _, err := store.EndChange(ctx, tx, r.ID, store.ChangeDiscarded, why, nil, p.Now()); err != nil {
 				return nil, err
 			}
+			continue
+		}
+		if spent {
 			continue
 		}
 		if on, err := p.changeAllowed(ctx, tx, j); err != nil || !on {
@@ -93,7 +99,7 @@ func (p Pass) changeJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) 
 	if err != nil {
 		return job{}, "", err
 	}
-	if pr.Status != store.ProposalChanged || pr.ChangeRequest == nil || pr.CandidateID == nil || pr.ItemID == nil {
+	if pr.Status != requestStatus(r) || pr.ChangeRequest == nil || pr.CandidateID == nil || pr.ItemID == nil {
 		return job{}, "the request is no longer current", nil
 	}
 	it, err := store.ItemByID(ctx, tx, *pr.ItemID)
@@ -126,6 +132,38 @@ func (p Pass) changeJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) 
 	}
 	return p.changeOf(ctx, tx, change{req: r, proposal: pr, cand: cand, item: cur, kind: it.Kind}, es,
 		"no evidence of the proposal is left")
+}
+
+// ChangeSpent reports whether change request r failed or was invalid with no try left
+// (noTryLeft, #359): it gets no more calls and stays so, and its proposal is back in review
+// (store.ReturnChanged). A new request of the item starts with new tries.
+func ChangeSpent(r store.ChangeRequest) bool {
+	return (r.Status == store.ChangeFailed || r.Status == store.ChangeInvalid) &&
+		noTryLeft(r.Status == store.ChangeFailed, r.ModelCalls)
+}
+
+// requestStatus is the status of the proposal of change request r while r is current: changed,
+// or pending when r has no try left and gave it back to review (#359).
+func requestStatus(r store.ChangeRequest) store.ProposalStatus {
+	if ChangeSpent(r) {
+		return store.ProposalPending
+	}
+	return store.ProposalChanged
+}
+
+// giveBack gives the proposal of change request r back to review when r has no try left
+// (ChangeSpent, #359): your request, or the draft that your request redrafts. A request of an
+// item revision with no draft has no proposal: brain status shows it.
+func giveBack(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) error {
+	switch {
+	case !ChangeSpent(r):
+		return nil
+	case r.Source == store.ChangeProposal:
+		return store.ReturnChanged(ctx, tx, r.SourceID)
+	case r.NewProposalID != nil:
+		return store.ReturnChanged(ctx, tx, *r.NewProposalID)
+	}
+	return nil
 }
 
 // comebackRequest is the request text of a change request of an item revision [NEW]: Brain
@@ -182,7 +220,7 @@ func (p Pass) itemJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) (j
 		if pr, err = store.ProposalByID(ctx, tx, *r.NewProposalID); err != nil {
 			return job{}, "", err
 		}
-		if pr.Status != store.ProposalChanged || pr.ChangeRequest == nil {
+		if pr.Status != requestStatus(r) || pr.ChangeRequest == nil {
 			return job{}, "the request is no longer current", nil
 		}
 	}
@@ -288,7 +326,7 @@ func (p Pass) runChange(ctx context.Context, j job) error {
 	skip := false
 	err := p.Store.Write(ctx, func(tx *sql.Tx) error {
 		r, err := store.ChangeRequestByID(ctx, tx, j.change.req.ID)
-		if err != nil || !r.Open() {
+		if err != nil || !r.Open() || ChangeSpent(r) {
 			skip = true
 			return err
 		}
@@ -346,7 +384,8 @@ func (p Pass) runChange(ctx context.Context, j job) error {
 
 // commitChange is the one transaction of change request job j. A request that is no longer
 // active adds nothing: a retry of a committed request, or one that a forget discarded. A
-// failure or an invalid response keeps it open for a retry. Else it checks that the request is
+// failure or an invalid response keeps it open for a retry, and after its last try gives its
+// proposal back to review (giveBack). Else it checks that the request is
 // still current, that the claim is not rejected or forgotten, and that its input did not
 // change; then it makes the new draft once, through store.ProposeCandidate. It moves no
 // watermark, adds no support count, and the duplicate drop of a batch does not apply (§7.3).
@@ -358,12 +397,14 @@ func (p Pass) commitChange(ctx context.Context, j job, claims []Claim, callErr e
 			return err
 		}
 		if callErr != nil {
-			status := store.ChangeFailed
+			r.Status = store.ChangeFailed
 			if errors.Is(callErr, ErrInvalid) {
-				status = store.ChangeInvalid
+				r.Status = store.ChangeInvalid
 			}
-			_, err := store.EndChange(ctx, tx, r.ID, status, callErr.Error(), nil, now)
-			return err
+			if _, err := store.EndChange(ctx, tx, r.ID, r.Status, callErr.Error(), nil, now); err != nil {
+				return err
+			}
+			return giveBack(ctx, tx, r)
 		}
 		cur, why, err := p.changeJob(ctx, tx, r)
 		if err != nil {
