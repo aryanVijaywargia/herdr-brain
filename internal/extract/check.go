@@ -307,17 +307,16 @@ func checkClaim(r rawClaim, j job) (Claim, error) {
 	}
 	c := Claim{Kind: *r.Kind, Situation: *r.Situation, Rule: *r.Rule, Scope: store.Scope(*r.ScopeGuess),
 		ExpectedBenefit: *r.ExpectedBenefit}
-	words := c.Situation + " " + c.Rule
 	if c.Kind == kindSkill {
 		sk, err := checkSkill(r)
 		if err != nil {
 			return Claim{}, err
 		}
 		// A skill draft is a workspace skill (S8): you change the scope in review.
-		c.Skill, c.Scope, words = &sk, store.ScopeWorkspace, words+" "+sk.Text()
+		c.Skill, c.Scope = &sk, store.ScopeWorkspace
 	}
 	// Brain sets the permission flag with its own keyword check too, outside the model (§7.3).
-	c.TouchesPermission = *r.TouchesPermission || store.TouchesPermission(words)
+	c.TouchesPermission = *r.TouchesPermission || brainFlag(c)
 	for _, id := range *r.EvidenceRefs {
 		i := slices.IndexFunc(j.refs, func(r ref) bool { return r.id == id })
 		switch {
@@ -346,6 +345,16 @@ func checkClaim(r rawClaim, j job) (Claim, error) {
 		return Claim{}, fmt.Errorf("covered_by: %w", err)
 	}
 	return c, nil
+}
+
+// brainFlag is Brain's own permission check of claim c, outside the model (§7.3 Output): the
+// keyword check of its situation, its rule and the text of its skill.
+func brainFlag(c Claim) bool {
+	words := c.Situation + " " + c.Rule
+	if c.Skill != nil {
+		words += " " + c.Skill.Text()
+	}
+	return store.TouchesPermission(words)
 }
 
 // knownClaim returns the claim id of f, a string or null, or "" for null. A claim id must be

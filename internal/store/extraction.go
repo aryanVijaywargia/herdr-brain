@@ -353,11 +353,15 @@ func CallsSince(ctx context.Context, tx *sql.Tx, since time.Time) (int, error) {
 
 // ExtractorProposalsSince returns the proposals made since since from a candidate, and the
 // drafts of the change requests of item revisions (E15-S1, a skill patch of E20-S5): only the
-// extractor makes them (§7.3 caps). Your own edit in review has neither.
+// extractor makes them (§7.3 caps). Your own edit in review has neither. A script proposal does
+// not count: it comes only beside the tool draft of its candidate, and a tool proposal and its
+// script form count as one proposal (§7.3 caps, #355). It is the one proposal of a candidate with
+// no item, as §11 has no script kind; a forget of the tool item blanks its target, not that.
 func ExtractorProposalsSince(ctx context.Context, tx *sql.Tx, since time.Time) (int, error) {
 	var n int
 	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM proposals WHERE created >= ? AND (candidate_id IS NOT NULL
-		OR id IN (SELECT new_proposal_id FROM change_requests WHERE source = ?))`, timeArg(since), ChangeItem).Scan(&n)
+		AND item_id IS NOT NULL OR id IN (SELECT new_proposal_id FROM change_requests WHERE source = ?))`,
+		timeArg(since), ChangeItem).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count extractor proposals: %w", err)
 	}

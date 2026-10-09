@@ -120,28 +120,39 @@ func TestScriptRejected(t *testing.T) {
 	}
 }
 
-// The script waits for the daily proposal cap, as each proposal does (§7.3), and comes on a
-// later day beside the tool draft that still waits.
+// AC #355: a tool draft and its script count as one proposal of the daily cap, so a cap of one
+// proposal fits both at once, and the use of the day is 1 (brain status prints it). This holds
+// for the exact draft, and for the extractor's draft of the same commands, which uses the cap
+// before the exact repeats run: the script beside it needs no room.
 func TestScriptCap(t *testing.T) {
-	f := newFixture(t)
-	f.cli.reply = noClaims
-	for i := range 3 {
-		f.commandSession(fmt.Sprintf("s%d", i), turn{"check the code", checkChain})
-	}
-	p := f.pass()
-	p.Caps = Caps{Calls: 10, Proposals: 1, InputBytes: 32 << 10}
-	if err := p.Run(context.Background()); err != nil {
-		t.Fatalf("Run() = %v", err)
-	}
-	if len(f.toolProposals()) != 1 || len(f.scriptProposals()) != 0 {
-		t.Fatalf("tool drafts = %d, scripts = %d, want 1 and 0 at the cap", len(f.toolProposals()), len(f.scriptProposals()))
-	}
-	f.now = f.now.Add(25 * time.Hour)
-	if err := p.Run(context.Background()); err != nil {
-		t.Fatalf("Run() = %v", err)
-	}
-	if len(f.toolProposals()) != 1 || len(f.scriptProposals()) != 1 {
-		t.Errorf("tool drafts = %d, scripts = %d, want 1 and 1 a day later", len(f.toolProposals()), len(f.scriptProposals()))
+	exact := toolReply(map[string]any{"name": "go-vet", "commands": [][]string{{"go", "vet", "./..."}, {"go", "test", "./..."}},
+		"inputs": nil})
+	for name, reply := range map[string]func(context.Context, string) ([]byte, error){
+		"exact draft": noClaims, "extractor draft": exact,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.cli.reply = reply
+			for i := range 3 {
+				f.commandSession(fmt.Sprintf("s%d", i), turn{"check the code", checkChain})
+			}
+			p := f.pass()
+			p.Caps = Caps{Calls: 10, Proposals: 1, InputBytes: 32 << 10}
+			if err := p.Run(context.Background()); err != nil {
+				t.Fatalf("Run() = %v", err)
+			}
+			if len(f.toolProposals()) != 1 || len(f.scriptProposals()) != 1 {
+				t.Fatalf("tool drafts = %d, scripts = %d, want both at a cap of 1", len(f.toolProposals()), len(f.scriptProposals()))
+			}
+			var d Day
+			f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
+				d, err = p.Day(ctx, tx)
+				return err
+			})
+			if d.Proposals != 1 || d.Full() == "" {
+				t.Errorf("Day() = %+v, want 1 proposal and a full cap", d)
+			}
+		})
 	}
 }
 
@@ -173,8 +184,9 @@ func TestScriptForgotten(t *testing.T) {
 	}
 }
 
-// A new tool draft and its script need room for both under the daily cap, so the review
-// offers both at once: a pair that does not fit waits for a later day.
+// AC #355: a new tool draft and its script need room for one proposal under the daily cap, so
+// the review offers both at once: at a cap of 1 the pair of the second chain waits for a later
+// day, and other proposals count as before.
 func TestScriptCapPair(t *testing.T) {
 	f := newFixture(t)
 	f.cli.reply = noClaims
@@ -183,12 +195,12 @@ func TestScriptCapPair(t *testing.T) {
 			turn{"build it", []store.CommandRecord{command("go build ./..."), command("go install ./...")}})
 	}
 	p := f.pass()
-	p.Caps = Caps{Calls: 10, Proposals: 3, InputBytes: 32 << 10}
+	p.Caps = Caps{Calls: 10, Proposals: 1, InputBytes: 32 << 10}
 	if err := p.Run(context.Background()); err != nil {
 		t.Fatalf("Run() = %v", err)
 	}
 	if tools, scripts := len(f.toolProposals()), len(f.scriptProposals()); tools != 1 || scripts != 1 {
-		t.Fatalf("tool drafts = %d, scripts = %d, want one pair at a cap of 3", tools, scripts)
+		t.Fatalf("tool drafts = %d, scripts = %d, want one pair at a cap of 1", tools, scripts)
 	}
 	f.now = f.now.Add(25 * time.Hour)
 	if err := p.Run(context.Background()); err != nil {

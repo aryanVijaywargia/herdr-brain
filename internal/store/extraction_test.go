@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"testing"
@@ -55,4 +56,74 @@ func TestLastWorkedCall(t *testing.T) {
 	if at := last(); !at.Equal(testNow.Add(time.Minute)) {
 		t.Errorf("LastWorkedCall() = %v, want the committed batch at %v", at, testNow.Add(time.Minute))
 	}
+}
+
+// AC #355: the daily proposal count takes a tool draft and the script proposal beside it as one
+// proposal, also after a forget of the tool item blanks the script, and each other proposal from
+// a candidate as before. Your own proposal, with no candidate, and a proposal before since do
+// not count.
+func TestExtractorProposalsSince(t *testing.T) {
+	e := newEvidenceStore(t)
+	ctx := context.Background()
+	chain := e.mustAttach(t, Candidate{ClaimID: e.claim(t, "make it a brain tool"), Scope: ScopeWorkspace,
+		WorkspaceKey: "shop", Kind: CandidateCorrection}, e.observe(t, "claude", "a1", "shop", SenderUnconfirmed, testNow))
+	rule := e.mustAttach(t, Candidate{ClaimID: e.claim(t, "use pnpm"), Scope: ScopeWorkspace,
+		WorkspaceKey: "shop", Kind: CandidateCorrection}, e.observe(t, "claude", "a2", "shop", SenderUnconfirmed, testNow))
+	var toolItem int64
+	write(t, e.Store, func(tx *sql.Tx) error {
+		key := "shop"
+		if err := InsertWorkspace(ctx, tx, Workspace{Key: key, HerdrSession: "default", HerdrWorkspaceID: "w1",
+			Label: key, Status: WorkspaceLive, LastSeen: testNow}); err != nil {
+			return err
+		}
+		item := func(claim string, kind Kind) *int64 {
+			id, err := InsertItem(ctx, tx, Item{ClaimID: claim, CurrentRevision: 1, Kind: kind, Scope: ScopeWorkspace,
+				WorkspaceKey: &key, State: StateDraft, Created: testNow})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return &id
+		}
+		tool, pref := item(chain.ClaimID, KindTool), item(rule.ClaimID, KindPreference)
+		toolItem = *tool
+		for _, p := range []struct {
+			cand int64
+			p    Proposal
+		}{
+			{chain.ID, Proposal{ItemID: tool, Text: "name = \"reset-db-sh\"", Target: "workspace w1 (shop)"}},
+			{chain.ID, Proposal{Text: "#!/bin/sh", Target: ScriptTarget}},
+			{rule.ID, Proposal{ItemID: pref, Text: "use pnpm", Target: "workspace w1 (shop)"}},
+			{rule.ID, Proposal{ItemID: pref, Text: "use pnpm, yesterday", Target: "workspace w1 (shop)",
+				Created: testNow.Add(-24 * time.Hour)}},
+			{0, Proposal{ItemID: pref, Text: "your own edit", Target: "workspace w1 (shop)"}},
+		} {
+			p.p.Scope, p.p.Status, p.p.Created = ScopeWorkspace, ProposalPending, cmp.Or(p.p.Created, testNow)
+			var err error
+			if p.cand == 0 {
+				_, err = InsertProposal(ctx, tx, p.p)
+			} else {
+				_, err = ProposeCandidate(ctx, tx, p.cand, p.p)
+			}
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	count := func(when string) {
+		t.Helper()
+		var n int
+		write(t, e.Store, func(tx *sql.Tx) (err error) {
+			n, err = ExtractorProposalsSince(ctx, tx, testNow.Add(-time.Hour))
+			return err
+		})
+		if n != 2 {
+			t.Errorf("ExtractorProposalsSince() %s = %d, want 2: the tool draft with its script, and the rule", when, n)
+		}
+	}
+	count("")
+	write(t, e.Store, func(tx *sql.Tx) error {
+		return EraseItem(ctx, tx, toolItem, testNow)
+	})
+	count("after a forget of the tool item")
 }

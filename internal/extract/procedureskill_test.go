@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 	"testing"
@@ -178,6 +179,63 @@ func TestProcedureThenSkill(t *testing.T) {
 	}
 	if n := f.count(`SELECT COUNT(*) FROM items WHERE kind = 'skill' AND state = 'draft'`); n != 1 {
 		t.Errorf("draft skill items = %d, want 1", n)
+	}
+}
+
+// AC #348 with the run 4 shape: the extractor flags each release telling as touching a
+// permission, and the third telling has " in that order" added to the rule and a same_as link to
+// the claim of the first two. The store keeps the model flag on that claim, as in a store from
+// before the fix. Brain's own check finds no permission words in the procedure, so the link
+// merges: three tellings give one skill proposal, which keeps the permission warning. A
+// procedure whose text holds permission words is a real permission claim: the link stays for
+// review, and the third telling makes a second candidate and no proposal.
+func TestPermissionFlaggedProcedure(t *testing.T) {
+	for name, tc := range map[string]struct {
+		steps                        string
+		candidates, count, proposals int // count: the highest count of a candidate
+	}{
+		"run 4 release": {steps: "1. Bump the version to <version>.\n2. Update the changelog.\n3. Run lint and tests.\n" +
+			"4. Commit.\n5. Tag the release.", candidates: 1, count: 3, proposals: 1},
+		"permission words": {steps: "1. Allow git push in the sandbox.\n2. Tag and push.", candidates: 2, count: 2},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			flagged := map[string]any{"touches_permission": true, "steps": tc.steps}
+			f.cli.reply = skillReply(flagged)
+			f.release(1)
+			f.release(2)
+			if n := f.count(`SELECT COUNT(*) FROM claims WHERE situation = 'releasing' AND touches_permission = 1`); n != 1 {
+				t.Fatalf("claims of the first tellings with the permission flag = %d, want 1", n)
+			}
+			f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {
+				m := knownKey(skillSituation).FindStringSubmatch(prompt)
+				if m == nil {
+					return nil, fmt.Errorf("the input has no known release claim:\n%s", prompt)
+				}
+				set := maps.Clone(flagged)
+				set["rule"], set["same_as"] = "follow the release steps in that order", m[1]
+				return skillReply(set)(ctx, prompt)
+			}
+			f.release(3)
+			if got := f.count(`SELECT COUNT(*) FROM candidates`); got != tc.candidates {
+				t.Errorf("candidates = %d, want %d", got, tc.candidates)
+			}
+			if got := f.count(`SELECT MAX(count) FROM candidates`); got != tc.count {
+				t.Errorf("highest count = %d, want %d", got, tc.count)
+			}
+			if n := f.count(`SELECT COUNT(*) FROM claims WHERE same_as_status = 'proposed'`); n != 1 {
+				t.Errorf("proposed links = %d, want 1: Brain keeps both claim ids and the link", n)
+			}
+			ps := f.proposals()
+			if len(ps) != tc.proposals {
+				t.Fatalf("proposals = %+v, want %d", ps, tc.proposals)
+			}
+			for _, p := range ps {
+				if sk, err := store.ParseSkill(p.Text); err != nil || !p.PermissionWarning || !strings.Contains(sk.Steps, "Tag") {
+					t.Errorf("proposal %+v: ParseSkill = %+v, %v, want the release skill with the permission warning", p, sk, err)
+				}
+			}
+		})
 	}
 }
 

@@ -147,7 +147,8 @@ type Waiting struct {
 	Why          string    // why the next pass makes no call for it; "" when it may
 	NoCLI        bool      // no extractor CLI is chosen
 	// Failed is the stored reason of a failed or invalid last call that still waits for its
-	// retry; "" for none. A later call that works clears it (#263).
+	// retry; "" for none, and for a batch with no try left (#347). A later call that works
+	// clears it (#263).
 	Failed string
 }
 
@@ -196,10 +197,13 @@ func (p Pass) Waiting(ctx context.Context, tx *sql.Tx) ([]Waiting, error) {
 // noCLI is why work waits in a store with no chosen extractor CLI, such as an M1 store.
 const noCLI = "no extractor CLI is chosen; run brain setup"
 
+// noTry is why a failed or invalid batch with no try left waits (spent, #347).
+const noTry = "no try left: it waits for new evidence of its session"
+
 // why returns why the next pass makes no call for batch j, or "": the switches and the CLI of
-// allowed, a failure of its last call that still waits for its retry, a call that runs, or the
-// caps (S15, §7.3). failed is the reason that a failed batch stored, while it waits: the
-// official CLI reports its own sign-in failures.
+// allowed, a failure of its last call that still waits for its retry or has no try left, a call
+// that runs, or the caps (S15, §7.3). failed is the reason that a failed batch stored, while it
+// waits for its retry: the official CLI reports its own sign-in failures.
 func (p Pass) why(ctx context.Context, tx *sql.Tx, j job, d Day) (why, failed string, err error) {
 	s, err := store.Extractor(ctx, tx)
 	if err != nil {
@@ -222,10 +226,14 @@ func (p Pass) why(ctx context.Context, tx *sql.Tx, j job, d Day) (why, failed st
 		return "", "", err
 	case b.Status == store.BatchFailed || b.Status == store.BatchInvalid:
 		worked, err := store.LastWorkedCall(ctx, tx)
-		if err != nil || !p.waits(b.At, worked) {
+		if err != nil || p.retries(b, worked, j.newest) {
 			return d.Full(), "", err
 		}
-		return fmt.Sprintf("the last %s call %s: %s", s.CLI, b.Status, b.Reason), b.Reason, nil
+		last := fmt.Sprintf("the last %s call %s: %s", s.CLI, b.Status, b.Reason)
+		if spent(b) {
+			return last + "; " + noTry, "", nil
+		}
+		return last, b.Reason, nil
 	case b.Status == store.BatchActive:
 		return "a call runs, or a crash stopped it and the next pass tries again", "", nil
 	}

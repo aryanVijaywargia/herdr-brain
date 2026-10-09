@@ -90,6 +90,19 @@ func (f *fixture) files(t *testing.T) map[string]string {
 	return files
 }
 
+// AC #355: brain status counts the tool draft and its script proposal as one new proposal.
+func TestStatusToolScriptCount(t *testing.T) {
+	f := newStatusFixture(t)
+	for i := range 3 {
+		f.chainSession(t, "ws_a14", fmt.Sprintf("s%d", i))
+	}
+	f.extractChains(t)
+	scriptAndTool(t, f.rows(t))
+	if out, want := f.mustStatus(t), " of 40 extractor calls, 1 of 15 new proposals\n"; !strings.Contains(out, want) {
+		t.Errorf("brain status:\n%s\nwant %q", out, want)
+	}
+}
+
 // AC: a chain in 3 sessions gives one script proposal. Approve writes nothing outside the store.
 // The review offers the script and the tool draft of the chain, and you pick one: approving the
 // script supersedes the tool draft.
