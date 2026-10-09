@@ -47,8 +47,8 @@ func (p Pass) requests(ctx context.Context, tx *sql.Tx) ([]job, error) {
 	}
 	var jobs []job
 	for _, r := range rs {
-		spent := ChangeSpent(r)
-		if (r.Status == store.ChangeFailed || r.Status == store.ChangeInvalid) && !spent && !p.tryAgain(r.ModelCalls, r.At, worked) ||
+		spent, failed := ChangeSpent(r), r.Status == store.ChangeFailed || r.Status == store.ChangeInvalid
+		if failed && !spent && !p.tryAgain(r.ModelCalls, r.At, worked) ||
 			r.Status == store.ChangeActive && p.Now().Sub(r.At) < changeStale {
 			continue
 		}
@@ -385,10 +385,10 @@ func (p Pass) runChange(ctx context.Context, j job) error {
 // commitChange is the one transaction of change request job j. A request that is no longer
 // active adds nothing: a retry of a committed request, or one that a forget discarded. A
 // failure or an invalid response keeps it open for a retry, and after its last try gives its
-// proposal back to review (giveBack). Else it checks that the request is
-// still current, that the claim is not rejected or forgotten, and that its input did not
-// change; then it makes the new draft once, through store.ProposeCandidate. It moves no
-// watermark, adds no support count, and the duplicate drop of a batch does not apply (§7.3).
+// proposal back to review (giveBack). Else it checks that the request is still current, that
+// the claim is not rejected or forgotten, and that its input did not change; then it makes the
+// new draft once, through store.ProposeCandidate. It moves no watermark, adds no support count,
+// and the duplicate drop of a batch does not apply (§7.3).
 func (p Pass) commitChange(ctx context.Context, j job, claims []Claim, callErr error) error {
 	return p.Store.Write(ctx, func(tx *sql.Tx) error {
 		now := p.Now()
