@@ -97,25 +97,37 @@ func (ln launcher) run(ctx context.Context, l brained.Launch) (err error) {
 		a, name, why = ln.mark(ctx, st, l, r)
 	}
 	if why != nil {
-		_, _, err := ln.finish(ctx, st, r.ID, store.RunSkipped)
+		_, _, err := ln.finish(ctx, st, r.ID, store.RunSkipped, "")
 		return errors.Join(fmt.Errorf("run %d of automation %d skipped: %w", r.ID, r.AutomationID, why), err)
 	}
 	labelErr := ln.label(ctx, b, r.PaneID, name, store.RunUnknown)
 	e := ln.Env
 	e.Environ = append(e.Environ[:len(e.Environ):len(e.Environ)], originEnv+"="+string(store.OriginAutomation))
-	_, runErr := RunTool(ctx, e, ToolRun{PaneID: r.PaneID, WorkspaceID: r.WorkspaceID, Origin: store.OriginAutomation,
+	res, runErr := RunTool(ctx, e, ToolRun{PaneID: r.PaneID, WorkspaceID: r.WorkspaceID, Origin: store.OriginAutomation,
 		Tool: name, ToolID: a.ToolID, ContractHash: a.ContractHash, Stdout: io.Discard, Stderr: io.Discard})
-	result := store.RunOK
-	if runErr != nil {
-		result = store.RunFailed
-	}
+	result, cause := runResult(res, runErr)
 	// A cancel ends ctx, and the run still writes its end.
 	ctx = context.WithoutCancel(ctx)
-	final, newest, err := ln.finish(ctx, st, r.ID, result)
+	final, newest, err := ln.finish(ctx, st, r.ID, result, cause)
 	if err == nil && newest {
 		labelErr = errors.Join(labelErr, ln.label(ctx, b, r.PaneID, name, final))
 	}
 	return errors.Join(runErr, err, labelErr)
+}
+
+// runResult is the result of a tool run and its cause: for a failure, the failed step and its
+// exit code, or a fixed line for a refusal of the call (#352). The text of any other error can
+// hold herdr or store text, so it is no cause. [NEW] the refusal line.
+func runResult(res ToolResult, err error) (store.RunResult, string) {
+	switch {
+	case err == nil:
+		return store.RunOK, ""
+	case res.Step != "":
+		return store.RunFailed, res.Step
+	case errors.Is(err, ErrRefused):
+		return store.RunFailed, "the call was refused; nothing ran"
+	}
+	return store.RunFailed, ""
 }
 
 // check builds the caller context of run r from its pane and resolves it again (§10.4 step 3):
@@ -186,13 +198,13 @@ func (ln launcher) mark(ctx context.Context, st *store.Store, l brained.Launch, 
 	return a, name, err
 }
 
-// finish writes result to run id when it has not ended, and returns the result that the row
+// finish writes result and its cause to run id when it has not ended, and returns the result that the row
 // holds then: a cancel that came first keeps cancelled. newest says whether the run is the
 // newest launched run of its automation: an older run that ends later does not hide the
 // result of a newer one.
-func (ln launcher) finish(ctx context.Context, st *store.Store, id int64, result store.RunResult) (final store.RunResult, newest bool, err error) {
+func (ln launcher) finish(ctx context.Context, st *store.Store, id int64, result store.RunResult, cause string) (final store.RunResult, newest bool, err error) {
 	err = st.Write(ctx, func(tx *sql.Tx) error {
-		if _, err := store.FinishRun(ctx, tx, id, result, ln.Now().UTC()); err != nil {
+		if _, err := store.FinishRun(ctx, tx, id, result, cause, ln.Now().UTC()); err != nil {
 			return err
 		}
 		r, err := store.AutomationRunByID(ctx, tx, id)

@@ -131,7 +131,7 @@ func TestRunEnd(t *testing.T) {
 		if _, err := CancelRun(ctx, tx, id, at); err != nil {
 			return err
 		}
-		wrote, err := FinishRun(ctx, tx, id, RunOK, at)
+		wrote, err := FinishRun(ctx, tx, id, RunOK, "", at)
 		if wrote || err != nil {
 			t.Errorf("FinishRun(after cancel) = %v, %v, want no write", wrote, err)
 		}
@@ -153,7 +153,7 @@ func TestRunEnd(t *testing.T) {
 			id     int64
 			result RunResult
 		}{{third, RunFailed}, {second, RunOK}, {skipped, RunSkipped}} {
-			if wrote, err := FinishRun(ctx, tx, end.id, end.result, at.Add(time.Minute)); !wrote || err != nil {
+			if wrote, err := FinishRun(ctx, tx, end.id, end.result, "", at.Add(time.Minute)); !wrote || err != nil {
 				t.Errorf("FinishRun(%d, %s) = %v, %v, want a write", end.id, end.result, wrote, err)
 			}
 		}
@@ -191,5 +191,64 @@ func TestAutomationIn(t *testing.T) {
 		if got := a.In(tt.cwd, home); got != tt.want {
 			t.Errorf("In(%q) = %v, want %v", tt.cwd, got, tt.want)
 		}
+	}
+}
+
+// A failed run keeps its cause; a cancel keeps none (#352). The cause names a program of the
+// tool contract, so forget of the tool or of the automation clears it (§6.7).
+func TestRunCause(t *testing.T) {
+	ctx := context.Background()
+	at := time.Date(2026, 10, 9, 10, 0, 0, 0, time.UTC)
+	for _, forget := range []string{"tool", "automation"} {
+		t.Run(forget, func(t *testing.T) {
+			s, tl, bind := bindingStore(t)
+			a, err := bind(StateActive, goTestBinding(tl))
+			if err != nil {
+				t.Fatal(err)
+			}
+			failed, cancelled := claim(t, s, a, "k1"), claim(t, s, a, "k2")
+			write(t, s, func(tx *sql.Tx) error {
+				for _, id := range []int64{failed, cancelled} {
+					if err := StartRun(ctx, tx, id, 7, at); err != nil {
+						return err
+					}
+				}
+				if _, err := FinishRun(ctx, tx, failed, RunFailed, "step 2: npm: exit status 1", at); err != nil {
+					return err
+				}
+				_, err := CancelRun(ctx, tx, cancelled, at)
+				return err
+			})
+			if r := readRun(t, s, failed); r.Cause != "step 2: npm: exit status 1" {
+				t.Errorf("failed run cause = %q", r.Cause)
+			}
+			if r := readRun(t, s, cancelled); r.Cause != "" {
+				t.Errorf("cancelled run cause = %q, want none", r.Cause)
+			}
+			item := map[string]int64{"tool": tl.ID, "automation": a}[forget]
+			var left []Field
+			write(t, s, func(tx *sql.Tx) (err error) {
+				if err := EraseItem(ctx, tx, item, at); err != nil {
+					return err
+				}
+				left, err = ItemTextLeft(ctx, tx, item)
+				return err
+			})
+			if r := readRun(t, s, failed); len(left) != 0 || r.Cause != "" {
+				t.Errorf("after forget of the %s: text left %v, cause %q", forget, left, r.Cause)
+			}
+			// A run that ends after the forget writes no cause back.
+			late := claim(t, s, a, "k3")
+			write(t, s, func(tx *sql.Tx) error {
+				if err := StartRun(ctx, tx, late, 7, at); err != nil {
+					return err
+				}
+				_, err := FinishRun(ctx, tx, late, RunFailed, "step 2: npm: exit status 1", at)
+				return err
+			})
+			if r := readRun(t, s, late); r.Result != RunFailed || r.Cause != "" {
+				t.Errorf("run that ends after forget of the %s = %+v, want failed with no cause", forget, r)
+			}
+		})
 	}
 }
