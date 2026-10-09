@@ -174,16 +174,37 @@ func TestCaptureBlockAcrossReads(t *testing.T) {
 }
 
 // A line at column 0 with no mark starts a block with no known sender; an indented line
-// continues the block above it.
+// continues the block above it. Codex draws each prompt with its mark, so there a line at
+// column 0 with no mark continues the block above it too (#338). A quote after the prompt mark
+// keeps the sender of a prompt: only capture tells a quoted Codex question by the earlier
+// reads (#341).
 func TestSenders(t *testing.T) {
-	lines := []string{"  top", "• reply", "  more", "  └ out", "    more out", "────", "  after", "› prompt"}
-	want := []store.Sender{store.SenderUnconfirmed, store.SenderAssistant, store.SenderAssistant, store.SenderTool,
-		store.SenderTool, store.SenderUnconfirmed, store.SenderUnconfirmed, store.SenderUnconfirmed}
-	if got := senders("codex", lines); !slices.Equal(got, want) {
-		t.Errorf("senders = %v, want %v", got, want)
+	const (
+		u = store.SenderUnconfirmed
+		a = store.SenderAssistant
+		o = store.SenderTool
+	)
+	for _, tc := range []struct {
+		harness string
+		lines   []string
+		want    []store.Sender
+	}{
+		{"claude", []string{"  top", "⏺ reply", "  more", "  ⎿ out", "    more out", "────", "  after", "❯ prompt"},
+			[]store.Sender{u, a, a, o, o, u, u, u}},
+		{"codex", []string{"top", "  top", "• reply", "wrapped reply", "  └ out", "?? src/routes/", "    more out", "› prompt",
+			"› > Where is the db?", "  Use the seed.", "› Run the tests."},
+			[]store.Sender{u, u, a, a, o, o, o, u, u, u, u}},
+		{"gemini", []string{"  top", "• reply"}, []store.Sender{u, u}},
+	} {
+		if got := senders(tc.harness, tc.lines); !slices.Equal(got, tc.want) {
+			t.Errorf("senders(%s) = %v, want %v", tc.harness, got, tc.want)
+		}
 	}
-	if got := senders("gemini", lines[:2]); !slices.Equal(got, []store.Sender{store.SenderUnconfirmed, store.SenderUnconfirmed}) {
-		t.Errorf("senders of a harness with no marks = %v, want unconfirmed", got)
+	if got := head("codex", []string{"top", "  top", "• reply"}); got != 2 {
+		t.Errorf("head(codex) = %d, want 2", got)
+	}
+	if got := head("claude", []string{"  top", "top"}); got != 1 {
+		t.Errorf("head(claude) = %d, want 1", got)
 	}
 }
 

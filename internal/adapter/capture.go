@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // The events of `brain hook --event` (E11-S5, §6.1). Start delivers the brief; the others
@@ -61,7 +62,8 @@ type Record struct {
 // ParseRecord reads the input of Brain event event (prompt, tool or stop) by the profile's
 // JSON paths. It returns an error that wraps ErrRetest when the input is not a JSON object, or
 // when the session id, the prompt or the command has no non-empty string. The cwd, the error
-// and the reply are optional: a reply can be null.
+// and the reply are optional: a reply can be null. A prompt that answers a question of the CLI
+// gives only the answers (answers).
 func (p *Profile) ParseRecord(event string, raw []byte) (Record, error) {
 	var doc map[string]any
 	if err := json.Unmarshal(raw, &doc); err != nil {
@@ -75,7 +77,9 @@ func (p *Profile) ParseRecord(event string, raw []byte) (Record, error) {
 	r.CWD = optional(doc, p.Input.CWD)
 	switch event {
 	case EventPrompt:
-		r.Text, err = text(doc, p.Input.Prompt)
+		if r.Text, err = text(doc, p.Input.Prompt); err == nil {
+			r.Text, err = p.answers(r.Text)
+		}
 	case EventTool:
 		r.Command, err = text(doc, p.Input.Command)
 		if m := p.match(optional(doc, p.Input.Error)); m != "" {
@@ -92,6 +96,41 @@ func (p *Profile) ParseRecord(event string, raw []byte) (Record, error) {
 		return Record{}, err
 	}
 	return r, nil
+}
+
+// answers returns the text of prompt that you wrote. A prompt that answers questions of the
+// CLI is the tag of input.question_reply around a JSON reply, or a list of them: the CLI's
+// question and your answer. Only the answers are yours, one on each line (#341). Codex-cli
+// 0.160.1 sends "<send_user_message_question_reply>", a list of {"questionItemId", "question",
+// "answer"} and the end tag (the Codex source, tui/src/async_question_reply.rs). The M2 eval
+// run 3 report shows the stored prompt with no end tag, so the end tag is optional. A reply
+// that is not JSON, or an answer that is not a string, is a new input shape: an error that
+// wraps ErrRetest.
+func (p *Profile) answers(prompt string) (string, error) {
+	tag := p.Input.QuestionReply
+	body, ok := strings.CutPrefix(strings.TrimSpace(prompt), "<"+tag+">")
+	if tag == "" || !ok {
+		return prompt, nil
+	}
+	body = strings.TrimSuffix(strings.TrimSpace(body), "</"+tag+">")
+	type reply struct {
+		Answer string `json:"answer"`
+	}
+	var rs []reply
+	if err := json.Unmarshal([]byte(body), &rs); err != nil {
+		var one reply
+		if err := json.Unmarshal([]byte(body), &one); err != nil {
+			return "", fmt.Errorf("%w: question reply: %w", ErrRetest, err)
+		}
+		rs = []reply{one}
+	}
+	var as []string
+	for _, r := range rs {
+		if r.Answer != "" {
+			as = append(as, r.Answer)
+		}
+	}
+	return strings.Join(as, "\n"), nil
 }
 
 // match returns the first group of the exit pattern in s, or "".

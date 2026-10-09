@@ -89,6 +89,9 @@ type Profile struct {
 		// ExitPattern is a regular expression on the error text; its first group is the exit
 		// status. With no match the exit status is unknown.
 		ExitPattern string `toml:"exit_pattern"`
+		// QuestionReply [NEW] is the name of the tag around the answers when a prompt answers
+		// questions of the CLI (#341). "" for none.
+		QuestionReply string `toml:"question_reply"`
 	} `toml:"input"`
 	TestedVersion string `toml:"tested_version"`
 	// AdditionalContextLimit goes into the hook entry when set. Codex sends a longer
@@ -136,6 +139,14 @@ type Profile struct {
 		Line  string `toml:"line"`
 		Below string `toml:"below"`
 	} `toml:"noise_above"`
+	// NoiseLast [NEW] are optional screen lines that herdr capture drops only when no line
+	// under them matches Unless, such as the placeholder of the empty input box, whatever box
+	// line is under it: a sent prompt with the same text has the input line, a reply or the
+	// spinner under it (#338). Patterns match a whole line.
+	NoiseLast []struct {
+		Line   string `toml:"line"`
+		Unless string `toml:"unless"`
+	} `toml:"noise_last"`
 	// SidePanel [NEW] is an optional column that the CLI draws to the right of the main text,
 	// such as the Claude diff panel (#258). Header is a regular expression of its header row;
 	// herdr capture cuts each line of a read at the column where the header starts.
@@ -157,6 +168,8 @@ type Profile struct {
 	blocks []noiseBlock
 	// above is NoiseAbove, compiled.
 	above []noiseAbove
+	// last is NoiseLast, compiled.
+	last []noiseLast
 	// panel is SidePanel.Header, compiled; nil when the profile has no side panel.
 	panel *regexp.Regexp
 	// exit is ExitPattern, compiled; nil when the profile has none.
