@@ -105,14 +105,7 @@ func (ln launcher) run(ctx context.Context, l brained.Launch) (err error) {
 	e.Environ = append(e.Environ[:len(e.Environ):len(e.Environ)], originEnv+"="+string(store.OriginAutomation))
 	res, runErr := RunTool(ctx, e, ToolRun{PaneID: r.PaneID, WorkspaceID: r.WorkspaceID, Origin: store.OriginAutomation,
 		Tool: name, ToolID: a.ToolID, ContractHash: a.ContractHash, Stdout: io.Discard, Stderr: io.Discard})
-	result, cause := store.RunOK, ""
-	if runErr != nil {
-		// The failed step, or the refusal of the call when no step ran (#352).
-		result, cause = store.RunFailed, res.Step
-		if cause == "" {
-			cause = runErr.Error()
-		}
-	}
+	result, cause := runResult(res, runErr)
 	// A cancel ends ctx, and the run still writes its end.
 	ctx = context.WithoutCancel(ctx)
 	final, newest, err := ln.finish(ctx, st, r.ID, result, cause)
@@ -120,6 +113,18 @@ func (ln launcher) run(ctx context.Context, l brained.Launch) (err error) {
 		labelErr = errors.Join(labelErr, ln.label(ctx, b, r.PaneID, name, final))
 	}
 	return errors.Join(runErr, err, labelErr)
+}
+
+// runResult is the result of a tool run and its cause: for a failure, the failed step and its
+// exit code, or the refusal of the call when no step ran (#352).
+func runResult(res ToolResult, err error) (store.RunResult, string) {
+	switch {
+	case err == nil:
+		return store.RunOK, ""
+	case res.Step != "":
+		return store.RunFailed, res.Step
+	}
+	return store.RunFailed, err.Error()
 }
 
 // check builds the caller context of run r from its pane and resolves it again (§10.4 step 3):
