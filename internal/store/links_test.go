@@ -22,7 +22,7 @@ func TestConfirmAndKeepApart(t *testing.T) {
 		}
 		to, err := ConfirmLink(ctx, tx, b)
 		if err != nil || to != a {
-			return fmt.Errorf("ConfirmLink(b) = %s, %v, want a", to, err)
+			return fmt.Errorf("ConfirmLink(b) = %s, %w, want a", to, err)
 		}
 		for id, want := range map[string]Claim{
 			b: {SameAs: a, SameAsStatus: SameAsConfirmed},
@@ -42,11 +42,11 @@ func TestConfirmAndKeepApart(t *testing.T) {
 			t.Errorf("ConfirmLink of a confirmed link: no error")
 		}
 		if other, err := KeepApart(ctx, tx, c); err != nil || other != a {
-			return fmt.Errorf("KeepApart(c) = %s, %v, want a", other, err)
+			return fmt.Errorf("KeepApart(c) = %s, %w, want a", other, err)
 		}
 		for _, l := range [][2]string{{c, a}, {a, c}} {
 			if got, err := SameAs(ctx, tx, l[0], l[1], Match{Clear: true}); err != nil || got != "" {
-				return fmt.Errorf("SameAs of a kept-apart pair = %q, %v, want no link", got, err)
+				return fmt.Errorf("SameAs of a kept-apart pair = %q, %w, want no link", got, err)
 			}
 		}
 		got, err := ClaimByID(ctx, tx, c)

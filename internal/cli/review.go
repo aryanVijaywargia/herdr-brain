@@ -109,22 +109,8 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 		return cl.promote(ctx, r.item)
 	case r.item != 0:
 		return cl.proposeChange(ctx, r)
-	case r.retired:
-		return cl.listRetired(ctx)
-	case r.all:
-		return cl.listCandidates(ctx)
-	case r.makeTool != 0:
-		return cl.makeTool(ctx, r.makeTool)
-	case r.merge != 0:
-		return cl.mergeLink(ctx, r.merge)
-	case r.apart != 0:
-		return cl.keepApart(ctx, r.apart)
-	case r.rejected:
-		return cl.listRejections(ctx)
-	case r.reopen != 0 || r.reset != 0:
-		return cl.endRejection(ctx, cmp.Or(r.reopen, r.reset), r.reopen != 0)
-	case r.restore != 0:
-		return cl.restore(ctx, r.restore)
+	case r.queueAction():
+		return cl.runQueueAction(ctx, r)
 	case r.approve || r.reject || r.later || r.change != nil || r.keep || r.retire && r.item == 0:
 		if err := cl.decide(ctx, r); err != nil {
 			return err
@@ -153,7 +139,36 @@ func decisionFlags(fs *flag.FlagSet, r *review) {
 	}
 }
 
-// queueFlags adds the flags of the actions on the lists, candidates and rejections to fs.
+// runQueueAction runs the action of r on the lists, candidates, same_as links and rejections
+// (queueFlags).
+func (cl caller) runQueueAction(ctx context.Context, r review) error {
+	switch {
+	case r.retired:
+		return cl.listRetired(ctx)
+	case r.all:
+		return cl.listCandidates(ctx)
+	case r.makeTool != 0:
+		return cl.makeTool(ctx, r.makeTool)
+	case r.merge != 0:
+		return cl.mergeLink(ctx, r.merge)
+	case r.apart != 0:
+		return cl.keepApart(ctx, r.apart)
+	case r.rejected:
+		return cl.listRejections(ctx)
+	case r.reopen != 0 || r.reset != 0:
+		return cl.endRejection(ctx, cmp.Or(r.reopen, r.reset), r.reopen != 0)
+	}
+	return cl.restore(ctx, r.restore)
+}
+
+// queueAction reports whether r has an action of queueFlags.
+func (r review) queueAction() bool {
+	return r.retired || r.all || r.makeTool != 0 || r.merge != 0 || r.apart != 0 || r.rejected || r.reopen != 0 ||
+		r.reset != 0 || r.restore != 0
+}
+
+// queueFlags adds the flags of the actions on the lists, candidates, same_as links and
+// rejections to fs.
 func queueFlags(fs *flag.FlagSet, r *review) {
 	fs.BoolVar(&r.retired, "retired", false, "")
 	fs.BoolVar(&r.all, "all", false, "")
@@ -273,8 +288,7 @@ func (r review) check() error {
 		return errors.New("--edit, --scope, --pin, --confirm, --replace, --exception and --keep-both go with --approve")
 	case (r.reject || r.later) && r.id == 0:
 		return errors.New("--reject and --later need a proposal id")
-	case (r.retired || r.all || r.rejected || r.reopen != 0 || r.reset != 0 || r.restore != 0 || r.makeTool != 0 ||
-		r.merge != 0 || r.apart != 0) && r.id != 0:
+	case r.queueAction() && r.id != 0:
 		return errors.New("--retired, --all, --rejected, --reopen, --reset, --restore, --tool, --merge and --apart take no proposal id")
 	}
 	return nil
@@ -414,7 +428,7 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	var binding, from, match string // match: the match line of the suggestion of p, if any
 	var claim string                // the claim of a script proposal
 	var sibs []store.Proposal       // the proposals that you pick between with p
-	var spent string                // the line of a change request of p with no try left (#359)
+	var change string               // the lines of the change request of p (changeLines)
 	// The review pane shows a pending proposal only: it closes on one that another surface
 	// decided (E5-S1).
 	read := cl.proposal
@@ -443,7 +457,7 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 		if match, err = matchLine(ctx, tx, p.ID, cl.PaneID); err != nil {
 			return err
 		}
-		if spent, err = spentLine(ctx, tx, p); err != nil {
+		if change, err = changeLines(ctx, tx, p); err != nil {
 			return err
 		}
 		if p.Script() {
@@ -479,10 +493,7 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	}
 	fmt.Fprintf(&b, "source:   %s, %s\n", from, localTime(p.Created))
 	b.WriteString(match)
-	if p.ChangeRequest != nil {
-		fmt.Fprintf(&b, "change:   %s\n", oneLine(*p.ChangeRequest))
-	}
-	b.WriteString(spent)
+	b.WriteString(change)
 	if p.Status == store.ProposalPending {
 		b.WriteString(pickLines(sibs))
 	}
@@ -496,17 +507,22 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	return err
 }
 
-// spentLine is the line of show for pending proposal p whose change request has no try left
-// (#359): the request stays failed and gave the proposal back to review. "" for none.
-func spentLine(ctx context.Context, tx *sql.Tx, p store.Proposal) (string, error) {
-	if p.Status != store.ProposalPending {
+// changeLines are the lines of show for the change request of p: your request text, and for a
+// pending proposal whose request has no try left, that it stays failed and gave the proposal
+// back to review (#359). "" for no request.
+func changeLines(ctx context.Context, tx *sql.Tx, p store.Proposal) (string, error) {
+	if p.ChangeRequest == nil {
 		return "", nil
+	}
+	l := fmt.Sprintf("change:   %s\n", oneLine(*p.ChangeRequest))
+	if p.Status != store.ProposalPending {
+		return l, nil
 	}
 	cr, ok, err := store.ProposalChangeOf(ctx, tx, p.ID)
 	if err != nil || !ok || !extract.ChangeSpent(cr) {
-		return "", err
+		return l, err
 	}
-	return fmt.Sprintf("          request %d %s with no try left after %d calls: %s; decide the proposal, or ask for a change again\n",
+	return l + fmt.Sprintf("          request %d %s with no try left after %d calls: %s; decide the proposal, or ask for a change again\n",
 		cr.ID, cr.Status, cr.ModelCalls, oneLine(cr.Reason)), nil
 }
 

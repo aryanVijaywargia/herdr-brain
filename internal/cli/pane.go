@@ -213,17 +213,11 @@ func (p *reviewPane) key(ctx context.Context, k rune) (done bool, err error) {
 		return false, nil
 	case k == 'i':
 		// The list of retired items and archive candidates (E20-S7); q or i comes back here.
-		p.msg = ""
-		if err := (&itemsPane{Env: p.Env, keys: p.keys, size: p.size}).run(ctx); err != nil {
-			p.msg = err.Error()
-		}
+		p.list(ctx, (&itemsPane{Env: p.Env, keys: p.keys, size: p.size}).run)
 		return false, nil
 	case k == 'm':
 		// The links list; q comes back here.
-		p.msg = ""
-		if err := (&linksPane{Env: p.Env, keys: p.keys, size: p.size}).run(ctx); err != nil {
-			p.msg = err.Error()
-		}
+		p.list(ctx, (&linksPane{Env: p.Env, keys: p.keys, size: p.size}).run)
 		return false, nil
 	case p.dispute:
 		return p.disputeKey(ctx, k)
@@ -251,6 +245,15 @@ func (p *reviewPane) key(ctx context.Context, k rune) (done bool, err error) {
 		p.pin, p.msg = !p.pin, ""
 	}
 	return false, nil
+}
+
+// list runs the list run in the pane until you go back to the proposal; its error, such as a
+// lost store, is on the screen of the proposal.
+func (p *reviewPane) list(ctx context.Context, run func(context.Context) error) {
+	p.msg = ""
+	if err := run(ctx); err != nil {
+		p.msg = err.Error()
+	}
 }
 
 // disputeKey runs the action of key k on a dispute: keep, edit then approve, retire or later

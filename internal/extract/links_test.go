@@ -18,16 +18,16 @@ const sandboxSteps = "1. Bump the version to <version>.\n2. Update the changelog
 	"3. Run lint and the tests outside the sandbox.\n4. Commit.\n5. Tag the release."
 
 // waitingLink runs release tellings 1 and 2 with the release skill of the run 4 shape (#348):
-// the model flag set and steps, and telling 3 with " in that order" added to the rule and its
-// steps, and a same_as link to the claim of the first two. The steps hold a permission word,
-// so Brain holds the link for review: two candidates, no proposal.
-func (f *fixture) waitingLink(steps string) {
+// the model flag set and sandboxSteps, and telling 3 with " in that order" added to the rule and
+// its steps, and a same_as link to the claim of the first two. The steps hold a permission
+// word, so Brain holds the link for review: two candidates, no proposal.
+func (f *fixture) waitingLink() {
 	f.t.Helper()
-	flagged := map[string]any{"touches_permission": true, "steps": steps}
+	flagged := map[string]any{"touches_permission": true, "steps": sandboxSteps}
 	f.cli.reply = skillReply(flagged)
 	f.release(1)
 	f.release(2)
-	f.cli.reply = sameAsTelling(flagged, strings.Replace(steps, "Tag", "Tag, in that order,", 1))
+	f.cli.reply = sameAsTelling(flagged, strings.Replace(sandboxSteps, "Tag", "Tag, in that order,", 1))
 	f.release(3)
 	if n, ps := f.count(`SELECT COUNT(*) FROM candidates`), f.proposals(); n != 2 || len(ps) != 0 {
 		f.t.Fatalf("candidates %d, proposals %+v, want 2 and none: the link waits for review", n, ps)
@@ -95,7 +95,7 @@ func (f *fixture) merge(id int64) ([]int64, error) {
 // nothing. A later telling with the merged key joins the same candidate.
 func TestMergeWaitingLink(t *testing.T) {
 	f := newFixture(t)
-	f.waitingLink(sandboxSteps)
+	f.waitingLink()
 	ls := f.links()
 	if len(ls) != 1 || !ls[0].Permission || ls[0].Candidate.Count != 1 || ls[0].OtherCount != 2 ||
 		ls[0].Text != "When shipping a new version: follow the release steps in that order" ||
@@ -142,7 +142,7 @@ func TestMergeWaitingLink(t *testing.T) {
 // claim has the newer draft, as after a telling in another scope, its steps.
 func TestMergeNewestTelling(t *testing.T) {
 	f := newFixture(t)
-	f.waitingLink(sandboxSteps)
+	f.waitingLink()
 	id := f.claimOf(skillSituation)
 	f.write(func(ctx context.Context, tx *sql.Tx) error {
 		first, err := store.ClaimByID(ctx, tx, id)
@@ -151,7 +151,7 @@ func TestMergeNewestTelling(t *testing.T) {
 		}
 		c, _, ok, err := telling(ctx, tx, first)
 		if err != nil || !ok {
-			return fmt.Errorf("telling of the first claim: %v, %v, want its draft", ok, err)
+			return fmt.Errorf("telling of the first claim: %v, %w, want its draft", ok, err)
 		}
 		c.Skill.Steps = strings.Replace(c.Skill.Steps, "Commit.", "Commit as Release <version>.", 1)
 		return setDraft(ctx, tx, first.ID, c, f.now.Add(time.Minute))
@@ -172,7 +172,7 @@ func TestMergeNewestTelling(t *testing.T) {
 // a later telling with the same link adds no link: the pair does not come back for review.
 func TestKeepApartLink(t *testing.T) {
 	f := newFixture(t)
-	f.waitingLink(sandboxSteps)
+	f.waitingLink()
 	id := f.linkOf(otherSituation)
 	f.write(func(ctx context.Context, tx *sql.Tx) error {
 		other, err := KeepApart(ctx, tx, id)
@@ -203,7 +203,7 @@ func TestKeepApartLink(t *testing.T) {
 // a merged link, give an error and write nothing.
 func TestMergeNoLink(t *testing.T) {
 	f := newFixture(t)
-	f.waitingLink(sandboxSteps)
+	f.waitingLink()
 	id, first := f.linkOf(otherSituation), f.linkOf(skillSituation)
 	if _, err := f.merge(first); err == nil {
 		t.Errorf("merge of candidate %d with no link: no error", first)
@@ -228,7 +228,7 @@ func TestMergeUnclearLink(t *testing.T) {
 	f.cli.reply = procedureReply(procedureSituation)
 	f.release(1)
 	f.release(2)
-	f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {
+	f.cli.reply = func(_ context.Context, prompt string) ([]byte, error) {
 		m := knownKey(procedureSituation).FindStringSubmatch(prompt)
 		if m == nil {
 			return nil, fmt.Errorf("the input has no known procedure claim:\n%s", prompt)
