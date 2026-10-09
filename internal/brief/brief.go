@@ -284,7 +284,7 @@ func part(name, label string, extra, limit int, items []Item, skills []Skill, to
 			return "", err
 		}
 	}
-	writeSkills(&b, skills)
+	writeSkills(&b, slices.SortedFunc(slices.Values(skills), func(a, b Skill) int { return cmp.Compare(a.Name, b.Name) }))
 	writeCatalog(&b, tools)
 	for _, it := range items {
 		extra += markRoom(it.Anchors, it.Dispute)
@@ -316,13 +316,31 @@ func Entries(items []Item) (string, error) {
 	return b.String(), nil
 }
 
-// writeSkills writes the skill list, one line for each skill, or nothing when there is none.
+// Skills renders skills as the skill list of the brief shows them, with its heading and its
+// instruction line, in the order given; "" for none. brain recall prints them best match first
+// (§8.6, #344).
+func Skills(skills []Skill) string {
+	var b strings.Builder
+	writeSkills(&b, skills)
+	return b.String()
+}
+
+// Tools renders tools as the tool catalog of the brief shows them, with its heading and its
+// instruction line, in the order given; "" for none (§8.6, #344).
+func Tools(tools []Tool) string {
+	var b strings.Builder
+	writeCatalog(&b, tools)
+	return b.String()
+}
+
+// writeSkills writes the skill list, one line for each skill in the order given, or nothing when
+// there is none.
 func writeSkills(b *strings.Builder, skills []Skill) {
 	if len(skills) == 0 {
 		return
 	}
 	b.WriteString(skillsLabel + skillsHint)
-	for _, sk := range slices.SortedFunc(slices.Values(skills), func(a, b Skill) int { return cmp.Compare(a.Name, b.Name) }) {
+	for _, sk := range skills {
 		b.WriteString("- " + sk.Name + ": " + sk.Description + " File: " + sk.Path)
 		if sk.NotAvailable != "" {
 			b.WriteString(" (not available: " + sk.NotAvailable + ")")

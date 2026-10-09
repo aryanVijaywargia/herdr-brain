@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -73,9 +74,9 @@ func popupEnv(environ []string) ([]string, error) {
 		"HERDR_WORKSPACE_ID="+ctx.WorkspaceID), nil
 }
 
-// recallHit is one item of a search, with its scope.
+// recallHit is one result of a search, an item, a skill or a tool, with its scope.
 type recallHit struct {
-	item  brief.Item
+	m     recallMatch
 	scope string
 }
 
@@ -163,7 +164,7 @@ func (p *recallPane) searchKey(ctx context.Context, k rune) (done bool) {
 		return false
 	case k == '\r' || k == '\n':
 		if len(p.hits) > 0 {
-			p.view, p.msg = p.show(ctx, p.hits[p.sel].item)
+			p.view, p.msg = p.show(ctx, p.hits[p.sel].m)
 			p.top = 0
 		}
 		if p.msg != "" {
@@ -189,8 +190,8 @@ func (p *recallPane) searchKey(ctx context.Context, k rune) (done bool) {
 	return false
 }
 
-// search returns the items that brain recall prints for query, from the calling pane, each
-// with its scope. It records nothing.
+// search returns the items, skills and tools that brain recall prints for query, from the
+// calling pane, each with its scope. It records nothing.
 func (p *recallPane) search(ctx context.Context, query string) ([]recallHit, error) {
 	words := recallWords(query)
 	if len(words) == 0 {
@@ -203,38 +204,37 @@ func (p *recallPane) search(ctx context.Context, query string) ([]recallHit, err
 		if err := p.cl.recheck(ctx, p.cl.Call); err != nil {
 			return err
 		}
-		items, _, err := recallItems(ctx, tx, p.cl.Call, words)
+		ms, err := recallItems(ctx, tx, p.cl.Call, words)
 		if err != nil {
 			return err
 		}
-		for _, it := range items {
-			row, err := store.ItemByID(ctx, tx, it.ID)
+		for _, m := range ms {
+			row, err := store.ItemByID(ctx, tx, m.ref.Item)
 			if err != nil {
 				return err
 			}
-			hits = append(hits, recallHit{item: it, scope: p.cl.target(row.Scope)})
+			hits = append(hits, recallHit{m: m, scope: p.cl.target(row.Scope)})
 		}
 		return nil
 	})
 	return hits, err
 }
 
-// show returns the full view of item h, or "" and the error. The view has the item as the
-// brief shows it, with its marks, its scope and state, the command for a change, and the source
-// excerpts of the newest proposal of the item that has captured evidence, through the secret
-// filter as in review (§7.4).
-func (p *recallPane) show(ctx context.Context, h brief.Item) (view, msg string) {
+// show returns the full view of result m, or "" and the error. The view has the item, skill or
+// tool as the brief shows it, with its marks, its scope and state, the command for a change, and
+// the source excerpts of the newest proposal of the item that has captured evidence, through the
+// secret filter as in review (§7.4).
+func (p *recallPane) show(ctx context.Context, m recallMatch) (view, msg string) {
 	var b strings.Builder
 	err := p.cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		if err := p.cl.recheck(ctx, p.cl.Call); err != nil {
 			return err
 		}
-		it, cur, err := p.cl.item(ctx, tx, h.ID)
+		it, cur, err := p.cl.item(ctx, tx, m.ref.Item)
 		if err != nil {
 			return err
 		}
-		h.Text = cur.Text // the text can have changed since the search
-		text, err := brief.Entries([]brief.Item{h})
+		text, err := p.entry(ctx, tx, m, cur)
 		if err != nil {
 			return err
 		}
@@ -261,6 +261,28 @@ func (p *recallPane) show(ctx context.Context, h brief.Item) (view, msg string) 
 		return "", err.Error()
 	}
 	return b.String(), ""
+}
+
+// entry is result m as the brief shows it now, at revision cur: the text of an item can have
+// changed since the search. A skill or a tool shows as the brief has it now, so one that the
+// brief of the pane no longer has does not show.
+func (p *recallPane) entry(ctx context.Context, tx *sql.Tx, m recallMatch, cur store.ItemRevision) (string, error) {
+	if m.kind == "" {
+		m.item.Text = cur.Text
+		return brief.Entries([]brief.Item{m.item})
+	}
+	ms, err := recallable(ctx, tx, p.cl.Call)
+	if err != nil {
+		return "", err
+	}
+	i := slices.IndexFunc(ms, func(n recallMatch) bool { return n.ref.Item == m.ref.Item })
+	switch {
+	case i < 0:
+		return "", fmt.Errorf("item %d is no longer in the brief of this pane", m.ref.Item)
+	case m.kind == store.KindSkill:
+		return brief.Skills([]brief.Skill{ms[i].skill}), nil
+	}
+	return brief.Tools([]brief.Tool{ms[i].tool}), nil
 }
 
 // sourceExcerpts returns the newest proposal of the revisions of an item, up to cur, that has
@@ -366,9 +388,21 @@ func (p *recallPane) list(rows, cols int, foot string) string {
 		if first+i == p.sel {
 			mark = "> "
 		}
-		b.WriteString(cut(fmt.Sprintf("%s[%d] %s: %s", mark, h.item.ID, h.scope, oneLine(h.item.Text)), cols) + "\n")
+		b.WriteString(cut(fmt.Sprintf("%s[%d] %s: %s", mark, h.m.ref.Item, h.scope, h.m.line()), cols) + "\n")
 	}
 	return b.String()
+}
+
+// line is result m on one line in the search list: the text of an item, or "skill" or "tool",
+// the name and the description. [NEW] the form.
+func (m recallMatch) line() string {
+	switch m.kind {
+	case store.KindSkill:
+		return oneLine("skill " + m.skill.Name + ": " + m.skill.Description)
+	case store.KindTool:
+		return oneLine("tool " + m.tool.Name + ": " + m.tool.Description)
+	}
+	return oneLine(m.item.Text)
 }
 
 // cut returns line cut to fit cols columns, with "..." at the end of a cut line; 0 cols keeps

@@ -439,3 +439,12 @@ tests = [
   "internal/brained:TestSenders",
   "internal/brained:TestCaptureRun3Noise/codex",
 ]
+
+# M2 eval run 3 (2026-10-09): the review of an exact tool draft says its source is "extractor,
+# sender unconfirmed", but no model call made it.
+[[bug]]
+issue = 345
+tests = [
+  "internal/cli:TestExactToolSource",
+  "internal/cli:TestMakeToolAction",
+]

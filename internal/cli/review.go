@@ -686,6 +686,8 @@ func source(p store.Proposal, it store.Item, cur store.ItemRevision) string {
 		return fmt.Sprintf("a change to %s item %d, asked in review", it.State, it.ID)
 	case learned(p, it):
 		return "the learned automation rule (a brain run of this tool after a stop of the agent; no model call)"
+	case exact(p, it):
+		return "the exact repeat rule (the recorded commands of a command chain, as they ran; no model call)"
 	}
 	return fmt.Sprintf("%s, sender unconfirmed", cur.Origin)
 }
@@ -695,6 +697,13 @@ func source(p store.Proposal, it store.Item, cur store.ItemRevision) string {
 // no candidate.
 func learned(p store.Proposal, it store.Item) bool {
 	return p.CandidateID != nil && it.Kind == store.KindAutomation
+}
+
+// exact reports whether p, a proposal of item it, is a tool draft that Brain wrote itself from
+// the recorded commands (§10.1, #345): the exact tool path or "make this a tool". A tool draft
+// of the extractor has the benefit of the model.
+func exact(p store.Proposal, it store.Item) bool {
+	return p.CandidateID != nil && it.Kind == store.KindTool && p.ExpectedBenefit == extract.ExactBenefit
 }
 
 // origin says where proposal p of item it, at revision cur, comes from: for the draft of the

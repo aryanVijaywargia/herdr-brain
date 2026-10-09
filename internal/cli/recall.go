@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -19,13 +20,14 @@ import (
 
 const recallUsage = `usage: brain recall <words>`
 
-// maxRecall is the most items that one recall prints (E20-S2 AC).
+// maxRecall is the most results that one recall prints, items, skills and tools together
+// (E20-S2 AC, #344).
 const maxRecall = 10
 
-// Recall runs `brain recall` with args after "recall" (E20-S2, §8.6). It prints the items that
-// the brief of the calling pane can deliver and whose text matches the words, best match
-// first, with the brief's marks. It records the item revisions that it printed on the
-// receipt of the pane's agent session, so outcomes count them as delivered (§5.4).
+// Recall runs `brain recall` with args after "recall" (E20-S2, §8.6). It prints the items, the
+// skills and the tools that the brief of the calling pane can deliver and whose text matches the
+// words, best match first, as the brief shows them. It records the revisions that it printed on
+// the receipt of the pane's agent session, so outcomes count them as delivered (§5.4).
 func Recall(ctx context.Context, e Env, args []string) (err error) {
 	words := recallWords(strings.Join(args, " "))
 	if len(words) == 0 {
@@ -43,46 +45,95 @@ func Recall(ctx context.Context, e Env, args []string) (err error) {
 		if err := e.recheck(ctx, c); err != nil {
 			return err
 		}
-		items, revision, err := recallItems(ctx, tx, c, words)
+		ms, err := recallItems(ctx, tx, c, words)
 		if err != nil {
 			return err
 		}
-		return printRecall(ctx, tx, e, c, items, revision, strings.Join(words, " "))
+		return printRecall(ctx, tx, e, c, ms, strings.Join(words, " "))
 	})
 }
 
-// recallItems returns the items that the brief of c's pane can deliver and that match words,
-// best match first, and the revision of each delivered item. brain recall and the recall
-// popup (E20-S3) both search with it.
-func recallItems(ctx context.Context, tx *sql.Tx, c *Call, words []string) ([]brief.Item, map[int64]int64, error) {
-	key, err := briefKey(c)
-	if err != nil {
-		return nil, nil, err
-	}
-	items, revision, err := output.Items(ctx, tx, key)
-	if err != nil {
-		return nil, nil, err
-	}
-	return bestMatches(items, words), revision, nil
+// recallMatch is one result of a recall: an item, a skill or a tool that the brief of the pane
+// can deliver, and the revision that it shows. kind is store.KindSkill for a skill,
+// store.KindTool for a tool, and "" for an item.
+type recallMatch struct {
+	kind  store.Kind
+	ref   store.RevisionRef
+	item  brief.Item
+	skill brief.Skill
+	tool  brief.Tool
 }
 
-// printRecall prints items, the recall result of query, and then records it in tx: a failed
-// print rolls the record back, so a revision that the agent did not get never counts.
-func printRecall(ctx context.Context, tx *sql.Tx, e Env, c *Call, items []brief.Item, revision map[int64]int64, query string) error {
-	if len(items) == 0 {
+// text is the text that the words of a recall match: the text of an item, the name and the
+// description of a skill or a tool (#344).
+func (m recallMatch) text() string {
+	switch m.kind {
+	case store.KindSkill:
+		return m.skill.Name + " " + m.skill.Description
+	case store.KindTool:
+		return m.tool.Name + " " + m.tool.Description
+	}
+	return m.item.Text
+}
+
+// recallable returns what the brief of c's pane can deliver: its items, then its skills, then
+// its tools.
+func recallable(ctx context.Context, tx *sql.Tx, c *Call) ([]recallMatch, error) {
+	key, err := briefKey(c)
+	if err != nil {
+		return nil, err
+	}
+	r, err := output.Recall(ctx, tx, filepath.Join(c.Binding.Store, outDir), key)
+	if err != nil {
+		return nil, err
+	}
+	ms := make([]recallMatch, 0, len(r.Items)+len(r.Skills)+len(r.Tools))
+	for _, it := range r.Items {
+		ms = append(ms, recallMatch{ref: store.RevisionRef{Item: it.ID, Revision: r.Revision[it.ID]}, item: it})
+	}
+	for _, sk := range r.Skills {
+		ms = append(ms, recallMatch{kind: store.KindSkill, ref: store.RevisionRef{Item: sk.ID, Revision: r.Revision[sk.ID]},
+			skill: sk.Skill})
+	}
+	for _, t := range r.Tools {
+		ms = append(ms, recallMatch{kind: store.KindTool, ref: store.RevisionRef{Item: t.ID, Revision: r.Revision[t.ID]},
+			tool: t.Tool})
+	}
+	return ms, nil
+}
+
+// recallItems returns the items, skills and tools that the brief of c's pane can deliver and
+// that match words, best match first. brain recall and the recall popup (E20-S3) both search
+// with it.
+func recallItems(ctx context.Context, tx *sql.Tx, c *Call, words []string) ([]recallMatch, error) {
+	ms, err := recallable(ctx, tx, c)
+	if err != nil {
+		return nil, err
+	}
+	return bestMatches(ms, words), nil
+}
+
+// itemsLabel is the heading of a run of items that comes after a run of skills or tools in a
+// recall: without it, the items would read as part of that list. [NEW] the heading.
+const itemsLabel = "### Items\n"
+
+// printRecall prints ms, the recall result of query, and then records it in tx: a failed print
+// rolls the record back, so a revision that the agent did not get never counts.
+func printRecall(ctx context.Context, tx *sql.Tx, e Env, c *Call, ms []recallMatch, query string) error {
+	if len(ms) == 0 {
 		// [NEW] the no-match form.
 		_, err := fmt.Fprintf(e.Stdout, "no Brain item matches %q\n", query)
 		return err
 	}
-	text, err := brief.Entries(items)
+	text, err := recallText(ms)
 	if err != nil {
 		return err
 	}
-	// [NEW] the output form: one heading line, then the items as the brief shows them.
+	// [NEW] the output form: one heading line, then the results as the brief shows them.
 	if _, err := fmt.Fprintf(e.Stdout, "Brain items for %q, best match first:\n%s", query, text); err != nil {
 		return err
 	}
-	recorded, err := recordRecall(ctx, tx, c, items, revision, e.Now())
+	recorded, err := recordRecall(ctx, tx, c, ms, e.Now())
 	if err != nil || recorded {
 		return err
 	}
@@ -90,6 +141,50 @@ func printRecall(ctx context.Context, tx *sql.Tx, e Env, c *Call, items []brief.
 	// the warning form.
 	_, err = fmt.Fprintln(e.Stderr, "brain: warning: no Brain receipt for the agent session of this pane; this recall is not recorded")
 	return err
+}
+
+// recallText renders ms in their order, best match first (#344). Each run of results of one
+// kind shows as the brief shows it: items as the item entries, skills as the "Skills" list and
+// tools as the "Tools" catalog, each list with its heading and its instruction line. A run of
+// items after another kind gets the itemsLabel heading.
+func recallText(ms []recallMatch) (string, error) {
+	var b strings.Builder
+	for len(ms) > 0 {
+		n := 1
+		for n < len(ms) && ms[n].kind == ms[0].kind {
+			n++
+		}
+		run := ms[:n]
+		ms = ms[n:]
+		switch run[0].kind {
+		case store.KindSkill:
+			skills := make([]brief.Skill, n)
+			for i, m := range run {
+				skills[i] = m.skill
+			}
+			b.WriteString(brief.Skills(skills))
+		case store.KindTool:
+			tools := make([]brief.Tool, n)
+			for i, m := range run {
+				tools[i] = m.tool
+			}
+			b.WriteString(brief.Tools(tools))
+		default:
+			items := make([]brief.Item, n)
+			for i, m := range run {
+				items[i] = m.item
+			}
+			text, err := brief.Entries(items)
+			if err != nil {
+				return "", err
+			}
+			if b.Len() > 0 {
+				b.WriteString(itemsLabel)
+			}
+			b.WriteString(text)
+		}
+	}
+	return b.String(), nil
 }
 
 // briefKey is the workspace key whose part the brief of the calling pane delivers, or "" for
@@ -105,33 +200,33 @@ func briefKey(c *Call) (string, error) {
 	return m.Entry.Key, nil
 }
 
-// recordRecall records the revisions of items on the newest receipt of the calling pane's
-// agent session. It returns false when there is no such receipt.
-func recordRecall(ctx context.Context, tx *sql.Tx, c *Call, items []brief.Item, revision map[int64]int64, now time.Time) (bool, error) {
+// recordRecall records the revisions of ms, items, skills and tools, on the newest receipt of
+// the calling pane's agent session. It returns false when there is no such receipt.
+func recordRecall(ctx context.Context, tx *sql.Tx, c *Call, ms []recallMatch, now time.Time) (bool, error) {
 	id, ok, err := store.RecallReceipt(ctx, tx, c.Binding.Session, c.PaneID, c.AgentSession)
 	if err != nil || !ok {
 		return false, err
 	}
-	refs := make([]store.RevisionRef, len(items))
-	for i, it := range items {
-		refs[i] = store.RevisionRef{Item: it.ID, Revision: revision[it.ID]}
+	refs := make([]store.RevisionRef, len(ms))
+	for i, m := range ms {
+		refs[i] = m.ref
 	}
 	_, err = store.InsertRecall(ctx, tx, store.Recall{DeliveryID: id, ItemRevisions: refs, At: now})
 	return err == nil, err
 }
 
-// bestMatches returns the items of items that match words, the best match first, at most
-// maxRecall. [NEW] the match rule: an item scores one point for each word that starts a word
-// of its text, case aside; more points first, then the lower item id. An item with no point
-// does not match.
-func bestMatches(items []brief.Item, words []string) []brief.Item {
+// bestMatches returns the results of ms that match words, the best match first, at most
+// maxRecall of items, skills and tools together. [NEW] the match rule: a result scores one point
+// for each word that starts a word of its text, case aside; more points first, then the lower
+// item id. A result with no point does not match.
+func bestMatches(ms []recallMatch, words []string) []recallMatch {
 	type scored struct {
-		it    brief.Item
+		m     recallMatch
 		score int
 	}
 	var ss []scored
-	for _, it := range items {
-		text := recallWords(it.Text)
+	for _, m := range ms {
+		text := recallWords(m.text())
 		n := 0
 		for _, w := range words {
 			if slices.ContainsFunc(text, func(t string) bool { return strings.HasPrefix(t, w) }) {
@@ -139,15 +234,15 @@ func bestMatches(items []brief.Item, words []string) []brief.Item {
 			}
 		}
 		if n > 0 {
-			ss = append(ss, scored{it, n})
+			ss = append(ss, scored{m, n})
 		}
 	}
 	slices.SortFunc(ss, func(a, b scored) int {
-		return cmp.Or(cmp.Compare(b.score, a.score), cmp.Compare(a.it.ID, b.it.ID))
+		return cmp.Or(cmp.Compare(b.score, a.score), cmp.Compare(a.m.ref.Item, b.m.ref.Item))
 	})
-	out := make([]brief.Item, min(len(ss), maxRecall))
+	out := make([]recallMatch, min(len(ss), maxRecall))
 	for i := range out {
-		out[i] = ss[i].it
+		out[i] = ss[i].m
 	}
 	return out
 }

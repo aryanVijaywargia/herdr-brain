@@ -30,6 +30,10 @@ const (
 	draftEffects = "runs the recorded commands as the agent ran them; edit this line to say what they change"
 	// draftRule is the rule of the claim key of a tool draft [NEW].
 	draftRule = "make it a brain tool"
+	// ExactBenefit is the benefit of a tool draft that Brain writes itself: the exact tool path
+	// and "make this a tool". No model wrote it, so review names the exact repeat rule as the
+	// source of such a draft (#345).
+	ExactBenefit = "runs these commands with one reviewed contract"
 )
 
 // shellChars are the characters of shell syntax [NEW]: a command with one of them needs a
@@ -221,7 +225,7 @@ func (p Pass) proposeGated(ctx context.Context, tx *sql.Tx, gated []gatedTool) e
 		case !room:
 			continue // a chain that needs one proposal can still fit
 		}
-		if _, err := proposeTool(ctx, tx, g.id, g.text, "runs these commands with one reviewed contract", p.Now()); err != nil &&
+		if _, err := proposeTool(ctx, tx, g.id, g.text, ExactBenefit, p.Now()); err != nil &&
 			!errors.Is(err, errNoDraft) {
 			return err
 		}
@@ -547,7 +551,7 @@ func MakeTool(ctx context.Context, tx *sql.Tx, id int64, now time.Time) (int64, 
 	if err != nil {
 		return 0, fmt.Errorf("candidate %d: %w", id, err)
 	}
-	return proposeTool(ctx, tx, id, text, "runs these commands with one reviewed contract", now)
+	return proposeTool(ctx, tx, id, text, ExactBenefit, now)
 }
 
 // toolClaim returns claim c of kind tool, with its evidence, and the tool of r (checkTool). A
