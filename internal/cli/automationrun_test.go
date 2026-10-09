@@ -193,6 +193,41 @@ func TestLaunchFailed(t *testing.T) {
 	}
 }
 
+// #367 (M2 eval run 5, R5-8): brain status showed the claim time of a failed run in UTC with no
+// zone mark ("claimed 2026-10-09 16:51" at 22:21 local), while review shows local times (#254).
+// The run line of status and the last run of brain automation list show local time, in the
+// form of the review pane.
+func TestRunLocalTime(t *testing.T) {
+	inZone(t)
+	a := store.Automation{ID: 8, Folder: "/w/notes-api"}
+	r := store.AutomationRun{ID: 5, PaneID: "w1:p1", Result: store.RunFailed, Cause: "step 2: npm: exit status 1",
+		Claimed: time.Date(2026, 10, 9, 16, 51, 0, 0, time.UTC)}
+	want := "  last run failed: automation 8 (/w/notes-api): run 5 of pane w1:p1, claimed 2026-10-09 22:21; step 2: npm: exit status 1"
+	if got := runLine(a, r); got != want {
+		t.Errorf("runLine() = %q, want %q", got, want)
+	}
+	f := newAutomationFixture(t)
+	_, id := f.bound(t)
+	run := f.claimRun(t, id, "k")
+	if err := f.launch(context.Background(), f.launchEnv(&fakeRunHerdr{}), run, nil); err != nil {
+		t.Fatalf("launch = %v", err)
+	}
+	s := openStore(t, f.store)
+	var as []store.Automation
+	write(t, s, func(tx *sql.Tx) (err error) {
+		as, err = store.ActiveAutomations(context.Background(), tx)
+		return err
+	})
+	closeStore(t, s)
+	if len(as) != 1 || as[0].LastRun.IsZero() {
+		t.Fatalf("automations = %+v, want one with a last run", as)
+	}
+	list := f.mustAutomation(t, "list")
+	if want := "last run: ok at " + as[0].LastRun.In(time.Local).Format("2006-01-02 15:04"); !strings.Contains(list, want) {
+		t.Errorf("list = %q, want %q", list, want)
+	}
+}
+
 // The checks before the launch mark skip the run: nothing runs, and the row says skipped.
 func TestLaunchSkip(t *testing.T) {
 	tests := []struct {

@@ -287,10 +287,11 @@ func (s *statusCall) automations(ctx context.Context) {
 
 // runLine is the status line of run r of automation a whose result is failed or unknown. An
 // unknown run with a launch mark may still run, or it ended in a crash. A failed run names its
-// cause: the failed step and its exit code (#352). [NEW] the line form.
+// cause: the failed step and its exit code (#352). The time is local, as review shows it (#254,
+// #367). [NEW] the line form.
 func runLine(a store.Automation, r store.AutomationRun) string {
 	l := fmt.Sprintf("  last run %s: automation %d (%s): run %d of pane %s, claimed %s", r.Result, a.ID, a.Folder, r.ID,
-		r.PaneID, r.Claimed.Format("2006-01-02 15:04"))
+		r.PaneID, localTime(r.Claimed))
 	switch {
 	case r.Result == store.RunUnknown && r.Active():
 		l += "; it may still run, or it stopped early (brain automation cancel " + strconv.FormatInt(r.ID, 10) + " stops it)"

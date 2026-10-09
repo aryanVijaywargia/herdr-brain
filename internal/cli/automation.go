@@ -231,7 +231,8 @@ func lineDiff(before, after string) string {
 }
 
 // listAutomations lists the active automations of the caller's workspace, each with its state:
-// on, paused, or stopped with the reason (output.AutomationMayRun).
+// on, paused, or stopped with the reason (output.AutomationMayRun), and the result and the local
+// time of its last run (#367).
 func (cl caller) listAutomations(ctx context.Context) error {
 	var lines []string
 	out := filepath.Join(cl.Binding.Store, outDir)
@@ -260,7 +261,7 @@ func (cl caller) listAutomations(ctx context.Context) error {
 			}
 			last := "none"
 			if !a.LastRun.IsZero() {
-				last = fmt.Sprintf("%s at %s", a.LastResult, a.LastRun.Format("2006-01-02 15:04"))
+				last = fmt.Sprintf("%s at %s", a.LastResult, localTime(a.LastRun))
 			}
 			lines = append(lines, fmt.Sprintf("automation %d: %s\n  tool %s (item %d) in %s after each stop of a %s agent (%s); last run: %s",
 				a.ID, state, t.Name, t.ID, a.Folder, a.CLI, a.Trigger, last))
