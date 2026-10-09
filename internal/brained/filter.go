@@ -126,7 +126,9 @@ type part struct {
 	lines  []string
 	brain  bool // the part holds a Brain block, so its text after the block is Brain-origin
 	at     int  // the line of the read where the part starts
-	unsure bool // the part is in the head of the read, or under an old prompt line, so its sender is not known
+	// unsure says that the sender of the part is not known: it is in the head of the read, or
+	// under an old prompt line or a cut copy in a Codex read.
+	unsure bool
 }
 
 // parts drops the injected text from the new lines idx of r and groups the rest into runs of
