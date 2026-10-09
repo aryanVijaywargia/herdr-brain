@@ -541,3 +541,58 @@ tests = [
   "internal/cli:TestPaneLinks",
   "internal/cli:TestLinksPopup",
 ]
+
+# M2 eval run 5 (2026-10-09, R5-1): a same_as merge between candidates of different kinds moves
+# no evidence but says that it does: the tellings of the release linked to a claim of the
+# agent's own release commands (a command chain), so the skill needed 6 tellings. Your text now
+# turns that candidate into a procedure (the agent's commands stay linked, uncounted), and a
+# merge that can move nothing is not offered and says why. Fix: the PR of #361.
+[[bug]]
+issue = 361
+tests = [
+  "internal/extract:TestTellingsJoinAgentCommands",
+  "internal/extract:TestMergeIntoAgentCommands",
+  "internal/extract:TestStuckLink",
+  "internal/cli:TestReviewStuckLink",
+]
+
+# M2 eval run 5 (2026-10-09, R5-2): a new candidate gets the id of the newest one that a merge
+# deleted, so an old proposal and the review name an unrelated candidate. Migration 34 gives
+# candidates AUTOINCREMENT ids. Fix: the PR of #361.
+[[bug]]
+issue = 362
+tests = [
+  "internal/store:TestCandidateIDMigration",
+]
+
+# M2 eval run 5 (2026-10-09, R5-5): after an item edit, a restatement of its new text makes a
+# copy proposal: the claim of the item keeps its first key, so the extractor gives no same_as
+# link. Brain's own check finds the current text of the item. Fix: the PR of #361.
+[[bug]]
+issue = 364
+tests = [
+  "internal/extract:TestRestatedEditedItem",
+]
+
+# M2 eval run 5 (2026-10-09, R5-6): one-time requests become rules: a question asked twice, a
+# request that a tool runs, the same request in other words after its rejection, and a request
+# with the lesson word "always". Fix: the PR of #361.
+[[bug]]
+issue = 365
+tests = [
+  "internal/extract:TestToolCoversRequest",
+  "internal/extract:TestRejectedRequestInOtherWords",
+  "internal/extract:TestSameAsRejectedClaim",
+  "internal/extract:TestOneTimeRequests",
+  "internal/extract:TestPromptOneTimeRule",
+]
+
+# M2 eval run 5 (2026-10-09, R5-7): the agents run item 1's chain because the rule says so, and
+# each session makes a new claim of it that waits for review as a link to item 1's claim. A
+# claim of the agent's own commands that links to an active item is held by it. Fix: the PR of
+# #361.
+[[bug]]
+issue = 366
+tests = [
+  "internal/extract:TestAgentFollowsItem",
+]
