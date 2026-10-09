@@ -263,50 +263,60 @@ func TestCaptureCLINoise(t *testing.T) {
 }
 
 // #338, #341: the CLI screen text of the M2 eval run 3 (claude 2.1.294, codex 0.160.1), made
-// from the lines of its report, through Capture. No counted observation and no signal holds
-// it, and the real prompts next to it are user text and count, also a correction. Codex: the
-// exit text of an earlier session, read again at the start of the next one; tool output and a
-// reply line at column 0, also at the top of a read with its └ above the read; the question of
-// Codex after the prompt mark. Claude: the start placeholder under a no-break space and as the
-// last line of a read, and the fold line with a memory part.
+// from the lines of its report, through Capture. No user text observation and no prompt index
+// row holds it, and no signal starts at it. The real prompts next to it are user text and
+// count, also a correction and a quoted prompt. Codex: the exit text of an earlier session,
+// read again at the start of the next one; tool output and a reply line at column 0, also at
+// the top of a read with its └ above the read; the answer to a question of Codex, as the Codex
+// source draws it: the question view, then the quoted question and the answer. The question is
+// Codex text, and the answer is yours. Claude: the start placeholder under a no-break space and
+// the fold line with a memory part.
 func TestCaptureRun3Noise(t *testing.T) {
 	const (
 		foot   = "\n\n  gpt-6.1-sol high · ~/brain-eval/notes-api-t\n"
 		banner = "user@host notes-api-t % codex -m gpt-6.1-sol\n\n  >_ OpenAI Codex (v0.160.1)\n     ~/brain-eval/notes-api-t\n\n"
 		exit   = "• The pagination works.\n\nToken usage: total=49,572 input=45,120 (+ 210,304 cached) output=4,452 (reasoning 1,920)\n" +
 			"To continue this session, run: codex resume 01a11d03-5b1e-7c40-9d2a-4f0e8b6c1a22\n"
-		work = "› Reset the local db and run the tests.\n\n" +
+		question = "`data/db.json` is missing from this workspace. Where is the real database file?"
+		answer   = "  Create it from the seed with ./scripts/reset-db.sh, then measure."
+		work     = "› Reset the local db and run the tests.\n\n" +
 			"• Ran npm test\n  └ > notes-api@0.1.0 test\n    > node --test\n# todo 0\n# duration_ms 134.68\n\n" +
 			"• Ran git status --short\n  └  M src/routes/notes.js\n?? src/routes/\n\n" +
 			"• Ran ls data/db.json\n  └ (no output)\nls: data/db.json: No such file or directory\n\n" +
 			"• Ran npm start\n  └ > notes-api@0.1.0 start\nlistening on :3000\n^C\n\n" +
 			"• Ran lsof -i :3000\n  └ (no output)\nCOMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME\n\n" +
 			"• The tests pass. They use a\ntemporary store seeded from the checked-in data so they run reliably.\n\n" +
-			"› > `data/db.json` is missing from this workspace. Where is the real database file?\n\n" +
-			"• Ran ./scripts/reset-db.sh\n\n› no, use the seed in data/seed.json\n"
+			"• I need the database file to measure.\n\n"
+		view = "  " + question + "\n\n  Type your answer\n\n  enter submit   ⌃] skip   ⇧→ main prompt\n"
+		done = "› > " + question + "\n\n" + answer + "\n\n• Ran ./scripts/reset-db.sh\n\n" +
+			"› > No, use the seed in data/seed.json.\n  And keep the old db.\n"
 	)
 	nb := "\u00a0"
 	rule := strings.Repeat("─", 60)
 	logo := " ▐▛███▜▌   Claude Code v2.1.294\n▝▜█████▛▘  Opus 5.5 (1M context) · Claude Pro\n\n"
 	box := "  ◐ medium · /effort\n" + rule + "\n"
 	for _, tc := range []struct {
-		harness string
-		texts   []string
-		prompts []string
-		noise   []string
+		harness   string
+		texts     []string
+		prompts   []string
+		noise     []string
+		assistant string // a text that an observation of the assistant holds
 	}{
-		{"codex", []string{banner + foot, exit + banner + foot, exit + banner + work + foot,
+		{"codex", []string{banner + foot, exit + banner + foot, exit + banner + work + view + foot, exit + banner + work + done + foot,
 			// The └ of the npm test output is above the read.
 			"# todo 0\n# duration_ms 98.40\n\n• The tests pass again.\n\n› Run it again.\n" + foot},
-			[]string{"› Reset the local db and run the tests.", "› no, use the seed in data/seed.json", "› Run it again."},
+			[]string{"› Reset the local db and run the tests.", answer,
+				"› > No, use the seed in data/seed.json.\n  And keep the old db.", "› Run it again."},
 			[]string{"Token usage", "codex resume", "# todo", "duration_ms", "?? src/routes/", "No such file", "listening on",
-				"^C", "COMMAND", "temporary store", "is missing", "Where is the real database"}},
+				"^C", "COMMAND", "temporary store", "is missing", "Where is the real database"},
+			"› > " + question},
 		{"claude", []string{logo + "❯ Try \"edit <filepath> to...\"\n",
 			logo + box + "❯" + nb + "Try \"refactor store-errors.test.js\"\n" + rule + "\n  Opus 5.5 | effort:medium | ctx:0%/1M\n",
 			logo + "❯ Remember that the tests need the seed db, then run them.\n\n  Ran 2 shell commands, wrote 1 memory\n" +
 				"     > notes-api@0.1.0 test\n\n⏺ Saved it to memory, and the tests pass.\n\n" + box + "❯\n" + rule + "\n"},
 			[]string{"❯ Remember that the tests need the seed db, then run them."},
-			[]string{"Try \"", "wrote 1 memory", "notes-api@0.1.0 test"}},
+			[]string{"Try \"", "wrote 1 memory", "notes-api@0.1.0 test"},
+			"⏺ Saved it to memory"},
 	} {
 		t.Run(tc.harness, func(t *testing.T) {
 			k := newCapture(t, "s1", t.TempDir())
@@ -317,23 +327,30 @@ func TestCaptureRun3Noise(t *testing.T) {
 				k.must(t, Change, "w1:p1", "idle", GapNone)
 			}
 			r := k.rows(t)
-			var counted []string
-			for _, o := range r.obs {
-				if o.Sender == store.SenderUnconfirmed && o.Counts {
-					counted = append(counted, o.Excerpt)
-				}
-				for _, n := range tc.noise {
-					if o.Counts && o.Sender == store.SenderUnconfirmed && strings.Contains(o.Excerpt, n) {
-						t.Errorf("counted user text %q holds %q", o.Excerpt, n)
-					}
-				}
+			if excerpts, counted := r.prompts(); !slices.Equal(excerpts, tc.prompts) || counted != len(tc.prompts) {
+				t.Errorf("user text = %q (%d counted), want %q, each counted", excerpts, counted, tc.prompts)
 			}
-			if !slices.Equal(counted, tc.prompts) {
-				t.Errorf("counted user text = %q, want %q", counted, tc.prompts)
+			if !slices.ContainsFunc(r.obs, func(o store.Observation) bool {
+				return o.Sender == store.SenderAssistant && strings.Contains(o.Excerpt, tc.assistant)
+			}) {
+				t.Errorf("no assistant observation holds %q", tc.assistant)
+			}
+			var es []store.PromptEntry
+			k.tx(t, func(tx *sql.Tx) (err error) {
+				es, err = store.PromptEntries(context.Background(), tx)
+				return err
+			})
+			if len(es) != len(tc.prompts) {
+				t.Errorf("prompt index = %d rows, want %d", len(es), len(tc.prompts))
 			}
 			sigs, text := k.signals(t)
-			for _, sg := range sigs {
-				for _, n := range tc.noise {
+			for _, n := range tc.noise {
+				for _, e := range es {
+					if strings.Contains(e.Text, n) {
+						t.Errorf("prompt index row %q holds %q", e.Text, n)
+					}
+				}
+				for _, sg := range sigs {
 					if sg.Kind != signal.Failure && strings.Contains(text[sg.Observations[0]], n) {
 						t.Errorf("%s signal starts at %q", sg.Kind, text[sg.Observations[0]])
 					}
@@ -343,16 +360,16 @@ func TestCaptureRun3Noise(t *testing.T) {
 	}
 }
 
-// #338: Codex shows a sent prompt again, cut to one line that ends with "…". In a new turn the
-// cut copy is the last prompt of the read, but it is still a copy: one occurrence. A prompt
-// that you send again with the same text, also one that ends with "…", is a new occurrence.
+// #338: Codex shows a long prompt again as its first line and "…" (testdata/codex-i278-2-
+// blocked.txt). In a new turn the cut copy is the last prompt of the read, but it is still a
+// copy: one occurrence. A short prompt that ends with "…" is a new send, also when it is the
+// start of a known prompt, and a prompt sent again with the same text is a new occurrence.
 func TestCapturePromptCut(t *testing.T) {
 	const (
-		long = "› Let's release version 0.4.0. Steps, in this order: bump the version in package.json, then add the 0.4.0 " +
-			"section to CHANGELOG.md, then commit, then tag v0.4.0."
-		cut = "› Let's release version 0.4.0. Steps, in this order: bump the version in package.json, then add the 0.4.0 " +
-			"section to CHANGELOG…"
-		wait = "› Wait…"
+		long = "› Let's release version 0.4.0. Steps, in this order: bump the version in package.json, add the CHANGELOG\n" +
+			"  section, then commit, then tag v0.4.0."
+		cut  = "› Let's release version 0.4.0. Steps, in this order: bump the version in package.json, add the CHANGELOG…"
+		wait = "› Let's release…"
 		foot = "\n\n  gpt-6.1-sol high · ~/work/notes-api\n"
 	)
 	k := newCapture(t, "s1", t.TempDir())
@@ -377,11 +394,13 @@ func TestCapturePromptCut(t *testing.T) {
 }
 
 // #278 review: a prompt in a new turn that is only the start of an earlier prompt is a new
-// send. An unknown status in a turn starts no turn, so a repaint after it is still a copy.
+// send, also when it ends with "…" (#338 review). An unknown status in a turn starts no turn, so
+// a repaint after it is still a copy.
 func TestCapturePromptTurns(t *testing.T) {
 	const (
 		long  = "› Run the tests and the build, and tell me what fails."
 		short = "› Run the tests"
+		cut   = "› Run the tests…"
 		foot  = "\n\n  GPT-6.1-Sol high · ~/work/notes-api\n"
 	)
 	k := newCapture(t, "s1", t.TempDir())
@@ -392,13 +411,15 @@ func TestCapturePromptTurns(t *testing.T) {
 		"• All passed.\n"+short+"\n\n• Working (1s • esc to interrupt)"+foot,
 		"• All passed.\n"+short+"\n\n• Working (3s • esc to interrupt)"+foot,
 		// Codex draws the screen again in the same turn, after an unknown status.
-		"  >_ OpenAI Codex (v0.160.1)\n"+short+"\n\n• Ran npm test"+foot)
+		"  >_ OpenAI Codex (v0.160.1)\n"+short+"\n\n• Ran npm test"+foot,
+		"  >_ OpenAI Codex (v0.160.1)\n"+short+"\n\n• Ran npm test\n\n• All passed."+foot,
+		"• All passed.\n"+cut+"\n\n• Working (1s • esc to interrupt)"+foot)
 	k.must(t, Baseline, "w1:p1", "", GapNone)
-	for _, st := range []string{"working", "idle", "working", "unknown", "working"} {
+	for _, st := range []string{"working", "idle", "working", "unknown", "working", "idle", "working"} {
 		k.must(t, Change, "w1:p1", st, GapNone)
 	}
 	excerpts, counted := k.rows(t).prompts()
-	if !slices.Equal(excerpts, []string{long, short}) || counted != 2 {
+	if !slices.Equal(excerpts, []string{long, short, cut}) || counted != 3 {
 		t.Errorf("user text = %q (%d counted), want each prompt once", excerpts, counted)
 	}
 }

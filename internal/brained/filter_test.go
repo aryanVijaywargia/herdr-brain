@@ -175,8 +175,9 @@ func TestCaptureBlockAcrossReads(t *testing.T) {
 
 // A line at column 0 with no mark starts a block with no known sender; an indented line
 // continues the block above it. Codex draws each prompt with its mark, so there a line at
-// column 0 with no mark continues the block above it too (#338), and the quote of a Codex
-// question after the prompt mark is Codex text (#341).
+// column 0 with no mark continues the block above it too (#338). A quote after the prompt mark
+// keeps the sender of a prompt: only capture tells a quoted Codex question by the earlier
+// reads (#341).
 func TestSenders(t *testing.T) {
 	const (
 		u = store.SenderUnconfirmed
@@ -192,7 +193,7 @@ func TestSenders(t *testing.T) {
 			[]store.Sender{u, a, a, o, o, u, u, u}},
 		{"codex", []string{"top", "  top", "• reply", "wrapped reply", "  └ out", "?? src/routes/", "    more out", "› prompt",
 			"› > Where is the db?", "  Use the seed.", "› Run the tests."},
-			[]store.Sender{u, u, a, a, o, o, o, u, a, a, u}},
+			[]store.Sender{u, u, a, a, o, o, o, u, u, u, u}},
 		{"gemini", []string{"  top", "• reply"}, []store.Sender{u, u}},
 	} {
 		if got := senders(tc.harness, tc.lines); !slices.Equal(got, tc.want) {
