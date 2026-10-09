@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"slices"
 	"testing"
 	"time"
 )
@@ -91,6 +93,56 @@ func TestHookRecordsForget(t *testing.T) {
 		}
 		if len(obs) != 0 || len(cmds) != 0 {
 			t.Errorf("after the forget: %+v, %+v, want nothing", obs, cmds)
+		}
+		return nil
+	})
+}
+
+// #349: HookPrompts gives the prompt records of one session: no pane row, no tool or stop
+// record, no Brain-origin text and no record of another session.
+func TestHookPrompts(t *testing.T) {
+	ctx := context.Background()
+	s := openM1(t)
+	write(t, s, func(tx *sql.Tx) error {
+		var segs []int64
+		var ids []int64
+		for _, k := range []string{"cap-1", "cap-2"} {
+			id, err := OpenSession(ctx, tx, SessionKey{HerdrSession: "default", Harness: "codex", Kind: KeyCapture, ID: k}, "w1:p1", "", testNow)
+			if err != nil {
+				return err
+			}
+			seg, err := StartSegment(ctx, tx, id, "w1:p1", "", "recent_unwrapped", testNow)
+			if err != nil {
+				return err
+			}
+			ids, segs = append(ids, id), append(segs, seg)
+		}
+		var want []int64
+		for i, o := range []Observation{
+			{Source: SourceHook, SegmentID: segs[0], Event: "prompt", Excerpt: "fix the bug", Sender: SenderUnconfirmed},
+			{Source: SourceHerdr, SegmentID: segs[0], Event: "working", Excerpt: "› fix the bug", Sender: SenderUnconfirmed},
+			{Source: SourceHook, SegmentID: segs[0], Event: "tool", Excerpt: "npm test", Sender: SenderTool},
+			{Source: SourceHook, SegmentID: segs[0], Event: "stop", Excerpt: "Fixed.", Sender: SenderAssistant},
+			{Source: SourceHook, SegmentID: segs[0], Event: "prompt", Excerpt: "a brief", Sender: SenderUnconfirmed, BrainOrigin: true},
+			{Source: SourceHook, SegmentID: segs[1], Event: "prompt", Excerpt: "other session", Sender: SenderUnconfirmed},
+			{Source: SourceHook, SegmentID: segs[0], Event: "prompt", Excerpt: "run the tests", Sender: SenderUnconfirmed, Truncated: true},
+		} {
+			o.CaptureIdentity, o.Status, o.Counts, o.At = fmt.Sprint(i), ObservationComplete, true, testNow
+			id, err := AddObservation(ctx, tx, o)
+			if err != nil {
+				return err
+			}
+			if o.Source == SourceHook && o.SegmentID == segs[0] && o.Event == "prompt" && !o.BrainOrigin {
+				want = append(want, id)
+			}
+		}
+		ps, err := HookPrompts(ctx, tx, ids[0])
+		var got []int64
+		for _, p := range ps {
+			got = append(got, p.ID)
+		}
+		if err != nil || !slices.Equal(got, want) || !ps[1].Truncated || ps[0].Excerpt != "fix the bug" {
+			t.Errorf("HookPrompts = %+v, %v, want the rows %v", ps, err, want)
 		}
 		return nil
 	})

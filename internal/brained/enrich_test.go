@@ -11,26 +11,30 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// hookRecord stores a hook record of pane w1:p1 in binding s1 as `brain hook` does: one
-// observation in the open segment, then the S35 match. It returns the observation id.
+// hookRecord stores a hook record of the agent of pane w1:p1 in binding s1 as `brain hook`
+// does: one observation in the open segment, then the S35 match. It returns the observation
+// id.
 func (k *capHarness) hookRecord(t *testing.T, event string, sender store.Sender, text string, at time.Time) int64 {
 	t.Helper()
 	ctx := context.Background()
+	k.f.mu.Lock()
+	agent := k.f.panes["w1:p1"].agent
+	k.f.mu.Unlock()
 	var id int64
 	k.tx(t, func(tx *sql.Tx) error {
-		session, segment, err := store.HookSegment(ctx, tx, "s1", "claude", "w1:p1", "")
+		session, segment, err := store.HookSegment(ctx, tx, "s1", agent, "w1:p1", "")
 		if err != nil || segment == 0 {
 			return fmt.Errorf("no open segment: %w", err)
 		}
 		o := store.Observation{CaptureIdentity: fmt.Sprintf("s1/%d/hook/%s/%s", segment, event, at.Format(time.RFC3339Nano)),
 			Source: store.SourceHook, SegmentID: segment, Event: event, Status: store.ObservationComplete,
 			Sender: sender, Counts: true, At: at}
-		o.Excerpt, o.Truncated, o.BrainOrigin = HookText("claude", text)
+		o.Excerpt, o.Truncated, o.BrainOrigin = HookText(agent, text)
 		if o.ID, err = store.AddObservation(ctx, tx, o); err != nil {
 			return err
 		}
 		id = o.ID
-		return Match(ctx, tx, "claude", session, o)
+		return Match(ctx, tx, agent, session, o)
 	})
 	return id
 }

@@ -240,10 +240,20 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 	added, status := newPart(cp.lines, cp.back, r)
 	ps, open := parts(r, added, cp.open)
 	cp.step(s)
-	ps = cp.quotes(r, ps)
-	ps, fresh := cp.copies(r, added, ps)
 	cp.reserved = nil
+	var fresh []sent
 	err = c.write(ctx, s, func(tx *sql.Tx, now time.Time, learning Learning) error {
+		// The prompt hook records of the session are prompts that the CLI sent: the pane shows
+		// them again too (#349).
+		var hooks []hookPrompt
+		if cp.session != 0 && slices.ContainsFunc(ps, func(p part) bool { return p.sender == store.SenderUnconfirmed && !p.brain }) {
+			var err error
+			if hooks, err = hookPrompts(ctx, tx, cp.session); err != nil {
+				return err
+			}
+		}
+		ps = cp.quotes(r, ps, hooks)
+		ps, fresh = cp.copies(r, added, ps, hooks)
 		if learning.On && cp.session != 0 {
 			// The read is no base of a new segment either when a forget ran since the baseline.
 			if err := store.CheckGeneration(ctx, tx, cp.session, cp.gen); err != nil {
@@ -281,12 +291,22 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 		}
 		for i, p := range ps {
 			if p.unsure && inMarks[cp.agent] {
-				continue // the head of a Codex read holds no prompt: tool output or a reply (#338)
+				// A Codex part whose sender is not known holds no prompt: tool output or a reply at
+				// the head of the read (#338), under an old prompt line (#353) or under a cut
+				// copy (#349).
+				continue
 			}
 			excerpt, truncated := filter(strings.Join(p.lines, "\n"))
 			o := store.Observation{CaptureIdentity: fmt.Sprintf("%s/%d", identity(s, cp.segment, now), i+1),
 				Source: store.SourceHerdr, SegmentID: cp.segment, Event: eventOf(s), Excerpt: excerpt, Truncated: truncated,
 				Status: status, Sender: p.sender, Counts: true, BrainOrigin: p.brain, At: now}
+			copied, err := hookCopy(ctx, tx, cp, p, o, hooks)
+			if err != nil {
+				return err
+			}
+			if copied {
+				continue // a copy of a sent prompt: its hook record holds the occurrence (#349)
+			}
 			if status == store.ObservationPartial {
 				// A partial read does not start inside the old text, so a text that the segment
 				// holds can be old text shown again: Brain cannot tell a replay from new
@@ -353,13 +373,13 @@ func busy(status string) bool {
 // copy is a new send only when it is the last prompt of the read and a new turn started since,
 // or it has the same text and the read shows the known one too, above it (S40). In a new turn
 // the last prompt is the prompt of the turn, also when it is only the start of a known one,
-// unless it is cut: one line that ends with "…" and holds at least the first line of a known
-// prompt of more lines. Codex shows a long prompt again as its first line and "…", and a
-// prompt that you send is shown in full (#338, testdata/codex-i278-2-blocked.txt). A part with
-// no prompt mark and the sender of a prompt, as the wrapped end of a prompt, is dropped when
-// all its lines are text of a known prompt. copies returns the parts that stay and the
-// prompts that they send.
-func (cp *capturePane) copies(r read, added []int, ps []part) ([]part, []sent) {
+// unless its first line is cut (cp.cut): Codex shows a long prompt again as its first line and
+// "…", and a prompt that you send is shown in full (#338, testdata/codex-i278-2-blocked.txt).
+// A cut copy is one line, so the lines under it are lines of the next block, whose mark the
+// read does not show: their sender is not known (#349). A part with no prompt mark and the
+// sender of a prompt, as the wrapped end of a prompt, is dropped when all its lines are text of
+// a known prompt. copies returns the parts that stay and the prompts that they send.
+func (cp *capturePane) copies(r read, added []int, ps []part, hooks []hookPrompt) ([]part, []sent) {
 	last := -1
 	for i, l := range r.lines {
 		if _, ok := promptLine(r.agent, l); ok {
@@ -380,16 +400,19 @@ func (cp *capturePane) copies(r read, added []int, ps []part) ([]part, []sent) {
 			}
 			continue
 		}
+		if cp.cut(r.agent, p.lines[0], hooks) {
+			if len(p.lines) > 1 {
+				kept = append(kept, part{sender: p.sender, lines: p.lines[1:], brain: p.brain, at: p.at + 1, unsure: true})
+			}
+			continue
+		}
 		var known []sent
 		for _, s := range cp.sent {
 			if k.copyOf(s) {
 				known = append(known, s)
 			}
 		}
-		cut := len(p.lines) == 1 && strings.HasSuffix(p.lines[0], "…") && slices.ContainsFunc(known, func(s sent) bool {
-			return s.first != s.text && len(k.text) >= len(s.first) && len(k.text) < len(s.text)
-		})
-		again := p.at == last && !p.unsure && !cut &&
+		again := p.at == last && !p.unsure &&
 			(!slices.ContainsFunc(known, func(s sent) bool { return s.turn == cp.turn }) ||
 				slices.ContainsFunc(known, func(s sent) bool { return s.text == k.text }) && shownAbove(r, added, k, p.at))
 		if len(known) == 0 || again {
@@ -400,13 +423,29 @@ func (cp *capturePane) copies(r read, added []int, ps []part) ([]part, []sent) {
 	return kept, fresh
 }
 
+// cut reports whether prompt line l of harness is a cut copy of a known prompt: it ends with
+// "…" and holds at least the first line of a known prompt of more lines (#338), or a start of
+// the text of a prompt hook record (#349). A short prompt that ends with "…" is a new send.
+func (cp *capturePane) cut(harness, l string, hooks []hookPrompt) bool {
+	if !strings.HasSuffix(l, "…") {
+		return false
+	}
+	k := keyOf(harness, part{lines: []string{l}})
+	return slices.ContainsFunc(cp.sent, func(s sent) bool {
+		return k.copyOf(s) && s.first != s.text && len(k.text) >= len(s.first) && len(k.text) < len(s.text)
+	}) || slices.ContainsFunc(hooks, func(h hookPrompt) bool { return len(k.text) < len(h.text) && h.shows(k.text) })
+}
+
 // quotes splits a Codex prompt part of ps that starts with a quote of text that the last reads
 // showed, outside a prompt line: Codex shows your answer to its question as the quoted question
 // and the answer, and its question was on the screen before, in its question view (#341). The
 // quote, with the next lines while their text goes on in the shown text, is Codex text; the
-// lines after it are yours. A quote of text that the reads did not show is your prompt, and it
-// stays. [NEW: the Codex source, tui/src/async_question_reply.rs and the question views]
-func (cp *capturePane) quotes(r read, ps []part) []part {
+// lines after it are yours. At a later read the question view is gone, and Codex may show the
+// quote and the answer again: then the quote ends where the rest of the part shows a prompt
+// hook record, the answer that Codex sent (#349). A quote of text that the reads did not show
+// is your prompt, and it stays. [NEW: the Codex source, tui/src/async_question_reply.rs and the
+// question views]
+func (cp *capturePane) quotes(r read, ps []part, hooks []hookPrompt) []part {
 	if !inMarks[r.agent] {
 		return ps
 	}
@@ -420,14 +459,21 @@ func (cp *capturePane) quotes(r read, ps []part) []part {
 	for _, p := range ps {
 		q, ok := strings.CutPrefix(p.lines[0], quoteMark)
 		quote := strings.TrimSuffix(squash(q), "…")
-		if !ok || p.sender != store.SenderUnconfirmed || quote == "" || !strings.Contains(shown.String(), quote) {
+		n := 0
+		switch {
+		case !ok || p.sender != store.SenderUnconfirmed || quote == "":
+		case strings.Contains(shown.String(), quote):
+			n = 1
+			for n < len(p.lines) && strings.Contains(shown.String(), quote+squash(p.lines[n])) {
+				quote += squash(p.lines[n])
+				n++
+			}
+		default:
+			n = answered(p.lines, hooks)
+		}
+		if n == 0 {
 			out = append(out, p)
 			continue
-		}
-		n := 1
-		for n < len(p.lines) && strings.Contains(shown.String(), quote+squash(p.lines[n])) {
-			quote += squash(p.lines[n])
-			n++
 		}
 		out = append(out, part{sender: store.SenderAssistant, lines: p.lines[:n], brain: p.brain, at: p.at, unsure: p.unsure})
 		if n < len(p.lines) {
@@ -435,6 +481,62 @@ func (cp *capturePane) quotes(r read, ps []part) []part {
 		}
 	}
 	return out
+}
+
+// answered returns the first line of lines, after the first one, from which the lines show a
+// prompt hook record of hooks, or 0 when none does.
+func answered(lines []string, hooks []hookPrompt) int {
+	for n := 1; n < len(lines); n++ {
+		text := keyOf("", part{lines: lines[n:]}).text
+		if slices.ContainsFunc(hooks, func(h hookPrompt) bool { return h.shows(text) }) {
+			return n
+		}
+	}
+	return 0
+}
+
+// hookPrompt is a prompt hook record of the session: the text of its excerpt, as promptKey
+// takes it, and whether the excerpt limit cut it (#349).
+type hookPrompt struct {
+	text      string
+	truncated bool
+}
+
+// shows reports whether pane prompt text, as promptKey takes it, shows hook prompt h: the text
+// of h or a start of it, or the cut excerpt of h at its start.
+func (h hookPrompt) shows(text string) bool {
+	return text != "" && (strings.HasPrefix(h.text, text) || h.truncated && strings.HasPrefix(text, h.text))
+}
+
+// hookPrompts returns the prompt hook records of session.
+func hookPrompts(ctx context.Context, tx *sql.Tx, session int64) ([]hookPrompt, error) {
+	obs, err := store.HookPrompts(ctx, tx, session)
+	if err != nil {
+		return nil, err
+	}
+	hs := make([]hookPrompt, len(obs))
+	for i, o := range obs {
+		hs[i] = hookPrompt{keyOf("", part{lines: strings.Split(o.Excerpt, "\n")}).text, o.Truncated}
+	}
+	return hs, nil
+}
+
+// hookCopy reports whether prompt part p, to be stored as observation o of the session of cp,
+// shows a prompt hook record of hooks again: one send is one occurrence (§6.4, #349). The
+// first read of a sent prompt is the pane counterpart of its hook record (S35), and it stays.
+// Any other read that shows the text of a hook record, or a start of it, is a copy: a repaint,
+// a cut copy, or the prompt after the read at its send failed, when its hook record counts
+// alone. A prompt that you send again has a hook record of its own.
+func hookCopy(ctx context.Context, tx *sql.Tx, cp *capturePane, p part, o store.Observation, hooks []hookPrompt) (bool, error) {
+	if p.sender != store.SenderUnconfirmed || p.brain || p.unsure {
+		return false, nil
+	}
+	text := keyOf(cp.agent, p).text
+	if !slices.ContainsFunc(hooks, func(h hookPrompt) bool { return h.shows(text) }) {
+		return false, nil
+	}
+	c, err := counterpart(ctx, tx, cp.agent, cp.session, o)
+	return c == 0, err
 }
 
 // shownAbove reports whether a line of r above at, one that the last read holds too, starts

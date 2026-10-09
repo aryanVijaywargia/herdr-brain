@@ -198,6 +198,11 @@ func (f *fakeHerdr) answer(conn net.Conn) {
 	}
 	reply := f.reply(req.Method, pane, req.Params.Source, req.Params.Lines, req.Params.Subscriptions)
 	f.mu.Unlock()
+	if reply == readFails {
+		_, _ = io.WriteString(conn, `{"id":"brain","error":{"code":"internal_error","message":"read failed"}}`+"\n")
+		_ = conn.Close()
+		return
+	}
 	if reply == "" {
 		_, _ = io.WriteString(conn, `{"id":"brain","error":{"code":"pane_not_found","message":"no pane"}}`+"\n")
 		_ = conn.Close()
@@ -266,6 +271,9 @@ func (f *fakeHerdr) reply(method, paneID, source string, lines int, subs []herdr
 	return reply
 }
 
+// readFails is a queued read that herdr answers with an error other than pane_not_found.
+const readFails = "\x00read fails"
+
 // read answers pane.read of pane id from its next recorded read; the last one repeats. It
 // runs onRead after the read, as a change that comes while the read is pending.
 func (f *fakeHerdr) read(id, source string, lines int) string {
@@ -277,6 +285,9 @@ func (f *fakeHerdr) read(id, source string, lines int) string {
 	text := rs[0]
 	if len(rs) > 1 {
 		f.reads[id] = rs[1:]
+	}
+	if text == readFails {
+		return readFails
 	}
 	if lines > 0 {
 		ls := strings.Split(strings.TrimRight(text, "\n"), "\n")
