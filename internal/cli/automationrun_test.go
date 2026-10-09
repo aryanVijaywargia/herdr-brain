@@ -162,17 +162,20 @@ func TestLaunchRun(t *testing.T) {
 	}
 }
 
-// AC S51: a failure shows in status and on the pane label.
+// AC S51: a failure shows in status and on the pane label. The run record and the status line
+// name the failed step and its exit code as brain run prints them, with no output of the tool
+// (#352).
 func TestLaunchFailed(t *testing.T) {
 	f := newAutomationFixture(t)
-	id := f.boundArgv(t, `argv = ["/bin/sh", "-c", "exit 3"]`)
+	id := f.boundArgv(t, `steps = [["/usr/bin/true"], ["/bin/sh", "-c", "echo out-text; echo err-text >&2; exit 3"]]`)
 	run := f.claimRun(t, id, "k")
 	h := &fakeRunHerdr{}
 	if err := f.launch(context.Background(), f.launchEnv(h), run, nil); err == nil {
 		t.Error("launch of a failing tool = nil, want its failure")
 	}
-	if r := f.run(t, run); r.Result != store.RunFailed {
-		t.Errorf("run = %+v, want failed", r)
+	const cause = "step 2: /bin/sh: exit status 3"
+	if r := f.run(t, run); r.Result != store.RunFailed || r.Cause != cause {
+		t.Errorf("run = %+v, want failed with the cause %q", r, cause)
 	}
 	if got := h.seen(); len(got) != 2 || got[1] != "w14:p1 touch-ran failed" {
 		t.Errorf("labels = %q, want touch-ran failed last", got)
@@ -181,8 +184,12 @@ func TestLaunchFailed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := fmt.Sprintf("  last run failed: automation %d (%s): run %d of pane w14:p1", id, f.dir, run); !strings.Contains(out, want) {
-		t.Errorf("status = %q, want %q", out, want)
+	want := fmt.Sprintf("  last run failed: automation %d (%s): run %d of pane w14:p1, claimed ", id, f.dir, run)
+	if !strings.Contains(out, want) || !strings.Contains(out, "; "+cause+"\n") {
+		t.Errorf("status = %q, want %q with the cause %q", out, want, cause)
+	}
+	if strings.Contains(out, "out-text") || strings.Contains(out, "err-text") {
+		t.Errorf("status = %q, want no output of the tool", out)
 	}
 }
 

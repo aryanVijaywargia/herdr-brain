@@ -57,6 +57,9 @@ type ToolResult struct {
 	CallID   int64 // the tool_calls row
 	ExitCode int
 	Duration time.Duration
+	// Step is the failed step and its exit code as tool.Run.Exec gives it ("step 2: npm: exit
+	// status 1"), and "" when the run did not fail. It holds no output of the tool.
+	Step string
 }
 
 // Run runs `brain run <tool> [--<input> <value>]` (E17-S4, §10.1) in the agent's shell. It
@@ -214,6 +217,7 @@ func execTool(ctx context.Context, s *store.Store, run tool.Run, call store.Tool
 	}
 	res := ToolResult{CallID: id, ExitCode: code, Duration: call.Duration}
 	if runErr != nil {
+		res.Step = runErr.Error()
 		return res, fmt.Errorf("tool %s: %w (exit code %d)", name, runErr, code)
 	}
 	return res, nil

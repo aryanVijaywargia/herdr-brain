@@ -37,6 +37,8 @@ func ItemTextFields() []Field {
 		{"tools", "effects"},
 		// The pinned folder of an automation binding (§10.4, E17-S10).
 		{"automations", "folder"},
+		// The cause of a failed automation run names a program of the tool contract (#352).
+		{"automation_runs", "cause"},
 	}
 }
 

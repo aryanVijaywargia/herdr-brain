@@ -50,6 +50,8 @@ var itemRows = map[string]string{
 	"prompt_index": promptRowsOfItem,
 	"tools":        `id = ?1`,
 	"automations":  `id = ?1`,
+	// The runs of the automation item, and of each automation of the tool item.
+	"automation_runs": `automation_id = ?1 OR automation_id IN (SELECT id FROM automations WHERE tool_id = ?1)`,
 }
 
 // promptRowsOfItem is the WHERE clause of the prompt index rows that link a proposal of item ?1.
@@ -66,6 +68,7 @@ var blanks = map[Field]string{
 	{"applied_edits", "content_after"}:  `NULL`,
 	{"claims", "situation"}:             `NULL`,
 	{"claims", "rule"}:                  `NULL`,
+	{"automation_runs", "cause"}:        `NULL`,
 }
 
 // sideRows is the WHERE clause of the applied edits whose content field held item ?1: the

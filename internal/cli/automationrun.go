@@ -97,21 +97,25 @@ func (ln launcher) run(ctx context.Context, l brained.Launch) (err error) {
 		a, name, why = ln.mark(ctx, st, l, r)
 	}
 	if why != nil {
-		_, _, err := ln.finish(ctx, st, r.ID, store.RunSkipped)
+		_, _, err := ln.finish(ctx, st, r.ID, store.RunSkipped, "")
 		return errors.Join(fmt.Errorf("run %d of automation %d skipped: %w", r.ID, r.AutomationID, why), err)
 	}
 	labelErr := ln.label(ctx, b, r.PaneID, name, store.RunUnknown)
 	e := ln.Env
 	e.Environ = append(e.Environ[:len(e.Environ):len(e.Environ)], originEnv+"="+string(store.OriginAutomation))
-	_, runErr := RunTool(ctx, e, ToolRun{PaneID: r.PaneID, WorkspaceID: r.WorkspaceID, Origin: store.OriginAutomation,
+	res, runErr := RunTool(ctx, e, ToolRun{PaneID: r.PaneID, WorkspaceID: r.WorkspaceID, Origin: store.OriginAutomation,
 		Tool: name, ToolID: a.ToolID, ContractHash: a.ContractHash, Stdout: io.Discard, Stderr: io.Discard})
-	result := store.RunOK
+	result, cause := store.RunOK, ""
 	if runErr != nil {
-		result = store.RunFailed
+		// The failed step, or the refusal of the call when no step ran (#352).
+		result, cause = store.RunFailed, res.Step
+		if cause == "" {
+			cause = runErr.Error()
+		}
 	}
 	// A cancel ends ctx, and the run still writes its end.
 	ctx = context.WithoutCancel(ctx)
-	final, newest, err := ln.finish(ctx, st, r.ID, result)
+	final, newest, err := ln.finish(ctx, st, r.ID, result, cause)
 	if err == nil && newest {
 		labelErr = errors.Join(labelErr, ln.label(ctx, b, r.PaneID, name, final))
 	}
@@ -186,13 +190,13 @@ func (ln launcher) mark(ctx context.Context, st *store.Store, l brained.Launch, 
 	return a, name, err
 }
 
-// finish writes result to run id when it has not ended, and returns the result that the row
+// finish writes result and its cause to run id when it has not ended, and returns the result that the row
 // holds then: a cancel that came first keeps cancelled. newest says whether the run is the
 // newest launched run of its automation: an older run that ends later does not hide the
 // result of a newer one.
-func (ln launcher) finish(ctx context.Context, st *store.Store, id int64, result store.RunResult) (final store.RunResult, newest bool, err error) {
+func (ln launcher) finish(ctx context.Context, st *store.Store, id int64, result store.RunResult, cause string) (final store.RunResult, newest bool, err error) {
 	err = st.Write(ctx, func(tx *sql.Tx) error {
-		if _, err := store.FinishRun(ctx, tx, id, result, ln.Now().UTC()); err != nil {
+		if _, err := store.FinishRun(ctx, tx, id, result, cause, ln.Now().UTC()); err != nil {
 			return err
 		}
 		r, err := store.AutomationRunByID(ctx, tx, id)
