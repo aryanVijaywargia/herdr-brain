@@ -172,8 +172,9 @@ type gatedTool struct {
 // sessions (§7.2). A failed chain and the chain of one session stay as evidence. At the gate
 // the candidate gets one tool draft (exactDraft), after the queue checks of proposeBinding: the
 // daily proposal cap, in round robin order of the workspaces (§7.3). A chain of minScript or more
-// commands gets a script proposal too (proposeScript): the review offers both, and you pick one. A chain that the extractor
-// made a skill of needs judgment (§10.3): it gives no tool draft.
+// commands gets a script proposal too (proposeScript): the review offers both, and you pick one;
+// they count as one proposal (#355). A chain that the extractor made a skill of needs judgment
+// (§10.3): it gives no tool draft.
 func (p Pass) exactTools(ctx context.Context, tx *sql.Tx) error {
 	ins, err := store.SignalInputs(ctx, tx)
 	if err != nil {
@@ -211,19 +212,17 @@ func (p Pass) exactTools(ctx context.Context, tx *sql.Tx) error {
 }
 
 // proposeGated makes the tool drafts and the scripts of gated, in round robin order of the
-// workspaces, while the daily proposal cap has room (§7.3).
+// workspaces, while the daily proposal cap has room for one proposal (§7.3): a tool draft and
+// its script count as one (#355), so the review offers both at once and you pick one (E17-S8).
 func (p Pass) proposeGated(ctx context.Context, tx *sql.Tx, gated []gatedTool) error {
 	last, err := store.LastCalls(ctx, tx)
 	if err != nil {
 		return err
 	}
 	for _, g := range roundRobin(gated, func(g gatedTool) string { return g.key }, last) {
-		room, err := p.room(ctx, tx, g)
-		switch {
-		case err != nil:
+		d, err := p.Day(ctx, tx)
+		if err != nil || d.Proposals >= d.Caps.Proposals {
 			return err
-		case !room:
-			continue // a chain that needs one proposal can still fit
 		}
 		if _, err := proposeTool(ctx, tx, g.id, g.text, ExactBenefit, p.Now()); err != nil &&
 			!errors.Is(err, errNoDraft) {
@@ -232,39 +231,11 @@ func (p Pass) proposeGated(ctx context.Context, tx *sql.Tx, gated []gatedTool) e
 		if g.script == "" {
 			continue
 		}
-		if d, err := p.Day(ctx, tx); err != nil || d.Proposals >= d.Caps.Proposals {
-			return err
-		}
 		if err := proposeScript(ctx, tx, g.id, g.script, p.Now()); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// room reports whether the daily proposal cap has room for the proposals of g now: a new tool
-// draft with its script needs room for both, so the review offers both at once and you pick
-// one (E17-S8). A cap of one proposal fits one: the script then comes on a later day.
-func (p Pass) room(ctx context.Context, tx *sql.Tx, g gatedTool) (bool, error) {
-	d, err := p.Day(ctx, tx)
-	if err != nil {
-		return false, err
-	}
-	need := 1
-	if g.script != "" {
-		offered, err := store.ScriptOffered(ctx, tx, g.id)
-		if err != nil {
-			return false, err
-		}
-		draft, err := toolDraftOf(ctx, tx, g.id)
-		if err != nil {
-			return false, err
-		}
-		if !offered && draft == 0 {
-			need = min(2, d.Caps.Proposals)
-		}
-	}
-	return d.Proposals+need <= d.Caps.Proposals, nil
 }
 
 // exactChain attaches chain s to the candidate of its exact commands, and returns the

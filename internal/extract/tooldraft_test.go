@@ -706,8 +706,8 @@ func TestNoDuplicateTool(t *testing.T) {
 		{"pending", yourTool{"ws-A", "reset-and-test", shop, true, [][]string{reset, test}}, noClaims, 0},
 		{"rerun in the tool", yourTool{"ws-A", "reset-db-sh", shop, false, [][]string{reset, test, test}}, noClaims, 0},
 		{"extractor draft", yourTool{"ws-A", "reset-and-test", shop, false, [][]string{reset, test}}, model, 0},
-		{"other folder", yourTool{"ws-A", "reset-and-test", "/src/blog", false, [][]string{reset, test}}, noClaims, 2},
-		{"other workspace", yourTool{"ws-B", "reset-and-test", shop, false, [][]string{reset, test}}, noClaims, 2},
+		{"other folder", yourTool{"ws-A", "reset-and-test", "/src/blog", false, [][]string{reset, test}}, noClaims, 1},
+		{"other workspace", yourTool{"ws-B", "reset-and-test", shop, false, [][]string{reset, test}}, noClaims, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
@@ -726,7 +726,7 @@ func TestNoDuplicateTool(t *testing.T) {
 				d, err = f.pass().Day(ctx, tx)
 				return err
 			})
-			// A new tool draft comes with its script proposal.
+			// A new tool draft comes with its script proposal: they count as one (#355).
 			if d.Proposals != tc.proposals {
 				t.Errorf("proposals of the day = %d, want %d", d.Proposals, tc.proposals)
 			}

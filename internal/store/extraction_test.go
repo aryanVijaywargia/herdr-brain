@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"testing"
@@ -54,5 +55,58 @@ func TestLastWorkedCall(t *testing.T) {
 	})
 	if at := last(); !at.Equal(testNow.Add(time.Minute)) {
 		t.Errorf("LastWorkedCall() = %v, want the committed batch at %v", at, testNow.Add(time.Minute))
+	}
+}
+
+// AC #355: the daily proposal count takes a tool draft and the script proposal beside it as one
+// proposal, and each other proposal from a candidate as before. Your own proposal, with no
+// candidate, and a proposal before since do not count.
+func TestExtractorProposalsSince(t *testing.T) {
+	e := newEvidenceStore(t)
+	ctx := context.Background()
+	chain := e.mustAttach(t, Candidate{ClaimID: e.claim(t, "make it a brain tool"), Scope: ScopeWorkspace,
+		WorkspaceKey: "shop", Kind: CandidateCorrection}, e.observe(t, "claude", "a1", "shop", SenderUnconfirmed, testNow))
+	rule := e.mustAttach(t, Candidate{ClaimID: e.claim(t, "use pnpm"), Scope: ScopeWorkspace,
+		WorkspaceKey: "shop", Kind: CandidateCorrection}, e.observe(t, "claude", "a2", "shop", SenderUnconfirmed, testNow))
+	write(t, e.Store, func(tx *sql.Tx) error {
+		key := "shop"
+		if err := InsertWorkspace(ctx, tx, Workspace{Key: key, HerdrSession: "default", HerdrWorkspaceID: "w1",
+			Label: key, Status: WorkspaceLive, LastSeen: testNow}); err != nil {
+			return err
+		}
+		item, err := InsertItem(ctx, tx, Item{ClaimID: chain.ClaimID, CurrentRevision: 1, Kind: KindTool,
+			Scope: ScopeWorkspace, WorkspaceKey: &key, State: StateDraft, Created: testNow})
+		if err != nil {
+			return err
+		}
+		for _, p := range []struct {
+			cand int64
+			p    Proposal
+		}{
+			{chain.ID, Proposal{ItemID: &item, Text: "name = \"reset-db-sh\"", Target: "workspace w1 (shop)"}},
+			{chain.ID, Proposal{Text: "#!/bin/sh", Target: ScriptTarget}},
+			{rule.ID, Proposal{Text: "use pnpm", Target: "workspace w1 (shop)"}},
+			{rule.ID, Proposal{Text: "use pnpm, yesterday", Target: "workspace w1 (shop)", Created: testNow.Add(-24 * time.Hour)}},
+			{0, Proposal{Text: "your own edit", Target: "workspace w1 (shop)"}},
+		} {
+			p.p.Scope, p.p.Status, p.p.Created = ScopeWorkspace, ProposalPending, cmp.Or(p.p.Created, testNow)
+			if p.cand == 0 {
+				_, err = InsertProposal(ctx, tx, p.p)
+			} else {
+				_, err = ProposeCandidate(ctx, tx, p.cand, p.p)
+			}
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	var n int
+	write(t, e.Store, func(tx *sql.Tx) (err error) {
+		n, err = ExtractorProposalsSince(ctx, tx, testNow.Add(-time.Hour))
+		return err
+	})
+	if n != 2 {
+		t.Errorf("ExtractorProposalsSince() = %d, want 2: the tool draft with its script, and the rule", n)
 	}
 }
