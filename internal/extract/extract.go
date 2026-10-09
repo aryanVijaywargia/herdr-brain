@@ -16,6 +16,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/secret"
 	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
 )
 
 const (
@@ -600,6 +601,9 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	if ts, err := store.TombstonesByClaim(ctx, tx, claim); err != nil || len(ts) > 0 {
 		return Suggestion{}, err
 	}
+	if c.SameAs, err = restated(ctx, tx, j, claim, c); err != nil {
+		return Suggestion{}, err
+	}
 	if err := link(ctx, tx, claim, c); err != nil {
 		return Suggestion{}, err
 	}
@@ -610,7 +614,7 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	if c.Scope == store.ScopeGlobal {
 		key = ""
 	}
-	switch held, err := heldBy(ctx, tx, claim, c, key); {
+	switch held, err := heldBy(ctx, tx, j, claim, c, key); {
 	case err != nil:
 		return Suggestion{}, err
 	case held != "":
@@ -810,28 +814,124 @@ func permissionPair(ctx context.Context, tx *sql.Tx, cl, other store.Claim, c Cl
 	return flagged || store.TouchesPermission(text), err
 }
 
-// heldBy returns the claim of the proposed same_as link of claim c with claim id claim when a
-// pending proposal or an active item holds that claim in the scope with key (store.ClaimHeld),
-// else "". c then restates a lesson that you have or review already (#312, §7.2). A skill or a
-// tool is another thing than the rule that it restates (§10): it keeps its own candidate. A
-// skill restates a skill, so a procedure that comes again in other words makes no second skill
-// (#313): only a skill must hold the claim then (store.SkillHeld).
-func heldBy(ctx context.Context, tx *sql.Tx, claim string, c Claim, key string) (string, error) {
-	if c.Tool != "" {
+// heldBy returns the claim that holds claim c with claim id claim in the scope with key, else
+// "": c then restates a lesson that you have, review or rejected already, and makes no candidate
+// and no proposal of its own (§7.3 order for a known claim). The claim of the proposed same_as
+// link of c holds it:
+//   - when a pending proposal or an active item holds that claim in the scope (store.ClaimHeld,
+//     #312). A skill or a tool is another thing than the rule that it restates (§10): a tool
+//     keeps its own candidate, and only a skill holds a skill (store.SkillHeld, #313);
+//   - when c is the agent's own commands alone (ownCommands) and an item of that claim, in the
+//     workspace of batch j or global, is active or waits for review, whatever c is: the agent
+//     follows the item, as it runs a rule's chain because the rule says so (#366);
+//   - when you rejected that claim in the scope: the same request in other words stays rejected
+//     (§7.2, #365).
+//
+// Else an active or pending tool that c asks to run holds a rule (toolHolds, #365).
+func heldBy(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim, key string) (string, error) {
+	other, ok, err := linkTarget(ctx, tx, claim, c)
+	if err != nil {
+		return "", err
+	}
+	if ok {
+		held, err := linkHeld(ctx, tx, j, other.ID, c, key)
+		if err != nil {
+			return "", err
+		}
+		if held {
+			return other.ID, nil
+		}
+	}
+	if c.Skill != nil || c.Tool != "" {
 		return "", nil
 	}
-	other, ok, err := linkTarget(ctx, tx, claim, c)
-	if err != nil || !ok {
-		return "", err
+	return toolHolds(ctx, tx, j, c)
+}
+
+// linkHeld reports whether claim other, of the proposed same_as link of claim c, holds c in the
+// scope with key (heldBy).
+func linkHeld(ctx context.Context, tx *sql.Tx, j job, other string, c Claim, key string) (bool, error) {
+	if ownCommands(c) {
+		return store.ClaimHeld(ctx, tx, other, j.batch.WorkspaceKey)
+	}
+	if c.Tool != "" {
+		return false, nil
 	}
 	held := store.ClaimHeld
 	if c.Skill != nil {
 		held = store.SkillHeld
 	}
-	if ok, err := held(ctx, tx, other.ID, key); err != nil || !ok {
+	if ok, err := held(ctx, tx, other, key); err != nil || ok {
+		return ok, err
+	}
+	return store.Rejected(ctx, tx, other, key)
+}
+
+// ownCommands reports whether the evidence of claim c is the agent's own commands and tool output
+// alone, with no text of yours (#366).
+func ownCommands(c Claim) bool {
+	return !slices.ContainsFunc(c.Refs, func(r ref) bool { return r.sender != store.SenderTool })
+}
+
+// restated returns the same_as link of claim c with claim id claim: the claim of an active item
+// of the brief of batch j whose current text c gives word for word, in normal form, as its claim
+// text or as its rule, else the link of the extractor. After an item edit (r2 or later), the
+// claim of the item keeps the key of its first text, so the extractor finds no claim to link a
+// restatement of the new text to; Brain's own check gives that link (#364). A skill and a tool
+// have the text of a file, not of a rule.
+func restated(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim) (string, error) {
+	if c.Skill != nil || c.Tool != "" {
+		return c.SameAs, nil
+	}
+	for _, r := range j.brief {
+		if normal(r.Text) != normal(claimText(c)) && normal(r.Text) != normal(c.Rule) {
+			continue
+		}
+		it, err := store.ItemByID(ctx, tx, r.ItemID)
+		if err != nil || it.ClaimID != claim {
+			return it.ClaimID, err
+		}
+	}
+	return c.SameAs, nil
+}
+
+// toolHolds returns the claim of a tool, active or pending, that a pane of the workspace of
+// batch j sees (store.ToolTexts), whose commands claim c names word for word, each in run order
+// (names), else "": c asks for the run of that tool, and a request that a tool covers is no rule
+// (#365). The words of an input of the tool take any value.
+func toolHolds(ctx context.Context, tx *sql.Tx, j job, c Claim) (string, error) {
+	ts, err := store.ToolTexts(ctx, tx, j.batch.WorkspaceKey)
+	if err != nil {
 		return "", err
 	}
-	return other.ID, nil
+	words := strings.Fields(c.Situation + " " + c.Rule)
+	for i, w := range words {
+		words[i] = strings.TrimRight(strings.Trim(w, "`'\"()"), ".,;:!?")
+	}
+	for _, t := range ts {
+		// A pending text that is no valid contract is no tool: approve refuses it.
+		if tc, err := tool.Parse(t.Text); err == nil && names(words, tc.Commands()) {
+			return t.ClaimID, nil
+		}
+	}
+	return "", nil
+}
+
+// names reports whether words hold each of steps in order, each as words in a row that fit it.
+func names(words []string, steps [][]string) bool {
+	for _, s := range steps {
+		at := -1
+		for i := 0; at < 0 && i+len(s) <= len(words); i++ {
+			if fits(s, words[i:i+len(s)]) {
+				at = i
+			}
+		}
+		if at < 0 {
+			return false
+		}
+		words = words[at+len(s):]
+	}
+	return len(steps) > 0
 }
 
 // restate stores the evidence of claim c with claim id claim, which restates claim held

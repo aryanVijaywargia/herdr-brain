@@ -258,9 +258,11 @@ func TestRestatedCommandChain(t *testing.T) {
 	}
 }
 
-// AC 2 (#312): a same_as link to a rejected claim keeps the rejection (§7.2), as before: the
-// rejection stays, and the rejected claim gets no evidence. The new claim keeps its own
-// candidate. A link to an open candidate merges as before (TestSameAsIsProposed).
+// AC 2 (#312), changed by #365: a same_as link to a rejected claim keeps the rejection (§7.2):
+// the new claim is the same request in other words, so it stays rejected too. It makes no
+// candidate of its own; its evidence goes to the candidate of the rejected claim, and this
+// rejected claim has none, so it has no place. A link to an open candidate merges as before
+// (TestSameAsIsProposed).
 func TestSameAsRejectedClaim(t *testing.T) {
 	f := newFixture(t)
 	f.rejected("ws-A", "use pnpm")
@@ -274,12 +276,8 @@ func TestSameAsRejectedClaim(t *testing.T) {
 	if n := f.count(`SELECT COUNT(*) FROM claims WHERE same_as IS NOT NULL AND same_as_status = 'proposed'`); n != 1 {
 		t.Errorf("proposed links = %d, want 1", n)
 	}
-	cs := f.candidates()
-	if len(cs) != 1 || cs[0].Count != 1 || f.count(`SELECT COUNT(*) FROM evidence_links WHERE via_claim IS NOT NULL`) != 0 {
-		t.Errorf("candidates = %+v, want one of the new claim with its own evidence", cs)
-	}
-	if n := f.count(`SELECT COUNT(*) FROM candidates c JOIN claims k ON k.id = c.claim_id WHERE k.situation = 'rejected'`); n != 0 {
-		t.Errorf("candidates of the rejected claim = %d, want none", n)
+	if cs := f.candidates(); len(cs) != 0 || len(f.proposals()) != 0 {
+		t.Errorf("candidates = %+v, proposals %+v, want none: the new claim stays rejected", cs, f.proposals())
 	}
 }
 
