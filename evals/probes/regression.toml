@@ -541,3 +541,33 @@ tests = [
   "internal/cli:TestPaneLinks",
   "internal/cli:TestLinksPopup",
 ]
+
+# M2 eval run 5 (2026-10-09, R5-3): README lines that the agent printed and a passing TAP test
+# line made a failure proposal. Capture does not count the text of files that a command of
+# readers printed, and a TAP test name is no error line; a failed command and an error of a run
+# still give a failure. Fix: the PR of #363.
+[[bug]]
+issue = 363
+tests = [
+  "internal/brained:TestCaptureFileRead",
+  "internal/brained:TestCaptureRealFailure",
+  "internal/brained:TestFileRead",
+  "internal/signal:TestFailureTestName",
+]
+
+# M2 eval run 5 (2026-10-09, R5-8): brain status showed the time of a failed automation run in
+# UTC with no zone mark. Status and brain automation list show local time, as review does.
+# Fix: the PR of #367.
+[[bug]]
+issue = 367
+tests = ["internal/cli:TestRunLocalTime"]
+
+# M2 eval run 5 (2026-10-09, R5-9): the end of a claude spinner tip under a sent prompt was
+# stored as part of the prompt. Fix: the PR of #368.
+[[bug]]
+issue = 368
+tests = [
+  "internal/adapter:TestScreen/claude-tip-workflow",
+  "internal/adapter:TestScreen/claude-tip-workflow-keep",
+  "internal/brained:TestCaptureTipUnderPrompt",
+]
