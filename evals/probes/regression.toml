@@ -452,6 +452,7 @@ tests = [
 # M2 eval run 4 (2026-10-09, R4-3): a repaint of a sent prompt still counts as a new telling: a
 # codex cut copy with a line of the next block under it, a cut copy and a full repaint after a
 # failed read at the send, and the quoted codex question with the answer at a later read.
+# Fix: PR #354.
 [[bug]]
 issue = 349
 tests = [
@@ -465,7 +466,7 @@ tests = [
 ]
 
 # M2 eval run 4 (2026-10-09, R4-5): `brain status` in a pipe in a shell pane still makes empty
-# claude sessions: grep runs with Brain's CLI.
+# claude sessions: grep runs with Brain's CLI. Fix: PR #354.
 [[bug]]
 issue = 351
 tests = [
@@ -476,7 +477,7 @@ tests = [
 ]
 
 # M2 eval run 4 (2026-10-09, R4-7): codex tool output lines and a reply line under a prompt line,
-# with the head of their block above the screen, are stored as user text.
+# with the head of their block above the screen, are stored as user text. Fix: PR #354.
 [[bug]]
 issue = 353
 tests = [
