@@ -212,7 +212,8 @@ func (p Pass) exactTools(ctx context.Context, tx *sql.Tx) error {
 }
 
 // proposeGated makes the tool drafts and the scripts of gated, in round robin order of the
-// workspaces, while the daily proposal cap has room for one proposal (§7.3): a tool draft and
+// workspaces (§7.3). A new tool draft needs room for one proposal under the daily cap. Its script
+// needs none, and nor does the script of a pending draft, as the extractor's: a tool draft and
 // its script count as one (#355), so the review offers both at once and you pick one (E17-S8).
 func (p Pass) proposeGated(ctx context.Context, tx *sql.Tx, gated []gatedTool) error {
 	last, err := store.LastCalls(ctx, tx)
@@ -220,12 +221,7 @@ func (p Pass) proposeGated(ctx context.Context, tx *sql.Tx, gated []gatedTool) e
 		return err
 	}
 	for _, g := range roundRobin(gated, func(g gatedTool) string { return g.key }, last) {
-		d, err := p.Day(ctx, tx)
-		if err != nil || d.Proposals >= d.Caps.Proposals {
-			return err
-		}
-		if _, err := proposeTool(ctx, tx, g.id, g.text, ExactBenefit, p.Now()); err != nil &&
-			!errors.Is(err, errNoDraft) {
+		if err := p.proposeExact(ctx, tx, g); err != nil {
 			return err
 		}
 		if g.script == "" {
@@ -236,6 +232,22 @@ func (p Pass) proposeGated(ctx context.Context, tx *sql.Tx, gated []gatedTool) e
 		}
 	}
 	return nil
+}
+
+// proposeExact makes the tool draft of gated chain g when its candidate has no pending one and
+// the daily proposal cap has room for it.
+func (p Pass) proposeExact(ctx context.Context, tx *sql.Tx, g gatedTool) error {
+	if draft, err := toolDraftOf(ctx, tx, g.id); err != nil || draft != 0 {
+		return err
+	}
+	if d, err := p.Day(ctx, tx); err != nil || d.Proposals >= d.Caps.Proposals {
+		return err
+	}
+	_, err := proposeTool(ctx, tx, g.id, g.text, ExactBenefit, p.Now())
+	if errors.Is(err, errNoDraft) {
+		return nil
+	}
+	return err
 }
 
 // exactChain attaches chain s to the candidate of its exact commands, and returns the
