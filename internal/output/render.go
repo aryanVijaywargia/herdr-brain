@@ -177,20 +177,64 @@ func (st state) items() (global []brief.Item, byKey map[string][]brief.Item, rev
 	return global, byKey, revision
 }
 
-// Items reads, in tx, the items that the brief of a pane of workspace key delivers, with the
-// same selection and the same marks as the built parts: the global items, and the items of key
-// when key is not "" (§8.6, E20-S2). A pane of an unmapped or withheld workspace passes "": its
-// brief has the global part only (§8.3 step 4). revision maps each item to its revision.
-func Items(ctx context.Context, tx *sql.Tx, key string) (items []brief.Item, revision map[int64]int64, err error) {
+// Recallable is what the brief of a pane can deliver, as brain recall searches it (§8.6): the
+// items, the skills and the tools, with the same selection and the same marks as the built
+// parts. Revision maps each of them to the revision that it shows.
+type Recallable struct {
+	Items    []brief.Item
+	Skills   []RecallSkill
+	Tools    []RecallTool
+	Revision map[int64]int64
+}
+
+// RecallSkill is a skill of a Recallable: its item id and its entry of the skill list.
+type RecallSkill struct {
+	ID    int64
+	Skill brief.Skill
+}
+
+// RecallTool is a tool of a Recallable: its item id and its entry of the tool catalog.
+type RecallTool struct {
+	ID   int64
+	Tool brief.Tool
+}
+
+// Recall reads, in tx, what the brief of a pane of workspace key delivers (§8.6, E20-S2, #344):
+// the global items and skills, and those of key when key is not ""; and the ready tools that the
+// pane sees, global and of key, in approval order. A pane of an unmapped or withheld workspace
+// passes "": its brief has the global part only (§8.3 step 4). Each skill has the path of its
+// revision file in the skills folder of the out folder out, as the built parts have it. An
+// automation is not in it: an agent does not call one.
+func Recall(ctx context.Context, tx *sql.Tx, out, key string) (Recallable, error) {
 	st, err := read(ctx, tx)
 	if err != nil {
-		return nil, nil, err
+		return Recallable{}, err
 	}
 	global, byKey, revision := st.items()
-	if key == "" {
-		return global, revision, nil
+	r := Recallable{Items: global, Revision: revision}
+	globalSkills, skillsByKey, _, err := splitSkills(st.skills, st.m, st.rows, skillsDir(out))
+	if err != nil {
+		return Recallable{}, err
 	}
-	return append(global, byKey[key]...), revision, nil
+	if key != "" {
+		r.Items = append(r.Items, byKey[key]...)
+		globalSkills = append(globalSkills, skillsByKey[key]...)
+	}
+	for _, sk := range globalSkills {
+		r.Skills = append(r.Skills, RecallSkill{ID: sk.file.ref.Item, Skill: sk.entry})
+		revision[sk.file.ref.Item] = sk.file.ref.Revision
+	}
+	ids, tools, err := st.rows.ready(key)
+	if err != nil {
+		return Recallable{}, err
+	}
+	for _, t := range st.tools {
+		revision[t.ItemID] = t.Revision
+	}
+	for i, id := range ids {
+		r.Tools = append(r.Tools, RecallTool{ID: id, Tool: tools[i]})
+	}
+	return r, nil
 }
 
 // toolRows are the tools rows, in approval order (store.Tools).
@@ -205,18 +249,24 @@ func sees(t store.Tool, key string) bool {
 // catalog lists the ready tools that the panes of workspace key see, in approval order, with
 // the names of their inputs in name order (§10.1). brief.WorkspaceCatalog keeps the first 10.
 func (rs toolRows) catalog(key string) ([]brief.Tool, error) {
-	var ts []brief.Tool
+	_, ts, err := rs.ready(key)
+	return ts, err
+}
+
+// ready is catalog with the item id of each tool: the ids, and the entries in the same order.
+func (rs toolRows) ready(key string) (ids []int64, ts []brief.Tool, err error) {
 	for _, t := range rs {
 		if !t.Ready() || !sees(t, key) {
 			continue
 		}
 		c, err := tool.Parse(t.Contract)
 		if err != nil {
-			return nil, fmt.Errorf("tool item %d: %w", t.ID, err)
+			return nil, nil, fmt.Errorf("tool item %d: %w", t.ID, err)
 		}
+		ids = append(ids, t.ID)
 		ts = append(ts, brief.Tool{Name: t.Name, Description: c.Description, Inputs: slices.Sorted(maps.Keys(c.Inputs))})
 	}
-	return ts, nil
+	return ids, ts, nil
 }
 
 // required finds the Brain tools among the required tools of a skill (a list joined by
