@@ -267,8 +267,9 @@ func newest(ctx context.Context, tx *sql.Tx, cl store.Claim, into string) (Claim
 // the kind of from when your text turns a candidate of tool output alone (store.SetCandidateKind,
 // #361). Each evidence link keeps the claim that brought it, else it is marked as brought by the
 // claim of from (store.Candidate.Via). Attach checks each one again: evidence that the other
-// kind refuses stays with from. A candidate with no evidence left goes. It returns the
-// candidate that got the evidence, or 0 when it took none.
+// kind refuses stays with from, except tool output that counts for neither kind, which goes
+// along uncounted. A candidate with no evidence left goes. It returns the candidate that got the
+// evidence, or 0 when it took none.
 func (p Pass) moveEvidence(ctx context.Context, tx *sql.Tx, from store.Candidate, into string) (int64, error) {
 	to, turn, err := mergeTarget(ctx, tx, from, into)
 	if err != nil {
@@ -284,12 +285,13 @@ func (p Pass) moveEvidence(ctx context.Context, tx *sql.Tx, from store.Candidate
 		return 0, err
 	}
 	var id int64
-	var moved []int64
+	var moved, kept []int64
 	for _, e := range es {
 		// Tool output that does not count for from, the agent's commands after your tellings
-		// (store.SetCandidateKind), counts for neither: it goes with the merged claim.
+		// (store.SetCandidateKind), counts for neither kind: it moves uncounted
+		// (store.CopyEvidence).
 		if e.Sender == store.SenderTool && !signal.Supports(from.Kind, e.Sender) {
-			moved = append(moved, e.Observation)
+			kept = append(kept, e.Observation)
 			continue
 		}
 		to.Via = cmp.Or(e.Via, from.ClaimID)
@@ -302,18 +304,60 @@ func (p Pass) moveEvidence(ctx context.Context, tx *sql.Tx, from store.Candidate
 		}
 		id, moved = got, append(moved, e.Observation)
 	}
+	if id != 0 && len(kept) > 0 {
+		if err := store.CopyEvidence(ctx, tx, from.ID, id, kept, from.ClaimID, p.gates()); err != nil {
+			return 0, err
+		}
+		moved = append(moved, kept...)
+	}
 	return id, store.DropEvidence(ctx, tx, from.ID, moved, p.gates())
 }
 
 // KeepApart keeps the claim of open candidate id apart from the claim of its same_as link that
 // waits for review (#358, store.KeepApart): the pair does not come back for review, and both
-// keep their own evidence. It returns the other claim.
-func KeepApart(ctx context.Context, tx *sql.Tx, id int64) (string, error) {
+// keep their own evidence. It returns the other claim, and the proposals that the link held
+// (proposeFreed).
+func KeepApart(ctx context.Context, tx *sql.Tx, id int64, gates store.Gates, now time.Time) (string, []int64, error) {
 	cand, err := linkCandidate(ctx, tx, id)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return store.KeepApart(ctx, tx, cand.ClaimID)
+	other, err := store.KeepApart(ctx, tx, cand.ClaimID)
+	if err != nil {
+		return "", nil, err
+	}
+	ps, err := Pass{Gates: gates, Now: func() time.Time { return now }}.proposeFreed(ctx, tx, cand.ClaimID, now)
+	return other, ps, err
+}
+
+// proposeFreed makes the proposal of each candidate of claim at its gate that the rejection of
+// its link held (linkRejected, #365): keep apart frees it, so it needs no new telling. The draft
+// is the newest telling of the claim (telling), with no model call; a claim with no draft
+// proposes at its next telling. It returns the new proposals.
+func (p Pass) proposeFreed(ctx context.Context, tx *sql.Tx, claim string, now time.Time) ([]int64, error) {
+	cl, err := store.ClaimByID(ctx, tx, claim)
+	if err != nil {
+		return nil, err
+	}
+	c, _, ok, err := telling(ctx, tx, cl)
+	if err != nil || !ok {
+		return nil, err
+	}
+	cs, err := store.ClaimCandidates(ctx, tx, claim)
+	if err != nil {
+		return nil, err
+	}
+	var ps []int64
+	for _, cand := range cs {
+		_, pid, err := p.proposal(ctx, tx, cand.ID, c, now)
+		if err != nil {
+			return nil, err
+		}
+		if pid != 0 {
+			ps = append(ps, pid)
+		}
+	}
+	return ps, nil
 }
 
 // linkCandidate reads candidate id of a link to review (store.LinkWaits). The store checks the

@@ -332,11 +332,12 @@ func TestLinksPopup(t *testing.T) {
 	}
 }
 
-// AC #361: a link of a claim of the agent's own commands to a claim of your text cannot move
-// evidence. brain review shows why and offers keep apart only, and --merge refuses it and
-// writes nothing: the review never says that evidence counts together when none moved.
-func TestReviewStuckLink(t *testing.T) {
-	f := newStatusFixture(t)
+// stuckLink stores a same_as link that waits for review in ws_a14 and that no merge can move
+// (#361): a claim of the agent's own command (one tool record, a command chain candidate) linked
+// to the claim "installing packages: use pnpm" with one correction. It returns the candidate of
+// the link.
+func (f *fixture) stuckLink(t *testing.T) int64 {
+	t.Helper()
 	first := f.claim(t)
 	f.correct(t, first, "ws_a14", "b1")
 	ctx := context.Background()
@@ -370,6 +371,15 @@ func TestReviewStuckLink(t *testing.T) {
 		return err
 	})
 	closeStore(t, s)
+	return link
+}
+
+// AC #361: a link of a claim of the agent's own commands to a claim of your text cannot move
+// evidence. brain review shows why and offers keep apart only, and --merge refuses it and
+// writes nothing: the review never says that evidence counts together when none moved.
+func TestReviewStuckLink(t *testing.T) {
+	f := newStatusFixture(t)
+	link := f.stuckLink(t)
 	out := f.mustReview(t)
 	for _, want := range []string{
 		fmt.Sprintf("  no merge: the evidence of candidate %d is the agent's own commands and tool output, which cannot count for a correction\n", link),
@@ -388,5 +398,33 @@ func TestReviewStuckLink(t *testing.T) {
 	}
 	if status := f.mustStatus(t); !strings.Contains(status, "\nlinks to review: 1\n") {
 		t.Errorf("brain status:\n%s\nwant the link still to review", status)
+	}
+}
+
+// Sol review of #370 (AC #361): the links popup and the review pane offer no merge for a link
+// that no merge can move: the keys line has no m, and m says why with no confirm.
+func TestLinksPopupStuck(t *testing.T) {
+	f := newFixture(t)
+	link := f.stuckLink(t)
+	var out bytes.Buffer
+	e := f.env(f.sock, "", "", &out)
+	e.Environ = f.popupEnviron("w14:p1", "w14")
+	if err := popupOf([]string{"links"})(context.Background(), e, bufio.NewReader(strings.NewReader("mq")),
+		func() (int, int) { return 0, 0 }); err != nil {
+		t.Fatalf("pane links = %v\n%s", err, out.String())
+	}
+	for _, want := range []string{
+		fmt.Sprintf("> link %d  workspace w14 (shop)", link),
+		"\nj down  k up  n keep apart  q close\n",
+		fmt.Sprintf("no merge: the evidence of candidate %d is the agent's own commands and tool output", link),
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("popup:\n%s\nwant %q", out.String(), want)
+		}
+	}
+	for _, not := range []string{linksPopupKeys, "press y to confirm"} {
+		if strings.Contains(out.String(), not) {
+			t.Errorf("popup:\n%s\nwant no %q", out.String(), not)
+		}
 	}
 }

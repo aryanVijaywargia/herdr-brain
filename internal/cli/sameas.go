@@ -133,19 +133,26 @@ func (cl caller) mergeLink(ctx context.Context, id int64, other string) error {
 
 // keepApart runs the review action keep apart on the same_as link of candidate id (#358,
 // extract.KeepApart), which names claim other ("" for any): the link ends and does not come
-// back for the same pair.
+// back for the same pair. It prints each proposal that the link held (#365), for your review.
 func (cl caller) keepApart(ctx context.Context, id int64, other string) error {
+	var ps []int64
+	gates := cl.gates()
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) (err error) {
 		if err := cl.linkCandidate(ctx, tx, id, other); err != nil {
 			return err
 		}
-		other, err = extract.KeepApart(ctx, tx, id)
+		other, ps, err = extract.KeepApart(ctx, tx, id, gates, cl.Now())
 		return err
 	})
 	if err != nil {
 		return fmt.Errorf("%w; nothing was written", err)
 	}
-	_, err = fmt.Fprintf(cl.Stdout, "link of candidate %d kept apart: it does not come back for review with claim %s\n", id, other)
+	var b strings.Builder
+	fmt.Fprintf(&b, "link of candidate %d kept apart: it does not come back for review with claim %s\n", id, other)
+	for _, p := range ps {
+		fmt.Fprintf(&b, "proposal %d waits for your review (brain review %d)\n", p, p)
+	}
+	_, err = io.WriteString(cl.Stdout, b.String())
 	return err
 }
 
@@ -159,7 +166,7 @@ const (
 // linksPane is the list of the same_as links that wait for review in the review pane, key m,
 // and in the popup of the action brain.links, with no proposal (#358), as brain review lists
 // them: m merges the link at the cursor, and n keeps it apart, each with one confirm. [NEW
-// keys].
+// keys]. A link whose merge would move no evidence offers no m, and m says why (#361).
 type linksPane struct {
 	Env
 	popup  bool // the list is the popup of brain.links
@@ -168,6 +175,7 @@ type linksPane struct {
 	links  []string // the view of each link
 	ids    []int64  // the candidate of each link
 	others []string // the claim that each link names, as the view shows it
+	stuck  []string // why a merge of each link would move no evidence; "" when it moves some (#361)
 	cursor int
 	msg    string
 }
@@ -196,8 +204,9 @@ func (l *linksPane) run(ctx context.Context) error {
 					return err
 				}
 				l.links, l.ids, l.others = make([]string, len(ls)), make([]int64, len(ls)), make([]string, len(ls))
+				l.stuck = make([]string, len(ls))
 				for i, k := range ls {
-					l.links[i], l.ids[i], l.others[i] = cl.linkView(k), k.Candidate.ID, k.Other.ID
+					l.links[i], l.ids[i], l.others[i], l.stuck[i] = cl.linkView(k), k.Candidate.ID, k.Other.ID, k.Stuck
 				}
 				return nil
 			})
@@ -228,6 +237,10 @@ func (l *linksPane) key(ctx context.Context, k rune) error {
 	case 'k':
 		l.cursor = max(l.cursor-1, 0)
 	case 'm':
+		if len(l.links) > 0 && l.stuck[l.cursor] != "" {
+			l.msg = "no merge: " + l.stuck[l.cursor]
+			return nil
+		}
 		return l.act(ctx, "merge", "the two claims mean the same", caller.mergeLink)
 	case 'n':
 		return l.act(ctx, "keep apart", "the two claims differ", caller.keepApart)
@@ -270,6 +283,9 @@ func (l *linksPane) draw(prompt string) {
 	keys := linksKeys
 	if l.popup {
 		keys = linksPopupKeys
+	}
+	if len(l.links) > 0 && l.stuck[l.cursor] != "" {
+		keys = strings.Replace(keys, "  m merge", "", 1)
 	}
 	fmt.Fprintf(&foot, "\n%s\n%s", keys, prompt)
 	head := "same_as links that wait for review (global and this workspace)"

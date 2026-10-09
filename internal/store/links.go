@@ -174,6 +174,26 @@ func CandidateEvidence(ctx context.Context, tx *sql.Tx, id int64) ([]EvidenceLin
 	}, id)
 }
 
+// CopyEvidence copies the evidence links of the observations obs of candidate from to candidate
+// to, in the same scope, with no sender check, and counts to again. A merge carries tool output
+// that counts for neither kind (recount) with it: the agent's own commands of a skill claim stay
+// the evidence of the claim, so the exact tool path still sees the skill (§10.3, #361). Each link
+// keeps the claim that brought it, else via.
+func CopyEvidence(ctx context.Context, tx *sql.Tx, from, to int64, obs []int64, via string, gates Gates) error {
+	ids, err := json.Marshal(obs)
+	if err != nil {
+		return fmt.Errorf("encode observation ids: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO evidence_links
+		(candidate_id, observation_id, capture_identity, session_id, workspace_key, harness, sender, at, via_claim)
+		SELECT ?1, observation_id, capture_identity, session_id, workspace_key, harness, sender, at, COALESCE(via_claim, ?2)
+		FROM evidence_links WHERE candidate_id = ?3 AND observation_id IN (SELECT value FROM json_each(?4))
+		ON CONFLICT DO NOTHING`, to, via, from, string(ids)); err != nil {
+		return fmt.Errorf("copy evidence of candidate %d to %d: %w", from, to, err)
+	}
+	return recount(ctx, tx, to, gates)
+}
+
 // DropEvidence deletes the evidence of the observations obs from candidate id and counts it
 // again: a candidate with no evidence left goes (recount).
 func DropEvidence(ctx context.Context, tx *sql.Tx, id int64, obs []int64, gates Gates) error {

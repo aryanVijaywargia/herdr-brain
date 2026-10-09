@@ -4,6 +4,7 @@
 package extract
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -68,6 +69,7 @@ type ref struct {
 	kind      signal.Kind          // the kind of the signal of the observation
 	lesson    bool                 // the observation starts a lesson signal too (§7.1)
 	cmd       *store.CommandRecord // the command record of the observation; nil for none
+	chain     []int64              // the observations of its command chain, in run order; nil for none
 	// earlier are the earlier occurrences of the procedures and repeated prompts that the
 	// observation starts, in the workspace key of the batch (#314). They join its evidence,
 	// but they are not input: the prompt holds a text in its own batch only (§7.3).
@@ -357,9 +359,15 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 	// correction kind for the comebacks (§5.4).
 	lessons := map[int64]bool{}
 	earlier := map[int64][]int64{}
+	chains := map[int64][]int64{}
 	for _, s := range sigs {
 		if len(s.Observations) == 0 || !in(s.Observations[0]) {
 			continue
+		}
+		if s.Kind == signal.CommandChain {
+			for _, id := range s.Observations {
+				chains[id] = s.Observations
+			}
 		}
 		if s.Kind == signal.Lesson {
 			lessons[s.Observations[0]] = true
@@ -390,7 +398,7 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 			o.Excerpt = o.Command.Argv
 		}
 		rs = append(rs, ref{id: fmt.Sprintf("e%d", id), obs: id, identity: o.CaptureIdentity, workspace: o.WorkspaceKey,
-			sender: o.Sender, excerpt: o.Excerpt, kind: k, lesson: lessons[id], cmd: o.Command,
+			sender: o.Sender, excerpt: o.Excerpt, kind: k, lesson: lessons[id], cmd: o.Command, chain: chains[id],
 			earlier: occurrences(earlier[id], o.WorkspaceKey, byID)})
 	}
 	slices.SortFunc(rs, func(a, b ref) int { return int(a.obs - b.obs) })
@@ -601,14 +609,15 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	if ts, err := store.TombstonesByClaim(ctx, tx, claim); err != nil || len(ts) > 0 {
 		return Suggestion{}, err
 	}
-	if c, err = recordClaim(ctx, tx, j, claim, c, now); err != nil {
+	c, proven, err := recordClaim(ctx, tx, j, claim, c, now)
+	if err != nil {
 		return Suggestion{}, err
 	}
 	key := j.batch.WorkspaceKey
 	if c.Scope == store.ScopeGlobal {
 		key = ""
 	}
-	switch held, err := heldBy(ctx, tx, j, claim, c, key); {
+	switch held, err := heldBy(ctx, tx, j, claim, c, key, proven); {
 	case err != nil:
 		return Suggestion{}, err
 	case held != "":
@@ -640,17 +649,19 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 }
 
 // recordClaim records claim c of batch j with claim id claim, and returns it with its same_as
-// link: Brain's own link of a restatement of an item of the brief (restated), its claim kind and
-// its link (link), and its newest telling (setDraft).
-func recordClaim(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim, now time.Time) (Claim, error) {
-	var err error
-	if c.SameAs, err = restated(ctx, tx, j, claim, c); err != nil {
-		return Claim{}, err
+// link, and proven: the claim of the item of the brief that c restates (restated), which is its
+// link then, else "". It records its claim kind and its link (link), and its newest telling
+// (setDraft).
+func recordClaim(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim, now time.Time) (Claim, string, error) {
+	proven, err := restated(ctx, tx, j, claim, c)
+	if err != nil {
+		return Claim{}, "", err
 	}
+	c.SameAs = cmp.Or(proven, c.SameAs)
 	if err := link(ctx, tx, claim, c); err != nil {
-		return Claim{}, err
+		return Claim{}, "", err
 	}
-	return c, setDraft(ctx, tx, claim, c, now)
+	return c, proven, setDraft(ctx, tx, claim, c, now)
 }
 
 // recordOutcomes records the outcomes of claim c with claim id claim, from accepted, the refs
@@ -824,52 +835,60 @@ func permissionPair(ctx context.Context, tx *sql.Tx, cl, other store.Claim, c Cl
 
 // heldBy returns the claim that holds claim c with claim id claim in the scope with key, else
 // "": c then restates a lesson that you have, review or rejected already, and makes no candidate
-// and no proposal of its own (§7.3 order for a known claim). The claim of the proposed same_as
-// link of c holds it:
-//   - when a pending proposal or an active item holds that claim in the scope (store.ClaimHeld,
-//     #312). A skill or a tool is another thing than the rule that it restates (§10): a tool
-//     keeps its own candidate, and only a skill holds a skill (store.SkillHeld, #313);
-//   - when c is the agent's own commands alone (ownCommands) and an item of that claim, in the
-//     workspace of batch j or global, is active or waits for review, whatever c is: the agent
-//     follows the item, as it runs a rule's chain because the rule says so (#366).
+// and no proposal of its own (§7.3 order for a known claim). These hold it:
+//   - proven, the claim of the item of the brief whose current text c gives (restated, #364);
+//   - the claim of the proposed same_as link of c, as linkHolds says (#312, #313, #366);
+//   - an active or pending tool that procedure c asks to run (toolHolds, #365).
 //
-// Else an active or pending tool that c asks to run holds a rule (toolHolds, #365). A link to a
-// rejected claim holds no evidence: it goes to review, and the rejection holds the proposal
-// (linkRejected).
-func heldBy(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim, key string) (string, error) {
-	other, ok, err := linkTarget(ctx, tx, claim, c)
-	if err != nil {
+// A hold is no merge: the link stays proposed. So a permission word does not stop Brain's own
+// proof of a restatement, nor the agent's own commands, whose tool output counts for no rule.
+// A link to a rejected claim holds no evidence: it goes to review, and the rejection holds the
+// proposal (linkRejected).
+func heldBy(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim, key, proven string) (string, error) {
+	if proven != "" {
+		return proven, nil
+	}
+	switch other, held, err := linkHolds(ctx, tx, j, claim, c, key); {
+	case err != nil:
 		return "", err
-	}
-	if ok {
-		held, err := linkHeld(ctx, tx, j, other.ID, c, key)
-		if err != nil {
-			return "", err
-		}
-		if held {
-			return other.ID, nil
-		}
-	}
-	if c.Skill != nil || c.Tool != "" {
-		return "", nil
+	case held:
+		return other, nil
 	}
 	return toolHolds(ctx, tx, j, c)
 }
 
-// linkHeld reports whether claim other, of the proposed same_as link of claim c, holds c in the
-// scope with key (heldBy).
-func linkHeld(ctx context.Context, tx *sql.Tx, j job, other string, c Claim, key string) (bool, error) {
+// linkHolds returns the claim of the proposed same_as link of claim c with claim id claim, and
+// whether it holds c in the scope with key:
+//   - when c is the agent's own commands alone (ownCommands) and an item of that claim, in the
+//     workspace of batch j or global, is active or waits for review, whatever c is and with no
+//     permission check: the agent follows the item, as it runs a rule's chain because the rule
+//     says so (#366);
+//   - else, when the link may merge (linkTarget), and a pending proposal or an active item holds
+//     that claim in the scope (store.ClaimHeld, #312). A skill or a tool is another thing than
+//     the rule that it restates (§10): a tool keeps its own candidate, and only a skill holds a
+//     skill (store.SkillHeld, #313).
+func linkHolds(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim, key string) (string, bool, error) {
 	if ownCommands(c) {
-		return store.ClaimHeld(ctx, tx, other, j.batch.WorkspaceKey)
+		cl, err := store.ClaimByID(ctx, tx, claim)
+		if err != nil || cl.SameAs == "" || cl.SameAsStatus != store.SameAsProposed {
+			return "", false, err
+		}
+		held, err := store.ClaimHeld(ctx, tx, cl.SameAs, j.batch.WorkspaceKey)
+		return cl.SameAs, held, err
 	}
 	if c.Tool != "" {
-		return false, nil
+		return "", false, nil
+	}
+	other, ok, err := linkTarget(ctx, tx, claim, c)
+	if err != nil || !ok {
+		return "", false, err
 	}
 	held := store.ClaimHeld
 	if c.Skill != nil {
 		held = store.SkillHeld
 	}
-	return held(ctx, tx, other, key)
+	ok, err = held(ctx, tx, other.ID, key)
+	return other.ID, ok, err
 }
 
 // ownCommands reports whether the evidence of claim c is the agent's own commands and tool output
@@ -878,15 +897,14 @@ func ownCommands(c Claim) bool {
 	return !slices.ContainsFunc(c.Refs, func(r ref) bool { return r.sender != store.SenderTool })
 }
 
-// restated returns the same_as link of claim c with claim id claim: the claim of an active item
-// of the brief of batch j whose current text c gives word for word, in normal form, as its claim
-// text or as its rule, else the link of the extractor. After an item edit (r2 or later), the
-// claim of the item keeps the key of its first text, so the extractor finds no claim to link a
-// restatement of the new text to; Brain's own check gives that link (#364). A skill and a tool
-// have the text of a file, not of a rule.
+// restated returns the claim of an active item of the brief of batch j, other than claim, whose
+// current text claim c gives word for word, in normal form, as its claim text or as its rule,
+// else "". After an item edit (r2 or later), the claim of the item keeps the key of its first
+// text, so the extractor finds no claim to link a restatement of the new text to; Brain's own
+// check gives that link (#364). A skill and a tool have the text of a file, not of a rule.
 func restated(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim) (string, error) {
 	if c.Skill != nil || c.Tool != "" {
-		return c.SameAs, nil
+		return "", nil
 	}
 	for _, r := range j.brief {
 		if normal(r.Text) != normal(claimText(c)) && normal(r.Text) != normal(c.Rule) {
@@ -897,14 +915,20 @@ func restated(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim) (st
 			return it.ClaimID, err
 		}
 	}
-	return c.SameAs, nil
+	return "", nil
 }
 
 // toolHolds returns the claim of a tool, active or pending, that a pane of the workspace of
-// batch j sees (store.ToolTexts), whose commands claim c names word for word, each in run order
-// (names), else "": c asks for the run of that tool, and a request that a tool covers is no rule
-// (#365). The words of an input of the tool take any value.
+// batch j sees (store.ToolTexts), that procedure claim c is, else "": c names each command of the
+// tool word for word, in run order (names; the words of an input take any value), and a command
+// chain of the batch is a run of the tool (ranTool), so the request made the agent run that tool
+// and no more. A request that a tool covers is no rule (#365). Only a procedure: a lesson, a
+// correction or a preference says how to work (a condition, an order, a "never"), which a tool
+// does not hold.
 func toolHolds(ctx context.Context, tx *sql.Tx, j job, c Claim) (string, error) {
+	if c.Kind != "procedure" {
+		return "", nil
+	}
 	ts, err := store.ToolTexts(ctx, tx, j.batch.WorkspaceKey)
 	if err != nil {
 		return "", err
@@ -915,11 +939,37 @@ func toolHolds(ctx context.Context, tx *sql.Tx, j job, c Claim) (string, error) 
 	}
 	for _, t := range ts {
 		// A pending text that is no valid contract is no tool: approve refuses it.
-		if tc, err := tool.Parse(t.Text); err == nil && names(words, tc.Commands()) {
+		if tc, err := tool.Parse(t.Text); err == nil && names(words, tc.Commands()) && ranTool(j, tc) {
 			return t.ClaimID, nil
 		}
 	}
 	return "", nil
+}
+
+// ranTool reports whether a command chain of batch j is a run of tool tc (runs): the commands of
+// one turn, each one that Brain may draft a tool from (toolWords).
+func ranTool(j job, tc tool.Contract) bool {
+	cmds := map[int64]*store.CommandRecord{}
+	for _, r := range j.refs {
+		cmds[r.obs] = r.cmd
+	}
+	for _, r := range j.refs {
+		if len(r.chain) == 0 || r.chain[0] != r.obs {
+			continue // each chain once, at its first command
+		}
+		steps := make([][]string, 0, len(r.chain))
+		for _, o := range r.chain {
+			if c := cmds[o]; c != nil {
+				if ws, ok := toolWords(c.Argv); ok {
+					steps = append(steps, ws)
+				}
+			}
+		}
+		if len(steps) == len(r.chain) && runs(tc, steps) {
+			return true
+		}
+	}
+	return false
 }
 
 // names reports whether words hold each of steps in order, each as words in a row that fit it.

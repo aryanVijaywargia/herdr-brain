@@ -175,7 +175,7 @@ func TestKeepApartLink(t *testing.T) {
 	f.waitingLink()
 	id := f.linkOf(otherSituation)
 	f.write(func(ctx context.Context, tx *sql.Tx) error {
-		other, err := KeepApart(ctx, tx, id)
+		other, _, err := KeepApart(ctx, tx, id, store.DefaultGates(), f.now)
 		if err == nil && other == "" {
 			err = fmt.Errorf("KeepApart = %q, want the other claim", other)
 		}
@@ -192,7 +192,7 @@ func TestKeepApartLink(t *testing.T) {
 		t.Errorf("candidates of count 2 = %d, proposals %d, want 2 and none", n, len(f.proposals()))
 	}
 	f.write(func(ctx context.Context, tx *sql.Tx) error {
-		if _, err := KeepApart(ctx, tx, id); err == nil {
+		if _, _, err := KeepApart(ctx, tx, id, store.DefaultGates(), f.now); err == nil {
 			return fmt.Errorf("KeepApart of a link that is gone: no error")
 		}
 		return nil
@@ -423,4 +423,52 @@ func toolRefs(prompt string) []string {
 		refs = append(refs, m[1])
 	}
 	return refs
+}
+
+// Sol review of #370 (AC #361): a merge from a procedure that keeps the agent's own commands
+// uncounted (your telling turned its command chain) carries them to the other candidate, still
+// uncounted: the claim that gets the skill keeps the evidence that the extractor made a skill of
+// the chain (store.SkillEvidence), so the exact tool path holds that chain (heldChain).
+func TestMergeKeepsAgentCommands(t *testing.T) {
+	f := newFixture(t)
+	first := f.agentRelease()
+	f.cli.reply = skillReply(nil)
+	f.release(2)
+	f.cli.reply = skillReply(map[string]any{"situation": otherSituation})
+	f.release(3)
+	other := f.claimOf(otherSituation)
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		_, err := store.SameAs(ctx, tx, first, other, store.Match{})
+		return err
+	})
+	from := f.linkOf(skillSituation)
+	if n := f.count(fmt.Sprintf(`SELECT COUNT(*) FROM evidence_links WHERE candidate_id = %d AND sender = 'tool'`, from)); n != 6 {
+		t.Fatalf("tool links of candidate %d = %d, want the 6 commands of R1", from, n)
+	}
+	m, err := f.merge(from)
+	if err != nil || len(m.Candidates) != 1 {
+		t.Fatalf("MergeLink = %+v, %v, want one candidate", m, err)
+	}
+	to := m.Candidates[0]
+	if n := f.count(fmt.Sprintf(`SELECT COUNT(*) FROM evidence_links WHERE candidate_id = %d AND sender = 'tool'`, to)); n != 6 {
+		t.Errorf("tool links of candidate %d = %d, want the 6 commands moved", to, n)
+	}
+	if cs := f.candidates(); len(cs) != 1 || cs[0].ID != to || cs[0].Count != 3 {
+		t.Errorf("candidates = %+v, want only candidate %d with the 3 tellings", cs, to)
+	}
+	if ps := f.proposals(); len(ps) != 1 {
+		t.Fatalf("proposals = %+v, want the skill draft", ps)
+	}
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		var obs int64
+		if err := tx.QueryRowContext(ctx, `SELECT observation_id FROM evidence_links WHERE candidate_id = ? AND sender = 'tool'
+			LIMIT 1`, to).Scan(&obs); err != nil {
+			return err
+		}
+		skill, err := store.SkillEvidence(ctx, tx, obs)
+		if err == nil && !skill {
+			err = fmt.Errorf("SkillEvidence(%d) = false, want the command of R1 held by the skill draft", obs)
+		}
+		return err
+	})
 }

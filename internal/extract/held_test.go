@@ -22,8 +22,9 @@ const (
 
 // chainClaim answers each prompt with one claim of kind of the agent's full check chain, of the
 // tool lines only, in global scope, with situation n and a same_as link to the claim of item 3:
-// the agents of run 5 ran item 1's chain because the rule says so (#366).
-func chainClaim(kind string, n *int) func(context.Context, string) ([]byte, error) {
+// the agents of run 5 ran item 1's chain because the rule says so (#366). flagged sets the
+// model's permission flag.
+func chainClaim(kind string, flagged bool, n *int) func(context.Context, string) ([]byte, error) {
 	return func(ctx context.Context, prompt string) ([]byte, error) {
 		m := knownItem3.FindStringSubmatch(prompt)
 		if m == nil {
@@ -31,7 +32,7 @@ func chainClaim(kind string, n *int) func(context.Context, string) ([]byte, erro
 		}
 		*n++
 		set := map[string]any{"kind": kind, "situation": fmt.Sprintf("finishing change %d", *n), "rule": "run " + item3Chain,
-			"scope_guess": "global", "evidence_refs": toolRefs(prompt), "same_as": m[1]}
+			"scope_guess": "global", "evidence_refs": toolRefs(prompt), "same_as": m[1], "touches_permission": flagged}
 		if kind == kindSkill {
 			return skillReply(set)(ctx, prompt)
 		}
@@ -41,15 +42,23 @@ func chainClaim(kind string, n *int) func(context.Context, string) ([]byte, erro
 
 // AC #366 with the run 5 shape: item 3 (the full check rule) is active, and in 8 sessions the
 // agent runs its chain because the rule says so. The extractor makes a new global claim of the
-// chain each time, as a skill or a rule, linked to the claim of item 3. Each is held by item 3:
-// no candidate, no link to review and no proposal.
+// chain each time, as a skill or a rule, linked to the claim of item 3, also with the permission
+// flag. Each is held by item 3: no candidate, no link to review and no proposal. A hold merges
+// nothing, so the permission flag does not stop it (Sol review of #370).
 func TestAgentFollowsItem(t *testing.T) {
-	for _, kind := range []string{kindSkill, "procedure"} {
-		t.Run(kind, func(t *testing.T) {
+	for name, tc := range map[string]struct {
+		kind    string
+		flagged bool
+	}{
+		"skill":                  {kind: kindSkill},
+		"procedure":              {kind: "procedure"},
+		"with a permission flag": {kind: "procedure", flagged: true},
+	} {
+		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
 			claim := f.item3(true)
 			n := 0
-			f.cli.reply = chainClaim(kind, &n)
+			f.cli.reply = chainClaim(tc.kind, tc.flagged, &n)
 			for i := range 8 {
 				f.commandSession(fmt.Sprintf("h%d", i), turn{prompt: fmt.Sprintf("add route %d", i),
 					cmds: []store.CommandRecord{command(item3Chain)}})
@@ -86,20 +95,23 @@ func (f *fixture) editItem(id int64, text string) {
 // AC #364 with the run 5 shape: item 3 is edited (r2), and your reply restates the new text,
 // a lesson of gate 1. The claim of the item keeps the key of its first text, so the extractor
 // gives no same_as link; Brain's own check finds the current text of the item: the claim is
-// held, with no candidate and no proposal. A claim with another text still makes its own.
+// held, with no candidate and no proposal, also when the new text has a permission word (Sol
+// review of #370). A claim with another text still makes its own.
 func TestRestatedEditedItem(t *testing.T) {
 	const newRule = "run npm run lint, npm test and npm run build, and document each endpoint and its error codes in docs/API.md"
+	const permRule = "always run npm run lint, npm test and npm run build, and document each endpoint in docs/API.md"
 	for name, tc := range map[string]struct {
-		rule       string
+		edit, rule string
 		candidates int
 	}{
-		"the new text": {rule: newRule + ".", candidates: 1},
-		"another text": {rule: "document each endpoint in README.md", candidates: 2},
+		"the new text":      {edit: newRule, rule: newRule + ".", candidates: 1},
+		"a permission word": {edit: permRule, rule: permRule, candidates: 1},
+		"another text":      {edit: newRule, rule: "document each endpoint in README.md", candidates: 2},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
 			claim := f.item3(true)
-			f.editItem(f.onlyItem(), brief.ClaimText(item3Situation, newRule))
+			f.editItem(f.onlyItem(), brief.ClaimText(item3Situation, tc.edit))
 			f.cli.reply = func(_ context.Context, prompt string) ([]byte, error) {
 				return claudeReply(map[string]any{"claims": []any{replyOf(map[string]any{"kind": kindLesson,
 					"situation": item3Situation, "rule": tc.rule, "evidence_refs": promptRefs(prompt)})}})
@@ -132,21 +144,18 @@ func (f *fixture) reject(p store.Proposal, c store.Candidate) {
 	})
 }
 
-// AC #365 with the run 5 shape of proposals 7 and 8: you reject the rule of the T2 request,
-// and the same request comes in other words in two sessions, with a same_as link to the
-// rejected claim (an unclear match). It reaches its gate, but the rejection holds it: no
-// proposal while the link waits for review (§7.2: an unclear match goes to review, never to a
-// silent merge). A merge keeps the rejection: the evidence counts with the rejected claim, as
-// new evidence since the rejection, and no proposal comes.
-func TestRejectedRequestInOtherWords(t *testing.T) {
-	f := newFixture(t)
+// rejectedRewording runs the run 5 shape of proposals 7 and 8 (#365): you reject the rule of the
+// T2 request, and the same request comes in other words in two sessions, with a same_as link to
+// the rejected claim (an unclear match). It returns the rejected candidate and the link.
+func (f *fixture) rejectedRewording() (store.Candidate, Link) {
+	f.t.Helper()
 	f.cli.reply = ruleReply(t2Situation, t2Rule, nil)
 	f.session("s5", true, line{"ws-A", "no, " + t2Request, t0})
 	f.session("s7", true, line{"ws-A", "no, " + t2Request, t0.Add(time.Minute)})
 	f.mustRun()
 	ps, cs := f.proposals(), f.candidates()
 	if len(ps) != 1 || len(cs) != 1 {
-		t.Fatalf("proposals %+v, candidates %+v, want proposal 7 of one candidate", ps, cs)
+		f.t.Fatalf("proposals %+v, candidates %+v, want proposal 7 of one candidate", ps, cs)
 	}
 	f.reject(ps[0], cs[0])
 	f.cli.reply = ruleReply("preparing the test database", "reset it with the script before you run the tests",
@@ -157,54 +166,99 @@ func TestRejectedRequestInOtherWords(t *testing.T) {
 	f.mustRun()
 	ls := f.links()
 	if len(ls) != 1 || ls[0].Candidate.Count != 2 || ls[0].OtherCandidateID != cs[0].ID || ls[0].Stuck != "" {
-		t.Fatalf("links = %+v, want the link of the new claim at its gate to the rejected candidate %d", ls, cs[0].ID)
+		f.t.Fatalf("links = %+v, want the link of the new claim at its gate to the rejected candidate %d", ls, cs[0].ID)
 	}
 	if got := f.proposals(); len(got) != 1 {
-		t.Errorf("proposals = %+v, want only the rejected one", got)
+		f.t.Fatalf("proposals = %+v, want only the rejected one while the link waits", got)
 	}
-	if _, err := f.merge(ls[0].Candidate.ID); err != nil {
-		t.Fatal(err)
-	}
-	if got := f.candidates(); len(got) != 1 || got[0].ID != cs[0].ID || got[0].Count != 4 {
-		t.Errorf("candidates = %+v, want only the rejected candidate %d with the 2 new tellings", got, cs[0].ID)
-	}
-	if got := f.proposals(); len(got) != 1 || got[0].Status != store.ProposalRejected {
-		t.Errorf("proposals after the merge = %+v, want only the rejected one", got)
-	}
+	return cs[0], ls[0]
+}
+
+// AC #365 with the run 5 shape of proposals 7 and 8: the request in other words reaches its
+// gate, but the rejection holds it: no proposal while the link waits for review (§7.2: an
+// unclear match goes to review, never to a silent merge). A merge keeps the rejection: the
+// evidence counts with the rejected claim, as new evidence since the rejection, and no proposal
+// comes. Keep apart frees the claim: its candidate at its gate gets the proposal of its newest
+// telling, with no model call (Sol review of #370).
+func TestRejectedRequestInOtherWords(t *testing.T) {
+	t.Run("merge", func(t *testing.T) {
+		f := newFixture(t)
+		rejected, l := f.rejectedRewording()
+		if _, err := f.merge(l.Candidate.ID); err != nil {
+			t.Fatal(err)
+		}
+		if got := f.candidates(); len(got) != 1 || got[0].ID != rejected.ID || got[0].Count != 4 {
+			t.Errorf("candidates = %+v, want only the rejected candidate %d with the 2 new tellings", got, rejected.ID)
+		}
+		if got := f.proposals(); len(got) != 1 || got[0].Status != store.ProposalRejected {
+			t.Errorf("proposals after the merge = %+v, want only the rejected one", got)
+		}
+	})
+	t.Run("keep apart", func(t *testing.T) {
+		f := newFixture(t)
+		_, l := f.rejectedRewording()
+		calls := f.cli.calls()
+		var freed []int64
+		f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
+			_, freed, err = KeepApart(ctx, tx, l.Candidate.ID, store.DefaultGates(), f.now)
+			return err
+		})
+		ps := f.proposals()
+		if len(freed) != 1 || len(ps) != 2 || ps[1].ID != freed[0] || ps[1].Status != store.ProposalPending ||
+			ps[1].Text != "When preparing the test database: reset it with the script before you run the tests" {
+			t.Fatalf("KeepApart proposals %v, proposals %+v, want one pending proposal of the newest telling", freed, ps)
+		}
+		if f.cli.calls() != calls {
+			t.Errorf("calls = %d, want %d: keep apart makes no model call", f.cli.calls(), calls)
+		}
+	})
 }
 
 // AC #365 with the run 5 shape of proposal 7: the T2 request runs the commands of tool
-// reset-db-sh. After the tool draft of the exact repeats, the extractor makes a rule of the same
-// request: Brain finds the commands of the tool in the rule, word for word, so the tool holds
-// it: no rule candidate and no rule proposal. A rule that names other commands still counts.
+// reset-db-sh. After the tool draft of the exact repeats, the extractor makes a procedure claim
+// of the same request: it names the commands of the tool word for word, and its session ran the
+// tool's chain, so the tool holds it: no rule candidate and no rule proposal. These still count
+// (Sol review of #370): a procedure of other commands, a procedure whose session ran more than
+// the tool, a correction that adds a condition, and a lesson with "always".
 func TestToolCoversRequest(t *testing.T) {
+	reset, test, commit := command("./scripts/reset-db.sh"), command("npm test"), command("git commit -am wip")
 	for name, tc := range map[string]struct {
-		rule       string
-		candidates int
+		kind, rule, text string
+		cmds             []store.CommandRecord
+		held             bool
 	}{
-		"the tool's commands": {rule: t2Rule, candidates: 1},
-		"other commands":      {rule: "Run exactly ./scripts/seed-db.sh and then exactly npm test", candidates: 2},
+		"the tool's request": {kind: "procedure", rule: t2Rule, text: t2Request, cmds: []store.CommandRecord{reset, test}, held: true},
+		"other commands": {kind: "procedure", rule: "Run exactly ./scripts/seed-db.sh and then exactly npm test",
+			text: t2Request, cmds: []store.CommandRecord{reset, test}},
+		"a longer run": {kind: "procedure", rule: t2Rule + ", then commit", text: t2Request,
+			cmds: []store.CommandRecord{reset, test, commit}},
+		"a correction": {kind: "correction", rule: "run ./scripts/reset-db.sh and then npm test before you commit",
+			text: "no, " + t2Request, cmds: []store.CommandRecord{reset, test}},
+		"a lesson": {kind: kindLesson, rule: "always run ./scripts/reset-db.sh and then npm test before you commit",
+			text: "From now on, always run ./scripts/reset-db.sh and then npm test before you commit.",
+			cmds: []store.CommandRecord{reset, test}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
-			cmds := []store.CommandRecord{command("./scripts/reset-db.sh"), command("npm test")}
 			f.cli.reply = noClaims
 			for i := range 3 {
-				f.commandSession(fmt.Sprintf("t%d", i), turn{prompt: t2Request, cmds: cmds})
+				f.commandSession(fmt.Sprintf("t%d", i), turn{prompt: t2Request, cmds: []store.CommandRecord{reset, test}})
 			}
 			f.mustRun()
 			if ps := f.toolProposals(); len(ps) != 1 {
 				t.Fatalf("tool drafts = %+v, want the draft of reset-db-sh", ps)
 			}
-			f.cli.reply = ruleReply(t2Situation, tc.rule, nil)
-			f.commandSession("t3", turn{prompt: t2Request, cmds: cmds})
-			f.commandSession("t4", turn{prompt: t2Request, cmds: cmds})
-			f.mustRun()
-			if got := len(f.candidates()); got != tc.candidates {
-				t.Errorf("candidates = %+v, want %d", f.candidates(), tc.candidates)
+			f.cli.reply = func(_ context.Context, prompt string) ([]byte, error) {
+				return claudeReply(map[string]any{"claims": []any{replyOf(map[string]any{"kind": tc.kind,
+					"situation": t2Situation, "rule": tc.rule, "evidence_refs": promptRefs(prompt)})}})
 			}
-			if n := f.count(`SELECT COUNT(*) FROM items WHERE kind = 'preference'`); n != tc.candidates-1 {
-				t.Errorf("rule items = %d, want %d", n, tc.candidates-1)
+			f.commandSession("t3", turn{prompt: tc.text, cmds: tc.cmds})
+			f.commandSession("t4", turn{prompt: tc.text, cmds: tc.cmds})
+			f.mustRun()
+			rules := f.count(`SELECT COUNT(*) FROM candidates c JOIN claims k ON k.id = c.claim_id
+				WHERE k.situation = '` + t2Situation + `'`)
+			if want := map[bool]int{true: 0, false: 1}[tc.held]; rules != want {
+				t.Errorf("rule candidates = %d, want %d (candidates %+v)", rules, want, f.candidates())
 			}
 		})
 	}

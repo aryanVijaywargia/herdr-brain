@@ -553,7 +553,9 @@ tests = [
   "internal/extract:TestTellingsJoinAgentCommands",
   "internal/extract:TestMergeIntoAgentCommands",
   "internal/extract:TestStuckLink",
+  "internal/extract:TestMergeKeepsAgentCommands",
   "internal/cli:TestReviewStuckLink",
+  "internal/cli:TestLinksPopupStuck",
 ]
 
 # M2 eval run 5 (2026-10-09, R5-2): a new candidate gets the id of the newest one that a merge
