@@ -219,7 +219,7 @@ func TestExtractorWorksAfterFailure(t *testing.T) {
 	status := f.mustStatus(t)
 	for _, want := range []string{
 		"  waiting in workspace ws_a14: 1 batch, the oldest 3h old; the next pass takes them\n",
-		"  failed batches: 1; their evidence waits for the next pass\n",
+		"  failed batches: 1; their evidence waits for a retry, or with no try left for new evidence of its session\n",
 		"workspace ws_a14: failed, claude: exit status 1, 30m ago\n",
 	} {
 		if !strings.Contains(status, want) {

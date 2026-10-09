@@ -25,6 +25,10 @@ const (
 	// call works first (#263). [NEW] 1 hour: the evidence waits, and brain status shows the
 	// failure.
 	retryAfter = time.Hour
+	// maxTries is the calls of an invalid batch (#347); a failed batch gets one more (spent).
+	// [NEW] 3: a valid answer can come at a retry, as the model answers anew each time, but the
+	// same input that gave an invalid answer 3 times gives it again, and each call uses the cap.
+	maxTries = 3
 )
 
 // Pass is one extraction pass over the sessions of one herdr session in one store.
@@ -246,8 +250,9 @@ func (p Pass) job(r pending, sigs []signal.Signal, byID map[int64]store.SignalIn
 }
 
 // batch reports whether job j is extracted now. It returns false when the batch waits:
-// extraction or learning is off for its key, no CLI is chosen, or its failed call still waits
-// for the retry. A job with no signal is recorded as an empty batch here.
+// extraction or learning is off for its key, no CLI is chosen, its failed call still waits for
+// the retry, or it has no try left (spent). A job with no signal is recorded as an empty batch
+// here.
 func (p Pass) batch(ctx context.Context, tx *sql.Tx, j job) (bool, error) {
 	if on, err := p.allowed(ctx, tx, j); err != nil || !on {
 		return false, err
@@ -268,7 +273,7 @@ func (p Pass) batch(ctx context.Context, tx *sql.Tx, j job) (bool, error) {
 		return false, nil
 	case old.Status == store.BatchFailed || old.Status == store.BatchInvalid:
 		worked, err := store.LastWorkedCall(ctx, tx)
-		return err == nil && !p.waits(old.At, worked), err
+		return err == nil && !spent(old) && p.retries(old, worked), err
 	}
 	return true, nil
 }
@@ -278,6 +283,29 @@ func (p Pass) batch(ctx context.Context, tx *sql.Tx, j job) (bool, error) {
 // shows that the CLI works again, so the failed work goes at the next pass (#263).
 func (p Pass) waits(at, worked time.Time) bool {
 	return p.Now().Sub(at) < retryAfter && !worked.After(at)
+}
+
+// spent reports whether failed or invalid batch b has no try left (#347): an invalid batch after
+// maxTries calls, as the CLI answered and its input gives the invalid answer, and a failed batch
+// after one more, as all its first calls can come while the CLI is down. Then the batch waits
+// for new evidence of its session and key: their next batch replaces it and gets its own tries
+// (store.StartBatch). brain status still shows it.
+func spent(b store.Batch) bool {
+	if b.Status == store.BatchFailed {
+		return b.ModelCalls > maxTries
+	}
+	return b.ModelCalls >= maxTries
+}
+
+// retries reports whether failed or invalid batch b, with a try left (spent), gets its call now,
+// with worked the end of the last call that worked: after that call, or retryAfter after its own
+// (waits). Its last call, the one after maxTries, waits for a later call that works: that call
+// shows that the CLI is back, so a failure after it is the batch's own.
+func (p Pass) retries(b store.Batch, worked time.Time) bool {
+	if b.ModelCalls >= maxTries {
+		return worked.After(b.At)
+	}
+	return !p.waits(b.At, worked)
 }
 
 // allowed reports whether batch j may call the extractor: extraction is on for its workspace

@@ -285,6 +285,155 @@ func TestRetryAfterWorkedCall(t *testing.T) {
 	}
 }
 
+// run4Line is the command of batch 15 of M2 eval run 4 (#347): one shell line, so no tool runs it
+// as one argv list (§10.1 "argv, not shell").
+const run4Line = "./scripts/reset-db.sh && npm test 2>&1 | tail -40; git status --short"
+
+// splitTool answers a prompt with run4Line as the extractor did in run 4: one tool claim whose
+// commands split the shell line into two argv lists, so they are no commands of the evidence and
+// the check drops the claim. Any other prompt gets a claim that commits.
+func splitTool(ctx context.Context, prompt string) ([]byte, error) {
+	if !strings.Contains(prompt, run4Line) {
+		return claimOf("use pnpm")(ctx, prompt)
+	}
+	return toolReply(map[string]any{"name": "reset-db-sh", "commands": [][]string{{"./scripts/reset-db.sh"}, {"npm", "test"}},
+		"inputs": nil})(ctx, prompt)
+}
+
+// worked stores ended session id in ws-B with a pnpm correction, one minute later, and runs a
+// pass: its call works.
+func (f *fixture) worked(id string) {
+	f.t.Helper()
+	f.now = f.now.Add(time.Minute)
+	f.session(id, true, line{"ws-B", pnpm, f.now.Add(-time.Hour)})
+	f.mustRun()
+}
+
+// AC #347 with the run 4 shape: the check drops the split tool claim of the shell line, so the
+// answer is invalid (the check is right: a tool runs argv lists, and these are no commands of
+// the evidence). The batch gets maxTries calls, though a later call works at every pass, and
+// none after, also after retryAfter. Its evidence waits with no try left: Waiting and the failed
+// batches show it, and doctor gets no failure to retry.
+func TestInvalidBatchTries(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = splitTool
+	sid := f.commandSession("a", turn{"reset the db and run the tests", []store.CommandRecord{command(run4Line)}})
+	f.mustRun()
+	bs := f.batches()
+	if len(bs) != 1 || bs[0].Status != store.BatchInvalid ||
+		!strings.Contains(bs[0].Reason, "the tool commands are not commands of the evidence in one folder") {
+		t.Fatalf("batches = %+v, want one invalid batch: the check drops the split tool claim", bs)
+	}
+	for i := range 6 {
+		f.worked(fmt.Sprintf("b%d", i))
+	}
+	f.now = f.now.Add(2 * retryAfter)
+	f.mustRun()
+	if got := f.calls("ws-A"); got != maxTries {
+		t.Errorf("calls of ws-A = %d, want %d: no call at each later pass", got, maxTries)
+	}
+	if got := f.calls("ws-B"); got != 6 {
+		t.Errorf("calls of ws-B = %d, want 6", got)
+	}
+	if wm := f.watermark(sid, "ws-A"); wm != 0 {
+		t.Errorf("watermark = %d, want 0: an invalid response does not move it", wm)
+	}
+	ws := f.waiting()
+	if len(ws) != 1 || ws[0].WorkspaceKey != "ws-A" || !strings.HasSuffix(ws[0].Why, "; "+noTry) || ws[0].Failed != "" {
+		t.Errorf("waiting = %+v, want ws-A with no try left and no failure that waits for a retry", ws)
+	}
+	var failed []store.Batch
+	f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
+		failed, err = store.FailedBatches(ctx, tx)
+		return err
+	})
+	if len(failed) != 1 || failed[0].SessionID != sid || failed[0].ModelCalls != maxTries {
+		t.Errorf("failed batches = %+v, want the batch of session a with %d calls", failed, maxTries)
+	}
+}
+
+// AC #347 and #263: a failed batch whose calls all fail while the CLI is down gets maxTries
+// calls, one each retryAfter, and then waits for a later call that works, with its failure
+// shown. After that call it gets one more call: when it works, the watermark moves; when it
+// fails too, the failure is the batch's own, and no later pass calls again.
+func TestFailedBatchTries(t *testing.T) {
+	for name, back := range map[string]bool{"the CLI is back": true, "own failure": false} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			sid, obs := f.session("a", true, line{"ws-A", "no, use tabs in go files", t0})
+			down := func(context.Context, string) ([]byte, error) { return nil, errors.New("claude: exit status 1") }
+			f.cli.reply = down
+			for range 5 {
+				f.mustRun()
+				f.now = f.now.Add(retryAfter)
+			}
+			if got := f.calls("ws-A"); got != maxTries {
+				t.Fatalf("calls of ws-A while the CLI is down = %d, want %d", got, maxTries)
+			}
+			if ws := f.waiting(); len(ws) != 1 || ws[0].Failed != "claude: exit status 1" {
+				t.Errorf("waiting = %+v, want the failure that waits for its retry", ws)
+			}
+			f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {
+				if strings.Contains(prompt, "tabs") && !back {
+					return down(ctx, prompt)
+				}
+				return claimOf("use pnpm")(ctx, prompt)
+			}
+			for i := range 4 {
+				f.worked(fmt.Sprintf("b%d", i))
+			}
+			if got := f.calls("ws-A"); got != maxTries+1 {
+				t.Errorf("calls of ws-A = %d, want %d: one more after a call works", got, maxTries+1)
+			}
+			if back {
+				if wm := f.watermark(sid, "ws-A"); wm != obs[0] {
+					t.Errorf("watermark = %d, want %d", wm, obs[0])
+				}
+				return
+			}
+			if ws := f.waiting(); len(ws) != 1 || !strings.HasSuffix(ws[0].Why, "; "+noTry) || ws[0].Failed != "" {
+				t.Errorf("waiting = %+v, want ws-A with no try left", ws)
+			}
+		})
+	}
+}
+
+// AC #347: new evidence of the session of a batch with no try left makes a new batch, which
+// replaces it and gets its own tries.
+func TestSpentBatchNewEvidence(t *testing.T) {
+	f := newFixture(t)
+	sid, _ := f.session("a", false, line{"ws-A", pnpm, t0})
+	f.cli.reply = func(context.Context, string) ([]byte, error) { return claudeReply(nil) }
+	for range maxTries + 2 {
+		f.mustRun()
+		f.now = f.now.Add(retryAfter)
+	}
+	if got := f.cli.calls(); got != maxTries {
+		t.Fatalf("calls = %d, want %d", got, maxTries)
+	}
+	var obs int64
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		seg, err := store.StartSegment(ctx, tx, sid, "w1:p1", "ws-A", "recent_unwrapped", f.now)
+		if err != nil {
+			return err
+		}
+		obs, err = store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: "a-new", Source: store.SourceHerdr,
+			SegmentID: seg, Event: "working", Excerpt: "no, use tabs in go files", Status: store.ObservationComplete,
+			Sender: store.SenderYou, Counts: true, At: f.now})
+		return err
+	})
+	f.now = f.now.Add(idle)
+	f.cli.reply = claimOf("use pnpm")
+	f.mustRun()
+	if got := f.cli.calls(); got != maxTries+1 || f.watermark(sid, "ws-A") != obs {
+		t.Errorf("calls %d, watermark %d, want %d calls and watermark %d", got, f.watermark(sid, "ws-A"), maxTries+1, obs)
+	}
+	bs := f.batches()
+	if len(bs) != 2 || bs[0].Status != store.BatchDiscarded || bs[1].Status != store.BatchCommitted {
+		t.Errorf("batches = %+v, want the spent batch replaced by a committed one", bs)
+	}
+}
+
 // The proposal cap stops the calls that follow. A batch that crosses the cap commits all its
 // proposals, so no candidate at its gate is left with no proposal.
 func TestProposalCap(t *testing.T) {

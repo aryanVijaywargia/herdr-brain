@@ -690,7 +690,7 @@ func (s *statusCall) archive(ctx context.Context, tx *sql.Tx) error {
 // extraction prints the extractor and its switches, the use of the daily caps, the work of
 // this herdr session that waits with its oldest age and why by workspace key (§7.3, S15), and
 // the batches that failed or gave an invalid response (S70). Their watermark stays, so their
-// evidence waits for the next pass.
+// evidence waits for a retry, or, with no try left, for new evidence of its session (#347).
 func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
 	if err := s.extractor(ctx, tx); err != nil {
 		return err
@@ -730,7 +730,8 @@ func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
 		s.w.printf("  failed batches: none\n")
 		return nil
 	}
-	s.w.printf("  failed batches: %d; their evidence waits for the next pass\n", len(bs))
+	s.w.printf("  failed batches: %d; their evidence waits for a retry, or with no try left for new evidence of its session\n",
+		len(bs))
 	for _, b := range bs {
 		s.w.printf("    batch %d, session %d, workspace %s: %s, %s, %s ago\n", b.ID, b.SessionID, b.WorkspaceKey,
 			b.Status, b.Reason, age(s.Now().Sub(b.At)))
