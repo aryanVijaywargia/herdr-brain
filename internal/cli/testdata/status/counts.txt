@@ -21,6 +21,7 @@ delivery to observed sessions:
   codex: sessions observed 1, capture gaps 0; no receipt 0, withheld 0, no agent session id and no tied receipt 0; outcomes: delivery gap 0, delivery unknown 0
 
 review queue: 1 pending, the oldest 3h old
+links to review: 0
 extraction: on; off for workspace ws_a15; capture and rules keep running
   extractor: claude, its default model
   last 24h: 0 of 40 extractor calls, 0 of 15 new proposals

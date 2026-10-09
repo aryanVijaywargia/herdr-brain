@@ -141,6 +141,7 @@ type reviewPane struct {
 	script   bool   // the proposal is a script (E17-S8): approve takes it as it is
 	detail   bool   // show the claim id and the revision too (#254)
 	evidence bool   // show the evidence view instead of the proposal (E20-S4)
+	links    int    // the same_as links that wait for review (#358): key m lists them
 	// size returns the rows and the columns of the pane, read before each screen; nil or 0 rows
 	// shows the whole view.
 	size func() (rows, cols int)
@@ -156,6 +157,9 @@ func (p *reviewPane) run(ctx context.Context) error {
 			return p.close(ctx, err)
 		}
 		p.view = view
+		if p.links, err = linkCount(ctx, p.Env); err != nil {
+			return p.close(ctx, err)
+		}
 		if !p.evidence {
 			// The evidence view has no kind lines: the kind stays as the proposal view found it.
 			p.dispute, p.skill = strings.Contains(view, "\n"+disputeLine), strings.Contains(view, "\n"+skillLine)
@@ -197,7 +201,8 @@ func (p *reviewPane) viewArgs() []string {
 // queue with later. Any other error is on the screen, and the pane goes on. d turns the detail
 // view on and off for every kind [NEW key d], and v the evidence view (E20-S4); each shows the
 // proposal again in place of the other. i opens the list of retired items and archive
-// candidates (E20-S7) [NEW key i].
+// candidates (E20-S7) [NEW key i], and m the same_as links that wait for review (#358) [NEW
+// key m].
 func (p *reviewPane) key(ctx context.Context, k rune) (done bool, err error) {
 	switch {
 	case k == 'd':
@@ -210,6 +215,13 @@ func (p *reviewPane) key(ctx context.Context, k rune) (done bool, err error) {
 		// The list of retired items and archive candidates (E20-S7); q or i comes back here.
 		p.msg = ""
 		if err := (&itemsPane{Env: p.Env, keys: p.keys, size: p.size}).run(ctx); err != nil {
+			p.msg = err.Error()
+		}
+		return false, nil
+	case k == 'm':
+		// The links list; q comes back here.
+		p.msg = ""
+		if err := (&linksPane{Env: p.Env, keys: p.keys, size: p.size}).run(ctx); err != nil {
 			p.msg = err.Error()
 		}
 		return false, nil
@@ -414,6 +426,9 @@ func (p *reviewPane) draw(prompt string) {
 	}
 	if p.msg != "" {
 		fmt.Fprintf(&foot, "\n%s\n", strings.TrimSpace(p.msg))
+	}
+	if p.links > 0 {
+		fmt.Fprintf(&foot, "\nlinks to review: %d (m shows them)\n", p.links)
 	}
 	fmt.Fprintf(&foot, "\n%s\n", keys)
 	if prompt != "" {

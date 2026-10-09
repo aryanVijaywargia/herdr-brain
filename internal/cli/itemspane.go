@@ -67,7 +67,7 @@ func retiredPopup(ctx context.Context, e Env, keys *bufio.Reader, size func() (r
 func (l *itemsPane) run(ctx context.Context) error {
 	l.picked = map[int64]bool{}
 	for {
-		if _, err := l.call(ctx, func(cl caller) (err error) {
+		if _, err := callPane(ctx, l.Env, func(cl caller) (err error) {
 			l.items, err = cl.listedItems(ctx)
 			return err
 		}); err != nil {
@@ -136,7 +136,7 @@ func (l *itemsPane) act(ctx context.Context, restore bool) error {
 		l.msg = "nothing changed"
 		return nil
 	}
-	out, err := l.call(ctx, func(cl caller) error { return cl.setRetired(ctx, ids, restore) })
+	out, err := callPane(ctx, l.Env, func(cl caller) error { return cl.setRetired(ctx, ids, restore) })
 	if err != nil {
 		l.msg = err.Error()
 		return nil //nolint:nilerr // the error is on the screen, and the list goes on
@@ -174,7 +174,7 @@ func (l *itemsPane) undo(ctx context.Context) {
 		l.msg = "no action to undo"
 		return
 	}
-	out, err := l.call(ctx, func(cl caller) error { return cl.undoAll(ctx, l.last) })
+	out, err := callPane(ctx, l.Env, func(cl caller) error { return cl.undoAll(ctx, l.last) })
 	if err != nil {
 		l.msg = err.Error()
 		return
@@ -183,11 +183,10 @@ func (l *itemsPane) undo(ctx context.Context) {
 	l.last = nil
 }
 
-// call runs fn with a caller of surface pane, and returns what fn printed: the pane owns the
-// screen.
-func (l *itemsPane) call(ctx context.Context, fn func(caller) error) (out string, err error) {
+// callPane runs fn with a caller of surface pane of e, and returns what fn printed: the pane
+// owns the screen.
+func callPane(ctx context.Context, e Env, fn func(caller) error) (out string, err error) {
 	var buf bytes.Buffer
-	e := l.Env
 	e.Stdout = &buf
 	c, err := e.Open(ctx)
 	if err != nil {

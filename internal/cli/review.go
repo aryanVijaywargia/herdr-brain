@@ -36,6 +36,9 @@ const reviewUsage = `usage:
   brain review --all                             list the candidates too, below the gate as well
   brain review --tool <candidate>                make this a tool: a tool draft from one example of a
                                                  command candidate
+  brain review --merge <candidate>               merge the same_as link of a candidate that waits for review:
+                                                 the two claims mean the same, and their evidence counts together
+  brain review --apart <candidate>               keep the two claims of that link apart: it does not come back
   brain review --rejected                        list the rejections, with the new evidence since each
   brain review --reopen <rejection>              end a rejection: its claim can get proposals again
   brain review --reset <rejection>               keep a rejection, and count its new evidence from now
@@ -62,6 +65,7 @@ type review struct {
 	retired                bool
 	all                    bool  // list the candidates (E12-S2)
 	makeTool               int64 // the command candidate to make a tool draft of (E17-S6)
+	merge, apart           int64 // the candidate of a same_as link to merge or keep apart (#358)
 	rejected               bool  // list the rejections (E12-S3)
 	reopen, reset          int64 // the rejection to reopen or reset
 	restore                int64 // the item to restore
@@ -111,6 +115,10 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 		return cl.listCandidates(ctx)
 	case r.makeTool != 0:
 		return cl.makeTool(ctx, r.makeTool)
+	case r.merge != 0:
+		return cl.mergeLink(ctx, r.merge)
+	case r.apart != 0:
+		return cl.keepApart(ctx, r.apart)
 	case r.rejected:
 		return cl.listRejections(ctx)
 	case r.reopen != 0 || r.reset != 0:
@@ -150,6 +158,8 @@ func queueFlags(fs *flag.FlagSet, r *review) {
 	fs.BoolVar(&r.retired, "retired", false, "")
 	fs.BoolVar(&r.all, "all", false, "")
 	fs.Int64Var(&r.makeTool, "tool", 0, "")
+	fs.Int64Var(&r.merge, "merge", 0, "")
+	fs.Int64Var(&r.apart, "apart", 0, "")
 	fs.BoolVar(&r.rejected, "rejected", false, "")
 	fs.Int64Var(&r.reopen, "reopen", 0, "")
 	fs.Int64Var(&r.reset, "reset", 0, "")
@@ -222,7 +232,7 @@ func (r review) secrets() error {
 func (r review) check() error {
 	actions := 0
 	for _, on := range []bool{r.approve, r.reject, r.later, r.change != nil, r.keep, r.retire && r.item == 0, r.retired, r.all,
-		r.rejected, r.reopen != 0, r.reset != 0, r.restore != 0, r.item != 0, r.makeTool != 0} {
+		r.rejected, r.reopen != 0, r.reset != 0, r.restore != 0, r.item != 0, r.makeTool != 0, r.merge != 0, r.apart != 0} {
 		if on {
 			actions++
 		}
@@ -263,8 +273,9 @@ func (r review) check() error {
 		return errors.New("--edit, --scope, --pin, --confirm, --replace, --exception and --keep-both go with --approve")
 	case (r.reject || r.later) && r.id == 0:
 		return errors.New("--reject and --later need a proposal id")
-	case (r.retired || r.all || r.rejected || r.reopen != 0 || r.reset != 0 || r.restore != 0 || r.makeTool != 0) && r.id != 0:
-		return errors.New("--retired, --all, --rejected, --reopen, --reset, --restore and --tool take no proposal id")
+	case (r.retired || r.all || r.rejected || r.reopen != 0 || r.reset != 0 || r.restore != 0 || r.makeTool != 0 ||
+		r.merge != 0 || r.apart != 0) && r.id != 0:
+		return errors.New("--retired, --all, --rejected, --reopen, --reset, --restore, --tool, --merge and --apart take no proposal id")
 	}
 	return nil
 }
@@ -282,8 +293,9 @@ func (cl caller) gates() store.Gates {
 	return g
 }
 
-// list prints the pending proposals that the caller sees. A proposal of a candidate below its
-// gate waits in brain review --all only (§7.2).
+// list prints the pending proposals that the caller sees, after the exception links and the
+// same_as links that wait for review (#358). A proposal of a candidate below its gate waits in
+// brain review --all only (§7.2).
 func (cl caller) list(ctx context.Context) error {
 	gates := cl.gates()
 	var lines []string
@@ -295,6 +307,11 @@ func (cl caller) list(ctx context.Context) error {
 		if lines, err = cl.staleLinks(ctx, tx); err != nil {
 			return err
 		}
+		same, err := cl.linkLines(ctx, tx)
+		if err != nil {
+			return err
+		}
+		lines = append(lines, same...)
 		for _, id := range ids {
 			p, it, _, err := cl.proposal(ctx, tx, id)
 			if errors.Is(err, errNotFound) {
@@ -397,6 +414,7 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	var binding, from, match string // match: the match line of the suggestion of p, if any
 	var claim string                // the claim of a script proposal
 	var sibs []store.Proposal       // the proposals that you pick between with p
+	var spent string                // the line of a change request of p with no try left (#359)
 	// The review pane shows a pending proposal only: it closes on one that another surface
 	// decided (E5-S1).
 	read := cl.proposal
@@ -423,6 +441,9 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 			return err
 		}
 		if match, err = matchLine(ctx, tx, p.ID, cl.PaneID); err != nil {
+			return err
+		}
+		if spent, err = spentLine(ctx, tx, p); err != nil {
 			return err
 		}
 		if p.Script() {
@@ -461,6 +482,7 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	if p.ChangeRequest != nil {
 		fmt.Fprintf(&b, "change:   %s\n", oneLine(*p.ChangeRequest))
 	}
+	b.WriteString(spent)
 	if p.Status == store.ProposalPending {
 		b.WriteString(pickLines(sibs))
 	}
@@ -472,6 +494,20 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	}
 	_, err = io.WriteString(cl.Stdout, b.String())
 	return err
+}
+
+// spentLine is the line of show for pending proposal p whose change request has no try left
+// (#359): the request stays failed and gave the proposal back to review. "" for none.
+func spentLine(ctx context.Context, tx *sql.Tx, p store.Proposal) (string, error) {
+	if p.Status != store.ProposalPending {
+		return "", nil
+	}
+	cr, ok, err := store.ProposalChangeOf(ctx, tx, p.ID)
+	if err != nil || !ok || !extract.ChangeSpent(cr) {
+		return "", err
+	}
+	return fmt.Sprintf("          request %d %s with no try left after %d calls: %s; decide the proposal, or ask for a change again\n",
+		cr.ID, cr.Status, cr.ModelCalls, oneLine(cr.Reason)), nil
 }
 
 // matchLine is the line of show from pane paneID that says why the suggestion of proposal
