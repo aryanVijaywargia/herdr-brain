@@ -449,6 +449,25 @@ tests = [
   "internal/cli:TestMakeToolAction",
 ]
 
+# M2 eval run 4 (2026-10-09, R4-1): a batch whose answer the per-claim check made invalid is
+# called again at every later pass, with no end, and uses the call cap. Fix: PR #PRNUM.
+[[bug]]
+issue = 347
+tests = [
+  "internal/extract:TestInvalidBatchTries",
+  "internal/extract:TestFailedBatchTries",
+  "internal/extract:TestSpentBatchNewEvidence",
+]
+
+# M2 eval run 4 (2026-10-09, R4-2): the extractor flags the release procedure as a permission
+# claim, so the same_as link of the third telling waits for a review that no surface shows, and
+# the skill needs 5 tellings. Fix: PR #PRNUM.
+[[bug]]
+issue = 348
+tests = [
+  "internal/extract:TestPermissionFlaggedProcedure",
+]
+
 # M2 eval run 4 (2026-10-09, R4-3): a repaint of a sent prompt still counts as a new telling: a
 # codex cut copy with a line of the next block under it, a cut copy and a full repaint after a
 # failed read at the send, and the quoted codex question with the answer at a later read.
