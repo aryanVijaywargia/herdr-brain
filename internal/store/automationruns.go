@@ -32,6 +32,9 @@ type AutomationRun struct {
 	Finished     time.Time // zero while the run is not over
 	Result       RunResult
 	PID          int // the process that runs the tool; 0 before the launch mark
+	// Cause is why a failed run failed: the failed step and its exit code, or the refusal of
+	// the call (#352). No output of the tool. "" for the other results.
+	Cause string
 }
 
 // Active reports whether the run has its launch mark and no end: its tool may run now.
@@ -75,15 +78,19 @@ func StartRun(ctx context.Context, tx *sql.Tx, id int64, pid int, now time.Time)
 	return setLastRun(ctx, tx, r.AutomationID, id, RunUnknown, now)
 }
 
-// FinishRun writes result to run id when the run has not ended, and to its automation as the
-// last result when the run has a launch mark. It reports whether it wrote: a cancel that came first keeps cancelled.
-func FinishRun(ctx context.Context, tx *sql.Tx, id int64, result RunResult, now time.Time) (bool, error) {
+// FinishRun writes result and its cause to run id when the run has not ended, and the result
+// to its automation as the last result when the run has a launch mark. It reports whether it
+// wrote: a cancel that came first keeps cancelled. The cause names a program of the tool, so a
+// run that ends after forget of its tool or its automation keeps no cause (§6.7).
+func FinishRun(ctx context.Context, tx *sql.Tx, id int64, result RunResult, cause string, now time.Time) (bool, error) {
 	r, err := AutomationRunByID(ctx, tx, id)
 	if err != nil || !r.Finished.IsZero() {
 		return false, err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE automation_runs SET finished_at = ?, result = ? WHERE id = ?`,
-		timeArg(now), result, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE automation_runs SET finished_at = ?, result = ?,
+		cause = CASE WHEN EXISTS (SELECT 1 FROM automations a JOIN tools t ON t.id = a.tool_id
+			WHERE a.id = automation_runs.automation_id AND a.folder != '' AND t.contract != '') THEN NULLIF(?, '') END
+		WHERE id = ?`, timeArg(now), result, cause, id); err != nil {
 		return false, fmt.Errorf("finish run %d: %w", id, err)
 	}
 	if r.Started.IsZero() {
@@ -102,7 +109,7 @@ func CancelRun(ctx context.Context, tx *sql.Tx, id int64, now time.Time) (Automa
 	if !r.Active() {
 		return AutomationRun{}, fmt.Errorf("run %d (%s): %w", id, r.Result, ErrRunNotActive)
 	}
-	if _, err := FinishRun(ctx, tx, id, RunCancelled, now); err != nil {
+	if _, err := FinishRun(ctx, tx, id, RunCancelled, "", now); err != nil {
 		return AutomationRun{}, err
 	}
 	return r, nil
@@ -120,12 +127,12 @@ func setLastRun(ctx context.Context, tx *sql.Tx, automation, run int64, result R
 }
 
 const runColumns = `id, automation_id, event_key, pane_id, workspace_id, claimed_at, started_at, finished_at, result,
-	COALESCE(pid, 0)`
+	COALESCE(pid, 0), COALESCE(cause, '')`
 
 func scanRun(row interface{ Scan(...any) error }) (AutomationRun, error) {
 	var r AutomationRun
 	err := row.Scan(&r.ID, &r.AutomationID, &r.EventKey, &r.PaneID, &r.WorkspaceID, timeDest{&r.Claimed},
-		timeDest{&r.Started}, timeDest{&r.Finished}, &r.Result, &r.PID)
+		timeDest{&r.Started}, timeDest{&r.Finished}, &r.Result, &r.PID, &r.Cause)
 	return r, err
 }
 

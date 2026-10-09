@@ -220,6 +220,11 @@ func SetAutomationEnabled(ctx context.Context, tx *sql.Tx, id int64, on bool) er
 // approval (blocked → idle) and a change to working are no stop. The first pane read of a
 // session is a change only when it shows working. A pane read with no status change is no
 // mark, so the read of the final screen after a hook stop does not hide the stop (#311).
+//
+// A change to working that herdr reads at most callWorking before the call is no mark either:
+// a brain run that the user types after a stop makes the pane show the run, and herdr can store
+// that read a few ms before the call row (#350). A call in the middle of the agent's work comes
+// after a change to working that is older than that, so it still finds the change to working.
 type StopCall struct {
 	ToolID       int64
 	Tool         string    // the tool name of the tools row
@@ -230,6 +235,11 @@ type StopCall struct {
 	WorkspaceKey string    // the workspace of the stop's segment; "" when it has no Brain key
 	PaneID       string
 }
+
+// callWorking is the time before a call in which a pane read of a change to working is the
+// run of the call itself, not the agent's work (#350). Run 4 stored it 9 ms before the call; an
+// agent turn takes seconds from its change to working to a tool call. [NEW] 1 s.
+const callWorking = time.Second
 
 // StopCalls returns the occurrences of the learned automation case in the sessions of herdr
 // session herdrSession, in call order. The status changes come from the pane reads of the
@@ -250,7 +260,9 @@ func StopCalls(ctx context.Context, tx *sql.Tx, herdrSession string) ([]StopCall
 			SELECT * FROM reads WHERE source = ?5 OR before != event OR before IS NULL AND event = 'working')
 		SELECT c.tool_id, t.name, c.at, c.contract_hash, m.id, c.harness, COALESCE(g.workspace_key, ''), c.pane_id
 		FROM calls c JOIN marks m ON m.id = (SELECT m2.id FROM marks m2
-			WHERE m2.session_id = c.session_id AND m2.at <= c.at ORDER BY m2.at DESC, m2.id DESC LIMIT 1)
+			WHERE m2.session_id = c.session_id AND m2.at <= c.at
+			AND NOT (m2.source = ?6 AND m2.event = 'working' AND (julianday(c.at) - julianday(m2.at)) * 86400 <= ?7)
+			ORDER BY m2.at DESC, m2.id DESC LIMIT 1)
 		JOIN segments g ON g.id = m.segment_id JOIN tools t ON t.id = c.tool_id
 		WHERE m.brain_origin = 0
 		AND (m.source = ?5 OR m.before = 'working' AND m.event IN ('idle', 'done'))
@@ -260,7 +272,7 @@ func StopCalls(ctx context.Context, tx *sql.Tx, herdrSession string) ([]StopCall
 			err := rows.Scan(&c.ToolID, &c.Tool, timeDest{&c.At}, &c.ContractHash, &c.Stop, &c.Harness, &c.WorkspaceKey,
 				&c.PaneID)
 			return c, err
-		}, CallRan, OriginAgent, herdrSession, ObservationGap, SourceHook, SourceHerdr)
+		}, CallRan, OriginAgent, herdrSession, ObservationGap, SourceHook, SourceHerdr, callWorking.Seconds())
 }
 
 // In reports whether cwd, the folder of an agent, is the pinned folder of a. home is the home

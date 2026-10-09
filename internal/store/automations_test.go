@@ -337,3 +337,73 @@ func TestStopCallsPaneRead(t *testing.T) {
 		})
 	}
 }
+
+// A brain run right after the agent's stop counts also when herdr stores the pane read of the
+// run, a change to working, a few ms before the call row (#350). The run 4 times: the read 9 ms
+// before the call, and reads 240 ms and 260 ms after it. A call in the middle of the agent's
+// work, or right after an approval (blocked → working), still does not count.
+func TestStopCallsRunRead(t *testing.T) {
+	s, tl, _ := bindingStore(t)
+	ctx := context.Background()
+	call := time.Date(2026, 10, 9, 9, 54, 42, 131_000_000, time.UTC)
+	type read struct {
+		event string
+		at    time.Duration // from the call
+	}
+	for _, tc := range []struct {
+		name  string
+		reads []read
+		stop  int // the index of the expected stop read, -1 for none
+	}{
+		{"read 9 ms before", []read{{"working", -time.Minute}, {"idle", -20 * time.Second}, {"working", -9 * time.Millisecond}}, 1},
+		{"read 240 ms after", []read{{"working", -time.Minute}, {"idle", -20 * time.Second}, {"working", 240 * time.Millisecond}}, 1},
+		{"read 260 ms after", []read{{"working", -time.Minute}, {"done", -20 * time.Second}, {"working", 260 * time.Millisecond}}, 1},
+		{"in the middle of work", []read{{"idle", -time.Minute}, {"working", -5 * time.Second}}, -1},
+		{"read 9 ms before, in the middle of work", []read{{"idle", -time.Minute}, {"working", -5 * time.Second},
+			{"blocked", -2 * time.Second}, {"working", -9 * time.Millisecond}}, -1},
+		{"working 2 s before", []read{{"working", -time.Minute}, {"idle", -20 * time.Second}, {"working", -2 * time.Second}}, -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var want []int64
+			write(t, s, func(tx *sql.Tx) error {
+				herdr := "s-" + strings.ReplaceAll(tc.name, " ", "-")
+				key := SessionKey{HerdrSession: herdr, Harness: "codex", Kind: KeyAgent, ID: "a"}
+				sid, err := OpenSession(ctx, tx, key, "w1:p1", "k1", call.Add(-2*time.Minute))
+				if err != nil {
+					return err
+				}
+				seg, err := StartSegment(ctx, tx, sid, "w1:p1", "k1", "recent_unwrapped", call.Add(-2*time.Minute))
+				if err != nil {
+					return err
+				}
+				for i, r := range tc.reads {
+					id, err := AddObservation(ctx, tx, Observation{CaptureIdentity: fmt.Sprintf("%s-%d", herdr, i),
+						Source: SourceHerdr, SegmentID: seg, Event: r.event, Excerpt: "x", Status: ObservationComplete,
+						Sender: SenderAssistant, Counts: true, At: call.Add(r.at)})
+					if err != nil {
+						return err
+					}
+					if i == tc.stop {
+						want = append(want, id)
+					}
+				}
+				if _, err := AddToolCall(ctx, tx, ToolCall{ToolID: tl.ID, ContractHash: "h", SessionID: sid,
+					Origin: OriginAgent, Result: CallRan, At: call}); err != nil {
+					return err
+				}
+				calls, err := StopCalls(ctx, tx, herdr)
+				if err != nil {
+					return err
+				}
+				var got []int64
+				for _, c := range calls {
+					got = append(got, c.Stop)
+				}
+				if !slices.Equal(got, want) {
+					t.Errorf("StopCalls() stops = %v, want %v", got, want)
+				}
+				return nil
+			})
+		})
+	}
+}
