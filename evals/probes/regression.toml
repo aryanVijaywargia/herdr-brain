@@ -448,3 +448,37 @@ tests = [
   "internal/cli:TestExactToolSource",
   "internal/cli:TestMakeToolAction",
 ]
+
+# M2 eval run 4 (2026-10-09, R4-3): a repaint of a sent prompt still counts as a new telling: a
+# codex cut copy with a line of the next block under it, a cut copy and a full repaint after a
+# failed read at the send, and the quoted codex question with the answer at a later read.
+[[bug]]
+issue = 349
+tests = [
+  "internal/store:TestHookPrompts",
+  "internal/brained:TestCapturePromptCutBlock",
+  "internal/brained:TestCapturePromptReadFailed",
+  "internal/brained:TestCaptureQuoteRepaint",
+  "internal/brained:TestCapturePromptResendHooks",
+  "internal/brained:TestCapturePromptTurns",
+  "internal/brained:TestCapturePromptCut",
+]
+
+# M2 eval run 4 (2026-10-09, R4-5): `brain status` in a pipe in a shell pane still makes empty
+# claude sessions: grep runs with Brain's CLI.
+[[bug]]
+issue = 351
+tests = [
+  "internal/herdr:TestSocketProcesses",
+  "internal/brained:TestEventsShellPipe",
+  "internal/brained:TestEventsShellProbe",
+  "internal/brained:TestEventsRealAgentKept",
+]
+
+# M2 eval run 4 (2026-10-09, R4-7): codex tool output lines and a reply line under a prompt line,
+# with the head of their block above the screen, are stored as user text.
+[[bug]]
+issue = 353
+tests = [
+  "internal/brained:TestCaptureRun4ToolLines",
+]
