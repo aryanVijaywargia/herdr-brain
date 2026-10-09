@@ -55,7 +55,15 @@ noise_lines = ['[·✢✳✶✻✽*] \S+….*', '[·✢✳✶✻✽*] \S+ for .*
 # with !, so they stay. [NEW: the eval report gives the text of the lines, not the whole
 # screen]
   '⚠ \d+ MCP servers? .* · run /mcp', '\s*(?:Opus|Sonnet|Haiku|Fable) \d+(?:\.\d+)* \(\d+[KM] context\)(?:\s{2,}\S.*)?',
-  '(?:[^\s❯⏺!].*[%$#>❯]|[$%]) (?:\S+/)?claude(?: .*)?']
+  '(?:[^\s❯⏺!].*[%$#>❯]|[$%]) (?:\S+/)?claude(?: .*)?',
+# Claude Code 2.1.295 (#368, M2 eval run 5 2026-10-09): the end of the spinner tip of the
+# workflow size, on its own line when the tip wraps. The tip block above dropped the first line,
+# but not this one, and it was stored as part of the prompt above it. The two tips of this end
+# come from the source of Claude Code 2.1.296: "You can control how big a workflow is just by
+# prompting. ... or set a default with Dynamic workflow size in /config." So a line that ends so
+# is noise at any indent. A prompt line starts with ❯, so a prompt with the same words stays.
+# [NEW: the eval report gives the line, not the screen]
+  '(?:[^❯⏺!].*)?Dynamic workflow size in /config\.']
 # The screen parts of more than one line (#258): a tip, also when it wraps in a narrow column,
 # and the welcome box with its two columns. Claude 2.1.284 puts a no-break space before "Tip:"
 # (internal/brained/testdata/claude-s31-0-base.txt). A blank line ends a block, unless its next

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -125,6 +126,38 @@ func TestCaptureClaudePromptCopies(t *testing.T) {
 	excerpts, counted := k.rows(t).prompts()
 	if len(excerpts) != 1 || counted != 1 || !strings.HasPrefix(excerpts[0], "❯ When a POST") {
 		t.Errorf("user text = %q (%d counted), want the prompt once", excerpts, counted)
+	}
+}
+
+// #368 (M2 eval run 5, R5-9): the end of a Claude spinner tip under a sent prompt was stored as
+// part of the prompt (observation 2326). The eval report gives the line with no indent, so the
+// screen is made twice: the end of the tip at column 6, which the tip block does not take, and
+// at column 0. Each time the prompt is stored without it, once, and it counts.
+func TestCaptureTipUnderPrompt(t *testing.T) {
+	const (
+		prompt = "❯ Commit the docs fix and the test split as two commits on main."
+		tip    = "  ⎿  Tip: You can control how big a workflow is just by prompting. Ask for a small workflow, cap it with \"use at most 5\n"
+		end    = `agents", or set a default with Dynamic workflow size in /config.`
+		box    = "\n─────────────\n❯ \n─────────────\n  ⏵⏵ auto mode on (shift+tab to cycle)\n"
+	)
+	for _, indent := range []string{"      ", ""} {
+		t.Run(strconv.Itoa(len(indent)), func(t *testing.T) {
+			k := newCapture(t, "s1", t.TempDir())
+			k.pane("w1:p1", "claude", "")
+			k.raw("⏺ Earlier.\n"+box, "⏺ Earlier.\n\n"+prompt+"\n\n✻ Committing… (4s · thinking)\n"+tip+indent+end+"\n"+box,
+				"⏺ Earlier.\n\n"+prompt+"\n\n⏺ Done: two commits on main.\n"+box)
+			k.must(t, Baseline, "w1:p1", "", GapNone)
+			k.must(t, Change, "w1:p1", "working", GapNone)
+			k.must(t, Change, "w1:p1", "idle", GapNone)
+			if excerpts, counted := k.rows(t).prompts(); !slices.Equal(excerpts, []string{prompt}) || counted != 1 {
+				t.Errorf("user text = %q (%d counted), want only %q, counted", excerpts, counted, prompt)
+			}
+			for _, o := range k.rows(t).obs {
+				if strings.Contains(o.Excerpt, "Dynamic workflow size") {
+					t.Errorf("observation %q holds the tip", o.Excerpt)
+				}
+			}
+		})
 	}
 }
 
