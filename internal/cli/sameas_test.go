@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/extract"
+	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
@@ -328,5 +329,102 @@ func TestLinksPopup(t *testing.T) {
 	}
 	if r := f.rows(t); len(r.proposals) != 1 || r.proposals[0].Status != store.ProposalPending {
 		t.Errorf("proposals = %+v, want the pending proposal of the merge", r.proposals)
+	}
+}
+
+// stuckLink stores a same_as link that waits for review in ws_a14 and that no merge can move
+// (#361): a claim of the agent's own command (one tool record, a command chain candidate) linked
+// to the claim "installing packages: use pnpm" with one correction. It returns the candidate of
+// the link.
+func (f *fixture) stuckLink(t *testing.T) int64 {
+	t.Helper()
+	first := f.claim(t)
+	f.correct(t, first, "ws_a14", "b1")
+	ctx := context.Background()
+	s := openStore(t, f.store)
+	var link int64
+	write(t, s, func(tx *sql.Tx) error {
+		claim, err := store.ClaimID(ctx, tx, store.ClaimKey{Situation: "installing packages", Rule: "run pnpm install"}, testNow)
+		if err != nil {
+			return err
+		}
+		key := store.SessionKey{HerdrSession: "default", Harness: "claude", Kind: store.KeyCapture, ID: "c1"}
+		id, err := store.OpenSession(ctx, tx, key, "w14:p1", "ws_a14", testNow)
+		if err != nil {
+			return err
+		}
+		seg, err := store.StartSegment(ctx, tx, id, "w14:p1", "ws_a14", "visible", testNow)
+		if err != nil {
+			return err
+		}
+		o, err := store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: "c1", Source: store.SourceHook,
+			SegmentID: seg, Event: "tool", Excerpt: "pnpm install", Status: store.ObservationComplete,
+			Sender: store.SenderTool, Counts: true, At: testNow})
+		if err != nil {
+			return err
+		}
+		if link, err = store.Attach(ctx, tx, store.Candidate{ClaimID: claim, Scope: store.ScopeWorkspace, WorkspaceKey: "ws_a14",
+			Kind: store.CandidateCommandChain}, o, store.DefaultGates(), signal.Supports); err != nil {
+			return err
+		}
+		_, err = store.SameAs(ctx, tx, claim, first, store.Match{})
+		return err
+	})
+	closeStore(t, s)
+	return link
+}
+
+// AC #361: a link of a claim of the agent's own commands to a claim of your text cannot move
+// evidence. brain review shows why and offers keep apart only, and --merge refuses it and
+// writes nothing: the review never says that evidence counts together when none moved.
+func TestReviewStuckLink(t *testing.T) {
+	f := newStatusFixture(t)
+	link := f.stuckLink(t)
+	out := f.mustReview(t)
+	for _, want := range []string{
+		fmt.Sprintf("  no merge: the evidence of candidate %d is the agent's own commands and tool output, which cannot count for a correction\n", link),
+		fmt.Sprintf("  keep apart: brain review --apart %d\n", link),
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("brain review:\n%s\nwant %q", out, want)
+		}
+	}
+	if strings.Contains(out, fmt.Sprintf("--merge %d", link)) {
+		t.Errorf("brain review:\n%s\nwant no merge action for link %d", out, link)
+	}
+	if _, err := f.review(t, "--merge", fmt.Sprint(link)); err == nil || !strings.Contains(err.Error(), "a merge moves no evidence") ||
+		!strings.Contains(err.Error(), "nothing was written") {
+		t.Errorf("--merge = %v, want it refused with the reason", err)
+	}
+	if status := f.mustStatus(t); !strings.Contains(status, "\nlinks to review: 1\n") {
+		t.Errorf("brain status:\n%s\nwant the link still to review", status)
+	}
+}
+
+// Sol review of #370 (AC #361): the links popup and the review pane offer no merge for a link
+// that no merge can move: the keys line has no m, and m says why with no confirm.
+func TestLinksPopupStuck(t *testing.T) {
+	f := newFixture(t)
+	link := f.stuckLink(t)
+	var out bytes.Buffer
+	e := f.env(f.sock, "", "", &out)
+	e.Environ = f.popupEnviron("w14:p1", "w14")
+	if err := popupOf([]string{"links"})(context.Background(), e, bufio.NewReader(strings.NewReader("mq")),
+		func() (int, int) { return 0, 0 }); err != nil {
+		t.Fatalf("pane links = %v\n%s", err, out.String())
+	}
+	for _, want := range []string{
+		fmt.Sprintf("> link %d  workspace w14 (shop)", link),
+		"\nj down  k up  n keep apart  q close\n",
+		fmt.Sprintf("no merge: the evidence of candidate %d is the agent's own commands and tool output", link),
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("popup:\n%s\nwant %q", out.String(), want)
+		}
+	}
+	for _, not := range []string{linksPopupKeys, "press y to confirm"} {
+		if strings.Contains(out.String(), not) {
+			t.Errorf("popup:\n%s\nwant no %q", out.String(), not)
+		}
 	}
 }

@@ -601,6 +601,68 @@ func TestGitSourceMigration(t *testing.T) {
 	}
 }
 
+// AC #362: migration 34 keeps the candidates and their evidence links with their ids, and a new
+// candidate never gets the id of a deleted one: not of the newest candidate that a merge
+// deleted before the upgrade, which a proposal names, and not of one deleted after it.
+func TestCandidateIDMigration(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	e := &evidenceStore{Store: openTest(t, dir, migrationsUpTo(t, 33)), sessions: map[string]int64{}}
+	kept := e.mustAttach(t, Candidate{ClaimID: e.claim(t, "use pnpm"), Scope: ScopeWorkspace, WorkspaceKey: "ws-a",
+		Kind: CandidateCorrection}, e.observe(t, "claude", "a1", "ws-a", SenderUnconfirmed, testNow))
+	merged := e.mustAttach(t, Candidate{ClaimID: e.claim(t, "use bun"), Scope: ScopeWorkspace, WorkspaceKey: "ws-a",
+		Kind: CandidateCorrection}, e.observe(t, "claude", "a1", "ws-a", SenderUnconfirmed, testNow))
+	write(t, e.Store, func(tx *sql.Tx) error {
+		if _, err := InsertProposal(ctx, tx, Proposal{CandidateID: &merged.ID, Text: "rule", Scope: ScopeWorkspace,
+			Target: "fact", Diff: "+ rule", Status: ProposalSuperseded, Created: testNow}); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`DELETE FROM evidence_links WHERE candidate_id = ?`, merged.ID)
+		if err == nil {
+			_, err = tx.Exec(`DELETE FROM candidates WHERE id = ?`, merged.ID)
+		}
+		return err
+	})
+	closeTest(t, e.Store)
+
+	e.Store = openTest(t, dir, migrationsUpTo(t, 34))
+	defer closeTest(t, e.Store)
+	got := e.mustAttach(t, Candidate{ClaimID: e.claim(t, "use pnpm"), Scope: ScopeWorkspace, WorkspaceKey: "ws-a",
+		Kind: CandidateCorrection}, e.observe(t, "codex", "b1", "ws-a", SenderUnconfirmed, testNow))
+	if got.ID != kept.ID || got.Count != 2 {
+		t.Errorf("after migration: %+v, want candidate %d with count 2", got, kept.ID)
+	}
+	obs := e.observe(t, "claude", "a1", "ws-a", SenderUnconfirmed, testNow)
+	next := e.mustAttach(t, Candidate{ClaimID: e.claim(t, "use deno"), Scope: ScopeWorkspace, WorkspaceKey: "ws-a",
+		Kind: CandidateCorrection}, obs)
+	if next.ID <= merged.ID {
+		t.Errorf("new candidate id = %d, want more than %d: the deleted candidate that a proposal names", next.ID, merged.ID)
+	}
+	write(t, e.Store, func(tx *sql.Tx) error { return DropEvidence(ctx, tx, next.ID, []int64{obs}, DefaultGates()) })
+	if n := queryInt(t, e.Store, fmt.Sprintf(`SELECT count(*) FROM candidates WHERE id = %d`, next.ID)); n != 0 {
+		t.Fatalf("candidate %d with no evidence left: %d rows, want it deleted", next.ID, n)
+	}
+	last := e.mustAttach(t, Candidate{ClaimID: e.claim(t, "use yarn"), Scope: ScopeWorkspace, WorkspaceKey: "ws-a",
+		Kind: CandidateCorrection}, e.observe(t, "claude", "a1", "ws-a", SenderUnconfirmed, testNow))
+	if last.ID <= next.ID {
+		t.Errorf("candidate id after a delete = %d, want more than %d", last.ID, next.ID)
+	}
+	if n := queryInt(t, e.Store, `SELECT count(*) FROM pragma_foreign_key_check`); n != 0 {
+		t.Errorf("foreign key check = %d rows, want 0", n)
+	}
+	for _, name := range []string{"candidates_claim_scope", "evidence_links_session"} {
+		if n := queryInt(t, e.Store, `SELECT count(*) FROM sqlite_schema WHERE type = 'index' AND name = '`+name+`'`); n != 1 {
+			t.Errorf("index %s: %d, want 1", name, n)
+		}
+	}
+	if n := queryInt(t, e.Store, `SELECT count(*) FROM sqlite_schema WHERE name IN ('candidates_old', 'evidence_links_new')`); n != 0 {
+		t.Errorf("%d migration tables left, want 0", n)
+	}
+	if n := queryInt(t, e.Store, `SELECT count(*) FROM pragma_foreign_key_list('evidence_links') WHERE "table" = 'candidates'`); n != 1 {
+		t.Errorf("evidence_links references candidates %d times, want 1", n)
+	}
+}
+
 // rememberItem adds an item as brain remember makes it: a claim id with no claims row, and
 // revision 1 with text. key nil is a global item. A draft gets a proposal of status.
 func rememberItem(t *testing.T, s *Store, claim string, kind Kind, key *string, state State, status ProposalStatus, text string) {

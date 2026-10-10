@@ -418,7 +418,9 @@ func EvidenceElsewhere(ctx context.Context, tx *sql.Tx, obs, id int64) (bool, er
 }
 
 // SetCandidateKind sets the kind of candidate id and counts its gate again: the kind follows
-// the claim (#280, §7.2).
+// the claim (#280, §7.2). Evidence that the new kind refuses stays linked, but it does not count
+// (recount): the agent's own commands are no tellings of a procedure (#361), and the exact tool
+// path still sees that the extractor made a skill of the chain (§10.3).
 func SetCandidateKind(ctx context.Context, tx *sql.Tx, id int64, kind CandidateKind, gates Gates) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE candidates SET kind = ? WHERE id = ?`, kind, id); err != nil {
 		return fmt.Errorf("set kind of candidate %d: %w", id, err)
@@ -427,7 +429,8 @@ func SetCandidateKind(ctx context.Context, tx *sql.Tx, id int64, kind CandidateK
 }
 
 // recount sets the harnesses, counts, times and priority of candidate id from its evidence
-// links. It deletes a candidate that has no evidence left, after dropScripts.
+// links: the counts and harnesses from the links that count (counts), the times from all. It
+// deletes a candidate that has no evidence left, after dropScripts.
 func recount(ctx context.Context, tx *sql.Tx, id int64, gates Gates) error {
 	if err := dropScripts(ctx, tx, id); err != nil {
 		return err
@@ -442,12 +445,12 @@ func recount(ctx context.Context, tx *sql.Tx, id int64, gates Gates) error {
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE candidates SET
 		harnesses = (SELECT json_group_array(harness) FROM
-			(SELECT DISTINCT harness FROM evidence_links WHERE candidate_id = ?1 ORDER BY harness)),
-		count = (SELECT count(*) FROM evidence_links WHERE candidate_id = ?1),
-		sessions = (SELECT count(DISTINCT session_id) FROM evidence_links WHERE candidate_id = ?1),
+			(SELECT DISTINCT harness FROM evidence_links WHERE candidate_id = ?1 AND `+counts+` ORDER BY harness)),
+		count = (SELECT count(*) FROM evidence_links WHERE candidate_id = ?1 AND `+counts+`),
+		sessions = (SELECT count(DISTINCT session_id) FROM evidence_links WHERE candidate_id = ?1 AND `+counts+`),
 		first_seen = (SELECT min(at) FROM evidence_links WHERE candidate_id = ?1),
 		last_seen = (SELECT max(at) FROM evidence_links WHERE candidate_id = ?1)
-		WHERE id = ?1`, id)
+		WHERE id = ?1`, id, SenderTool, CandidateFailure, CandidateCommandChain)
 	if err != nil {
 		return fmt.Errorf("count evidence of candidate %d: %w", id, err)
 	}
@@ -464,6 +467,13 @@ func recount(ctx context.Context, tx *sql.Tx, id int64, gates Gates) error {
 	}
 	return nil
 }
+
+// counts is the SQL test of an evidence link of candidate ?1 that counts for its kind, with ?2
+// the tool sender and ?3 and ?4 the failure and command chain kinds: tool output counts only for
+// a failure or a command chain (§6.5). Attach checks the sender of each new link; a tool output
+// link of a candidate that your text turned into its kind later stays, uncounted
+// (SetCandidateKind, #361).
+const counts = `(sender != ?2 OR (SELECT kind FROM candidates WHERE id = ?1) IN (?3, ?4))`
 
 // NewestEvidence returns the observation of the newest evidence link of candidate id.
 func NewestEvidence(ctx context.Context, tx *sql.Tx, id int64) (int64, error) {
