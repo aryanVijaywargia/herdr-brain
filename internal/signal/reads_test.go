@@ -49,8 +49,8 @@ func TestFileText(t *testing.T) {
 		{"claude run", "⏺ Bash(npm test)", "  ⎿  error", false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := fileText(tc.call, tc.cut, tc.out); got != tc.want {
-				t.Errorf("fileText(%q, %v, %q) = %v, want %v", tc.call, tc.cut, tc.out, got, tc.want)
+			if got := noFailure(tc.call, tc.cut, tc.out); got != tc.want {
+				t.Errorf("noFailure(%q, %v, %q) = %v, want %v", tc.call, tc.cut, tc.out, got, tc.want)
 			}
 		})
 	}

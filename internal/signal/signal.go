@@ -283,8 +283,31 @@ var errorLine = regexp.MustCompile(`(?i)\b(error|failed|failure|fatal|panic|exce
 // so its failure still has a line.
 var testName = regexp.MustCompile(`^[^\pL\pN]*(?:ok \d+(?:\s|$)|Subtest: )`)
 
+// brainLine matches a line that Brain prints about its own command, as its refusal "brain review:
+// pane w1:p1 runs an agent (codex), so brain review does not approve or reject here: ..." or
+// "brain: warning: ...", after the tool mark, with the command in group 1 (#376). It is Brain's
+// text, not an error of a run in the project, except the error line of brain run, that names the
+// failed step of a tool of the project (§10.1).
+var brainLine = regexp.MustCompile(`^[^\pL\pN]*brain(?: ([a-z-]+))?: `)
+
+// isBrainText reports whether line l of tool output is a line that Brain prints about its own
+// command.
+func isBrainText(l string) bool {
+	m := brainLine.FindStringSubmatch(l)
+	return m != nil && m[1] != "run"
+}
+
+// commitLine matches a line that git commit prints when it made a commit [NEW, #375, M2 eval run
+// 6]: the line with the branch, the commit id and the subject ("[main 3f2a1bc] Return a JSON
+// error"), and the lines of a file that it created, deleted or renamed, after the tool mark. The
+// subject and the file names are text of the commit, not an error. A commit that fails prints
+// none of them, and the error lines of a hook stay errors.
+var commitLine = regexp.MustCompile(`^[^\pL\pN]*(?:\[[^\]]+ [0-9a-f]{7,40}\] |(?:create|delete) mode \d{6} |rename .+ \(\d+%\)$)`)
+
 // isError reports whether line l of tool output holds an error.
-func isError(l string) bool { return errorLine.MatchString(l) && !testName.MatchString(l) }
+func isError(l string) bool {
+	return errorLine.MatchString(l) && !testName.MatchString(l) && !isBrainText(l) && !commitLine.MatchString(l)
+}
 
 // digits matches the numbers that change between two runs of the same failure.
 var digits = regexp.MustCompile(`\d+`)
@@ -296,8 +319,10 @@ const maxSignature = 200
 // gate is E12-S2's (§7.2). A command record fails when its exit status is not 0. Tool text
 // fails when a line that names no test holds an error; its signature is that line with the
 // numbers taken out. A tool hook record holds the command, not its output, so only its exit
-// status counts. Pane text of files that a command printed is no failure (#363): the call line
-// is in the pane text above it, the last text of the segment that is no tool output.
+// status counts. A brain command is no failure of the project, also when Brain refuses it
+// (#376). Pane output that noFailure takes is no failure, as text of files that a command
+// printed (#363, #375): the call line is in the pane text above it, the last text of the segment
+// that is no tool output.
 func failures(ins []store.SignalInput) []Signal {
 	var sigs []Signal
 	above := map[int64]store.SignalInput{}
@@ -311,13 +336,13 @@ func failures(ins []store.SignalInput) []Signal {
 		var sig string
 		switch {
 		case in.Command != nil:
-			if in.Command.ExitStatus == nil || *in.Command.ExitStatus == 0 {
+			if in.Command.ExitStatus == nil || *in.Command.ExitStatus == 0 || brainCall(in.Command.Argv) {
 				continue
 			}
 			sig = "exit " + strconv.Itoa(*in.Command.ExitStatus) + "\n" + strings.Join(strings.Fields(in.Command.Argv), " ")
 		case in.Counts:
 			a, ok := above[in.SegmentID]
-			if in.Source == store.SourceHerdr && ok && fileText(a.Excerpt, a.Truncated, in.Excerpt) {
+			if in.Source == store.SourceHerdr && ok && noFailure(a.Excerpt, a.Truncated, in.Excerpt) {
 				continue
 			}
 			line := firstMatch(in.Excerpt, isError)
