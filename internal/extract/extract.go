@@ -4,6 +4,7 @@
 package extract
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/secret"
 	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
+	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
 )
 
 const (
@@ -67,6 +69,7 @@ type ref struct {
 	kind      signal.Kind          // the kind of the signal of the observation
 	lesson    bool                 // the observation starts a lesson signal too (§7.1)
 	cmd       *store.CommandRecord // the command record of the observation; nil for none
+	chain     []int64              // the observations of its command chain, in run order; nil for none
 	// earlier are the earlier occurrences of the procedures and repeated prompts that the
 	// observation starts, in the workspace key of the batch (#314). They join its evidence,
 	// but they are not input: the prompt holds a text in its own batch only (§7.3).
@@ -356,9 +359,15 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 	// correction kind for the comebacks (§5.4).
 	lessons := map[int64]bool{}
 	earlier := map[int64][]int64{}
+	chains := map[int64][]int64{}
 	for _, s := range sigs {
 		if len(s.Observations) == 0 || !in(s.Observations[0]) {
 			continue
+		}
+		if s.Kind == signal.CommandChain {
+			for _, id := range s.Observations {
+				chains[id] = s.Observations
+			}
 		}
 		if s.Kind == signal.Lesson {
 			lessons[s.Observations[0]] = true
@@ -389,7 +398,7 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 			o.Excerpt = o.Command.Argv
 		}
 		rs = append(rs, ref{id: fmt.Sprintf("e%d", id), obs: id, identity: o.CaptureIdentity, workspace: o.WorkspaceKey,
-			sender: o.Sender, excerpt: o.Excerpt, kind: k, lesson: lessons[id], cmd: o.Command,
+			sender: o.Sender, excerpt: o.Excerpt, kind: k, lesson: lessons[id], cmd: o.Command, chain: chains[id],
 			earlier: occurrences(earlier[id], o.WorkspaceKey, byID)})
 	}
 	slices.SortFunc(rs, func(a, b ref) int { return int(a.obs - b.obs) })
@@ -600,17 +609,15 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	if ts, err := store.TombstonesByClaim(ctx, tx, claim); err != nil || len(ts) > 0 {
 		return Suggestion{}, err
 	}
-	if err := link(ctx, tx, claim, c); err != nil {
-		return Suggestion{}, err
-	}
-	if err := setDraft(ctx, tx, claim, c, now); err != nil {
+	c, proven, err := recordClaim(ctx, tx, j, claim, c, now)
+	if err != nil {
 		return Suggestion{}, err
 	}
 	key := j.batch.WorkspaceKey
 	if c.Scope == store.ScopeGlobal {
 		key = ""
 	}
-	switch held, err := heldBy(ctx, tx, claim, c, key); {
+	switch held, err := heldBy(ctx, tx, j, claim, c, key, proven); {
 	case err != nil:
 		return Suggestion{}, err
 	case held != "":
@@ -639,6 +646,22 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 		return Suggestion{}, err
 	}
 	return p.propose(ctx, tx, id, c, now)
+}
+
+// recordClaim records claim c of batch j with claim id claim, and returns it with its same_as
+// link, and proven: the claim of the item of the brief that c restates (restated), which is its
+// link then, else "". It records its claim kind and its link (link), and its newest telling
+// (setDraft).
+func recordClaim(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim, now time.Time) (Claim, string, error) {
+	proven, err := restated(ctx, tx, j, claim, c)
+	if err != nil {
+		return Claim{}, "", err
+	}
+	c.SameAs = cmp.Or(proven, c.SameAs)
+	if err := link(ctx, tx, claim, c); err != nil {
+		return Claim{}, "", err
+	}
+	return c, proven, setDraft(ctx, tx, claim, c, now)
 }
 
 // recordOutcomes records the outcomes of claim c with claim id claim, from accepted, the refs
@@ -684,12 +707,19 @@ func (p Pass) keptKind(ctx context.Context, tx *sql.Tx, claim, key string, kind 
 	case old.Kind == kind:
 		return kind, nil
 	}
-	tool := old.Kind == store.CandidateFailure || old.Kind == store.CandidateCommandChain
-	user := kind == store.CandidateCorrection || kind == store.CandidateProcedure
-	if kind == store.CandidateLesson || (tool && user) {
+	if kind == store.CandidateLesson || overTool(old.Kind, kind) {
 		return kind, store.SetCandidateKind(ctx, tx, old.ID, kind, p.gates())
 	}
 	return old.Kind, nil
+}
+
+// overTool reports whether your text, new evidence of kind, turns a candidate of kind old, of
+// tool output alone, into its kind (#280): the kind follows the claim, and the tool output stops
+// counting (store.SetCandidateKind). So the tellings of a procedure count together also when a
+// claim of the agent's own commands for the same task came first (#361).
+func overTool(old, kind store.CandidateKind) bool {
+	tool := old == store.CandidateFailure || old == store.CandidateCommandChain
+	return tool && (kind == store.CandidateCorrection || kind == store.CandidateProcedure)
 }
 
 // attach adds each of refs as evidence of the candidate of cand, and returns its id (0 when
@@ -803,28 +833,160 @@ func permissionPair(ctx context.Context, tx *sql.Tx, cl, other store.Claim, c Cl
 	return flagged || store.TouchesPermission(text), err
 }
 
-// heldBy returns the claim of the proposed same_as link of claim c with claim id claim when a
-// pending proposal or an active item holds that claim in the scope with key (store.ClaimHeld),
-// else "". c then restates a lesson that you have or review already (#312, §7.2). A skill or a
-// tool is another thing than the rule that it restates (§10): it keeps its own candidate. A
-// skill restates a skill, so a procedure that comes again in other words makes no second skill
-// (#313): only a skill must hold the claim then (store.SkillHeld).
-func heldBy(ctx context.Context, tx *sql.Tx, claim string, c Claim, key string) (string, error) {
+// heldBy returns the claim that holds claim c with claim id claim in the scope with key, else
+// "": c then restates a lesson that you have, review or rejected already, and makes no candidate
+// and no proposal of its own (§7.3 order for a known claim). These hold it:
+//   - proven, the claim of the item of the brief whose current text c gives (restated, #364);
+//   - the claim of the proposed same_as link of c, as linkHolds says (#312, #313, #366);
+//   - an active or pending tool that procedure c asks to run (toolHolds, #365).
+//
+// A hold is no merge: the link stays proposed. So a permission word does not stop Brain's own
+// proof of a restatement, nor the agent's own commands, whose tool output counts for no rule.
+// A link to a rejected claim holds no evidence: it goes to review, and the rejection holds the
+// proposal (linkRejected).
+func heldBy(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim, key, proven string) (string, error) {
+	if proven != "" {
+		return proven, nil
+	}
+	switch other, held, err := linkHolds(ctx, tx, j, claim, c, key); {
+	case err != nil:
+		return "", err
+	case held:
+		return other, nil
+	}
+	return toolHolds(ctx, tx, j, c)
+}
+
+// linkHolds returns the claim of the proposed same_as link of claim c with claim id claim, and
+// whether it holds c in the scope with key:
+//   - when c is the agent's own commands alone (ownCommands) and an item of that claim, in the
+//     workspace of batch j or global, is active or waits for review, whatever c is and with no
+//     permission check: the agent follows the item, as it runs a rule's chain because the rule
+//     says so (#366);
+//   - else, when the link may merge (linkTarget), and a pending proposal or an active item holds
+//     that claim in the scope (store.ClaimHeld, #312). A skill or a tool is another thing than
+//     the rule that it restates (§10): a tool keeps its own candidate, and only a skill holds a
+//     skill (store.SkillHeld, #313).
+func linkHolds(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim, key string) (string, bool, error) {
+	if ownCommands(c) {
+		cl, err := store.ClaimByID(ctx, tx, claim)
+		if err != nil || cl.SameAs == "" || cl.SameAsStatus != store.SameAsProposed {
+			return "", false, err
+		}
+		held, err := store.ClaimHeld(ctx, tx, cl.SameAs, j.batch.WorkspaceKey)
+		return cl.SameAs, held, err
+	}
 	if c.Tool != "" {
-		return "", nil
+		return "", false, nil
 	}
 	other, ok, err := linkTarget(ctx, tx, claim, c)
 	if err != nil || !ok {
-		return "", err
+		return "", false, err
 	}
 	held := store.ClaimHeld
 	if c.Skill != nil {
 		held = store.SkillHeld
 	}
-	if ok, err := held(ctx, tx, other.ID, key); err != nil || !ok {
+	ok, err = held(ctx, tx, other.ID, key)
+	return other.ID, ok, err
+}
+
+// ownCommands reports whether the evidence of claim c is the agent's own commands and tool output
+// alone, with no text of yours (#366).
+func ownCommands(c Claim) bool {
+	return !slices.ContainsFunc(c.Refs, func(r ref) bool { return r.sender != store.SenderTool })
+}
+
+// restated returns the claim of an active item of the brief of batch j, other than claim, whose
+// current text claim c gives word for word, in normal form, as its claim text or as its rule,
+// else "". After an item edit (r2 or later), the claim of the item keeps the key of its first
+// text, so the extractor finds no claim to link a restatement of the new text to; Brain's own
+// check gives that link (#364). A skill and a tool have the text of a file, not of a rule.
+func restated(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim) (string, error) {
+	if c.Skill != nil || c.Tool != "" {
+		return "", nil
+	}
+	for _, r := range j.brief {
+		if normal(r.Text) != normal(claimText(c)) && normal(r.Text) != normal(c.Rule) {
+			continue
+		}
+		it, err := store.ItemByID(ctx, tx, r.ItemID)
+		if err != nil || it.ClaimID != claim {
+			return it.ClaimID, err
+		}
+	}
+	return "", nil
+}
+
+// toolHolds returns the claim of a tool, active or pending, that a pane of the workspace of
+// batch j sees (store.ToolTexts), that procedure claim c is, else "": c names each command of the
+// tool word for word, in run order (names; the words of an input take any value), and a command
+// chain of the batch is a run of the tool (ranTool), so the request made the agent run that tool
+// and no more. A request that a tool covers is no rule (#365). Only a procedure: a lesson, a
+// correction or a preference says how to work (a condition, an order, a "never"), which a tool
+// does not hold.
+func toolHolds(ctx context.Context, tx *sql.Tx, j job, c Claim) (string, error) {
+	if c.Kind != "procedure" {
+		return "", nil
+	}
+	ts, err := store.ToolTexts(ctx, tx, j.batch.WorkspaceKey)
+	if err != nil {
 		return "", err
 	}
-	return other.ID, nil
+	words := strings.Fields(c.Situation + " " + c.Rule)
+	for i, w := range words {
+		words[i] = strings.TrimRight(strings.Trim(w, "`'\"()"), ".,;:!?")
+	}
+	for _, t := range ts {
+		// A pending text that is no valid contract is no tool: approve refuses it.
+		if tc, err := tool.Parse(t.Text); err == nil && names(words, tc.Commands()) && ranTool(j, tc) {
+			return t.ClaimID, nil
+		}
+	}
+	return "", nil
+}
+
+// ranTool reports whether a command chain of batch j is a run of tool tc (runs): the commands of
+// one turn, each one that Brain may draft a tool from (toolWords).
+func ranTool(j job, tc tool.Contract) bool {
+	cmds := map[int64]*store.CommandRecord{}
+	for _, r := range j.refs {
+		cmds[r.obs] = r.cmd
+	}
+	for _, r := range j.refs {
+		if len(r.chain) == 0 || r.chain[0] != r.obs {
+			continue // each chain once, at its first command
+		}
+		steps := make([][]string, 0, len(r.chain))
+		for _, o := range r.chain {
+			if c := cmds[o]; c != nil {
+				if ws, ok := toolWords(c.Argv); ok {
+					steps = append(steps, ws)
+				}
+			}
+		}
+		if len(steps) == len(r.chain) && runs(tc, steps) {
+			return true
+		}
+	}
+	return false
+}
+
+// names reports whether words hold each of steps in order, each as words in a row that fit it.
+func names(words []string, steps [][]string) bool {
+	for _, s := range steps {
+		at := -1
+		for i := 0; at < 0 && i+len(s) <= len(words); i++ {
+			if fits(s, words[i:i+len(s)]) {
+				at = i
+			}
+		}
+		if at < 0 {
+			return false
+		}
+		words = words[at+len(s):]
+	}
+	return len(steps) > 0
 }
 
 // restate stores the evidence of claim c with claim id claim, which restates claim held
@@ -857,10 +1019,11 @@ func (p Pass) restate(ctx context.Context, tx *sql.Tx, j job, claim, held string
 
 // mergeInto returns the claim whose candidate gets the evidence of claim c with claim id claim,
 // in the scope with key: the claim of its proposed same_as link, else claim (#279, §7.2). The
-// link merges only into an open candidate of kind in the same scope, of a claim of the same
-// claim kind with no item there, and only when neither claim is a permission or a safety rule
-// and the claim of c is not rejected there. Else the link stays a proposed link for review.
-// Brain keeps both claim ids and the link, and marks the merged evidence (store.Candidate.Via).
+// link merges only into an open candidate of kind in the same scope, or of tool output alone
+// that kind turns into its kind (overTool, #361), of a claim of the same claim kind with no
+// item there, and only when neither claim is a permission or a safety rule and the claim of c
+// is not rejected there. Else the link stays a proposed link for review. Brain keeps both
+// claim ids and the link, and marks the merged evidence (store.Candidate.Via).
 func mergeInto(ctx context.Context, tx *sql.Tx, claim string, c Claim, key string, kind store.CandidateKind) (string, error) {
 	other, ok, err := linkTarget(ctx, tx, claim, c)
 	if err != nil || !ok || mergeKind(other.Kind) != mergeKind(c.Kind) {
@@ -872,7 +1035,7 @@ func mergeInto(ctx context.Context, tx *sql.Tx, claim string, c Claim, key strin
 		return claim, nil
 	case err != nil:
 		return claim, err
-	case cand.Scope != c.Scope || cand.Kind != kind || cand.Status != store.CandidateOpen:
+	case cand.Scope != c.Scope || cand.Kind != kind && !overTool(cand.Kind, kind) || cand.Status != store.CandidateOpen:
 		return claim, nil
 	}
 	for _, held := range []func(context.Context, *sql.Tx, string, string) (bool, error){store.ClaimHasItem, store.Rejected} {
@@ -1121,6 +1284,9 @@ func (p Pass) proposal(ctx context.Context, tx *sql.Tx, id int64, c Claim, now t
 	if held, err := store.Rejected(ctx, tx, cand.ClaimID, cand.WorkspaceKey); err != nil || held {
 		return cand, 0, err
 	}
+	if held, err := linkRejected(ctx, tx, cand); err != nil || held {
+		return cand, 0, err
+	}
 	var key *string
 	if cand.Scope == store.ScopeWorkspace {
 		key = &cand.WorkspaceKey
@@ -1165,6 +1331,18 @@ func (p Pass) proposal(ctx context.Context, tx *sql.Tx, id int64, c Claim, now t
 		return cand, 0, err
 	}
 	return cand, pid, store.MarkProposed(ctx, tx, id)
+}
+
+// linkRejected reports whether the claim of candidate cand has a same_as link that waits for
+// review to a claim that you rejected in its scope: the same request in other words, as the
+// extractor says. The rejection holds it until you decide the link (#365, §7.2): a merge keeps
+// the rejection, and keep apart frees the claim.
+func linkRejected(ctx context.Context, tx *sql.Tx, cand store.Candidate) (bool, error) {
+	cl, err := store.ClaimByID(ctx, tx, cand.ClaimID)
+	if err != nil || cl.SameAs == "" || cl.SameAsStatus != store.SameAsProposed {
+		return false, err
+	}
+	return store.Rejected(ctx, tx, cl.SameAs, cand.WorkspaceKey)
 }
 
 // lessonSuggestion reserves the suggestion of proposal pid of lesson candidate cand beside the
