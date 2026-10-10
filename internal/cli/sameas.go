@@ -303,15 +303,19 @@ func (l *linksPane) draw(prompt string) {
 	_, _ = io.WriteString(l.Stdout, clearScreen+fitView(body.String(), foot.String(), height, width, "")+foot.String()) // a pane with no screen has no one to tell
 }
 
-// linkCount is the number of same_as links that wait for review in the view of the caller of e
-// (#358).
-func linkCount(ctx context.Context, e Env) (n int, err error) {
+// paneState is the number of same_as links that wait for review in the view of the caller of e
+// (#358), and the line that says that learning waits for a full daily cap, or "" (#372).
+func paneState(ctx context.Context, e Env) (n int, paused string, err error) {
 	_, err = callPane(ctx, e, func(cl caller) error {
 		return cl.Store.Write(ctx, func(tx *sql.Tx) error {
 			ls, err := cl.sameAsLinks(ctx, tx)
+			if err != nil {
+				return err
+			}
 			n = len(ls)
+			paused, err = cl.paused(ctx, tx)
 			return err
 		})
 	})
-	return n, err
+	return n, paused, err
 }

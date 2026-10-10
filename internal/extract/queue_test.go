@@ -496,6 +496,10 @@ func TestProposalCap(t *testing.T) {
 	if d.Proposals != 2 || d.Full() == "" || f.calls("ws-B") != 0 {
 		t.Errorf("day = %+v, calls of ws-B = %d, want 2 proposals, a full cap and no call", d, f.calls("ws-B"))
 	}
+	// AC #372: the proposal cap has room when the proposal that keeps it full is a day old.
+	if !d.Room.Equal(f.now.Add(day)) {
+		t.Errorf("day room = %v, want %v", d.Room, f.now.Add(day))
+	}
 	f.now = f.now.Add(day + time.Minute)
 	if err := p.Run(context.Background()); err != nil {
 		t.Fatal(err)
@@ -579,5 +583,52 @@ func TestCallsCountByDispatch(t *testing.T) {
 	if bs := f.batches(); f.cli.calls() != 2 || len(bs) != 1 || bs[0].ModelCalls != 2 || d.Calls != 1 {
 		t.Errorf("calls %d, batches %+v, calls in the last day %d; want 2 calls of one batch, 1 in the last day",
 			f.cli.calls(), bs, d.Calls)
+	}
+}
+
+// AC #372: a full cap has room again when the call or proposal that keeps it full is a day old:
+// with 4 calls in the last day and a cap of 3, that is the 2nd oldest. The pause line names the
+// cap and the local time; no full cap gives no room and no line. TestProposalCap checks the
+// room of the proposal cap.
+func TestCapRoom(t *testing.T) {
+	old := time.Local
+	time.Local = time.FixedZone("IST", 5*3600+1800)
+	t.Cleanup(func() { time.Local = old })
+	f := newFixture(t)
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		for _, ago := range []time.Duration{25 * time.Hour, 23 * time.Hour, 20 * time.Hour, 2 * time.Hour, time.Hour} {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO extraction_calls (workspace_key, at) VALUES ('ws-A', ?)`,
+				f.now.Add(-ago).UTC().Format(time.RFC3339Nano)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	room := f.now.Add(4 * time.Hour) // the call of 20 hours ago is a day old then
+	for _, tc := range []struct {
+		name string
+		caps Caps
+		room time.Time
+		line string
+	}{
+		{"call cap full", Caps{Calls: 3, Proposals: 15, InputBytes: 1}, room,
+			"learning paused: the daily cap of 3 extractor calls is reached; room comes back at " + room.In(time.Local).Format("15:04")},
+		{"call cap one over", Caps{Calls: 2, Proposals: 15, InputBytes: 1}, f.now.Add(22 * time.Hour),
+			"learning paused: the daily cap of 2 extractor calls is reached; room comes back at " +
+				f.now.Add(22*time.Hour).In(time.Local).Format("15:04")},
+		{"room left", Caps{Calls: 5, Proposals: 15, InputBytes: 1}, time.Time{}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := f.pass()
+			p.Caps = tc.caps
+			var d Day
+			f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
+				d, err = p.Day(ctx, tx)
+				return err
+			})
+			if !d.Room.Equal(tc.room) || d.Paused() != tc.line {
+				t.Errorf("Day() = %+v, Paused() = %q, want room %v and %q", d, d.Paused(), tc.room, tc.line)
+			}
+		})
 	}
 }

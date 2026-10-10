@@ -727,8 +727,12 @@ func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
 	if err != nil {
 		return err
 	}
-	s.w.printf("  last 24h: %d of %d extractor calls, %d of %d new proposals\n", d.Calls, d.Caps.Calls,
-		d.Proposals, d.Caps.Proposals)
+	paused := d.Paused()
+	if paused != "" {
+		paused = "; " + paused
+	}
+	s.w.printf("  last 24h: %d of %d extractor calls, %d of %d new proposals%s\n", d.Calls, d.Caps.Calls,
+		d.Proposals, d.Caps.Proposals, paused)
 	ws, err := p.Waiting(ctx, tx)
 	if err != nil {
 		return err
