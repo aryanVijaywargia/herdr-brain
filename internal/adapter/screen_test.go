@@ -22,7 +22,11 @@ import (
 // claude-placeholder-last and claude-fold-memory screens are made from the lines of the M2 eval
 // run 3 report (2026-10-09, claude 2.1.294, codex 0.160.1), with the texts of the Codex source
 // and of the Claude Code 2.1.295 source; claude-placeholder-sent and claude-placeholder-reply
-// hold real prompts with the placeholder texts. An empty golden keeps no line.
+// hold real prompts with the placeholder texts. #368: claude-tip-workflow is made from the line of
+// the M2 eval run 5 report (2026-10-09, claude 2.1.295), with the tip text of the Claude Code
+// 2.1.296 source; the report gives no indent, so the end of the tip is at column 6, which the
+// tip block does not take. claude-tip-workflow-keep holds a real prompt and reply with the same
+// words. An empty golden keeps no line.
 func TestScreen(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join("testdata", "screen", "*.txt"))
 	if err != nil {

@@ -567,6 +567,20 @@ tests = [
   "internal/store:TestCandidateIDMigration",
 ]
 
+# M2 eval run 5 (2026-10-09, R5-3): README lines that the agent printed and a passing TAP test
+# line made a failure proposal. Pane text of files that a command of readers printed, and a TAP
+# test name, give no failure; a failed command and an error of a run still do. Fix: the PR of
+# #363.
+[[bug]]
+issue = 363
+tests = [
+  "internal/brained:TestCaptureFileRead",
+  "internal/brained:TestCaptureRealFailure",
+  "internal/signal:TestFileText",
+  "internal/signal:TestFailureFileText",
+  "internal/signal:TestFailureTestName",
+]
+
 # M2 eval run 5 (2026-10-09, R5-5): after an item edit, a restatement of its new text makes a
 # copy proposal: the claim of the item keeps its first key, so the extractor gives no same_as
 # link. Brain's own check finds the current text of the item. Fix: the PR of #361.
@@ -597,4 +611,21 @@ tests = [
 issue = 366
 tests = [
   "internal/extract:TestAgentFollowsItem",
+]
+
+# M2 eval run 5 (2026-10-09, R5-8): brain status showed the time of a failed automation run in
+# UTC with no zone mark. Status and brain automation list show local time, as review does.
+# Fix: the PR of #367.
+[[bug]]
+issue = 367
+tests = ["internal/cli:TestRunLocalTime"]
+
+# M2 eval run 5 (2026-10-09, R5-9): the end of a claude spinner tip under a sent prompt was
+# stored as part of the prompt. Fix: the PR of #368.
+[[bug]]
+issue = 368
+tests = [
+  "internal/adapter:TestScreen/claude-tip-workflow",
+  "internal/adapter:TestScreen/claude-tip-workflow-keep",
+  "internal/brained:TestCaptureTipUnderPrompt",
 ]

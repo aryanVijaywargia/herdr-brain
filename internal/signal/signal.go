@@ -276,6 +276,16 @@ func chain(cmds []store.SignalInput) (Signal, bool) {
 var errorLine = regexp.MustCompile(`(?i)\b(error|failed|failure|fatal|panic|exception|traceback|denied|not found|` +
 	`no such file|cannot|could not|exit (code|status):? [1-9]\d*)\b`)
 
+// testName matches a line of TAP output that names a test [NEW, #363, M2 eval run 5]: the line
+// of a test that passed ("ok 1 - name") and the name line that node's test runner prints before
+// each test ("# Subtest: name"), after the tool mark of a pane read. A name is no error, also
+// when it holds an error word. A test that fails prints "not ok 1 - name" and its error lines,
+// so its failure still has a line.
+var testName = regexp.MustCompile(`^[^\pL\pN]*(?:ok \d+(?:\s|$)|Subtest: )`)
+
+// isError reports whether line l of tool output holds an error.
+func isError(l string) bool { return errorLine.MatchString(l) && !testName.MatchString(l) }
+
 // digits matches the numbers that change between two runs of the same failure.
 var digits = regexp.MustCompile(`\d+`)
 
@@ -284,11 +294,17 @@ const maxSignature = 200
 
 // failures finds errors in tool output, from their first occurrence (§7.1). The 2-session
 // gate is E12-S2's (§7.2). A command record fails when its exit status is not 0. Tool text
-// fails when a line holds an error; its signature is that line with the numbers taken out. A
-// tool hook record holds the command, not its output, so only its exit status counts.
+// fails when a line that names no test holds an error; its signature is that line with the
+// numbers taken out. A tool hook record holds the command, not its output, so only its exit
+// status counts. Pane text of files that a command printed is no failure (#363): the call line
+// is in the pane text above it, the last text of the segment that is no tool output.
 func failures(ins []store.SignalInput) []Signal {
 	var sigs []Signal
+	above := map[int64]store.SignalInput{}
 	for _, in := range ins {
+		if in.Source == store.SourceHerdr && in.Sender != store.SenderTool {
+			above[in.SegmentID] = in
+		}
 		if !eligible(Failure, in.Sender) {
 			continue
 		}
@@ -300,7 +316,11 @@ func failures(ins []store.SignalInput) []Signal {
 			}
 			sig = "exit " + strconv.Itoa(*in.Command.ExitStatus) + "\n" + strings.Join(strings.Fields(in.Command.Argv), " ")
 		case in.Counts:
-			line := firstMatch(in.Excerpt, errorLine)
+			a, ok := above[in.SegmentID]
+			if in.Source == store.SourceHerdr && ok && fileText(a.Excerpt, a.Truncated, in.Excerpt) {
+				continue
+			}
+			line := firstMatch(in.Excerpt, isError)
 			if line == "" {
 				continue
 			}
@@ -367,10 +387,10 @@ func key(k Kind, sig string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// firstMatch returns the first line of s that re matches, or "".
-func firstMatch(s string, re *regexp.Regexp) string {
+// firstMatch returns the first line of s that ok accepts, or "".
+func firstMatch(s string, ok func(string) bool) string {
 	for _, l := range strings.Split(s, "\n") {
-		if re.MatchString(l) {
+		if ok(l) {
 			return l
 		}
 	}
