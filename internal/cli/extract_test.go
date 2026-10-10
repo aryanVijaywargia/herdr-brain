@@ -289,3 +289,60 @@ func TestStatusQueueConfigGate(t *testing.T) {
 		t.Errorf("brain status:\n%s\nwant 1 pending at the configured gate", status)
 	}
 }
+
+// AC #372: when a daily cap is full, brain review (the list in the queue pane of the review
+// action), the review pane and the brain status cap line say that learning waits, which cap is
+// full, and the local time when room comes back: when the call or the proposal that keeps the
+// cap full is a day old. With room left, none of them has the line.
+func TestCapFullLines(t *testing.T) {
+	inZone(t)
+	// [NEW] test limits: caps of 1 call and 1 proposal, so one of each fills them.
+	for _, tc := range []struct {
+		name, config, line string
+		call               bool // add an extractor call 3 hours before testNow
+	}{
+		{"room left", "", "", true},
+		// The call of 09:00 UTC is a day old at 09:00 UTC, 14:30 in +05:30.
+		{"call cap", "[caps]\ncalls_per_day = 1\n",
+			"learning paused: the daily cap of 1 extractor calls is reached; room comes back at 14:30", true},
+		// The proposal of 12:00 UTC is a day old at 12:00 UTC, 17:30 in +05:30.
+		{"proposal cap", "[caps]\nproposals_per_day = 1\n",
+			"learning paused: the daily cap of 1 new proposals is reached; room comes back at 17:30", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newStatusFixture(t)
+			putFile(t, filepath.Join(filepath.Dir(f.store), "config.toml"), tc.config)
+			pid, err := f.propose(t, f.correct(t, f.claim(t), "ws_a14", "a1"), "workspace w14 (shop)")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.call {
+				f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
+					_, err := tx.ExecContext(ctx, `INSERT INTO extraction_calls (workspace_key, at) VALUES ('ws_a14', ?)`,
+						testNow.Add(-3*time.Hour).Format(time.RFC3339Nano))
+					return err
+				})
+			}
+			list, err := f.review(t)
+			if err != nil {
+				t.Fatal(err)
+			}
+			surfaces := map[string]string{"brain review": list, "review pane": f.paneScreen(t, pid, "q", 0, 0),
+				"brain status": f.mustStatus(t)}
+			for name, out := range surfaces {
+				if tc.line == "" {
+					if strings.Contains(out, "learning paused") {
+						t.Errorf("%s:\n%s\nwant no pause line", name, out)
+					}
+					continue
+				}
+				if !strings.Contains(out, tc.line+"\n") {
+					t.Errorf("%s:\n%s\nwant %q", name, out, tc.line)
+				}
+			}
+			if tc.line != "" && !strings.Contains(surfaces["brain status"], " new proposals; "+tc.line+"\n") {
+				t.Errorf("brain status:\n%s\nwant the line on the last 24h cap line", surfaces["brain status"])
+			}
+		})
+	}
+}

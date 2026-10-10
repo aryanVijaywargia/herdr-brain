@@ -629,3 +629,10 @@ tests = [
   "internal/adapter:TestScreen/claude-tip-workflow-keep",
   "internal/brained:TestCaptureTipUnderPrompt",
 ]
+
+# M2 eval run 5 (2026-10-09, R5-4): a claude turn approved its own draft with
+# `brain review 18 --approve`, 3 s after it made it. brain review does not approve or reject from
+# a pane with a live agent; the agent's drafts wait for you. Fix: the PR of #371.
+[[bug]]
+issue = 371
+tests = ["internal/cli:TestAgentPaneDecides"]

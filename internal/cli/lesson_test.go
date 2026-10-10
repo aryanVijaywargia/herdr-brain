@@ -91,7 +91,7 @@ func TestLessonOpensReviewPane(t *testing.T) {
 		t.Errorf("suggestions = %+v, want the lesson shown in pane w14:p5", ss)
 	}
 
-	f.review(t, fmt.Sprint(proposal), "--approve")
+	f.decide(t, fmt.Sprint(proposal), "--approve")
 	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
 		p, err := store.ProposalByID(ctx, tx, proposal)
 		if err != nil {

@@ -99,6 +99,10 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 		return err
 	}
 	defer func() { err = errors.Join(err, c.Close()) }()
+	if surface == store.SurfaceCLI && c.Agent != "" && r.decides() {
+		return fmt.Errorf("pane %s runs an agent (%s), so brain review does not approve or reject here: decide in the review pane or in a shell pane; nothing was written",
+			c.PaneID, c.Agent)
+	}
 	cl := newCaller(e, c)
 	cl.surface = surface
 	switch {
@@ -159,6 +163,14 @@ func (cl caller) runQueueAction(ctx context.Context, r review) error {
 		return cl.endRejection(ctx, cmp.Or(r.reopen, r.reset), r.reopen != 0)
 	}
 	return cl.restore(ctx, r.restore)
+}
+
+// decides reports whether r approves or rejects: a proposal, a disputed item, a same_as link, a
+// rejection or a retired item. Only you decide them: a call from a pane with a live agent does
+// not (§18, #371). An edit of an item (--item), --change, --later and --tool make or keep drafts.
+func (r review) decides() bool {
+	return r.approve || r.reject || r.keep || r.retire && r.item == 0 || r.merge != 0 || r.apart != 0 ||
+		r.reopen != 0 || r.reset != 0 || r.restore != 0
 }
 
 // queueAction reports whether r has an action of queueFlags.
@@ -313,9 +325,13 @@ func (cl caller) gates() store.Gates {
 func (cl caller) list(ctx context.Context) error {
 	gates := cl.gates()
 	var lines []string
+	var paused string
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		ids, err := store.PendingProposalIDs(ctx, tx)
 		if err != nil {
+			return err
+		}
+		if paused, err = cl.paused(ctx, tx); err != nil {
 			return err
 		}
 		if lines, err = cl.staleLinks(ctx, tx); err != nil {
@@ -348,12 +364,30 @@ func (cl caller) list(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if paused != "" {
+		paused += "\n"
+	}
 	if len(lines) == 0 {
-		_, err = fmt.Fprintln(cl.Stdout, "no proposals wait for your review")
+		_, err = fmt.Fprintf(cl.Stdout, "no proposals wait for your review\n%s", paused)
 		return err
 	}
-	_, err = fmt.Fprintf(cl.Stdout, "%s\n\nshow one: brain review <id>\n", strings.Join(lines, "\n"))
+	_, err = fmt.Fprintf(cl.Stdout, "%s\n\nshow one: brain review <id>\n%s", strings.Join(lines, "\n"), paused)
 	return err
+}
+
+// paused is the line that says that learning waits for a full daily cap, and the local time
+// when room comes back (#372), or "". A config that does not read gives "": Brain makes no
+// extractor call then, and brain status says why.
+func (cl caller) paused(ctx context.Context, tx *sql.Tx) (string, error) {
+	var line string
+	if _, caps, cerr := extract.ReadConfig(cl.Config); cerr == nil {
+		d, err := extract.Pass{Now: cl.Now, Caps: caps}.Day(ctx, tx)
+		if err != nil {
+			return "", err
+		}
+		line = d.Paused()
+	}
+	return line, nil
 }
 
 // belowGate reports whether p is a proposal of a candidate below the gate of its kind. A

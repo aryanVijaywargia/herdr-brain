@@ -183,6 +183,9 @@ type Call struct {
 	// AgentSession is the agent session that herdr showed in the calling pane at the last
 	// check, or "" when herdr showed none.
 	AgentSession string
+	// Agent is the kind of the live agent that herdr showed in the calling pane at the last
+	// check, such as "claude", or "" when herdr showed none: a shell pane or a plugin pane.
+	Agent string
 }
 
 // Close closes the store.
@@ -292,6 +295,9 @@ func (e Env) recheck(ctx context.Context, c *Call) error {
 	}
 	if p.AgentSession != nil {
 		c.AgentSession = p.AgentSession.Value
+	}
+	if p.Agent != nil {
+		c.Agent = *p.Agent
 	}
 	return nil
 }

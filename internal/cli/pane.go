@@ -144,6 +144,7 @@ type reviewPane struct {
 	detail   bool   // show the claim id and the revision too (#254)
 	evidence bool   // show the evidence view instead of the proposal (E20-S4)
 	links    int    // the same_as links that wait for review (#358): key m lists them
+	paused   string // the line of a full daily cap (#372), or ""
 	// size returns the rows and the columns of the pane, read before each screen; nil or 0 rows
 	// shows the whole view.
 	size func() (rows, cols int)
@@ -159,7 +160,7 @@ func (p *reviewPane) run(ctx context.Context) error {
 			return p.close(ctx, err)
 		}
 		p.view = view
-		if p.links, err = linkCount(ctx, p.Env); err != nil {
+		if p.links, p.paused, err = paneState(ctx, p.Env); err != nil {
 			return p.close(ctx, err)
 		}
 		if !p.evidence {
@@ -434,6 +435,9 @@ func (p *reviewPane) draw(prompt string) {
 	}
 	if p.links > 0 {
 		fmt.Fprintf(&foot, "\nlinks to review: %d (m shows them)\n", p.links)
+	}
+	if p.paused != "" {
+		fmt.Fprintf(&foot, "\n%s\n", p.paused)
 	}
 	fmt.Fprintf(&foot, "\n%s\n", keys)
 	if prompt != "" {

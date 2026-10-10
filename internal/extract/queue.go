@@ -41,6 +41,9 @@ func (p Pass) caps() Caps {
 type Day struct {
 	Calls, Proposals int
 	Caps             Caps
+	// Room is when every full cap has room again: the call or proposal that keeps it full is a
+	// day old then. The zero time when no cap is full (#372).
+	Room time.Time
 }
 
 // Day returns the use of the daily caps now.
@@ -54,7 +57,25 @@ func (p Pass) Day(ctx context.Context, tx *sql.Tx) (Day, error) {
 	if err != nil {
 		return Day{}, err
 	}
-	return Day{Calls: calls, Proposals: proposals, Caps: p.caps()}, nil
+	d := Day{Calls: calls, Proposals: proposals, Caps: p.caps()}
+	// A cap is full while it holds at least cap of them: it has room when all but cap-1 of
+	// them are a day old, so the one that keeps it full is number count-cap, oldest first.
+	for _, c := range []struct {
+		count, limit int
+		nth          func(context.Context, *sql.Tx, time.Time, int) (time.Time, error)
+	}{{calls, d.Caps.Calls, store.NthCallSince}, {proposals, d.Caps.Proposals, store.NthExtractorProposalSince}} {
+		if c.count < c.limit {
+			continue
+		}
+		at, err := c.nth(ctx, tx, since, c.count-c.limit)
+		if err != nil {
+			return Day{}, err
+		}
+		if room := at.Add(day); room.After(d.Room) {
+			d.Room = room
+		}
+	}
+	return d, nil
 }
 
 // Full returns why the caps stop a new call now, or "". A call is useless when no new
@@ -67,6 +88,16 @@ func (d Day) Full() string {
 		return fmt.Sprintf("the daily cap of %d new proposals is reached", d.Caps.Proposals)
 	}
 	return ""
+}
+
+// Paused is the line that says that learning waits for a full cap, which cap, and the local
+// time when room comes back (#372), or "" when no cap is full. [NEW] the line form.
+func (d Day) Paused() string {
+	full := d.Full()
+	if full == "" {
+		return ""
+	}
+	return fmt.Sprintf("learning paused: %s; room comes back at %s", full, d.Room.Local().Format("15:04"))
 }
 
 // order puts jobs in round robin order across workspace keys (§7.3 queue): the first job of

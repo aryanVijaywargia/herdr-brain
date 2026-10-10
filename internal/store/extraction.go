@@ -359,13 +359,42 @@ func CallsSince(ctx context.Context, tx *sql.Tx, since time.Time) (int, error) {
 // no item, as §11 has no script kind; a forget of the tool item blanks its target, not that.
 func ExtractorProposalsSince(ctx context.Context, tx *sql.Tx, since time.Time) (int, error) {
 	var n int
-	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM proposals WHERE created >= ? AND (candidate_id IS NOT NULL
-		AND item_id IS NOT NULL OR id IN (SELECT new_proposal_id FROM change_requests WHERE source = ?))`,
+	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM proposals WHERE `+extractorProposals,
 		timeArg(since), ChangeItem).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count extractor proposals: %w", err)
 	}
 	return n, nil
+}
+
+// extractorProposals is the condition of the proposals that ExtractorProposalsSince counts,
+// with the since time and ChangeItem as its arguments.
+const extractorProposals = `created >= ? AND (candidate_id IS NOT NULL
+		AND item_id IS NOT NULL OR id IN (SELECT new_proposal_id FROM change_requests WHERE source = ?))`
+
+// NthCallSince returns the time of extractor call n since since, in time order: 0 is the
+// oldest. A full call cap has room again when that call is a day old (#372).
+func NthCallSince(ctx context.Context, tx *sql.Tx, since time.Time, n int) (time.Time, error) {
+	var at time.Time
+	err := tx.QueryRowContext(ctx, `SELECT at FROM extraction_calls WHERE at >= ? ORDER BY at LIMIT 1 OFFSET ?`,
+		timeArg(since), n).Scan(timeDest{&at})
+	if err != nil {
+		return time.Time{}, fmt.Errorf("read extractor call %d: %w", n, err)
+	}
+	return at, nil
+}
+
+// NthExtractorProposalSince returns the time of proposal n of those that ExtractorProposalsSince
+// counts, in time order: 0 is the oldest. A full proposal cap has room again when that proposal
+// is a day old (#372).
+func NthExtractorProposalSince(ctx context.Context, tx *sql.Tx, since time.Time, n int) (time.Time, error) {
+	var at time.Time
+	err := tx.QueryRowContext(ctx, `SELECT created FROM proposals WHERE `+extractorProposals+` ORDER BY created LIMIT 1 OFFSET ?`,
+		timeArg(since), ChangeItem, n).Scan(timeDest{&at})
+	if err != nil {
+		return time.Time{}, fmt.Errorf("read extractor proposal %d: %w", n, err)
+	}
+	return at, nil
 }
 
 // LastCalls returns, by workspace key, the time of its last extractor call: the round robin of

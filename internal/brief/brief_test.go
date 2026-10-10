@@ -203,13 +203,14 @@ func TestItemLines(t *testing.T) {
 func TestSkillBudget(t *testing.T) {
 	sk := Skill{Name: "deploy", Description: "Deploy the site.", Path: "/s/skills/7/r1/SKILL.md"}
 	list := len(skillsLabel + skillsHint + "- deploy: Deploy the site. File: /s/skills/7/r1/SKILL.md\n")
-	items := fill(t, len(workspaceLabel)+list, workspaceBudget)
+	// The skill fix line counts in the part that lists the skill (#373).
+	items := fill(t, len(workspaceLabel)+list+len(skillFix+"\n"), workspaceBudget)
 	w, err := Workspace(items, sk)
 	if err != nil {
 		t.Fatalf("Workspace(full with skill) error = %v, want nil", err)
 	}
-	if len(w) != workspaceBudget {
-		t.Errorf("len(Workspace(full with skill)) = %d, want %d", len(w), workspaceBudget)
+	if size, _ := WorkspaceSize(w); size != workspaceBudget {
+		t.Errorf("WorkspaceSize(full with skill) = %d, want %d", size, workspaceBudget)
 	}
 	items[len(items)-1].Text += "x"
 	var be *BudgetError
@@ -318,6 +319,66 @@ func TestRememberLine(t *testing.T) {
 	}
 }
 
+// AC #373: a brief that lists a skill, in either part, has the skill fix line once, right after
+// the remember line; a brief with no skill has none. Its characters count in the part that
+// lists the skill, so a part that fits without it is over the budget with it.
+func TestSkillFixLine(t *testing.T) {
+	const line = "When the user corrects a step of a skill, do not run brain remember; Brain patches the skill.\n"
+	sk := Skill{Name: "deploy", Description: "Deploy the site.", Path: "/s/skills/7/r1/SKILL.md"}
+	g, err := Global([]Item{{ID: 1, Text: "use pnpm"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gs, err := Global(nil, sk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := Workspace([]Item{{ID: 2, Text: "use make"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := Workspace(nil, sk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		text string
+		want int
+	}{
+		{"empty", Text("", ""), 0},
+		{"items, no skill", Text(g, w), 0},
+		{"global skill", Text(gs, w), 1},
+		{"workspace skill", Text(g, ws), 1},
+		{"skills in both parts", Text(gs, ws), 1},
+		{"workspace skill and last session", Text(g, LastSession(ws, "claude", time.Now(), "/t/s.jsonl")), 1},
+	} {
+		if n := strings.Count(tc.text, line); n != tc.want {
+			t.Errorf("%s: brief has the skill fix line %d times, want %d", tc.name, n, tc.want)
+		}
+		if tc.want == 1 && !strings.Contains(tc.text, remember+"\n"+line+recall+"\n") {
+			t.Errorf("%s: the skill fix line is not right after the remember line:\n%s", tc.name, tc.text)
+		}
+	}
+	list := len(skillsLabel + skillsHint + "- deploy: Deploy the site. File: /s/skills/7/r1/SKILL.md\n")
+	full := fill(t, len(frame)+len(globalLabel)+list, globalBudget)
+	var be *BudgetError
+	if _, err := Global(full, sk); !errors.As(err, &be) || be.Size != globalBudget+len(line) {
+		t.Errorf("Global(full without the line, skill) = %v, want a budget error of %d", err, globalBudget+len(line))
+	}
+	// A full global part with no skill and a full workspace part with a skill: the workspace part
+	// counts the line that the header shows, so the whole brief is exactly at its budget.
+	if g, err = Global(fill(t, len(frame)+len(globalLabel), globalBudget)); err != nil {
+		t.Fatal(err)
+	}
+	if ws, err = Workspace(fill(t, len(workspaceLabel)+list+len(line), workspaceBudget), sk); err != nil {
+		t.Fatal(err)
+	}
+	if text := Text(g, ws); len(text) != briefBudget || !strings.Contains(text, line) {
+		t.Errorf("len(Text(full, full with skill)) = %d, want %d with the line", len(text), briefBudget)
+	}
+}
+
 // AC E20-S2 #266: every brief has one recall line after the remember line, also a brief with
 // no items, and its characters count in the global part budget (§8.6).
 func TestRecallLine(t *testing.T) {
@@ -404,13 +465,14 @@ func TestCatalogBudget(t *testing.T) {
 	writeCatalog(&catalog, tools[:catalogSize])
 	sk := Skill{Name: "deploy", Description: "Deploy the site.", Path: "/s/skills/7/r1/SKILL.md", Tools: []string{"tag-release"}}
 	list := len(skillsLabel + skillsHint + "- deploy: Deploy the site. File: /s/skills/7/r1/SKILL.md\n")
-	items := fill(t, len(workspaceLabel)+catalog.Len()+list+len(toolNote(sk.Tools)), workspaceBudget)
+	fix := len(skillFix + "\n")
+	items := fill(t, len(workspaceLabel)+catalog.Len()+list+len(toolNote(sk.Tools))+fix, workspaceBudget)
 	w, err := WorkspaceCatalog(items, tools, sk)
-	if err != nil || len(w)+len(toolNote(sk.Tools)) != workspaceBudget {
-		t.Fatalf("WorkspaceCatalog(full) = %d bytes, %v, want %d with the note room", len(w), err, workspaceBudget)
+	if err != nil || len(w)+len(toolNote(sk.Tools))+fix != workspaceBudget {
+		t.Fatalf("WorkspaceCatalog(full) = %d bytes, %v, want %d with the note and fix line room", len(w), err, workspaceBudget)
 	}
 	sk.Stopped = []string{"tag-release"}
-	if w, err = WorkspaceCatalog(items, tools, sk); err != nil || len(w) != workspaceBudget {
+	if w, err = WorkspaceCatalog(items, tools, sk); err != nil || len(w)+fix != workspaceBudget {
 		t.Errorf("WorkspaceCatalog(full, tool stopped) = %d bytes, %v, want exactly the budget", len(w), err)
 	}
 	items[len(items)-1].Text += "x"
