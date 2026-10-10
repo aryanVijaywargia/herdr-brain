@@ -23,7 +23,11 @@ const (
 	remember = `When the user asks you to remember something for later, run: brain remember "<lesson>"`
 	// recall tells agents how to find more approved items during work (§8.6, E20-S2). [NEW]
 	// the line text.
-	recall         = `To find more Brain items on a topic during work, run: brain recall <words>`
+	recall = `To find more Brain items on a topic during work, run: brain recall <words>`
+	// skillFix tells agents that a correction of a skill step needs no remember call: Brain
+	// patches the skill (§8.1, #373). It sits after the remember line, in a brief that lists a
+	// skill only.
+	skillFix       = `When the user corrects a step of a skill, do not run brain remember; Brain patches the skill.`
 	header         = precedence + "\n" + remember + "\n" + recall + "\n"
 	globalLabel    = "## Global (all workspaces)\n"
 	workspaceLabel = "## This workspace\n"
@@ -175,14 +179,36 @@ func WorkspaceCatalog(items []Item, tools []Tool, skills ...Skill) (string, erro
 
 // GlobalSize returns the size of a rendered global part as its budget counts it, with the
 // frame, and the budget (§8.1).
-func GlobalSize(global string) (size, limit int) { return len(frame) + len(global), globalBudget }
+func GlobalSize(global string) (size, limit int) {
+	return len(frame) + fixRoom(global) + len(global), globalBudget
+}
 
 // WorkspaceSize returns the size of a rendered workspace part and its budget (§8.1).
-func WorkspaceSize(workspace string) (size, limit int) { return len(workspace), workspaceBudget }
+func WorkspaceSize(workspace string) (size, limit int) {
+	return fixRoom(workspace) + len(workspace), workspaceBudget
+}
 
-// Text puts the frame around the two parts and returns the whole brief.
+// Text puts the frame around the two parts and returns the whole brief. A brief that lists a
+// skill has the skill fix line after the remember line (#373).
 func Text(global, workspace string) string {
-	return beginMarker + "\n" + header + global + workspace + endMarker
+	h := header
+	if listsSkill(global) || listsSkill(workspace) {
+		h = precedence + "\n" + remember + "\n" + skillFix + "\n" + recall + "\n"
+	}
+	return beginMarker + "\n" + h + global + workspace + endMarker
+}
+
+// listsSkill reports whether rendered part lists a skill. Its skill list heading is a line of
+// its own, after the part label; no item line starts with it.
+func listsSkill(part string) bool { return strings.Contains(part, "\n"+skillsLabel) }
+
+// fixRoom is the room that the skill fix line takes in the budget of rendered part: each part
+// that lists a skill counts it, so the whole brief fits also when both parts list one (#373).
+func fixRoom(part string) int {
+	if listsSkill(part) {
+		return len(skillFix) + 1
+	}
+	return 0
 }
 
 // LastSession adds the line that names the last session of the workspace at the end of the
@@ -230,7 +256,7 @@ func Handoff(global, workspace string, approved []int64, skills []string, failed
 	for _, f := range failed {
 		lines = append(lines, failedLine+oneCommand(f.Command)+" (exit "+strconv.Itoa(f.Exit)+")\n")
 	}
-	size := len(frame) + len(global) + len(workspace)
+	size := len(Text(global, workspace))
 	for _, l := range lines {
 		if size += len(l); size > briefBudget {
 			break
@@ -292,6 +318,7 @@ func part(name, label string, extra, limit int, items []Item, skills []Skill, to
 	for _, sk := range skills {
 		extra += markRoom(sk.Anchors, sk.Dispute) + len(toolNote(sk.Tools)) - len(toolNote(sk.Stopped))
 	}
+	extra += fixRoom(b.String())
 	if size := extra + b.Len(); size > limit {
 		return "", &BudgetError{Part: name, Size: size, Limit: limit}
 	}
