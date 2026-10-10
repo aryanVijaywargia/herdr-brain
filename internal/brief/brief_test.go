@@ -366,6 +366,17 @@ func TestSkillFixLine(t *testing.T) {
 	if _, err := Global(full, sk); !errors.As(err, &be) || be.Size != globalBudget+len(line) {
 		t.Errorf("Global(full without the line, skill) = %v, want a budget error of %d", err, globalBudget+len(line))
 	}
+	// A full global part with no skill and a full workspace part with a skill: the workspace part
+	// counts the line that the header shows, so the whole brief is exactly at its budget.
+	if g, err = Global(fill(t, len(frame)+len(globalLabel), globalBudget)); err != nil {
+		t.Fatal(err)
+	}
+	if ws, err = Workspace(fill(t, len(workspaceLabel)+list+len(line), workspaceBudget), sk); err != nil {
+		t.Fatal(err)
+	}
+	if text := Text(g, ws); len(text) != briefBudget || !strings.Contains(text, line) {
+		t.Errorf("len(Text(full, full with skill)) = %d, want %d with the line", len(text), briefBudget)
+	}
 }
 
 // AC E20-S2 #266: every brief has one recall line after the remember line, also a brief with

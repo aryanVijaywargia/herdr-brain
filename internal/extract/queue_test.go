@@ -605,6 +605,7 @@ func TestCapRoom(t *testing.T) {
 		return nil
 	})
 	room := f.now.Add(4 * time.Hour) // the call of 20 hours ago is a day old then
+	// [NEW] test limits: call caps of 3, 2 and 5 against the 4 calls of the last day.
 	for _, tc := range []struct {
 		name string
 		caps Caps

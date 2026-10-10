@@ -296,6 +296,7 @@ func TestStatusQueueConfigGate(t *testing.T) {
 // cap full is a day old. With room left, none of them has the line.
 func TestCapFullLines(t *testing.T) {
 	inZone(t)
+	// [NEW] test limits: caps of 1 call and 1 proposal, so one of each fills them.
 	for _, tc := range []struct {
 		name, config, line string
 		call               bool // add an extractor call 3 hours before testNow
