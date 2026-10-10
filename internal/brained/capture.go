@@ -897,18 +897,25 @@ func shell(name string) bool {
 // or such a run, the line runs no agent either, also when the other processes of a pipe run
 // with it, as grep in "brain status | grep codex" (#351). An agent and the tools that it runs
 // have the agent, or a script that starts it, as their leader; a process that runs the agent
-// in a pipe after Brain's CLI keeps the session. When herdr gives no process or no argv, it
-// reports false, and the baseline opens the session as before.
+// in a pipe after Brain's CLI keeps the session. A leader that is no foreground process any
+// more has exited: the line ends, and the processes left, as grep after "brain status" in
+// "brain status | grep ...", or none, run no agent unless one of them runs it (#380). When
+// herdr gives no process group and no process, or no argv, it reports false, and the baseline
+// opens the session as before.
 func (c *Capture) probe(ctx context.Context, id, agent string) bool {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	pi, err := c.sock.Processes(ctx, id)
-	if err != nil || len(pi.Processes) == 0 {
+	if err != nil {
 		return false
 	}
-	if i := slices.IndexFunc(pi.Processes, func(p herdr.Process) bool { return p.PID == pi.Group }); i >= 0 && probeRun(pi.Processes[i]) &&
+	i := slices.IndexFunc(pi.Processes, func(p herdr.Process) bool { return p.PID == pi.Group })
+	if (i >= 0 && probeRun(pi.Processes[i]) || i < 0 && pi.Group != 0) &&
 		!slices.ContainsFunc(pi.Processes, func(p herdr.Process) bool { return runsAgent(p, agent) }) {
 		return true
+	}
+	if len(pi.Processes) == 0 {
+		return false
 	}
 	return !slices.ContainsFunc(pi.Processes, func(p herdr.Process) bool {
 		return len(p.Argv) == 0 || !probeRun(p) && !shell(program(p))
