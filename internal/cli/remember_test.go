@@ -293,6 +293,59 @@ func checkDraft(t *testing.T, args []string, text string, before, after rows, ki
 	}
 }
 
+// #378 AC 1, AC 2: the run 6 shape. Item 1 is edited with brain review --item --edit, and the
+// edit is approved; then brain remember gets the new text of the item. Brain makes no draft,
+// prints one line that names the item and exits 0. The old text of the item, and the text of
+// an item of another scope, still make a draft.
+func TestRememberItemText(t *testing.T) {
+	const (
+		old  = "Before every commit in this workspace, run npm run lint and npm test."
+		text = "Before every commit in this workspace, run npm run lint && npm test && npm run build as one chained command, and fix every failure before you commit."
+	)
+	f := newFixture(t)
+	item := f.approved(t, old)
+	f.mustReview(t, "--item", fmt.Sprint(item), "--edit", text)
+	f.mustReview(t, fmt.Sprint(f.rows(t).proposals[len(f.rows(t).proposals)-1].ID), "--approve")
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string // the line that Remember prints; "" when it makes a draft
+	}{
+		{name: "current text", args: []string{text},
+			want: fmt.Sprintf("item %d already says this in workspace w14 (shop); no draft was made\n", item)},
+		{name: "current text with space", args: []string{" " + text + "\n"},
+			want: fmt.Sprintf("item %d already says this in workspace w14 (shop); no draft was made\n", item)},
+		{name: "global item", args: []string{"--global", liveText}, want: "item 1 already says this in global; no draft was made\n"},
+		{name: "old text", args: []string{old}},
+		{name: "another scope", args: []string{"--global", text}},
+		{name: "global text in a workspace", args: []string{liveText}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := f.rows(t)
+			var out bytes.Buffer
+			if err := Remember(context.Background(), f.env(f.sock, "w14:p1", "w14", &out), tc.args); err != nil {
+				t.Fatalf("Remember(%q) = %v", tc.args, err)
+			}
+			after := f.rows(t)
+			if tc.want == "" {
+				if len(after.proposals) != len(before.proposals)+1 || !strings.HasPrefix(out.String(), "proposal ") {
+					t.Errorf("Remember(%q) printed %q and wrote %d proposals, want a draft", tc.args, out.String(),
+						len(after.proposals)-len(before.proposals))
+				}
+				return
+			}
+			if out.String() != tc.want {
+				t.Errorf("Remember(%q) printed %q, want %q", tc.args, out.String(), tc.want)
+			}
+			if len(after.items) != len(before.items) || len(after.proposals) != len(before.proposals) {
+				t.Errorf("Remember(%q) wrote %d items, %d proposals; want none", tc.args,
+					len(after.items)-len(before.items), len(after.proposals)-len(before.proposals))
+			}
+		})
+	}
+}
+
 // TestDraftNotLive is the S52 path: an agent's call makes a draft, and nothing goes live. The
 // next command's repair builds no output with the draft in it.
 func TestDraftNotLive(t *testing.T) {
