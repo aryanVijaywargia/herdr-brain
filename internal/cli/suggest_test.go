@@ -149,7 +149,21 @@ func (f *suggestFixture) suggestions(t *testing.T) []store.Suggestion {
 // review runs brain review args from pane w14:p1.
 func (f *suggestFixture) review(t *testing.T, args ...string) {
 	t.Helper()
-	if err := Review(context.Background(), f.env(f.sock, "w14:p1", "w14", &bytes.Buffer{}), args); err != nil {
+	f.reviewIn(t, "w14:p1", args...)
+}
+
+// decide runs brain review args in shell pane w14:p3, beside the agent pane w14:p1: brain review
+// does not approve or reject in a pane with a live agent (#371).
+func (f *suggestFixture) decide(t *testing.T, args ...string) {
+	t.Helper()
+	f.panes["w14:p3"] = herdr.Pane{ID: "w14:p3", WorkspaceID: "w14", TabID: "w14:t1"}
+	f.reviewIn(t, "w14:p3", args...)
+}
+
+// reviewIn runs brain review args from pane.
+func (f *suggestFixture) reviewIn(t *testing.T, pane string, args ...string) {
+	t.Helper()
+	if err := Review(context.Background(), f.env(f.sock, pane, "w14", &bytes.Buffer{}), args); err != nil {
 		t.Fatalf("review %q = %v", args, err)
 	}
 }
@@ -266,7 +280,7 @@ func TestSuggestPaused(t *testing.T) {
 		{"forget item", func(t *testing.T, f *suggestFixture) {
 			f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error { return store.EraseItem(ctx, tx, f.item, testNow) })
 		}, true},
-		{"reject", func(t *testing.T, f *suggestFixture) { f.review(t, fmt.Sprint(f.proposal), "--reject") }, false},
+		{"reject", func(t *testing.T, f *suggestFixture) { f.decide(t, fmt.Sprint(f.proposal), "--reject") }, false},
 		{"later", func(t *testing.T, f *suggestFixture) {
 			// An earlier suggestion of the proposal in the session was shown, its pane closed,
 			// and you chose later in it.
@@ -381,7 +395,12 @@ func TestSuggestResults(t *testing.T) {
 		t.Run(string(tc.want), func(t *testing.T) {
 			f := newSuggestFixture(t)
 			f.suggest(t, f.reserve(t), nil)
-			f.review(t, append([]string{fmt.Sprint(f.proposal)}, tc.args...)...)
+			args := append([]string{fmt.Sprint(f.proposal)}, tc.args...)
+			if tc.want == store.SuggestionRejected {
+				f.decide(t, args...)
+			} else {
+				f.review(t, args...)
+			}
 			if ss := f.suggestions(t); len(ss) != 1 || ss[0].Result != tc.want {
 				t.Errorf("suggestions = %+v, want result %s", ss, tc.want)
 			}
@@ -464,7 +483,7 @@ func TestSuggestRejectNoNag(t *testing.T) {
 	if len(f.herdr.notes) != 1 || len(f.herdr.opened) != 1 {
 		t.Fatalf("notifications %q, opened %+v, want the one suggestion", f.herdr.notes, f.herdr.opened)
 	}
-	f.review(t, fmt.Sprint(f.proposal), "--reject")
+	f.decide(t, fmt.Sprint(f.proposal), "--reject")
 
 	if d := f.repeat(t); d != (brained.Dispatch{}) {
 		t.Errorf("same session: dispatch %+v, want none", d)

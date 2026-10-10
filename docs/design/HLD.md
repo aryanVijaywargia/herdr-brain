@@ -1538,7 +1538,7 @@ M0 checks the facts that M1 needs first (marked **M1**). The others can stay **u
 - Brain cannot prove that it helps with a score. It can show fewer comebacks of targeted mistakes, with examples. That is the claim, and the only one.
 - If your repeats are rare, Brain has little to learn. Then `brain remember` and delivery are still useful.
 - herdr capture sees only what the screen shows. It gives partial observations, not full turns. Alternate-screen rows can be lost. It cannot confirm who typed a message.
-- **No path proves human origin.** herdr 0.8.2 `notification show` has no reply. Any process of your user can drive panes, send keys to the review pane or call `brain review`. Review guards against normal agent calls. It is not authentication.
+- **No path proves human origin.** herdr 0.8.2 `notification show` has no reply. Any process of your user can drive panes, send keys to the review pane or call `brain review`. Review guards against normal agent calls. `brain review` refuses to approve or reject from a pane with a live agent; you decide in the review pane or your own shell pane (owner decision 2026-10-10, #371). It is not authentication.
 - `forget` cannot reach backups, sessions that already got the text, or a CLI's own memory.
 - Brain items reach only sessions that start inside herdr, in a CLI with a tested profile. A session outside herdr gets nothing. This is intended: Brain is a herdr plugin.
 - A CLI with no tested start-time delivery gets no Brain items. `brain status` shows the gap. OpenCode delivery uses an experimental API that can change.

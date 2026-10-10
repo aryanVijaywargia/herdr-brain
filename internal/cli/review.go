@@ -99,6 +99,10 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 		return err
 	}
 	defer func() { err = errors.Join(err, c.Close()) }()
+	if surface == store.SurfaceCLI && c.Agent != "" && r.decides() {
+		return fmt.Errorf("pane %s runs an agent (%s), so brain review does not approve or reject here: decide in the review pane or in a shell pane; nothing was written",
+			c.PaneID, c.Agent)
+	}
 	cl := newCaller(e, c)
 	cl.surface = surface
 	switch {
@@ -159,6 +163,14 @@ func (cl caller) runQueueAction(ctx context.Context, r review) error {
 		return cl.endRejection(ctx, cmp.Or(r.reopen, r.reset), r.reopen != 0)
 	}
 	return cl.restore(ctx, r.restore)
+}
+
+// decides reports whether r approves or rejects: a proposal, a disputed item, a same_as link, a
+// rejection or a retired item. Only you decide them: a call from a pane with a live agent does
+// not (§18, #371). An edit of an item (--item), --change, --later and --tool make or keep drafts.
+func (r review) decides() bool {
+	return r.approve || r.reject || r.keep || r.retire && r.item == 0 || r.merge != 0 || r.apart != 0 ||
+		r.reopen != 0 || r.reset != 0 || r.restore != 0
 }
 
 // queueAction reports whether r has an action of queueFlags.
