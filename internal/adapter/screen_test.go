@@ -29,7 +29,12 @@ import (
 // words. #379: claude-limit is made from the limit line and dialog of the M2 eval run 6
 // (2026-10-10, claude 2.1.296, run6 screens §A) under the prompt of that session; the run gives
 // the rule of ▔ with no width. claude-limit-keep holds a real prompt and reply with the same
-// words, and another dialog under such a rule. An empty golden keeps no line.
+// words, and another dialog under such a rule. #385: codex-limit is made from the codex limit
+// lines of the M2 eval run 6 (2026-10-10, codex 0.160.1, #385 body), with the warning and the
+// footer forms of the Codex source; the 503 line wraps at column 0 onto one and two lines, as
+// the Codex source wraps it. codex-limit-keep holds a real prompt, reply and tool output with
+// "429" and "rate limit", also tool output at column 0 at the top of the read.
+// An empty golden keeps no line.
 func TestScreen(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join("testdata", "screen", "*.txt"))
 	if err != nil {
@@ -62,13 +67,14 @@ func TestScreen(t *testing.T) {
 // #291: a blank line ends a block, unless its next matches the empty line. #316: a noise_above
 // line is noise only when the next line that is not blank matches its below, and a block with
 // after_blank starts only under a blank line. #338: a noise_last line is noise only when no line
-// under it matches its unless.
+// under it matches its unless. #385: a block with under_start drops no line at the top of a read.
 func TestScreenRules(t *testing.T) {
 	good := string(readFile(t, "fake/fake.toml"))
 	rules := `
 noise_lines = ['== status .*']
 noise_blocks = [{ start = '\+-+\+', next = '\|.*\||\+-+\+' }, { start = '<open>', next = '  .*|' },
-  { start = '<shut>', next = '  .*' }, { start = '<late>', next = '  .*', after_blank = true }]
+  { start = '<shut>', next = '  .*' }, { start = '<late>', next = '  .*', after_blank = true },
+  { start = '<err>', next = '[a-z].*', under_start = true }]
 noise_above = [{ line = '> try', below = '== status .*' }]
 noise_last = [{ line = '> last', unless = '> .*' }]
 side_panel = { header = '\[panel\]', min_column = 10 }
@@ -113,6 +119,9 @@ side_panel = { header = '\[panel\]', min_column = 10 }
 	want := []string{"> hello", "漢字 reply", "| kept |", "  kept", "> try", "kept below", "<late>", "  kept late", "> last",
 		"> hello again", "after"}
 	if got := p.Screen(screen); !slices.Equal(got, want) {
+		t.Errorf("Screen() = %q, want %q", got, want)
+	}
+	if got, want := p.Screen("kept at top\n<err>\ndropped wrap\n\nkept after"), []string{"kept at top", "kept after"}; !slices.Equal(got, want) {
 		t.Errorf("Screen() = %q, want %q", got, want)
 	}
 	for _, bad := range []string{
