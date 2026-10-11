@@ -13,6 +13,12 @@
 ■ unexpected status 503 Service Unavailable: All managed Codex accounts are temporarily
 unavailable for this runtime request., url: http://127.0.0.1:41873/responses
 
+› Run the tests again.
+
+■ unexpected status 503 Service Unavailable: All managed
+Codex accounts are temporarily unavailable for this runtime
+request., url: http://127.0.0.1:41873/responses
+
 ⚠ Heads up, you have less than 25% of your weekly limit left. Run /status for a
   breakdown.
 

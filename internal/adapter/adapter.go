@@ -130,6 +130,10 @@ type Profile struct {
 		// the read: a prompt line with the same text is right under the prompt, so it stays
 		// (#316).
 		AfterBlank bool `toml:"after_blank"`
+		// UnderStart [NEW] drops the next lines only under the start line, so a read that
+		// starts inside the block keeps them: its Next also matches real text, such as tool
+		// output at column 0 (#385).
+		UnderStart bool `toml:"under_start"`
 	} `toml:"noise_blocks"`
 	// NoiseAbove [NEW] are optional screen lines that herdr capture drops only when the next
 	// line that is not blank matches Below, such as the placeholder of the empty input box

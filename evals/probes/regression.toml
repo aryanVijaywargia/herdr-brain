@@ -726,5 +726,6 @@ issue = 385
 tests = [
   "internal/adapter:TestScreen/codex-limit",
   "internal/adapter:TestScreen/codex-limit-keep",
+  "internal/adapter:TestScreenRules",
   "internal/brained:TestCaptureCodexLimitScreen",
 ]

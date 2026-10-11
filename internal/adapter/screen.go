@@ -15,6 +15,7 @@ import (
 type noiseBlock struct {
 	start, next *regexp.Regexp
 	afterBlank  bool
+	underStart  bool
 }
 
 // noiseAbove is one entry of noise_above, compiled.
@@ -38,7 +39,7 @@ func (p *Profile) checkScreen() error {
 		if err != nil {
 			return err
 		}
-		p.blocks = append(p.blocks, noiseBlock{start, next, b.AfterBlank})
+		p.blocks = append(p.blocks, noiseBlock{start, next, b.AfterBlank, b.UnderStart})
 	}
 	for _, a := range p.NoiseAbove {
 		line, below, err := pair("noise_above", "line", a.Line, "below", a.Below)
@@ -103,7 +104,7 @@ func (p *Profile) Noise(line string) bool {
 // start line left it, so the lines at the start of the read that a block's Next matches are
 // dropped too. A blank line ends the open block, unless its Next matches the empty line
 // (#291). A block with after_blank starts only under a blank line or at the start of the read
-// (#316).
+// (#316). A block with under_start drops no line at the start of the read (#385).
 func (p *Profile) Screen(text string) []string {
 	rows := strings.Split(text, "\n")
 	col := p.panelColumn(rows)
@@ -171,10 +172,11 @@ func (p *Profile) blockStart(l string, spaced bool) *regexp.Regexp {
 	return nil
 }
 
-// blockNext reports whether line l can be a next line of a noise block.
+// blockNext reports whether line l can be a next line of a noise block at the start of a read:
+// a block with under_start takes none there.
 func (p *Profile) blockNext(l string) bool {
 	for _, b := range p.blocks {
-		if b.next.MatchString(l) {
+		if !b.underStart && b.next.MatchString(l) {
 			return true
 		}
 	}
