@@ -658,6 +658,7 @@ issue = 376
 tests = [
   "internal/signal:TestFileText",
   "internal/signal:TestFailureBrainOutput",
+]
 
 # M2 eval run 6 (2026-10-10, R6-3): while codex was at its usage limit (429, then 503), each
 # extractor call failed and still used the daily call cap, and sessions with only limit answers
