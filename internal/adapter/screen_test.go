@@ -26,7 +26,10 @@ import (
 // the M2 eval run 5 report (2026-10-09, claude 2.1.295), with the tip text of the Claude Code
 // 2.1.296 source; the report gives no indent, so the end of the tip is at column 6, which the
 // tip block does not take. claude-tip-workflow-keep holds a real prompt and reply with the same
-// words. An empty golden keeps no line.
+// words. #379: claude-limit is made from the limit line and dialog of the M2 eval run 6
+// (2026-10-10, claude 2.1.296, run6 screens §A) under the prompt of that session; the run gives
+// the rule of ▔ with no width. claude-limit-keep holds a real prompt and reply with the same
+// words, and another dialog under such a rule. An empty golden keeps no line.
 func TestScreen(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join("testdata", "screen", "*.txt"))
 	if err != nil {

@@ -660,12 +660,40 @@ tests = [
   "internal/signal:TestFailureBrainOutput",
 ]
 
+# M2 eval run 6 (2026-10-10, R6-3): while codex was at its usage limit (429, then 503), each
+# extractor call failed and still used the daily call cap, and sessions with only limit answers
+# made batches: 10 calls gave 1 useful batch. A call that the CLI refuses at a usage or rate limit
+# uses no call of the cap and no try, and a session with no agent work makes no call. Fix: the
+# PR of #377.
+[[bug]]
+issue = 377
+tests = [
+  "internal/extract:TestLimited",
+  "internal/extract:TestLimitUsesNoCall",
+  "internal/extract:TestLimitChangeRequest",
+  "internal/extract:TestLimitAtLastTry",
+  "internal/extract:TestExecRunnerStderr",
+  "internal/extract:TestNoWorkNoCall",
+  "internal/extract:TestUnrun",
+]
+
 # M2 eval run 6 (2026-10-10, R6-4): `brain remember` of the current text of item 1, after
 # `brain review --item 1 --edit`, made a new-item draft that the user rejected. Brain makes no
 # draft for the text of an active item in the same scope and names the item. Fix: the PR of #378.
 [[bug]]
 issue = 378
 tests = ["internal/cli:TestRememberItemText"]
+
+# M2 eval run 6 (2026-10-10, R6-5): the claude weekly limit line was stored as tool output and
+# the limit dialog as user text, and the session used an extractor call. Fix: the PR of #377.
+[[bug]]
+issue = 379
+tests = [
+  "internal/adapter:TestScreen/claude-limit",
+  "internal/adapter:TestScreen/claude-limit-keep",
+  "internal/brained:TestCaptureLimitScreen",
+  "internal/extract:TestNoWorkNoCall",
+]
 
 # M2 eval run 6 (2026-10-10, R6-6): `brain status | grep -E "last 24h|links to review|failed
 # batches"` in a shell pane made an empty claude session again: brain status, the leader of the
@@ -676,4 +704,15 @@ issue = 380
 tests = [
   "internal/brained:TestEventsShellPipeLeaderGone",
   "internal/brained:TestEventsRealAgentKept",
+]
+
+# M2 eval run 6 (2026-10-10, R6-7): tasks that the user sent again after codex answered only 429
+# and 503 became 2 correction proposals. A task that the agent did not run starts no signal, so
+# the task sent again is one telling; a real correction still counts. Fix: the PR of #377.
+[[bug]]
+issue = 381
+tests = [
+  "internal/extract:TestTaskSentAgain",
+  "internal/extract:TestTaskAgainAfterError",
+  "internal/extract:TestLastCorrectionKept",
 ]

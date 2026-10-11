@@ -433,3 +433,30 @@ func LastWorkedCall(ctx context.Context, tx *sql.Tx) (time.Time, error) {
 	}
 	return at, nil
 }
+
+// UncountBatchCall takes back the last extractor call of batch id: the CLI refused it at a
+// usage or rate limit, so it ran no model (#377). The call leaves the daily call cap, and the
+// batch keeps the try that the call used.
+func UncountBatchCall(ctx context.Context, tx *sql.Tx, id int64) error {
+	return uncountCall(ctx, tx, "extraction_batches", "batch_id", id)
+}
+
+// UncountChangeCall takes back the last extractor call of change request id, as
+// UncountBatchCall does for a batch (#377).
+func UncountChangeCall(ctx context.Context, tx *sql.Tx, id int64) error {
+	return uncountCall(ctx, tx, "change_requests", "change_request_id", id)
+}
+
+// uncountCall takes back the last call of row id of table, whose calls have id in column of
+// extraction_calls: it lowers the model calls of the row and deletes the call.
+func uncountCall(ctx context.Context, tx *sql.Tx, table, column string, id int64) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET model_calls = model_calls - 1 WHERE id = ? AND model_calls > 0`,
+		id); err != nil {
+		return fmt.Errorf("take back the call of %s %d: %w", table, id, err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM extraction_calls WHERE id = (SELECT MAX(id) FROM extraction_calls
+		WHERE `+column+` = ?)`, id); err != nil {
+		return fmt.Errorf("take back the call of %s %d: %w", table, id, err)
+	}
+	return nil
+}

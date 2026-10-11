@@ -10,7 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -35,8 +37,9 @@ type Runner interface {
 }
 
 // ExecRunner runs a command as a child process. Standard input is /dev/null (a nil
-// exec.Cmd.Stdin), as E13-S1 needs for claude -p. Standard error stays apart and is dropped:
-// only the exit status is reported.
+// exec.Cmd.Stdin), as E13-S1 needs for claude -p. Standard error stays apart: a failure reports
+// the exit status, and the end of standard error goes into its ExitError for the limit check
+// (#377).
 type ExecRunner struct{}
 
 // Run runs c.
@@ -45,15 +48,110 @@ func (ExecRunner) Run(ctx context.Context, c Command) ([]byte, error) {
 	cmd.Dir, cmd.Env = c.Dir, c.Env
 	cmd.WaitDelay = 5 * time.Second // [NEW] a child that keeps the pipes open does not hold the pass
 	var out bytes.Buffer
-	cmd.Stdout = &out
+	var errOut tail
+	cmd.Stdout, cmd.Stderr = &out, &errOut
 	if err := cmd.Run(); err != nil {
-		return out.Bytes(), fmt.Errorf("%s: %w", filepath.Base(c.Argv[0]), err)
+		return out.Bytes(), fmt.Errorf("%s: %w", filepath.Base(c.Argv[0]), &ExitError{Err: err, Stderr: errOut.b})
 	}
 	return out.Bytes(), nil
 }
 
+// ExitError is the error of a command that failed: its error, and the end of its standard
+// error, where the CLI writes why it failed (#377). Its text is the text of Err.
+type ExitError struct {
+	Err    error
+	Stderr []byte
+}
+
+func (e *ExitError) Error() string { return e.Err.Error() }
+
+func (e *ExitError) Unwrap() error { return e.Err }
+
+// tailSize is the end of standard error that ExecRunner keeps. [NEW] 16 KiB: the CLI writes its
+// error line last.
+const tailSize = 16 << 10
+
+// tail keeps the last tailSize bytes written to it.
+type tail struct{ b []byte }
+
+func (t *tail) Write(p []byte) (int, error) {
+	t.b = append(t.b, p...)
+	if len(t.b) > tailSize {
+		t.b = t.b[len(t.b)-tailSize:]
+	}
+	return len(p), nil
+}
+
 // ErrInvalid says that the extractor answered, but not with a valid batch result (§7.3).
 var ErrInvalid = errors.New("invalid extractor response")
+
+// ErrLimit says that the extractor CLI refused the call at a usage or rate limit of its plan
+// (#377): it ran no model, so the call does not count toward the daily call cap, and it uses
+// no try of its batch or change request.
+var ErrLimit = errors.New("at a usage or rate limit")
+
+// limitText matches the error text of a CLI at a usage or rate limit [NEW, M2 eval run 6,
+// 2026-10-10]: codex "exceeded retry limit, last status: 429 Too Many Requests" and "unexpected
+// status 503 Service Unavailable: All managed Codex accounts are temporarily unavailable", and
+// claude "You've hit your weekly limit · resets ...". The check reads only the error text of a
+// failed call, never model text.
+var limitText = regexp.MustCompile(`(?i)\b(?:429|503)\b|too many requests|service unavailable|usage limit|` +
+	`rate limit|hit your .*limit`)
+
+// limited reports whether a failed call says that the CLI is at a usage or rate limit: the
+// message of a codex error or failed turn event in its output out, the result of a claude -p
+// error result in out, or an "ERROR:" line of its standard error stderr (#377). A call whose
+// output shows that the model ran, a codex item or a used token, cost tokens: it is no limit
+// failure, also when the CLI hit the limit later.
+func limited(out, stderr []byte) bool {
+	limit := false
+	for _, l := range bytes.Split(out, []byte("\n")) {
+		var ev struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+			Error   struct {
+				Message string `json:"message"`
+			} `json:"error"`
+			IsError bool   `json:"is_error"`
+			Result  string `json:"result"`
+			Usage   struct {
+				InputTokens  int `json:"input_tokens"`
+				OutputTokens int `json:"output_tokens"`
+			} `json:"usage"`
+		}
+		if json.Unmarshal(l, &ev) != nil {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(ev.Type, "item."), ev.Type == "turn.completed", ev.Usage.InputTokens+ev.Usage.OutputTokens > 0:
+			return false
+		case ev.Type == "error" && limitText.MatchString(ev.Message),
+			ev.Type == "turn.failed" && limitText.MatchString(ev.Error.Message),
+			ev.IsError && limitText.MatchString(ev.Result):
+			limit = true
+		}
+	}
+	for _, l := range strings.Split(string(stderr), "\n") {
+		if msg, ok := strings.CutPrefix(strings.TrimSpace(l), "ERROR:"); ok && limitText.MatchString(msg) {
+			limit = true
+		}
+	}
+	return limit
+}
+
+// runError is the error of the failed CLI run of call, with out its output: an ErrLimit error
+// when the CLI is at a usage or rate limit (limited).
+func runError(cli store.ExtractorCLI, out []byte, err error) error {
+	var exit *ExitError
+	var stderr []byte
+	if errors.As(err, &exit) {
+		stderr = exit.Stderr
+	}
+	if limited(out, stderr) {
+		return fmt.Errorf("%s is %w", cli, ErrLimit)
+	}
+	return err
+}
 
 // cleanEnv is the environment of an extractor call (E13-S1): only HOME, PATH, USER and LANG, so
 // no HERDR_*, CLAUDE_CODE_* or ANTHROPIC_* variable reaches the CLI.
@@ -78,7 +176,7 @@ func call(ctx context.Context, r Runner, s store.ExtractorSetting, prompt string
 	case store.ExtractorClaude:
 		out, err := r.Run(ctx, Command{Dir: dir, Argv: claudeArgv(s.Model, prompt), Env: env})
 		if err != nil {
-			return nil, err
+			return nil, runError(s.CLI, out, err)
 		}
 		return claudeResult(out)
 	case store.ExtractorCodex:
@@ -95,7 +193,7 @@ func call(ctx context.Context, r Runner, s store.ExtractorSetting, prompt string
 		}
 		out, err = r.Run(ctx, Command{Dir: dir, Argv: codexArgv(s.Model, servers, prompt), Env: env})
 		if err != nil {
-			return nil, err
+			return nil, runError(s.CLI, out, err)
 		}
 		return codexResult(out, filepath.Join(dir, "last.json"))
 	}
@@ -124,6 +222,8 @@ func claudeResult(out []byte) (json.RawMessage, error) {
 	switch err := json.Unmarshal(out, &res); {
 	case err != nil:
 		return nil, fmt.Errorf("claude output is not JSON: %w", ErrInvalid)
+	case res.IsError && limited(out, nil):
+		return nil, fmt.Errorf("claude is %w", ErrLimit)
 	case res.IsError:
 		return nil, errors.New("claude reported an error")
 	case len(res.StructuredOutput) == 0 || string(res.StructuredOutput) == "null":
@@ -196,6 +296,9 @@ func codexResult(events []byte, last string) (json.RawMessage, error) {
 		}
 		switch ev.Type {
 		case "turn.failed", "error":
+			if limited(events, nil) {
+				return nil, fmt.Errorf("codex is %w", ErrLimit)
+			}
 			return nil, errors.New("codex reported a failed turn")
 		case "item.started", "item.completed":
 			if t := ev.Item.Type + ev.Item.ItemType; !slices.Contains(codexItems, t) {

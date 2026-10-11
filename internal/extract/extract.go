@@ -189,7 +189,8 @@ type pending struct {
 }
 
 // finished returns the uncovered runs of the finished sessions of the pass, with the signals of
-// the store and its signal inputs by id.
+// the store and its signal inputs by id. A session is finished when it ended, or when its newest
+// observation is idle old.
 func (p Pass) finished(ctx context.Context, tx *sql.Tx) ([]pending, []signal.Signal, map[int64]store.SignalInput, error) {
 	ins, err := store.SignalInputs(ctx, tx)
 	if err != nil {
@@ -206,13 +207,15 @@ func (p Pass) finished(ctx context.Context, tx *sql.Tx) ([]pending, []signal.Sig
 		return nil, nil, nil, err
 	}
 	var runs []pending
+	done := map[int64]bool{}
 	for _, s := range sessions {
 		obs := bySession[s.ID]
-		if s.Key.HerdrSession != p.HerdrSession || len(obs) == 0 {
+		if len(obs) == 0 {
 			continue
 		}
 		slices.SortFunc(obs, func(a, b store.SignalInput) int { return int(a.ID - b.ID) })
-		if s.Ended.IsZero() && p.Now().Sub(obs[len(obs)-1].At) < idle {
+		done[s.ID] = !s.Ended.IsZero() || p.Now().Sub(obs[len(obs)-1].At) >= idle
+		if s.Key.HerdrSession != p.HerdrSession || !done[s.ID] {
 			continue
 		}
 		wm, err := store.Watermarks(ctx, tx, s.ID)
@@ -223,7 +226,15 @@ func (p Pass) finished(ctx context.Context, tx *sql.Tx) ([]pending, []signal.Sig
 			runs = append(runs, pending{s: s, obs: run, start: wm[run[0].WorkspaceKey]})
 		}
 	}
-	return runs, signal.Find(ins), byID, nil
+	// The text of a turn that the agent did not run starts no signal (unrun) when its session has
+	// no agent work, so the session makes no call, or when you sent it again, so the task is one
+	// telling (#377, #381). Its observations stay in the runs, so the watermark moves past them.
+	skip := unrun(ins, done, repeated(signal.Find(ins)))
+	counted := slices.Clone(ins)
+	for i := range counted {
+		counted[i].Counts = counted[i].Counts && !skip[counted[i].ID]
+	}
+	return runs, signal.Find(counted), byID, nil
 }
 
 // uncovered returns, for each workspace key of obs (in id order), the part after the watermark
@@ -317,20 +328,26 @@ func (p Pass) retries(b store.Batch, worked, newest time.Time) bool {
 	if spent(b) {
 		return newest.After(b.At)
 	}
-	return p.tryAgain(b.ModelCalls, b.At, worked)
+	return p.tryAgain(b.ModelCalls, b.At, worked, atLimit(b.Reason))
 }
 
 // tryAgain reports whether a failed or invalid batch or change request with a try left gets its
 // call now: calls is its model calls, at the end of its last call and worked the end of the last
 // call that worked. It gets one after a later call works, or retryAfter after its own (waits).
 // The last call of a failed one, the one after maxTries, waits for a later call that works: that
-// call shows that the CLI is back, so a failure after it is its own.
-func (p Pass) tryAgain(calls int, at, worked time.Time) bool {
-	if calls >= maxTries {
+// call shows that the CLI is back, so a failure after it is its own. A last call that the CLI
+// refused at a usage or rate limit (limit, #377) used no try, and the limit is no failure of its
+// own: it gets the call again as any try does.
+func (p Pass) tryAgain(calls int, at, worked time.Time, limit bool) bool {
+	if calls >= maxTries && !limit {
 		return worked.After(at)
 	}
 	return !p.waits(at, worked)
 }
+
+// atLimit reports whether reason, the stored reason of a failed batch or change request, says
+// that the CLI refused its last call at a usage or rate limit (ErrLimit).
+func atLimit(reason string) bool { return strings.HasSuffix(reason, ErrLimit.Error()) }
 
 // allowed reports whether batch j may call the extractor: extraction is on for its workspace
 // key, a CLI is chosen, and learning is on for its session, key and pane (§7.3).
@@ -469,7 +486,8 @@ func (p Pass) extract(ctx context.Context, j job) error {
 
 // commit is the one transaction of batch id (G3, §7.3). A batch that is no longer active adds
 // nothing: a retry of a committed batch, or a batch that a newer one replaced. A failure or an
-// invalid response keeps the watermark. Else it checks the settings, the watermark and the
+// invalid response keeps the watermark; a failure at a usage or rate limit of the CLI takes its
+// call back (#377). Else it checks the settings, the watermark and the
 // input again; a forget that touched the input discards the whole result. Then it writes the
 // evidence links, candidates and proposals, and moves the watermark. The claims that check
 // dropped go to Note once the batch is committed.
@@ -488,8 +506,13 @@ func (p Pass) commit(ctx context.Context, j job, id int64, claims []Claim, dropp
 			if errors.Is(callErr, ErrInvalid) {
 				status = store.BatchInvalid
 			}
-			_, err := store.EndBatch(ctx, tx, id, status, callErr.Error(), now)
-			return err
+			if _, err := store.EndBatch(ctx, tx, id, status, callErr.Error(), now); err != nil {
+				return err
+			}
+			if errors.Is(callErr, ErrLimit) {
+				return store.UncountBatchCall(ctx, tx, id)
+			}
+			return nil
 		}
 		reason, err := p.stale(ctx, tx, j)
 		if err != nil {

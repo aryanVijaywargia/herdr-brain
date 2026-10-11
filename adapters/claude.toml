@@ -63,7 +63,12 @@ noise_lines = ['[·✢✳✶✻✽*] \S+….*', '[·✢✳✶✻✽*] \S+ for .*
 # prompting. ... or set a default with Dynamic workflow size in /config." So a line that ends so
 # is noise at any indent. A prompt line starts with ❯, so a prompt with the same words stays.
 # [NEW: the eval report gives the line, not the screen]
-  '(?:[^❯⏺!].*)?Dynamic workflow size in /config\.']
+  '(?:[^❯⏺!].*)?Dynamic workflow size in /config\.',
+# Claude Code 2.1.296 (#379, M2 eval run 6 2026-10-10): the usage limit line under a prompt, as
+# "  ⎿  You've hit your weekly limit · resets Oct 12 at 9:30am (UTC)". It was stored as tool
+# output. A prompt line starts with ❯ and a reply line with ⏺, so text with the same words stays.
+# [NEW: other limits ("5-hour", "Opus") take the same form; the run gives the weekly one only]
+  '\s*⎿\s+You(?:\x{27}|’)ve hit your .*limit(?: · resets .*)?']
 # The screen parts of more than one line (#258): a tip, also when it wraps in a narrow column,
 # and the welcome box with its two columns. Claude 2.1.284 puts a no-break space before "Tip:"
 # (internal/brained/testdata/claude-s31-0-base.txt). A blank line ends a block, unless its next
@@ -81,6 +86,11 @@ noise_blocks = [
   # under ⎿ starts at column 5. A cut mark keeps the block open, and a blank line ends it.
   { start = '\s{4,}\d+ [-+ ].*', next = '\s{8,}\S.*|\s{4,}\.\.\.' },
   { start = '\s*╭─+ Claude Code .*╮', next = '\s*[│╰].*|' },
+  # The usage limit dialog (#379, M2 eval run 6, Claude Code 2.1.296): a rule of ▔, the question
+  # and the three choices of the limit. It was stored as user text, and "Stop" made a correction
+  # signal. The choices are named, so the lines of another dialog under such a rule stay. A blank
+  # line keeps the block open [NEW: the run gives the dialog with no blank line].
+  { start = '▔+', next = '\s+(?:What do you want to do\?|(?:❯ |  )\d+\. (?:Stop and wait for limit to reset|Wait here, then continue automatically .*|Upgrade your plan.*)|Enter to confirm · Esc to cancel)|' },
   # The folder trust dialog of Claude Code 2.1.292 (#281, M2 eval run): its lines start with
   # one space, and its choices come after the ❯ cursor or under it. A wrapped line starts in
   # lower case. The lines are named, so the question of an approval dialog at the top of a
