@@ -467,6 +467,17 @@ func (f *suggestFixture) repeat(t *testing.T) brained.Dispatch {
 		d, err = brained.Reserve(ctx, tx, store.Observation{ID: id, Source: store.SourceHook, Event: "prompt",
 			Excerpt: suggestPrompt, Status: store.ObservationComplete, Sender: store.SenderUnconfirmed, Counts: true,
 			At: testNow}, suggestPrompt, testNow)
+		if err != nil {
+			return err
+		}
+		// The agent runs the prompt: a turn that the agent did not run starts no signal (#381).
+		_, seg, err := store.HookSegment(ctx, tx, "default", "claude", "w14:p1", "")
+		if err != nil {
+			return err
+		}
+		_, err = store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: fmt.Sprint("r", id), Source: store.SourceHook,
+			SegmentID: seg, Event: "stop", Excerpt: "Done.", Status: store.ObservationComplete,
+			Sender: store.SenderAssistant, Counts: true, At: testNow})
 		return err
 	})
 	return d
