@@ -1,0 +1,7 @@
+❯ Show "You've hit your weekly limit" when the plan runs out, and stop and wait for limit to reset.
+⏺ You've hit your weekly limit is now the text of the banner.
+  ⎿  Wrote 1 line to src/banner.js
+   Do you want to make this edit to banner.js?
+   ❯ 1. Yes
+     2. No
+   Esc to cancel · Tab to amend

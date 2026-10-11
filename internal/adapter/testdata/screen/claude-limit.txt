@@ -1,0 +1,9 @@
+❯ When a POST /notes body is not valid JSON, return 400 with an error field. Add tests for both cases and run them.
+  ⎿  You've hit your weekly limit · resets Oct 12 at 9:30am (UTC)
+
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   What do you want to do?
+   ❯ 1. Stop and wait for limit to reset
+     2. Wait here, then continue automatically at Oct 12 at 9:30am
+     3. Upgrade your plan
+   Enter to confirm · Esc to cancel
