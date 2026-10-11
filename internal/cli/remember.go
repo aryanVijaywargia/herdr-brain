@@ -49,6 +49,15 @@ func Remember(ctx context.Context, e Env, args []string) (err error) {
 	if err != nil {
 		return err
 	}
+	item, err := sameItem(ctx, c.Store, d)
+	if err != nil {
+		return err
+	}
+	if item != 0 {
+		// The text is live already: a draft of it is only a duplicate to reject (#378).
+		_, err = fmt.Fprintf(e.Stdout, "item %d already says this in %s; no draft was made\n", item, d.target)
+		return err
+	}
 	id, err := saveDraft(ctx, c.Store, d, e.Now())
 	if err != nil {
 		return err
@@ -130,6 +139,27 @@ func (r remember) draft(c *Call) (draft, error) {
 	d.scope, d.workspaceKey = store.ScopeWorkspace, &key
 	d.target = fmt.Sprintf("workspace %s (%s)", c.WorkspaceID, label)
 	return d, nil
+}
+
+// sameItem returns the id of an active item whose current text is the text of d, in the scope
+// of d, or 0 when there is none (#378). Space at the ends does not count.
+func sameItem(ctx context.Context, s *store.Store, d draft) (int64, error) {
+	var item int64
+	err := s.Write(ctx, func(tx *sql.Tx) error {
+		rs, err := store.ActiveRevisions(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if i := slices.IndexFunc(rs, func(r store.ItemRevision) bool {
+			return r.State == store.StateActive && r.Scope == d.scope &&
+				(d.workspaceKey == nil || r.WorkspaceKey != nil && *r.WorkspaceKey == *d.workspaceKey) &&
+				strings.TrimSpace(r.Text) == strings.TrimSpace(d.text)
+		}); i >= 0 {
+			item = rs[i].ItemID
+		}
+		return nil
+	})
+	return item, err
 }
 
 // saveDraft writes d as a draft item at revision 1 with a new claim id, and one pending
