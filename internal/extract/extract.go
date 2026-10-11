@@ -189,7 +189,8 @@ type pending struct {
 }
 
 // finished returns the uncovered runs of the finished sessions of the pass, with the signals of
-// the store and its signal inputs by id.
+// the store and its signal inputs by id. A session is finished when it ended, or when its newest
+// observation is idle old.
 func (p Pass) finished(ctx context.Context, tx *sql.Tx) ([]pending, []signal.Signal, map[int64]store.SignalInput, error) {
 	ins, err := store.SignalInputs(ctx, tx)
 	if err != nil {
@@ -206,13 +207,15 @@ func (p Pass) finished(ctx context.Context, tx *sql.Tx) ([]pending, []signal.Sig
 		return nil, nil, nil, err
 	}
 	var runs []pending
+	done := map[int64]bool{}
 	for _, s := range sessions {
 		obs := bySession[s.ID]
-		if s.Key.HerdrSession != p.HerdrSession || len(obs) == 0 {
+		if len(obs) == 0 {
 			continue
 		}
 		slices.SortFunc(obs, func(a, b store.SignalInput) int { return int(a.ID - b.ID) })
-		if s.Ended.IsZero() && p.Now().Sub(obs[len(obs)-1].At) < idle {
+		done[s.ID] = !s.Ended.IsZero() || p.Now().Sub(obs[len(obs)-1].At) >= idle
+		if s.Key.HerdrSession != p.HerdrSession || !done[s.ID] {
 			continue
 		}
 		wm, err := store.Watermarks(ctx, tx, s.ID)
@@ -223,7 +226,15 @@ func (p Pass) finished(ctx context.Context, tx *sql.Tx) ([]pending, []signal.Sig
 			runs = append(runs, pending{s: s, obs: run, start: wm[run[0].WorkspaceKey]})
 		}
 	}
-	return runs, signal.Find(ins), byID, nil
+	// The text of a turn that the agent did not run starts no signal (unrun): a session with no
+	// agent work makes no call, and a task that you send again after it is one telling (#377,
+	// #381). Its observations stay in the runs, so the watermark moves past them.
+	skip := unrun(ins, done)
+	counted := slices.Clone(ins)
+	for i := range counted {
+		counted[i].Counts = counted[i].Counts && !skip[counted[i].ID]
+	}
+	return runs, signal.Find(counted), byID, nil
 }
 
 // uncovered returns, for each workspace key of obs (in id order), the part after the watermark
