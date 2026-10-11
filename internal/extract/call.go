@@ -100,8 +100,11 @@ var limitText = regexp.MustCompile(`(?i)\b(?:429|503)\b|too many requests|servic
 
 // limited reports whether a failed call says that the CLI is at a usage or rate limit: the
 // message of a codex error or failed turn event in its output out, the result of a claude -p
-// error result in out, or an "ERROR:" line of its standard error stderr (#377).
+// error result in out, or an "ERROR:" line of its standard error stderr (#377). A call whose
+// output shows that the model ran, a codex item or a used token, cost tokens: it is no limit
+// failure, also when the CLI hit the limit later.
 func limited(out, stderr []byte) bool {
+	limit := false
 	for _, l := range bytes.Split(out, []byte("\n")) {
 		var ev struct {
 			Type    string `json:"type"`
@@ -111,23 +114,29 @@ func limited(out, stderr []byte) bool {
 			} `json:"error"`
 			IsError bool   `json:"is_error"`
 			Result  string `json:"result"`
+			Usage   struct {
+				InputTokens  int `json:"input_tokens"`
+				OutputTokens int `json:"output_tokens"`
+			} `json:"usage"`
 		}
 		if json.Unmarshal(l, &ev) != nil {
 			continue
 		}
 		switch {
+		case strings.HasPrefix(ev.Type, "item."), ev.Type == "turn.completed", ev.Usage.InputTokens+ev.Usage.OutputTokens > 0:
+			return false
 		case ev.Type == "error" && limitText.MatchString(ev.Message),
 			ev.Type == "turn.failed" && limitText.MatchString(ev.Error.Message),
 			ev.IsError && limitText.MatchString(ev.Result):
-			return true
+			limit = true
 		}
 	}
 	for _, l := range strings.Split(string(stderr), "\n") {
 		if msg, ok := strings.CutPrefix(strings.TrimSpace(l), "ERROR:"); ok && limitText.MatchString(msg) {
-			return true
+			limit = true
 		}
 	}
-	return false
+	return limit
 }
 
 // runError is the error of the failed CLI run of call, with out its output: an ErrLimit error
@@ -287,7 +296,7 @@ func codexResult(events []byte, last string) (json.RawMessage, error) {
 		}
 		switch ev.Type {
 		case "turn.failed", "error":
-			if limited(sc.Bytes(), nil) {
+			if limited(events, nil) {
 				return nil, fmt.Errorf("codex is %w", ErrLimit)
 			}
 			return nil, errors.New("codex reported a failed turn")

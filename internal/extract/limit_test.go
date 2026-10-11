@@ -55,6 +55,12 @@ func TestLimited(t *testing.T) {
 		{"agent message", `{"type":"item.completed","item":{"type":"agent_message","text":"return 429 Too Many Requests"}}` +
 			"\n" + `{"type":"turn.failed","error":{"message":"stream disconnected"}}`, "", false},
 		{"claude reply text", `{"is_error":false,"result":"add a rate limit of 429"}`, "", false},
+		{"codex limit after model output", `{"type":"item.completed","item":{"type":"reasoning","text":"..."}}` + "\n" +
+			`{"type":"turn.failed","error":{"message":"exceeded retry limit, last status: 429 Too Many Requests"}}`, codex429, false},
+		{"claude limit with used tokens", `{"is_error":true,"result":"API Error: Rate limit reached",` +
+			`"usage":{"input_tokens":5120,"output_tokens":0}}`, "", false},
+		{"claude limit with no tokens", `{"is_error":true,"result":"API Error: Rate limit reached",` +
+			`"usage":{"input_tokens":0,"output_tokens":0}}`, "", true},
 		{"stderr log line", "", "WARN retrying after 429 Too Many Requests\n", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
