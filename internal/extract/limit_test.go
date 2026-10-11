@@ -231,3 +231,63 @@ func TestExecRunnerStderr(t *testing.T) {
 		t.Errorf("limited() = false for the stderr of the run")
 	}
 }
+
+// limitWhen answers a prompt that holds word as the CLI at its weekly limit, and any other with
+// reply.
+func limitWhen(word string, reply func(context.Context, string) ([]byte, error)) func(context.Context, string) ([]byte, error) {
+	return func(ctx context.Context, prompt string) ([]byte, error) {
+		if strings.Contains(prompt, word) {
+			return []byte(claudeWeekly), exit("claude", "")
+		}
+		return reply(ctx, prompt)
+	}
+}
+
+// AC #377 (Sol review): a failed batch and a failed change request whose last try, the one after
+// maxTries that a working call unlocks, the CLI refuses at its limit keep that try: it comes
+// again retryAfter later, with no other call that works, and then commits.
+func TestLimitAtLastTry(t *testing.T) {
+	t.Run("batch", func(t *testing.T) {
+		f := newFixture(t)
+		f.session("s1", true, line{"ws-A", "no, use yarn instead of npm here", t0})
+		f.cli.reply = down
+		for range 5 {
+			f.mustRun()
+			f.now = f.now.Add(retryAfter)
+		}
+		f.cli.reply = limitWhen("yarn", claimOf("use pnpm"))
+		f.worked("b0")
+		f.worked("b1")
+		b := f.batches()[0]
+		if b.Status != store.BatchFailed || b.ModelCalls != maxTries || !atLimit(b.Reason) {
+			t.Fatalf("batch = %+v, want failed at the limit with %d counted calls", b, maxTries)
+		}
+		f.now = f.now.Add(retryAfter)
+		f.cli.reply = claimOf("use yarn")
+		f.mustRun()
+		if b := f.batches()[0]; b.Status != store.BatchCommitted || b.ModelCalls != maxTries+1 {
+			t.Errorf("batch retryAfter later = %+v, want committed after its last try", b)
+		}
+	})
+	t.Run("change request", func(t *testing.T) {
+		f := newFixture(t)
+		cr := f.ask(f.proposed(), "split it")
+		f.cli.reply = redraft(down)
+		for range 5 {
+			f.mustRun()
+			f.now = f.now.Add(retryAfter)
+		}
+		f.cli.reply = redraft(func(context.Context, string) ([]byte, error) { return []byte(claudeWeekly), exit("claude", "") })
+		f.worked("b0")
+		f.worked("b1")
+		if got := f.request(cr.ID); got.Status != store.ChangeFailed || got.ModelCalls != maxTries || !atLimit(got.Reason) {
+			t.Fatalf("request = %+v, want failed at the limit with %d counted calls", got, maxTries)
+		}
+		f.now = f.now.Add(retryAfter)
+		f.cli.reply = redraft(claimOf("use pnpm 9"))
+		f.mustRun()
+		if got := f.request(cr.ID); got.Status != store.ChangeCommitted || got.ModelCalls != maxTries+1 {
+			t.Errorf("request retryAfter later = %+v, want committed after its last try", got)
+		}
+	})
+}

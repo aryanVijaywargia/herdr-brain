@@ -328,20 +328,26 @@ func (p Pass) retries(b store.Batch, worked, newest time.Time) bool {
 	if spent(b) {
 		return newest.After(b.At)
 	}
-	return p.tryAgain(b.ModelCalls, b.At, worked)
+	return p.tryAgain(b.ModelCalls, b.At, worked, atLimit(b.Reason))
 }
 
 // tryAgain reports whether a failed or invalid batch or change request with a try left gets its
 // call now: calls is its model calls, at the end of its last call and worked the end of the last
 // call that worked. It gets one after a later call works, or retryAfter after its own (waits).
 // The last call of a failed one, the one after maxTries, waits for a later call that works: that
-// call shows that the CLI is back, so a failure after it is its own.
-func (p Pass) tryAgain(calls int, at, worked time.Time) bool {
-	if calls >= maxTries {
+// call shows that the CLI is back, so a failure after it is its own. A last call that the CLI
+// refused at a usage or rate limit (limit, #377) used no try, and the limit is no failure of its
+// own: it gets the call again as any try does.
+func (p Pass) tryAgain(calls int, at, worked time.Time, limit bool) bool {
+	if calls >= maxTries && !limit {
 		return worked.After(at)
 	}
 	return !p.waits(at, worked)
 }
+
+// atLimit reports whether reason, the stored reason of a failed batch or change request, says
+// that the CLI refused its last call at a usage or rate limit (ErrLimit).
+func atLimit(reason string) bool { return strings.HasSuffix(reason, ErrLimit.Error()) }
 
 // allowed reports whether batch j may call the extractor: extraction is on for its workspace
 // key, a CLI is chosen, and learning is on for its session, key and pane (§7.3).
