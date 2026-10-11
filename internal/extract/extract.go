@@ -226,10 +226,10 @@ func (p Pass) finished(ctx context.Context, tx *sql.Tx) ([]pending, []signal.Sig
 			runs = append(runs, pending{s: s, obs: run, start: wm[run[0].WorkspaceKey]})
 		}
 	}
-	// The text of a turn that the agent did not run starts no signal (unrun): a session with no
-	// agent work makes no call, and a task that you send again after it is one telling (#377,
-	// #381). Its observations stay in the runs, so the watermark moves past them.
-	skip := unrun(ins, done)
+	// The text of a turn that the agent did not run starts no signal (unrun) when its session has
+	// no agent work, so the session makes no call, or when you sent it again, so the task is one
+	// telling (#377, #381). Its observations stay in the runs, so the watermark moves past them.
+	skip := unrun(ins, done, repeated(signal.Find(ins)))
 	counted := slices.Clone(ins)
 	for i := range counted {
 		counted[i].Counts = counted[i].Counts && !skip[counted[i].ID]

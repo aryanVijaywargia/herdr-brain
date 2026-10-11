@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
@@ -40,17 +41,22 @@ func works(in store.SignalInput) bool {
 		in.Status != store.ObservationGap && !errorOnly(in.Excerpt)
 }
 
-// unrun returns the observations of the turns in which the agent did no work: the agent did not
-// run the prompt of the turn, as at a usage limit or an error, and its text is only the prompt
-// and the error (#377, #379, #381). ins are the observations in time order (store.SignalInputs),
-// and done holds the finished sessions. As in the command chains of the signal rules, a turn is
-// the part of a session from one hook prompt record to the next; the text before the first
-// prompt joins the first turn, and a pane read that a hook prompt enriches joins the turn of that
-// prompt. A turn is known only when a later prompt ended it or its session is finished. Only a
-// session with hook prompt records has turns: the CLI also records the replies and the commands
-// there. A CLI with no prompt hook (agy) shows no reply mark, so its text stays as it is. A git
-// observation is Brain's own line, not text of a turn.
-func unrun(ins []store.SignalInput, done map[int64]bool) map[int64]bool {
+// unrun returns the observations of the turns that the agent did not run and that give no
+// signal (#377, #379, #381). A turn that the agent did not run has no work: the agent did not
+// run its prompt, as at a usage limit or an error, and its text is only the prompt and the error.
+// Such a turn gives no signal when its finished session has no agent work at all, so the session
+// makes no call, or when a later prompt repeats it (resent): you sent the task again, so the
+// later telling is the one telling. Else it stays, as a last correction that the agent did not
+// answer is still a correction. ins are the observations in time order (store.SignalInputs),
+// done holds the finished sessions and resent the observations that a later prompt repeats.
+// As in the command chains of the signal rules, a turn is the part of a session from one hook
+// prompt record to the next; the text before the first prompt joins the first turn, and a pane
+// read that a hook prompt enriches joins the turn of that prompt. A turn is known only when a
+// later prompt ended it or its session is finished. Only a session with hook prompt records has
+// turns: the CLI also records the replies and the commands there. A CLI with no prompt hook
+// (agy) shows no reply mark, so its text stays as it is. A git observation is Brain's own line,
+// not text of a turn.
+func unrun(ins []store.SignalInput, done, resent map[int64]bool) map[int64]bool {
 	prompts := map[int64]int{} // the turn of each hook prompt record
 	count := map[int64]int{}   // the hook prompts of each session
 	for _, in := range ins {
@@ -64,8 +70,9 @@ func unrun(ins []store.SignalInput, done map[int64]bool) map[int64]bool {
 		n       int
 	}
 	of := map[int64]int{}
-	work := map[turn]bool{}
-	seen := map[int64]int{} // the hook prompts of each session so far
+	work, again := map[turn]bool{}, map[turn]bool{}
+	worked := map[int64]bool{} // the sessions with agent work
+	seen := map[int64]int{}    // the hook prompts of each session so far
 	for _, in := range ins {
 		if p, ok := prompts[in.ID]; ok {
 			seen[in.SessionID] = p + 1
@@ -77,13 +84,33 @@ func unrun(ins []store.SignalInput, done map[int64]bool) map[int64]bool {
 		of[in.ID] = t
 		k := turn{in.SessionID, t}
 		work[k] = work[k] || works(in)
+		again[k] = again[k] || resent[in.ID]
+		worked[in.SessionID] = worked[in.SessionID] || works(in)
 	}
 	skip := map[int64]bool{}
 	for _, in := range ins {
 		t, last := of[in.ID], count[in.SessionID]-1
-		if last >= 0 && in.Source != store.SourceGit && !work[turn{in.SessionID, t}] && (t < last || done[in.SessionID]) {
+		k := turn{in.SessionID, t}
+		known := t < last || done[in.SessionID]
+		idle := !worked[in.SessionID] && done[in.SessionID]
+		if last >= 0 && in.Source != store.SourceGit && !work[k] && known && (idle || again[k]) {
 			skip[in.ID] = true
 		}
 	}
 	return skip
+}
+
+// repeated returns the observations that a later prompt repeats: the earlier occurrences of the
+// repeated prompt signals of sigs.
+func repeated(sigs []signal.Signal) map[int64]bool {
+	ids := map[int64]bool{}
+	for _, s := range sigs {
+		if s.Kind != signal.RepeatedPrompt {
+			continue
+		}
+		for _, id := range s.Observations[1:] {
+			ids[id] = true
+		}
+	}
+	return ids
 }

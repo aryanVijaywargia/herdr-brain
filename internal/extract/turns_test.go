@@ -249,9 +249,11 @@ func TestTaskAgainAfterError(t *testing.T) {
 
 // AC #377, #381: the turns of a session with hook prompt records. A turn with a reply, a tool
 // call or tool output is run; a turn with only the prompt, its pane read and errors of the CLI is
-// not, and nor is the text before the first prompt when that turn has no work. The last turn of
-// a session that is not finished is not known yet. A session with no hook prompt record (agy)
-// has no turns.
+// not. Such a turn gives no signal when its finished session has no work at all, or when a later
+// prompt repeats it; else it stays, as a last correction that got only an error. The text
+// before the first prompt joins the first turn, and a pane read that its hook prompt enriches
+// joins that prompt's turn. The last turn of a session that is not finished is not known yet. A
+// session with no hook prompt record (agy) has no turns.
 func TestUnrun(t *testing.T) {
 	in := func(id, session int64, source, event string, sender store.Sender, text string) store.SignalInput {
 		return store.SignalInput{Observation: store.Observation{ID: id, Source: source, Event: event, Sender: sender,
@@ -263,20 +265,45 @@ func TestUnrun(t *testing.T) {
 		in(3, 1, store.SourceHerdr, "working", store.SenderUnconfirmed, "› "+pinTask+"\n"+codexLine429),
 		in(4, 1, store.SourceHook, "prompt", store.SenderUnconfirmed, trimTask),
 		in(5, 1, store.SourceHerdr, "working", store.SenderAssistant, "• Ran npm test"),
-		in(6, 1, store.SourceHook, "prompt", store.SenderUnconfirmed, commitAsk),
+		in(6, 1, store.SourceHook, "prompt", store.SenderUnconfirmed, pnpm),
 		in(7, 1, store.SourceHook, "stop", store.SenderAssistant, "API Error: Rate limit reached"),
 		in(8, 2, store.SourceHook, "prompt", store.SenderUnconfirmed, jsonTask),
 		in(9, 2, store.SourceHerdr, "blocked", store.SenderTool, claudeLimit),
 		in(10, 2, store.SourceHook, "prompt", store.SenderUnconfirmed, commitAsk),
 		in(11, 3, store.SourceHerdr, "working", store.SenderUnconfirmed, pinTask),
+		in(13, 4, store.SourceHook, "prompt", store.SenderUnconfirmed, jsonTask),
+		in(14, 4, store.SourceHerdr, "working", store.SenderUnconfirmed, "❯ "+jsonTask),
+		in(15, 4, store.SourceHerdr, "blocked", store.SenderTool, claudeLimit),
 	}
 	// The pane read of a prompt that comes before its hook record joins the turn of that record.
-	echo := in(12, 1, store.SourceHerdr, "working", store.SenderUnconfirmed, "› "+commitAsk)
+	echo := in(12, 1, store.SourceHerdr, "working", store.SenderUnconfirmed, "› "+pnpm)
 	echo.EnrichedBy = 6
 	ins = slices.Insert(ins, 5, echo)
-	got := unrun(ins, map[int64]bool{1: true, 3: true})
-	want := map[int64]bool{1: true, 2: true, 3: true, 6: true, 7: true, 12: true, 8: true, 9: true}
+	got := unrun(ins, map[int64]bool{1: true, 3: true, 4: true}, map[int64]bool{3: true, 8: true})
+	want := map[int64]bool{1: true, 2: true, 3: true, 8: true, 9: true, 13: true, 14: true, 15: true}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("unrun() = %v, want %v", got, want)
+	}
+}
+
+// AC #381 (2) (Sol review): a correction after the agent's work that the agent did not run, as
+// it got only an API error or the session ended with no answer, is still a correction: it makes
+// a batch call, and the claim holds it as evidence.
+func TestLastCorrectionKept(t *testing.T) {
+	for name, after := range map[string][]tr{
+		"error answer": {replied("API Error: Rate limit reached")},
+		"no answer":    nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			recs := append([]tr{asked("set up the project"), echoed("❯ set up the project"), ran("npm install"),
+				replied("Installed with npm."), asked(pnpm), echoed("❯ " + pnpm)}, after...)
+			_, obs := f.hooked("claude", "s1", t0, recs...)
+			f.mustRun()
+			if f.cli.calls() != 1 || f.evidenceOf(obs[5]) != 1 {
+				t.Errorf("%d calls, %d candidates with the correction, want 1 call and its candidate", f.cli.calls(),
+					f.evidenceOf(obs[5]))
+			}
+		})
 	}
 }
