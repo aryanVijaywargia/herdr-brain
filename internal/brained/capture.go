@@ -901,7 +901,7 @@ func shell(name string) bool {
 // more has exited: the line ends, and the processes left, as grep after "brain status" in
 // "brain status | grep ...", or none, run no agent unless one of them runs it (#380). When
 // herdr gives no process group and no process, or no argv, it reports false, and the baseline
-// opens the session as before.
+// opens the session as before: a process with no argv may be the agent.
 func (c *Capture) probe(ctx context.Context, id, agent string) bool {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
@@ -910,7 +910,8 @@ func (c *Capture) probe(ctx context.Context, id, agent string) bool {
 		return false
 	}
 	i := slices.IndexFunc(pi.Processes, func(p herdr.Process) bool { return p.PID == pi.Group })
-	if (i >= 0 && probeRun(pi.Processes[i]) || i < 0 && pi.Group != 0) &&
+	noArgv := slices.ContainsFunc(pi.Processes, func(p herdr.Process) bool { return len(p.Argv) == 0 })
+	if (i >= 0 && probeRun(pi.Processes[i]) || i < 0 && pi.Group != 0 && !noArgv) &&
 		!slices.ContainsFunc(pi.Processes, func(p herdr.Process) bool { return runsAgent(p, agent) }) {
 		return true
 	}

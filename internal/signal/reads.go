@@ -11,16 +11,18 @@ import (
 // the recorded reads in internal/brained/testdata, #363, M2 eval run 5]. Codex shows a read, a
 // search or a list of files as "• Exploring" and then "• Explored", with the files and the
 // search words under it, a command that worked as "• Ran {command}" (group 1) and a command
-// that failed as "• Failed (exit N) {command}"; the lines of a long command start with │.
-// Claude shows "⏺ Bash({command})" (group 2), on more lines for a long command.
-var callLine = regexp.MustCompile(`^(?:• (?:Explor(?:ing|ed)|Ran (.+))|⏺ Bash\((.+))$`)
+// that failed as "• Failed (exit {status}) {command}" (groups 2 and 3, M2 eval run 6); the lines
+// of a long command start with │. Claude shows "⏺ Bash({command})" (group 4), on more lines for
+// a long command.
+var callLine = regexp.MustCompile(`^(?:• (?:Explor(?:ing|ed)|Ran (.+)|Failed \(exit (\d+)\) (.+))|⏺ Bash\((.+))$`)
 
 // callMark matches the start of a line that can be a call line: the reply mark of either
 // harness.
 var callMark = regexp.MustCompile(`^(?:• |⏺ )`)
 
-// failedOutput matches the first line of the output of a Claude command that failed.
-var failedOutput = regexp.MustCompile(`^\s*⎿\s+Error: `)
+// failedOutput matches the first line of the output of a Claude command that failed, with its
+// exit status in group 1 when Claude shows it.
+var failedOutput = regexp.MustCompile(`^\s*⎿\s+Error: (?:Exit code (\d+)\s*$)?`)
 
 // readers are the programs that print only the text of files, a list of files or their own
 // arguments, or that change the folder [NEW, #363]. A run of them prints no error of a run of
@@ -29,23 +31,43 @@ var failedOutput = regexp.MustCompile(`^\s*⎿\s+Error: `)
 var readers = []string{"cat", "cd", "column", "cut", "echo", "egrep", "fgrep", "find", "grep", "head", "jq", "ls",
 	"nl", "printf", "rg", "sed", "sort", "tail", "tr", "tree", "uniq", "wc"}
 
+// searches are the readers that exit with status 1 when they find no match, and print nothing
+// about it (#375). They print a line of their own and exit with status 2 on an error.
+var searches = []string{"egrep", "fgrep", "grep", "rg"}
+
+// brainProgram is the name of Brain's own command. Its output, as recall items, status lines and
+// its refusals, is text of Brain, not of a run in the project (#376), except for brainRuns.
+const brainProgram = "brain"
+
+// brainRuns reports whether brain with args runs a tool of the project and prints its output:
+// brain run (§10.1) and brain automation launch (§10.4).
+func brainRuns(args []string) bool {
+	return len(args) > 0 && (args[0] == "run" || args[0] == "automation" && len(args) > 1 && args[1] == "launch")
+}
+
 // diagnostic matches a line that a reader or the shell prints about its own error, as
 // "cat: notes.md: No such file or directory" or "zsh:1: no such file or directory: x", after
-// the tool mark. A pipe can hide the exit status of a reader, so such a line is still an
-// error of the run.
-var diagnostic = regexp.MustCompile(`^[^\pL\pN]*(?:sh|bash|zsh|` + strings.Join(readers, "|") + `)(?::\d+)?: `)
+// the tool mark, also with the path of the program ("/bin/cat: ..."). A pipe can hide the exit
+// status of a reader, so such a line is still an error of the run.
+var diagnostic = regexp.MustCompile(`^[^\pL\pN]*(?:[^\s:]*/)?(?:sh|bash|zsh|` + strings.Join(readers, "|") + `)(?::\d+)?: `)
 
 // linePrint matches a sed script that only prints lines by number, as "1,80p" or "$p;10p".
 var linePrint = regexp.MustCompile(`^(?:(?:\d+|\$)(?:,(?:\d+|\$))?p;?)+$`)
 
-// fileText reports whether out, the tool output of a pane read, is text of files that a
-// command printed, as a README that the agent reads (#363), with call the pane text above it
-// and cut whether call is cut: the last call line of call shows a command that worked and runs
-// only readers, and no line of out is an error of a reader or the shell. Such text is no error
-// that a run printed, so it starts no failure (§6.5, §7.1). A cut call, a cut command (…), a
-// shell expansion, a program that is not a reader, or a reader that runs another program
-// keeps out as tool output that can fail.
-func fileText(call string, cut bool, out string) bool {
+// noFailure reports whether out, the tool output of a pane read, holds no failure of a run, with
+// call the pane text above it and cut whether call is cut. The last call line of call shows the
+// whole command, and no line of out is an error of a reader or the shell, and one of these holds:
+//   - every program of the command is a reader, and the command worked: out is text of files
+//     that the command printed, as a README that the agent reads (#363);
+//   - every program is a reader, at least one is a search, and the command failed with status 1:
+//     a search found no match (#375). Every other reader that fails prints a diagnostic line;
+//   - every program is brain or a reader, and at least one is brain: out is Brain's own text,
+//     also a refusal with status 1 (#376).
+//
+// Such text starts no failure (§6.5, §7.1). A cut call, a cut command (…), a shell expansion, a
+// program that is not a reader, or a reader that runs another program keeps out as tool output
+// that can fail. A run that exits with status 0 can still hide a failure, as find -exec does.
+func noFailure(call string, cut bool, out string) bool {
 	lines := strings.Split(call, "\n")
 	i := len(lines) - 1
 	for i >= 0 && !callMark.MatchString(lines[i]) {
@@ -56,18 +78,31 @@ func fileText(call string, cut bool, out string) bool {
 	}
 	m := callLine.FindStringSubmatch(lines[i])
 	outs := strings.Split(out, "\n")
-	if m == nil || failedOutput.MatchString(outs[0]) || slices.ContainsFunc(outs, diagnostic.MatchString) {
+	if m == nil || slices.ContainsFunc(outs, diagnostic.MatchString) {
 		return false
 	}
-	if m[1] == "" && m[2] == "" {
+	var worked bool
+	var status string // the exit status of a command that failed, "" when not known
+	switch {
+	case m[1] != "":
+		worked = true
+	case m[3] != "":
+		status = m[2]
+	case m[4] != "":
+		f := failedOutput.FindStringSubmatch(outs[0])
+		worked = f == nil
+		if f != nil {
+			status = f[1]
+		}
+	default:
 		return true // Codex shows no output of an exploring call
 	}
-	cmd := []string{m[1] + m[2]}
+	cmd := []string{m[1] + m[3] + m[4]}
 	for _, l := range lines[i+1:] {
 		cmd = append(cmd, strings.TrimPrefix(strings.TrimSpace(l), "│ "))
 	}
 	s := strings.Join(cmd, "\n")
-	if m[2] != "" {
+	if m[4] != "" {
 		var closed bool
 		if s, closed = strings.CutSuffix(s, ")"); !closed {
 			return false
@@ -77,6 +112,15 @@ func fileText(call string, cut bool, out string) bool {
 	if !ok || strings.Contains(s, "…") {
 		return false
 	}
+	reads, search, brain := programs(cs)
+	return reads && (brain || worked || search && status == "1")
+}
+
+// programs reports, for cs, the simple commands of a shell command, whether every program that
+// is not brain is a reader that runs no other program, whether one of them is a search, and
+// whether one is brain. A brain that runs a tool is no reader.
+func programs(cs [][]string) (reads, search, brain bool) {
+	reads = true
 	for _, words := range cs {
 		for len(words) > 0 && strings.Contains(words[0], "=") {
 			words = words[1:] // a variable for the command
@@ -84,12 +128,52 @@ func fileText(call string, cut bool, out string) bool {
 		if len(words) == 0 {
 			continue
 		}
-		prog := path.Base(words[0])
-		if !slices.Contains(readers, prog) || runsOther(prog, words[1:]) {
-			return false
+		switch prog := path.Base(words[0]); {
+		case prog == brainProgram && !brainRuns(words[1:]):
+			brain = true
+		case !slices.Contains(readers, prog) || runsOther(prog, words[1:]):
+			reads = false
+		default:
+			search = search || slices.Contains(searches, prog)
 		}
 	}
-	return true
+	return reads, search, brain
+}
+
+// quietCommand reports whether shell command s, the command of a hook record that exited with
+// status, failed with no failure of the project. A hook record holds no output, so only the
+// programs tell: every program is brain and runs no tool, as a refusal (#376), or every program
+// is a search and status is 1, a search with no match (#375). A reader next to them could be the
+// program that failed.
+func quietCommand(s string, status int) bool {
+	cs, ok := commands(s)
+	if !ok {
+		return false
+	}
+	brain := func(prog string, args []string) bool { return prog == brainProgram && !brainRuns(args) }
+	search := func(prog string, args []string) bool {
+		return slices.Contains(searches, prog) && !runsOther(prog, args)
+	}
+	return every(cs, brain) || status == 1 && every(cs, search)
+}
+
+// every reports whether ok accepts the program and the arguments of each simple command of cs,
+// and cs runs at least one program.
+func every(cs [][]string, ok func(prog string, args []string) bool) bool {
+	n := 0
+	for _, words := range cs {
+		for len(words) > 0 && strings.Contains(words[0], "=") {
+			words = words[1:] // a variable for the command
+		}
+		if len(words) == 0 {
+			continue
+		}
+		if !ok(path.Base(words[0]), words[1:]) {
+			return false
+		}
+		n++
+	}
+	return n > 0
 }
 
 // commands splits shell command s into its simple commands, each as its words without quotes:

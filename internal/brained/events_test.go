@@ -774,6 +774,7 @@ func TestEventsRealAgentKept(t *testing.T) {
 		{name: "brain pipe into claude", job: job{"claude", procsBrainPipe, 20}, text: "⏺ done"},
 		// #380: the leader of the line has exited, and a real claude still runs.
 		{name: "claude after its leader", job: job{"claude", procsLeaderGone, 80}, text: "⏺ done"},
+		{name: "no argv after its leader", job: job{"claude", procsLeaderGoneNoArgv, 80}, text: "⏺ done"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			l := newLive(t, map[string]string{"w1:p1": codexRun1})
@@ -831,6 +832,8 @@ const (
 	// procsLeaderGone: "cat notes.md | claude -p 'Summarize'" after cat, the leader (pid 80), has
 	// exited (#380).
 	procsLeaderGone = `[{"name":"2.1.295","argv":["claude","-p","Summarize"],"pid":81}]`
+	// procsLeaderGoneNoArgv: the same, and herdr cannot read the argv of claude (#380 review).
+	procsLeaderGoneNoArgv = `[{"name":"claude","argv":null,"pid":81}]`
 )
 
 // hookRecord stores a tool hook record of codex in shellPane, as brain hook does.
