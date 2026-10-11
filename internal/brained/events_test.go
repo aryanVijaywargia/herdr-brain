@@ -702,6 +702,33 @@ func TestEventsShellPipe(t *testing.T) {
 	}
 }
 
+// #380 AC 1, AC 2: the run 6 shape. brain status in a pipe runs "claude --version", and herdr
+// detects claude. At the baseline brain status has exited: its group has only grep left, or no
+// process before the shell takes the terminal back. The #351 rule found no leader and saw grep
+// as a possible agent: an empty claude session. No session, and brain status counts no claude
+// session observed.
+func TestEventsShellPipeLeaderGone(t *testing.T) {
+	l := newLive(t, map[string]string{"w1:p1": codexRun1})
+	l.shell(t)
+
+	l.screen(shellPane, `$ brain status | grep -E "last 24h|links to review|failed batches"`)
+	l.detect(t, job{"claude", procsGrepLeft, 70})
+	l.release(t, "claude")
+	l.detect(t, job{"claude", "[]", 70})
+	l.release(t, "claude")
+
+	r := l.rows(t)
+	if len(r.sessions) != 1 || r.sessions[0].PaneID != "w1:p1" {
+		t.Errorf("sessions = %+v, want only the codex session of w1:p1", r.sessions)
+	}
+	if lines, gaps := r.texts(shellPane); len(lines) != 0 || len(gaps) != 0 {
+		t.Errorf("%s holds lines %q and gaps %q, want none", shellPane, lines, gaps)
+	}
+	if d := l.observed(t, "claude"); d.Sessions != 0 || d.Gaps != 0 {
+		t.Errorf("status claude: sessions observed %d, capture gaps %d, want none", d.Sessions, d.Gaps)
+	}
+}
+
 // The foreground processes of a brain command line in shellPane (#351). The native claude
 // binary is named by its version [spike/m0/data/e11s1-capture.txt].
 const (
@@ -717,6 +744,9 @@ const (
 	// procsChain: the second command of the line, "brain status | grep -c claude", after its
 	// probe: grep names the agent.
 	procsChain = `[{"name":"brain","argv":["brain","status"],"pid":31},{"name":"grep","argv":["grep","-c","claude"],"pid":33}]`
+	// procsGrepLeft: "brain status | grep -E ..." of run 6 after brain status, the leader (pid
+	// 70), has exited (#380).
+	procsGrepLeft = `[{"name":"grep","argv":["grep","-E","last 24h|links to review|failed batches"],"pid":71}]`
 )
 
 // #317 AC 2, AC 3: a real codex with no agent session id keeps its session: one left at its
@@ -742,6 +772,9 @@ func TestEventsRealAgentKept(t *testing.T) {
 		{name: "codex under node", job: job{"codex", procsNode, 50}, text: "• done"},
 		{name: "script starts claude", job: job{"claude", procsScript, 60}, text: "⏺ done"},
 		{name: "brain pipe into claude", job: job{"claude", procsBrainPipe, 20}, text: "⏺ done"},
+		// #380: the leader of the line has exited, and a real claude still runs.
+		{name: "claude after its leader", job: job{"claude", procsLeaderGone, 80}, text: "⏺ done"},
+		{name: "no argv after its leader", job: job{"claude", procsLeaderGoneNoArgv, 80}, text: "⏺ done"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			l := newLive(t, map[string]string{"w1:p1": codexRun1})
@@ -796,6 +829,11 @@ const (
 	// group, and a real claude runs in it.
 	procsBrainPipe = `[{"name":"brain","argv":["brain","status"],"pid":20},` +
 		`{"name":"2.1.295","argv":["claude","-p","Summarize this status"],"pid":21}]`
+	// procsLeaderGone: "cat notes.md | claude -p 'Summarize'" after cat, the leader (pid 80), has
+	// exited (#380).
+	procsLeaderGone = `[{"name":"2.1.295","argv":["claude","-p","Summarize"],"pid":81}]`
+	// procsLeaderGoneNoArgv: the same, and herdr cannot read the argv of claude (#380 review).
+	procsLeaderGoneNoArgv = `[{"name":"claude","argv":null,"pid":81}]`
 )
 
 // hookRecord stores a tool hook record of codex in shellPane, as brain hook does.
