@@ -47,9 +47,9 @@ func brainRuns(args []string) bool {
 
 // diagnostic matches a line that a reader or the shell prints about its own error, as
 // "cat: notes.md: No such file or directory" or "zsh:1: no such file or directory: x", after
-// the tool mark. A pipe can hide the exit status of a reader, so such a line is still an
-// error of the run.
-var diagnostic = regexp.MustCompile(`^[^\pL\pN]*(?:sh|bash|zsh|` + strings.Join(readers, "|") + `)(?::\d+)?: `)
+// the tool mark, also with the path of the program ("/bin/cat: ..."). A pipe can hide the exit
+// status of a reader, so such a line is still an error of the run.
+var diagnostic = regexp.MustCompile(`^[^\pL\pN]*(?:[^\s:]*/)?(?:sh|bash|zsh|` + strings.Join(readers, "|") + `)(?::\d+)?: `)
 
 // linePrint matches a sed script that only prints lines by number, as "1,80p" or "$p;10p".
 var linePrint = regexp.MustCompile(`^(?:(?:\d+|\$)(?:,(?:\d+|\$))?p;?)+$`)
@@ -140,15 +140,40 @@ func programs(cs [][]string) (reads, search, brain bool) {
 	return reads, search, brain
 }
 
-// brainCall reports whether shell command s runs brain, with no program other than readers
-// (#376).
-func brainCall(s string) bool {
+// quietCommand reports whether shell command s, the command of a hook record that exited with
+// status, failed with no failure of the project. A hook record holds no output, so only the
+// programs tell: every program is brain and runs no tool, as a refusal (#376), or every program
+// is a search and status is 1, a search with no match (#375). A reader next to them could be the
+// program that failed.
+func quietCommand(s string, status int) bool {
 	cs, ok := commands(s)
 	if !ok {
 		return false
 	}
-	reads, _, brain := programs(cs)
-	return reads && brain
+	brain := func(prog string, args []string) bool { return prog == brainProgram && !brainRuns(args) }
+	search := func(prog string, args []string) bool {
+		return slices.Contains(searches, prog) && !runsOther(prog, args)
+	}
+	return every(cs, brain) || status == 1 && every(cs, search)
+}
+
+// every reports whether ok accepts the program and the arguments of each simple command of cs,
+// and cs runs at least one program.
+func every(cs [][]string, ok func(prog string, args []string) bool) bool {
+	n := 0
+	for _, words := range cs {
+		for len(words) > 0 && strings.Contains(words[0], "=") {
+			words = words[1:] // a variable for the command
+		}
+		if len(words) == 0 {
+			continue
+		}
+		if !ok(path.Base(words[0]), words[1:]) {
+			return false
+		}
+		n++
+	}
+	return n > 0
 }
 
 // commands splits shell command s into its simple commands, each as its words without quotes:

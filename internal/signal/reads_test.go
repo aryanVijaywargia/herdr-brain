@@ -68,6 +68,8 @@ func TestFileText(t *testing.T) {
 		{"brain run", "• Failed (exit 1) brain run test", "  └ error", false, false},
 		{"brain automation launch", "• Ran brain automation launch --run 3", "  └ error", false, false},
 		{"brain and a run", "• Failed (exit 1) brain status && npm test", "  └ error", false, false},
+		{"read error with the program path", "• Failed (exit 1) /bin/cat missing-file && rg --files -g 'AGENTS.md'",
+			"  └ /bin/cat: missing-file: No such file or directory", false, false},
 		{"brain and a read error", "• Failed (exit 1) brain status && cat notes.md", "  └ cat: notes.md: No such file or directory",
 			false, false},
 	} {
@@ -144,6 +146,11 @@ func TestFailureNoMatch(t *testing.T) {
 			out(2, 1, "  └ rg: docs: IO error for operation on docs: No such file or directory")}, [][]int64{{2}}},
 		{"commit hook error", []store.SignalInput{call(1, 1, "• Failed (exit 1) git commit -m 'Fix the error case'"),
 			out(2, 1, "  └ error: 2 lint errors in src/app.js")}, [][]int64{{2}}},
+		{"search command record with no match", []store.SignalInput{cmd(1, 1, "rg --files -g 'AGENTS.md'", 1)}, nil},
+		{"search command record error", []store.SignalInput{cmd(1, 1, "rg -n error docs", 2)}, [][]int64{{1}}},
+		{"read and search command record", []store.SignalInput{cmd(1, 1, "cat missing-file && rg --files -g 'AGENTS.md'", 1)},
+			[][]int64{{1}}},
+		{"rg preprocessor command record", []store.SignalInput{cmd(1, 1, "rg --pre ./run.sh error docs", 1)}, [][]int64{{1}}},
 		{"git log line", []store.SignalInput{out(1, 1, "  └ 3f2a1bc fatal: the build broke")}, [][]int64{{1}}},
 	})
 }
@@ -169,6 +176,9 @@ func TestFailureBrainOutput(t *testing.T) {
 			out(2, 1, "  └ not ok 1 - GET /notes\n    brain run: step 1: npm: exit status 1")}, [][]int64{{2}}},
 		{"brain run error line", []store.SignalInput{out(1, 1, "  └ brain run: step 1: npm: exit status 1")}, [][]int64{{1}}},
 		{"brain run command record", []store.SignalInput{cmd(1, 1, "brain run test", 1)}, [][]int64{{1}}},
+		{"brain and a read command record", []store.SignalInput{cmd(1, 1, "brain status && cat missing-file", 1)}, [][]int64{{1}}},
+		{"brain automation error line", []store.SignalInput{out(1, 1,
+			"  └ brain automation: tool test: step 1: npm: exit status 1 (exit code 1)")}, [][]int64{{1}}},
 		{"brain and a test run", []store.SignalInput{cmd(1, 1, "brain status && npm test", 1)}, [][]int64{{1}}},
 	})
 }
