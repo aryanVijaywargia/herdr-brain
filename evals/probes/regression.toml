@@ -671,6 +671,7 @@ tests = [
   "internal/extract:TestLimited",
   "internal/extract:TestLimitUsesNoCall",
   "internal/extract:TestLimitChangeRequest",
+  "internal/extract:TestLimitAtLastTry",
   "internal/extract:TestExecRunnerStderr",
   "internal/extract:TestNoWorkNoCall",
   "internal/extract:TestUnrun",
@@ -713,4 +714,5 @@ issue = 381
 tests = [
   "internal/extract:TestTaskSentAgain",
   "internal/extract:TestTaskAgainAfterError",
+  "internal/extract:TestLastCorrectionKept",
 ]
