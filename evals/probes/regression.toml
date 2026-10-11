@@ -637,6 +637,28 @@ tests = [
 issue = 371
 tests = ["internal/cli:TestAgentPaneDecides"]
 
+# M2 eval run 6 (2026-10-10, R6-1): README lines that cat printed in a read chain where rg found
+# no AGENTS.md (codex: "Failed (exit 1)") made false failure proposal 5; a git commit message
+# with "error" and rg lines of docs made failure candidates. A search with no match, a commit
+# line and text of files that readers printed give no failure; a real failure still does. Fix:
+# the PR of #375.
+[[bug]]
+issue = 375
+tests = [
+  "internal/signal:TestFileText",
+  "internal/signal:TestFailureNoMatch",
+]
+
+# M2 eval run 6 (2026-10-10, R6-2): the output of `brain recall endpoint && brain status` in a
+# codex pane and the #371 refusal made a global failure candidate. The output of brain commands
+# and Brain's refusal lines give no failure; brain run, which runs a project tool, still does.
+# Fix: the PR of #376.
+[[bug]]
+issue = 376
+tests = [
+  "internal/signal:TestFileText",
+  "internal/signal:TestFailureBrainOutput",
+
 # M2 eval run 6 (2026-10-10, R6-3): while codex was at its usage limit (429, then 503), each
 # extractor call failed and still used the daily call cap, and sessions with only limit answers
 # made batches: 10 calls gave 1 useful batch. A call that the CLI refuses at a usage or rate limit
