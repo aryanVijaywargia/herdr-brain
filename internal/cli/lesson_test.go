@@ -47,6 +47,13 @@ func (f *suggestFixture) lesson(t *testing.T) (brained.Dispatch, int64) {
 		_, err = store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: "lesson-1", Source: store.SourceHerdr,
 			SegmentID: seg, Event: "working", Excerpt: lessonText, Status: store.ObservationComplete,
 			Sender: store.SenderUnconfirmed, Counts: true, At: testNow})
+		if err != nil {
+			return err
+		}
+		// The agent answers the lesson: a turn that the agent did not run starts no signal (#381).
+		_, err = store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: "lesson-2", Source: store.SourceHook,
+			SegmentID: seg, Event: "stop", Excerpt: "Noted.", Status: store.ObservationComplete,
+			Sender: store.SenderAssistant, Counts: true, At: testNow})
 		return err
 	})
 	var ds []brained.Dispatch
