@@ -1,0 +1,4 @@
+› Add a test helper that starts the server on a free port, then commit.
+• Added test/helper.js and used it in the tests. Committed as "Add test helper".
+› Run the tests again.
+› Run the tests again.

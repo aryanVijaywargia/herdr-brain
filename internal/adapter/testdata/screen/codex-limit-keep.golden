@@ -1,0 +1,6 @@
+› Retry a call that gets 429 Too Many Requests, and show "⚠ Heads up, you have less than 5% of your 5h limit left." when the rate limit is near.
+• Ran npm test
+  └ not ok 4 - retry after 429
+    ■ exceeded retry limit, last status: 429 Too Many Requests
+x-ratelimit-remaining: 0, url: http://127.0.0.1:3000/notes
+• The client now retries a 429 with a backoff, and the rate limit warning shows at 5%.

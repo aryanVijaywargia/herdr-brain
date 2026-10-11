@@ -716,3 +716,15 @@ tests = [
   "internal/extract:TestTaskAgainAfterError",
   "internal/extract:TestLastCorrectionKept",
 ]
+
+# M2 eval run 6 (2026-10-10, #385, found in the PR of #377): the codex limit lines ("⚠ Heads up
+# ... limit left", "■ exceeded retry limit ... 429", "■ unexpected status 503 ...") were stored
+# in the codex screen read, as for claude in #379. A reply and tool output with "429" and "rate
+# limit" stay. Fix: the PR of #385.
+[[bug]]
+issue = 385
+tests = [
+  "internal/adapter:TestScreen/codex-limit",
+  "internal/adapter:TestScreen/codex-limit-keep",
+  "internal/brained:TestCaptureCodexLimitScreen",
+]

@@ -1,0 +1,23 @@
+› Add a test helper that starts the server on a free port, then commit.
+
+• Added test/helper.js and used it in the tests. Committed as "Add test helper".
+
+⚠ Heads up, you have less than 5% of your 5h limit left. Run /status for a breakdown.
+
+› Run the tests again.
+
+■ exceeded retry limit, last status: 429 Too Many Requests
+
+› Run the tests again.
+
+■ unexpected status 503 Service Unavailable: All managed Codex accounts are temporarily
+unavailable for this runtime request., url: http://127.0.0.1:41873/responses
+
+⚠ Heads up, you have less than 25% of your weekly limit left. Run /status for a
+  breakdown.
+
+› Ask Codex to do anything
+
+  ⚠ 5h limit: 6% left · /status
+  ⚠ weekly limit: 19% left · /status
+  main · gpt-6.1-sol high · Context 61% left · 258K window

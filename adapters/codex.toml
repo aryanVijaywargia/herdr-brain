@@ -73,7 +73,12 @@ noise_lines = ['› Ask Codex to do anything', '\s*.* · Context \d+% (?:used|le
 # with the texts of the Codex source (tui/src/main.rs, protocol TokenUsage). The pane keeps them,
 # so each later session in the pane reads them again at its start. They were stored as user text.
 # The report shows "run:" with a colon and the source "run" with none, so both match.
-  'Token usage: total=[\d,]+ input=.*', 'To continue this session, run:? codex resume .*']
+  'Token usage: total=[\d,]+ input=.*', 'To continue this session, run:? codex resume .*',
+# Codex 0.160.1 (#385, M2 eval run 6 2026-10-10): the limit warning in the footer, as
+# "⚠ 5h limit: 6% left · /status" or "⚠ weekly limit: ... · /status". A prompt starts with ›
+# and a reply with •, so text with the same words stays. [NEW: the run gives the words of the
+# line, not the screen]
+  '\s*⚠ .*limit: .* · /status.*']
 # The start banner (#258): the box with the version, model and folder, and the tip lines under
 # it, also when a tip wraps. A tip line at another place is text of a reply.
 # Codex 0.160.1 (#278, #281, M2 eval run): the start banner with no box (the version, the folder,
@@ -101,4 +106,15 @@ noise_blocks = [
   { start = '  (?:Hooks|(?:PreToolUse|PermissionRequest|PostToolUse|PreCompact|PostCompact|SessionStart|SessionEnd|UserPromptSubmit|SubagentStart|SubagentStop|Stop) hooks)', next = '''  (?:Lifecycle hooks.*|Turn hooks on or off.*|Issues|[⚠■] .*|\d+ hooks? needs? review.*|No hooks installed.*|[A-Z][A-Za-z]+ +\d+(?: .*)?|\[[x !]\] .*|(?:Event|Matcher|Source|Command|Timeout|Context|Trust)(?: +\S.*)?|Managed hooks.*|Press .*)|\s{12}\S.*|''', after_blank = true },
   # The line of a request that you cancel, and the rest of its command on the next lines.
   { start = '✗ You canceled the request .*', next = '  \S.*' },
+  # Codex 0.160.1 (#385, M2 eval run 6 2026-10-10): the limit lines of a turn, with the texts
+  # of the Codex source (tui/src/chatwidget/rate_limits.rs, protocol/src/error.rs). They were
+  # stored in the screen read. The warning wraps at column 2 (history_cell/notices.rs). An
+  # error line starts with ■ at column 0, and Codex wraps it at column 0: the wrapped end holds
+  # the ", url: " or ", request id: " part of the error text. Tool output can also start at
+  # column 0, so only that end is taken. A blank line ends each block. A reply line starts
+  # with •, tool output with └ or spaces and a prompt with ›, so a "429" or "rate limit" there
+  # stays. [NEW: the run gives the lines with no wrap; "usage limit" and the 5xx statuses other
+  # than 503 are the other limit and outage texts of the same source]
+  { start = '⚠ Heads up, you have less than \d+% of your .*', next = '  \S.*' },
+  { start = '■ (?:exceeded retry limit, last status: .*|unexpected status (?:429|5\d\d) .*|You.ve hit your usage limit.*)', next = '\S.*, (?:url|request id): .*' },
 ]
