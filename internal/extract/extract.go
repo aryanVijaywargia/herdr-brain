@@ -469,7 +469,8 @@ func (p Pass) extract(ctx context.Context, j job) error {
 
 // commit is the one transaction of batch id (G3, §7.3). A batch that is no longer active adds
 // nothing: a retry of a committed batch, or a batch that a newer one replaced. A failure or an
-// invalid response keeps the watermark. Else it checks the settings, the watermark and the
+// invalid response keeps the watermark; a failure at a usage or rate limit of the CLI takes its
+// call back (#377). Else it checks the settings, the watermark and the
 // input again; a forget that touched the input discards the whole result. Then it writes the
 // evidence links, candidates and proposals, and moves the watermark. The claims that check
 // dropped go to Note once the batch is committed.
@@ -488,8 +489,13 @@ func (p Pass) commit(ctx context.Context, j job, id int64, claims []Claim, dropp
 			if errors.Is(callErr, ErrInvalid) {
 				status = store.BatchInvalid
 			}
-			_, err := store.EndBatch(ctx, tx, id, status, callErr.Error(), now)
-			return err
+			if _, err := store.EndBatch(ctx, tx, id, status, callErr.Error(), now); err != nil {
+				return err
+			}
+			if errors.Is(callErr, ErrLimit) {
+				return store.UncountBatchCall(ctx, tx, id)
+			}
+			return nil
 		}
 		reason, err := p.stale(ctx, tx, j)
 		if err != nil {

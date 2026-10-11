@@ -392,7 +392,8 @@ func (p Pass) runChange(ctx context.Context, j job) error {
 // commitChange is the one transaction of change request job j. A request that is no longer
 // active adds nothing: a retry of a committed request, or one that a forget discarded. A
 // failure or an invalid response keeps it open for a retry, and after its last try gives its
-// proposal back to review (giveBack). Else it checks that the request is still current, that
+// proposal back to review (giveBack). A failure at a usage or rate limit of the CLI takes its
+// call back and uses no try (#377). Else it checks that the request is still current, that
 // the claim is not rejected or forgotten, and that its input did not change; then it makes the
 // new draft once, through store.ProposeCandidate. It moves no watermark, adds no support count,
 // and the duplicate drop of a batch does not apply (§7.3).
@@ -410,6 +411,9 @@ func (p Pass) commitChange(ctx context.Context, j job, claims []Claim, callErr e
 			}
 			if _, err := store.EndChange(ctx, tx, r.ID, r.Status, callErr.Error(), nil, now); err != nil {
 				return err
+			}
+			if errors.Is(callErr, ErrLimit) {
+				return store.UncountChangeCall(ctx, tx, r.ID)
 			}
 			return giveBack(ctx, tx, r)
 		}
