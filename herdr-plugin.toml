@@ -2,7 +2,7 @@
 # Later epics add their own [[actions]] and [[panes]].
 id = "brain"
 name = "Herdr Brain"
-version = "0.0.1"
+version = "0.1.0"
 min_herdr_version = "0.9.1"
 description = "Cross-harness memory for coding agents in herdr (temporary name)"
 platforms = ["linux", "macos"]
