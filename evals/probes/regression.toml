@@ -753,3 +753,14 @@ tests = [
   "internal/extract:TestForgetMergedClaim",
   "internal/store:TestEraseItemLinkedClaim",
 ]
+
+# M2 eval run 7 (2026-10-11, R7-5): a made-up key `sk-test-` + 40 letters was stored in clear,
+# also inside a quoted command `"API_KEY=sk-test-…"`. The openai-api-key class took only
+# sk-proj-, sk-svcacct- and sk-admin-, and the env-secret class only the line start (§6.7, S12).
+# Fix: the PR of #392.
+[[bug]]
+issue = 392
+tests = [
+  "internal/secret:TestFindClasses",
+  "internal/secret:TestFindInCommand",
+]

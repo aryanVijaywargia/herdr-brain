@@ -25,8 +25,9 @@ var classes = []class{
 	{"github-token", regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{36,}|\bgithub_pat_[A-Za-z0-9_]{22,}`)},
 	{"gitlab-token", regexp.MustCompile(`\bglpat-[A-Za-z0-9_-]{20,}`)},
 	{"anthropic-api-key", regexp.MustCompile(`\bsk-ant-[A-Za-z0-9_-]{20,}`)},
-	// The old OpenAI form has no dash after "sk-", so it never matches an Anthropic key.
-	{"openai-api-key", regexp.MustCompile(`\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}|\bsk-[A-Za-z0-9]{32,}`)},
+	// sk- + one word + "-" covers sk-proj-, sk-svcacct-, sk-admin- and test or live forms such
+	// as sk-test- (#392). An Anthropic key matches here too; Find returns both hits.
+	{"openai-api-key", regexp.MustCompile(`\bsk-[A-Za-z0-9]+-[A-Za-z0-9_-]{20,}|\bsk-[A-Za-z0-9]{32,}`)},
 	{"aws-access-key-id", regexp.MustCompile(`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`)},
 	{"google-api-key", regexp.MustCompile(`\bAIza[0-9A-Za-z_-]{35}`)},
 	{"slack-token", regexp.MustCompile(`\bxox[abposr]-[A-Za-z0-9-]{10,}`)},
@@ -35,9 +36,10 @@ var classes = []class{
 	// A block with no END line runs to the end of the text, so a cut block still matches.
 	{"private-key", regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\z)`)},
 	{"password-pair", regexp.MustCompile(`(?i)\b(?:password|passwd|pwd)\s*[:=]\s*\S+`)},
-	// An .env line whose upper-case name has a secret-like word. The word list is [NEW].
+	// An .env pair whose upper-case name has a secret-like word, at the line start or inside a
+	// line, for example in a quoted command (#392). The word list is [NEW].
 	{"env-secret", regexp.MustCompile(
-		`(?m)^[ \t]*(?:export[ \t]+)?[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|ACCESS_KEY|PRIVATE_KEY|CREDENTIALS?)[A-Z0-9_]*[ \t]*=[ \t]*\S+`)},
+		`\b(?:export[ \t]+)?[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|ACCESS_KEY|PRIVATE_KEY|CREDENTIALS?)[A-Z0-9_]*[ \t]*=[ \t]*\S+`)},
 }
 
 // Hit is one match of a supported pattern: text[Start:End] is the secret.

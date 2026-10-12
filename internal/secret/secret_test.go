@@ -14,6 +14,7 @@ var (
 	ghToken      = "gh" + "p_" + strings.Repeat("a1B2", 9)
 	privateKey   = "-----BEGIN " + "RSA PRIVATE KEY-----\nMIIEow" + strings.Repeat("Q", 40) + "\n-----END RSA PRIVATE KEY-----"
 	anthropicKey = "sk-" + "ant-api03-" + strings.Repeat("xY9_", 8)
+	testKey      = "sk-" + "test-" + strings.Repeat("abcdefghij", 4)
 )
 
 // classTest is one positive and one negative input for a class.
@@ -31,6 +32,8 @@ var classTests = []classTest{
 	{"anthropic-api-key", "key " + anthropicKey, "prefix sk-ant- only"},
 	{"openai-api-key", "sk-" + "proj-" + strings.Repeat("Ab3_", 6), "use sk-learn for models"},
 	{"openai-api-key", "sk-" + strings.Repeat("Ab3d", 12), "sk-" + strings.Repeat("a", 31)},
+	{"openai-api-key", "my key is " + testKey, "sk-test-short and sk-live- keys"},
+	{"openai-api-key", "sk-" + "live-" + strings.Repeat("Q7r_", 6), "the scikit-learn sk-learn-docs page"},
 	{"aws-access-key-id", "AKIA" + "IOSFODNN7EXAMPLE", "AKIA plus a few words"},
 	{"google-api-key", "AI" + "za" + strings.Repeat("Sy_B-", 7), "AIza is a Google prefix"},
 	{"slack-token", "xo" + "xb-" + "1234567890-abcdef", "the xoxb- prefix"},
@@ -42,6 +45,8 @@ var classTests = []classTest{
 	{"password-pair", "PWD: s3cr3t!", "password: "},
 	{"env-secret", "DB_TOKEN=abc123", "DB_HOST=localhost"},
 	{"env-secret", "  export STRIPE_SECRET_KEY = zz", "export API_KEY="},
+	{"env-secret", `python -c "import os; os.environ['X']" API_KEY=abc123`, "Pass the token and the key to the client."},
+	{"env-secret", `run "API_KEY=abc123" now`, "git show 24d37fd9c1e0b7a4f3e2d1c0b9a8f7e6d5c4b3a2"},
 }
 
 func TestFindClasses(t *testing.T) {
@@ -78,6 +83,23 @@ func TestFindRange(t *testing.T) {
 	for i, h := range hits {
 		if got := text[h.Start:h.End]; got != want[i] {
 			t.Errorf("hit %d (%s) covers %q, want %q", i, h.Class, got, want[i])
+		}
+	}
+}
+
+// TestFindInCommand is the run 7 shape of #392: a sk-test- key in a quoted pair inside a command.
+// Both hits cover the key, so the stored text keeps no part of it.
+func TestFindInCommand(t *testing.T) {
+	text := `python3 -c "import os" "API_KEY=` + testKey + `" && echo done`
+	hits := Find(text)
+	for _, class := range []string{"openai-api-key", "env-secret"} {
+		if !hasClass(hits, class) {
+			t.Errorf("Find() = %v, want a %s hit", hits, class)
+		}
+	}
+	for _, h := range hits {
+		if got := text[h.Start:h.End]; !strings.Contains(got, testKey) {
+			t.Errorf("hit %s covers %q, want the whole key", h.Class, got)
 		}
 	}
 }
