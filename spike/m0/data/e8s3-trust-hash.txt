@@ -13,33 +13,33 @@ E8-S3 raw notes, 2026-09-28. codex-cli 0.154.0. Source: github.com/openai/codex 
 ## hooks.state tables of ~/.codex/config.toml (only these lines were read)
 [hooks.state]
 
-[hooks.state."/Users/aryanvijaywargia/.codex/hooks.json:subagent_start:0:0"]
+[hooks.state."/Users/me/.codex/hooks.json:subagent_start:0:0"]
 trusted_hash = "sha256:a7e36c07775b97099838895ecb15743029e4c59ce6144ae67a2e98ccc2b306b3"
 
-[hooks.state."/Users/aryanvijaywargia/.codex/hooks.json:session_start:0:0"]
+[hooks.state."/Users/me/.codex/hooks.json:session_start:0:0"]
 trusted_hash = "sha256:9b6563c12756ab055c0b4a03352e4016706dd0f8a43d2e5cbcf1a84241a84d01"
 
 [hooks.state."/<session-flags>/config.toml:session_start:0:0"]
 trusted_hash = "sha256:e13f3a03acf65bd0d2f320a9d8879834e42e07d4b30f5954058c1aa9c22f28c7"
 
 ## Probe: trusthash ~/.codex/hooks.json ~/.codex/config.toml
-/Users/aryanvijaywargia/.codex/hooks.json:post_tool_use:0:0
+/Users/me/.codex/hooks.json:post_tool_use:0:0
   hash   sha256:06bca7e02be91bbc383124e8a5f2e88592dcdcfd47b5239d46a0054d83243001
   status untrusted
-/Users/aryanvijaywargia/.codex/hooks.json:session_start:0:0
+/Users/me/.codex/hooks.json:session_start:0:0
   hash   sha256:9b6563c12756ab055c0b4a03352e4016706dd0f8a43d2e5cbcf1a84241a84d01
   status trusted
-/Users/aryanvijaywargia/.codex/hooks.json:session_start:1:0
+/Users/me/.codex/hooks.json:session_start:1:0
   hash   sha256:03bb4ff71e466a432f0fdac6fc08682432a5dba4391fd64f20205df26381ef22
   status untrusted
-/Users/aryanvijaywargia/.codex/hooks.json:subagent_start:0:0
+/Users/me/.codex/hooks.json:subagent_start:0:0
   hash   sha256:a7e36c07775b97099838895ecb15743029e4c59ce6144ae67a2e98ccc2b306b3
   status trusted
-/Users/aryanvijaywargia/.codex/hooks.json:user_prompt_submit:0:0
+/Users/me/.codex/hooks.json:user_prompt_submit:0:0
   hash   sha256:7a1f001d51f143f9fb50bd3eaadfbaae8757452bb66087f5c7e850dc79e0a78a
   status untrusted
 
-## Probe: M0 inline hook, command '/Users/aryanvijaywargia/Projects/herdr-brain/spike/m0/hook/brainspike codex'
+## Probe: M0 inline hook, command '/Users/me/Projects/herdr-brain/spike/m0/hook/brainspike codex'
 timeout 5:
 /<session-flags>/config.toml:session_start:0:0
   hash   sha256:e13f3a03acf65bd0d2f320a9d8879834e42e07d4b30f5954058c1aa9c22f28c7

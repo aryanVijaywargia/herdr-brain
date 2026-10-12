@@ -26,8 +26,8 @@
 #
 # Full output of: h agent read w1:p1 --source recent-unwrapped --lines 200
 # (the first line is an error from the tester's own .zshrc, not from herdr or Codex)
-/Users/aryanvijaywargia/.zshrc:31: command not found: ng
-(base) aryanvijaywargia@192 work % codex -m gpt-6-sol -c 'model_reasoning_effort="low"'
+/Users/me/.zshrc:31: command not found: ng
+(base) me@host work % codex -m gpt-6-sol -c 'model_reasoning_effort="low"'
 
 ╭─────────────────────────────────────────────────╮
 │ ✨ Update available! 0.154.0 -> 0.158.0         │
