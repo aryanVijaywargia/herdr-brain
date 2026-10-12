@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 # Copy the E16-S2 logs from /private/tmp/e16s2/logs into data/ and fixtures/, with the home path,
 # the user name and the host name replaced. OpenCode stream events (deltas, MCP, catalog) are dropped.
-import json, os, re, sys
+import json, os, re, socket, sys
 
 here = os.path.dirname(os.path.abspath(__file__))
 src = "/private/tmp/e16s2/logs"
 home = os.path.expanduser("~")
 user = os.path.basename(home)
+host = socket.gethostname().split(".")[0]
 
 def clean(s):
     s = s.replace(home, "~").replace(user, "<user>")
-    return re.sub(r"\b192:(agy|opencode) ", r"<host>:\1 ", s)
+    return re.sub(rf"\b{re.escape(host)}:(agy|opencode) ", r"<host>:\1 ", s)
 
 os.makedirs(f"{here}/data", exist_ok=True)
 
