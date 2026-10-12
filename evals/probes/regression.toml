@@ -729,3 +729,26 @@ tests = [
   "internal/adapter:TestScreenRules",
   "internal/brained:TestCaptureCodexLimitScreen",
 ]
+
+# M2 eval run 7 (2026-10-11, R7-1): `brain review --item 14 --exception-to 11` linked a
+# workspace item as an exception to global item 11 ("Never add a new npm dependency without
+# asking the user first."), whose claim has the permission flag but whose text has no
+# permission word. The review refuses a link that relaxes a known global permission or safety
+# rule (§7.4): the claim flag counts too. Fix: the PR of #388.
+[[bug]]
+issue = 388
+tests = [
+  "internal/cli:TestExceptionRefusedFlaggedClaim",
+  "internal/cli:TestExceptionRefused",
+]
+
+# M2 eval run 7 (2026-10-11, R7-2): a forgotten `brain remember` item came back at count 3 with
+# the evidence of the extractor claim that had a same_as link to its claim: the tombstone had no
+# source keys, and the linked claim kept its key and its candidate. Fix: the PR of #389.
+[[bug]]
+issue = 389
+tests = [
+  "internal/extract:TestForgetLinkedEvidence",
+  "internal/extract:TestForgetRestatedRememberItem",
+  "internal/extract:TestForgetMergedClaim",
+]

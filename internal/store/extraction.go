@@ -290,11 +290,14 @@ func MarkProposed(ctx context.Context, tx *sql.Tx, id int64) error {
 	return nil
 }
 
-// ClaimSourceKeys returns the capture identities of the evidence of claim claimID, sorted: the
-// source keys of its tombstone, which hold no text (§6.7).
+// ClaimSourceKeys returns the capture identities of the evidence of claim claimID, and of the
+// claims whose same_as is claimID, sorted: the source keys of its tombstone, which hold no text
+// (§6.7). A brain remember claim has no evidence of its own; the extractor claim of the same
+// telling links to it (#389).
 func ClaimSourceKeys(ctx context.Context, tx *sql.Tx, claimID string) ([]string, error) {
 	return query(ctx, tx, `SELECT DISTINCT l.capture_identity FROM evidence_links l
-		JOIN candidates c ON c.id = l.candidate_id WHERE c.claim_id = ? ORDER BY 1`,
+		JOIN candidates c ON c.id = l.candidate_id
+		WHERE c.claim_id = ?1 OR c.claim_id IN (SELECT id FROM claims WHERE same_as = ?1) ORDER BY 1`,
 		func(r *sql.Rows) (k string, err error) { return k, r.Scan(&k) }, claimID)
 }
 

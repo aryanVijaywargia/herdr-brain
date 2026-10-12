@@ -1648,7 +1648,7 @@ func (cl caller) resolve(ctx context.Context, tx *sql.Tx, r review, p store.Prop
 			return nil, fmt.Errorf("proposal %d: --exception links one workspace item to one global item; it conflicts with %s; nothing was written",
 				p.ID, itemList(p.ConflictsWith))
 		}
-		linked, err := except(*next, its[0], curs[0])
+		linked, err := except(ctx, tx, *next, its[0], curs[0])
 		*next = linked
 		return nil, err
 	}

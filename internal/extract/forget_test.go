@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"testing"
 	"time"
 
@@ -127,4 +128,54 @@ func (f *fixture) onlyItem() int64 {
 		f.t.Fatalf("items = %d, want 1", n)
 	}
 	return int64(f.count(`SELECT id FROM items`))
+}
+
+// AC 2 (#389, run 7 R7-2): forget of a brain remember item also stops the evidence of the
+// extractor claim with same_as to its claim: the tombstone holds its source keys, and its key
+// goes, so the same telling after the forget starts a new candidate at count 1, not count 2
+// with the old evidence. The run 7 shape: the claim of the telling has its own candidate, as the
+// permission flag keeps the link for review.
+func TestForgetLinkedEvidence(t *testing.T) {
+	f := newFixture(t)
+	a := "ws-A"
+	claim, item := f.remembered(&a, logRule)
+	known := regexp.MustCompile(`\[(cl_[0-9a-f]+)\] rule: ` + regexp.QuoteMeta(logRule))
+	reply := func(_ context.Context, prompt string) ([]byte, error) {
+		var id any
+		if m := known.FindStringSubmatch(prompt); m != nil {
+			id = m[1]
+		}
+		return claudeReply(map[string]any{"claims": []any{replyOf(map[string]any{"situation": c2Situation,
+			"rule": "Log with src/log.js; never use console.log.", "touches_permission": true,
+			"evidence_refs": promptRefs(prompt), "same_as": id})}})
+	}
+	f.cli.reply = reply
+	f.session("c2", true, line{"ws-A", logText, t0.Add(20 * time.Minute)})
+	f.mustRun()
+	if n := f.count(`SELECT COUNT(*) FROM evidence_links l JOIN candidates c ON c.id = l.candidate_id
+		JOIN claims k ON k.id = c.claim_id WHERE k.same_as = '` + claim + `'`); n != 1 {
+		t.Fatalf("evidence of the linked claim = %d, want 1: the case needs the run 7 shape", n)
+	}
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		keys, err := store.ClaimSourceKeys(ctx, tx, claim)
+		if err != nil {
+			return err
+		}
+		if !slices.Equal(keys, []string{"c2-0"}) {
+			t.Errorf("source keys of the forgotten item = %v, want the evidence of the linked claim", keys)
+		}
+		if err := store.EraseItem(ctx, tx, item, t0.Add(time.Hour)); err != nil {
+			return err
+		}
+		return store.InsertTombstone(ctx, tx, store.Tombstone{ClaimID: claim, SourceKeys: keys, ForgottenAt: t0.Add(time.Hour)})
+	})
+	f.session("c3", true, line{"ws-A", logText, t0.Add(2 * time.Hour)})
+	f.mustRun()
+	if n := f.count(`SELECT COUNT(*) FROM candidates c JOIN evidence_links l ON l.candidate_id = c.id
+		WHERE c.count = 1 AND l.capture_identity = 'c3-0'`); n != 1 {
+		t.Errorf("candidates of the new telling at count 1 = %d, want 1", n)
+	}
+	if n := f.count(`SELECT COALESCE(MAX(count), 0) FROM candidates`); n >= 2 {
+		t.Errorf("candidate count = %d after the forget, want below 2: the old evidence counts again", n)
+	}
 }
