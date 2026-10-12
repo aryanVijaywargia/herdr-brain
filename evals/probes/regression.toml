@@ -751,4 +751,5 @@ tests = [
   "internal/extract:TestForgetLinkedEvidence",
   "internal/extract:TestForgetRestatedRememberItem",
   "internal/extract:TestForgetMergedClaim",
+  "internal/store:TestEraseItemLinkedClaim",
 ]
