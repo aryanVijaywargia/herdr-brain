@@ -31,7 +31,7 @@ func (cl caller) link(ctx context.Context, r review) error {
 		if g.State != store.StateActive || g.Scope != store.ScopeGlobal {
 			return fmt.Errorf("item %d is a %s %s item; a link goes to an active global item", g.ID, g.State, g.Scope)
 		}
-		next, err := cl.linked(r, cur, g, gcur)
+		next, err := cl.linked(ctx, tx, r, cur, g, gcur)
 		if err != nil {
 			return err
 		}
@@ -58,7 +58,7 @@ func (cl caller) link(ctx context.Context, r review) error {
 }
 
 // linked is the revision of cur that r's link or conflict mark to global item g writes.
-func (cl caller) linked(r review, cur store.ItemRevision, g store.Item, gcur store.ItemRevision) (store.ItemRevision, error) {
+func (cl caller) linked(ctx context.Context, tx *sql.Tx, r review, cur store.ItemRevision, g store.Item, gcur store.ItemRevision) (store.ItemRevision, error) {
 	next := nextRevision(cur, cl.Now())
 	next.ConflictsWith = slices.Clone(cur.ConflictsWith)
 	if r.conflictsWith != 0 {
@@ -71,14 +71,20 @@ func (cl caller) linked(r review, cur store.ItemRevision, g store.Item, gcur sto
 		}
 		return next, nil
 	}
-	return except(next, g, gcur)
+	return except(ctx, tx, next, g, gcur)
 }
 
 // except links revision next as an exception to global item g, whose current revision is
 // gcur, and drops its conflict mark with g. A workspace item never relaxes a global permission
-// or safety rule (§7.4, §8.1): except refuses such a g.
-func except(next store.ItemRevision, g store.Item, gcur store.ItemRevision) (store.ItemRevision, error) {
-	if permissionWords.MatchString(gcur.Text) {
+// or safety rule (§7.4, §8.1): except refuses such a g, by its words or by the permission flag
+// of its claim (#388).
+func except(ctx context.Context, tx *sql.Tx, next store.ItemRevision, g store.Item, gcur store.ItemRevision) (store.ItemRevision, error) {
+	// The claim of a brain remember item has no row until a link adds it (#312): no flag.
+	c, err := store.ClaimByID(ctx, tx, g.ClaimID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return store.ItemRevision{}, err
+	}
+	if permissionWords.MatchString(gcur.Text) || c.TouchesPermission {
 		return store.ItemRevision{}, fmt.Errorf("item %d may be a permission, an allow rule or a safety rule: a workspace item cannot be an exception to it; mark a conflict with --conflicts-with %d; nothing was written",
 			g.ID, g.ID)
 	}

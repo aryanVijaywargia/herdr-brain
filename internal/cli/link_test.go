@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -73,6 +74,34 @@ func TestExceptionRefused(t *testing.T) {
 	f.mustReview(t, "--item", ws, "--conflicts-with", g)
 	if b := f.brief(t); !strings.Contains(b, "(conflicts with 2; ask the user)") || strings.Contains(b, "(exception to") {
 		t.Errorf("brief = %q, want the conflict mark only", b)
+	}
+}
+
+// AC 1 (#388, run 7 R7-1): a global item whose claim has the permission flag refuses an
+// exception, also when its text has no permission word; the refusal writes nothing.
+func TestExceptionRefusedFlaggedClaim(t *testing.T) {
+	const rule = "Never add a new npm dependency without asking the user first."
+	if permissionWords.MatchString(rule) {
+		t.Fatalf("%q has a permission word; the case needs the flag only", rule)
+	}
+	f := newFixture(t)
+	g := f.addActive(t, nil, rule)
+	ws := fmt.Sprint(f.addActive(t, ptr("ws_a14"), "the user authorizes adding dev dependencies for tests without asking first"))
+	ctx := context.Background()
+	s := openStore(t, f.store)
+	write(t, s, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO claims (id, created, touches_permission)
+			SELECT claim_id, created, 1 FROM items WHERE id = ?`, g)
+		return err
+	})
+	closeStore(t, s)
+	before := f.rows(t)
+	_, err := f.review(t, "--item", ws, "--exception-to", fmt.Sprint(g))
+	if want := fmt.Sprintf("mark a conflict with --conflicts-with %d; nothing was written", g); err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("link = %v, want refused with %q", err, want)
+	}
+	if after := f.rows(t); !reflect.DeepEqual(after, before) {
+		t.Errorf("a refused link changed the store")
 	}
 }
 

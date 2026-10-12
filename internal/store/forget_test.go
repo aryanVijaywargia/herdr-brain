@@ -9,8 +9,9 @@ import (
 // AC 1 to 3 (#327): forget of an item removes the key text of a claim whose same_as link
 // names the claim of the item, by id and link, when that link is its only use: a restatement
 // with no evidence in place (#312) or a merge into the candidate of the item's scope (#279).
-// While the linked claim has an item or a candidate of its own, or brought evidence to a
-// candidate in another scope, that use keeps its key (§6.7, §7.2).
+// While the linked claim has an item, or a candidate of its own in another scope, or brought
+// evidence to a candidate in another scope, that use keeps its key (§6.7, §7.2). A candidate of
+// its own in the scope of the item does not keep it (#389).
 func TestEraseItemLinkedClaim(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range []struct {
@@ -23,9 +24,13 @@ func TestEraseItemLinkedClaim(t *testing.T) {
 			e.mustAttach(t, Candidate{ClaimID: claim, Scope: ScopeWorkspace, WorkspaceKey: "ka", Kind: CandidateCorrection,
 				Via: linked}, e.observe(t, "claude", "a1", "ka", SenderUnconfirmed, testNow))
 		}, false},
-		{"a candidate of its own", func(t *testing.T, e *evidenceStore, _, linked string) {
+		{"a candidate of its own in the same workspace", func(t *testing.T, e *evidenceStore, _, linked string) {
 			e.mustAttach(t, Candidate{ClaimID: linked, Scope: ScopeWorkspace, WorkspaceKey: "ka", Kind: CandidateCorrection},
 				e.observe(t, "claude", "a1", "ka", SenderUnconfirmed, testNow))
+		}, false},
+		{"a candidate of its own in workspace B", func(t *testing.T, e *evidenceStore, _, linked string) {
+			e.mustAttach(t, Candidate{ClaimID: linked, Scope: ScopeWorkspace, WorkspaceKey: "kb", Kind: CandidateCorrection},
+				e.observe(t, "codex", "b1", "kb", SenderUnconfirmed, testNow))
 		}, true},
 		{"an item of its own", func(t *testing.T, e *evidenceStore, _, linked string) {
 			write(t, e.Store, func(tx *sql.Tx) error {
