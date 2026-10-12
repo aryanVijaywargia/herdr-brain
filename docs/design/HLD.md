@@ -469,6 +469,7 @@ you: brain remember "use pnpm, not npm"   (in a pane of workspace w14 "shop")
 - `--workspace` and `--global` only choose the scope. They never skip the binding check (§8.3).
 - An agent that calls `brain remember` follows the same path. The review pane opens beside that agent. The item stays a draft until you act. The brief tells agents to make this call when you ask them to remember something (§8.1).
 - If Brain cannot open the pane (for example, the split fails), the draft waits in `brain review`, and the pane label shows it.
+- If the text is the current text of an active item in the same scope, Brain makes no draft. It prints one line that names the item (#378).
 - You can also confirm through the herdr plugin popup or `brain review`. All surfaces use the same queue.
 - **Trust boundary:** no path proves human origin. herdr 0.8.2 `notification show` has no reply. Any process of your user can call `brain review` or send keys to the review pane. So review guards against normal agent calls. It is not authentication. Brain does not defend against a hostile process with your user rights.
 
@@ -713,6 +714,7 @@ The rules are wide on purpose. The extractor removes the false positives.
 - **Claim identity is shared. Everything else is scoped.** Candidates, support counts, rejection and active items belong to one scope (a workspace, or global).
 - Each supporting observation records its workspace, harness, sender and capture identity. Brain checks that each evidence reference belongs to an allowed scope.
 - A model merge (`same_as`) is a proposal. Brain keeps the old claim ids and evidence links. An unclear match goes to review, not to a silent merge. Brain never merges two permissions or safety rules without review.
+- A claim that only records the agent's own commands, which follow an active or pending item, is held by that item. It makes no candidate and no link to review (#366).
 - `brain review` lists each same_as link that waits for review: the text of both claims and the reason (a permission or safety rule, or an unclear match). A link waits while the candidate of the newer claim is open, or while its own proposal waits. **Merge** (`brain review --merge <candidate>`) confirms the link: the key gets the other claim id, and the evidence counts together. A waiting proposal of the newer claim is superseded. A candidate at its gate gets a normal proposal with the text of the newest telling, with no model call. A merge approves nothing. A rejection of the newer claim in a scope holds for the other claim there. **Keep apart** (`brain review --apart <candidate>`) ends the link, and the pair does not come back. The review pane (key `m`) and the herdr action "Brain: links to review" (`brain.links`) show the same list, with `m` merge and `n` keep apart. `brain status` shows "links to review: N" (#358).
 
 **Priority defaults** (you can change them in the config):
@@ -809,7 +811,7 @@ SQLite is the authority. Files are outputs.
 **Undo.** Each revision stores all fields that you can undo: text, scope, workspace key, state, pinned, the exception link and the conflict links.
 - `brain undo <item>` undoes the latest revision. It makes a new revision that copies the fields of the revision before it. Brain records which revision it undid, so a second undo of that revision does nothing.
 - Undo of a creation retires the item. Undo of a promotion returns it to its workspace scope. Undo of a retirement restores the item. Undo of a link move returns the item to its old workspace key. It works only from a pane in the new workspace, while the old one is not live (§9.4).
-- Undo of an automation binding (M4) disables future runs. It cannot reverse effects that already happened.
+- Undo of an automation binding (M4) disables future runs. It cannot reverse effects that already happened. Undo of its removal also leaves the binding off; `brain review --restore <item>` turns it on again.
 
 ---
 
