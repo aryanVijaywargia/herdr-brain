@@ -91,7 +91,7 @@
 3. Brain keeps context at two levels: **global** (all agents) and **workspace** (all agents in one herdr workspace).
 4. Every agent in a workspace can get that workspace's context, no matter who started it. In M1, this works for Claude and Codex. Other CLIs get it when their adapter profile passes its test (§8.5, §18).
 5. Brain captures text through herdr: it reads the pane when an agent changes state. This works for every agent kind that herdr knows. The reads are partial evidence, not a full record of the conversation (§6.2). Optional CLI hooks add structured records to the same stream (§6.1).
-6. It finds what you repeat: corrections, procedures, prompts, commands and failures. It proposes small items: facts, preferences, decisions, skills, tools and automations.
+6. It finds what you repeat: corrections, procedures, prompts, commands and failures. It proposes small items: facts, preferences, decisions, skills, tools and automations. With your yes at setup, it reads your past Claude and Codex sessions once, so it has repeats on the first day (§6.8).
 7. You approve each item. `brain remember` makes a draft, and Brain opens a small review pane beside the caller. When you repeat a prompt, Brain can show a ready proposal in the same kind of pane. You decide there and stay in your session (§5.1, §5.5).
 8. Global and workspace items reach each new session through one herdr hook at session start. So one lesson reaches Claude, Codex and every other CLI with a tested profile. The hook delivers only when herdr confirms the live pane, in a herdr session that `brain setup` bound. Brain has no effect on sessions outside herdr (§1.2).
 9. SQLite is the single source of truth. Files are built from it and can be built again.
@@ -252,6 +252,7 @@ Each feature names the source of its idea. The tags are defined in §19. **[NEW]
 | An extraction batch commits its results and the watermark in one transaction, with a stable batch id | [ASTRA5] G3; [WAKU] `waku/memory/consolidation.py:71` |
 | herdr listener `brained` from M2, not M1 | [ASTRA2] "a permanent process before there is work for it"; [H] socket `events.subscribe` |
 | Transcript readers only if M0 or later use shows consequential evidence loss | [OWNER] D5, D10; [H] hooks report `agent_session` and `transcript_path`; [OMNI] session import |
+| History scan at setup: one opt-in read of your past Claude and Codex sessions, repeats with no model call, a report with recorded tokens, proposals through the normal pipeline | [OWNER] 2026-10-13 (D16); [NEW] the window, the scope rule and the scan share of the caps |
 
 ### 3.3 Skills (M3)
 
@@ -314,7 +315,7 @@ Each feature names the source of its idea. The tags are defined in §19. **[NEW]
 
 | Feature | Source |
 |---|---|
-| herdr capture for all harnesses; optional hook records; transcripts only after real loss | [OWNER] D5, D11; [H] |
+| herdr capture for all harnesses; optional hook records; transcripts only after real loss, and once at setup with your yes (§6.8) | [OWNER] D5, D11, D16; [H] |
 | Secret filter before storage and before any LLM call | [D] Drover §10.1; [OMNI] `process_logging.py:108-118` |
 | No learning score | [ASTRA] §8; [F] §5.4 |
 | Extraction on by default after setup, with an off switch for each workspace; setup explains both data flows | [OWNER] D9; [ASTRA2] "official local CLIs can still send input to cloud models"; [ASTRA3] F9 agent delivery |
@@ -389,7 +390,7 @@ All components are parts of one Go binary and one plugin manifest. They are not 
 | Component | Job | Milestone |
 |---|---|---|
 | `herdr-plugin.toml` | Binds actions (review, remember, status) and the popup to the `brain` binary. From M2 a `[[startup]]` entry starts `brained` once for each herdr session. herdr runs `[[startup]]` only after a session restore, so after `herdr plugin install` the build starts the `start` action: it starts `brained` and opens setup when the session has no binding (E19-S3). | M1 |
-| `brain` binary | One Go binary (D2). Short calls: `remember`, `review`, `undo`, `forget`, `pin`, `learn`, `status`, `doctor`, `hook` and `setup`. `setup --session <name>` binds one more real herdr session to the main store. `setup --session <name> --test <folder>` binds a test session to its own store (§8.3). `promote` comes in M3. `run`, `tools` and `automation` come in M4. `update [--check]` (E19-S4) reinstalls a managed plugin or pulls and builds a linked checkout on `main`, then runs `doctor --fix`; it is the only command that uses the network. Each call checks the herdr version and refreshes the workspace map and the labels. | M1 |
+| `brain` binary | One Go binary (D2). Short calls: `remember`, `review`, `undo`, `forget`, `pin`, `learn`, `status`, `doctor`, `hook` and `setup`. `setup --session <name>` binds one more real herdr session to the main store. `setup --session <name> --test <folder>` binds a test session to its own store (§8.3). For the main store, setup also asks once whether Brain may read your past Claude and Codex sessions (§6.8). `promote` comes in M3. `run`, `tools` and `automation` come in M4. `update [--check]` (E19-S4) reinstalls a managed plugin or pulls and builds a linked checkout on `main`, then runs `doctor --fix`; it is the only command that uses the network. Each call checks the herdr version and refreshes the workspace map and the labels. | M1 |
 | Store | SQLite. The only source of truth. M1 creates only the M1 tables (§11). | M1 |
 | Compiler | Builds one output generation in its own folder: the global part, one workspace part for each workspace and one manifest. Then it switches one pointer. Runs under one lock. Skill folders come in M3. | M1 |
 | `brain hook` | The hook subcommand. It checks the live pane with herdr, reads the current generation once and prints the brief in the output form of the profile. It then writes an "emitted" receipt. OpenCode and pi call it through a small shared TypeScript shim. | M1 |
@@ -402,6 +403,7 @@ All components are parts of one Go binary and one plugin manifest. They are not 
 | Extractor | Turns a batch of signals into claims and ready proposals | M2 |
 | Prompt index | Normalized earlier prompts and the ready proposals that they lead to. Local match, no model call. | M2 |
 | Transcript readers | Built only after real evidence loss (D5) | not planned |
+| History scan | Part of `brained`. Reads past Claude and Codex sessions once for each store, after a yes in `brain setup` (§6.8, D16) | first release |
 | `brain run` and tool registry | Runs approved `tool.toml` recipes with checks (§10.1) | M4 |
 | MCP gateway | 4 fixed tools over the tool registry. Optional. | M4 |
 | Automation runner | Part of `brained`. Runs one approved tool for one bound trigger, with claim-before-run | M4 |
@@ -593,6 +595,7 @@ sequenceDiagram
 | CLI hook records (optional) | Claude and Codex first; others after their M0 test | The exact submitted prompt, the exact shell command and its result, a stop marker | M2, after an M0 test |
 | git | All | Reverts, file changes, anchors | M2 |
 | Transcripts | Claude and Codex | Full text when the screen lost rows | Only if needed (D5, §6.6) |
+| History scan | Claude and Codex | Past prompts, commands, failures and token counts, read once at setup | First release, after your yes (D16, §6.8) |
 
 herdr capture is the main path. It needs no code for each harness. Hook records add structure to the same stream. They do not replace capture. Brain works fully without them.
 
@@ -662,7 +665,8 @@ Limits:
 
 ### 6.6 Transcript readers (only if needed)
 
-- D5: Brain does not build transcript readers now. It builds one only if M0 or later use shows consequential evidence loss that herdr capture and hook records cannot cover. If one is built, the rules below apply.
+- D5: Brain does not build transcript readers for ongoing capture. It builds one only if M0 or later use shows consequential evidence loss that herdr capture and hook records cannot cover. If one is built, the rules below apply.
+- **One exception** (owner decision 2026-10-13, D16): the history scan at setup (§6.8) reads past Claude and Codex sessions once, after your yes. It uses the parse and fail-closed rules below. It is not an ongoing reader.
 - Brain stores the `transcript_path` of the start hook input in the receipt (§11), and the brief names the path of the last session of the workspace (§8.3). Brain reads no transcript. The agent reads the file only when you ask (owner decision 2026-10-02, E15-S4).
 - You enable a reader for each harness in `brain setup`. Default: off.
 - They read only new bytes from the cursor. They use the agent session id and `transcript_path` from the herdr hooks.
@@ -685,6 +689,94 @@ Limits:
 - **Forget during extraction:** if a forget touches the input of an active batch, Brain discards the batch result. A later batch extracts again from the kept evidence (§7.3).
 - New derived records in later milestones join this list before they ship.
 - **Limits:** Brain cannot remove text from backups, from sessions that already got it, or from a CLI's own memory. It does not promise secure physical erase.
+
+### 6.8 History scan at setup
+
+Brain starts empty. A skill or a tool draft needs repeats, and repeats take weeks. Your past Claude Code and Codex sessions already hold them. So `brain setup` offers one read of these sessions (owner decision 2026-10-13, D16). It is the only transcript read. It runs once for each store, and only after your yes. After it, capture stays herdr capture and hook records (D5).
+
+**Setup question**
+- After the extractor choice, setup asks one question: `Read your past Claude and Codex sessions once, to find repeats now? [y/N]`. Before it, setup says what the scan reads, what it keeps, and that only extractor excerpts leave the machine.
+- The answer is one line in the setup plan. The one yes of the plan applies it. A "no" here, or a "no" to the plan, reads nothing and writes no scan row. The next `brain setup` asks again.
+- Setup asks only for the main store, and only when the store has no scan row. A test binding (`--test`) never gets the question, so evals never read your history.
+- A yes writes one scan row with status `pending`. Setup reads no transcript itself.
+
+**Where it runs**
+- `brained` runs the scan in the background. At its next tick, one `brained` of the main store claims the pending row in one transaction. Only that one runs it.
+- With no `brained` running, the row waits. With learning off for the store, the scan waits until learning is on. `brain status` says why it waits.
+- The scan first refreshes the workspace map, as each `brain` call does.
+- `brain status` shows the progress, for example `History scan: read 120 of 300 sessions`.
+- When the read ends, Brain shows one herdr notification: `Brain read 64 past sessions and found 18 repeats. brain status lists them. Proposals wait in brain review.` The pane label and the workspace badge show the waiting proposals as usual. A scan proposal opens no review pane, because no agent pane asked for it (§3.5).
+- If `brained` stops during the read, the next `brained` reads again from the start. A known capture identity adds nothing (§6.4).
+
+**Which sessions**
+- Files: Claude Code `<claude home>/projects/<folder>/<session id>.jsonl` (`~/.claude`, or `CLAUDE_CONFIG_DIR`), and Codex `<codex home>/sessions/YYYY/MM/DD/rollout-*.jsonl` (`~/.codex`, or `CODEX_HOME`) (§17 item 32).
+- Brain skips the other files there: Claude set-aside copies (`*.orphaned-*`, `*.superseded-*`), the `subagents/` and `tool-results/` folders, Codex `archived_sessions/`, and compressed Codex files (`*.jsonl.zst`). It counts the compressed files, so `brain status` can say how many it did not read.
+- Window: the sessions with a record in the last 30 days [NEW]. When these are fewer than 50, the newest 50 sessions of any age [NEW]. At most 300 sessions [NEW], newest first, Claude and Codex together.
+- Only interactive sessions: a Codex session with the source `cli` or `vscode` (§6.6), and a Claude session that was not a `claude -p` run, when the file marks it (§17 item 32). Brain's own extractor calls write no transcript (`--no-session-persistence`, `--ephemeral`).
+- A session that the store already knows from herdr capture or hook records is skipped. Its live evidence is already there.
+- Brain reads each file only up to its size at the scan start. A session that still runs gives the rest through capture.
+- **Scope of a session:** the `cwd` of its first record that has one.
+  - The cwd is the project folder (§11) of one live workspace of the main store, or lies beneath it: the session belongs to that workspace.
+  - The cwd is in the project folders of two or more workspaces (a shared checkout): Brain skips the session. It cannot tell which workspace the session was for.
+  - The cwd is in no workspace: the session goes to the **global pool**.
+- Each scanned session gets a `sessions` row: the binding of the `brained` that runs the scan, the harness, the agent session id from the file, the workspace key (none for the global pool), and the times of its first and last records. It gets one segment with no pane. So `brain forget --session <id>` works for it, as for any session.
+
+**What Brain takes.** The scan makes the records that hook records give (§6.1), from the file:
+- each prompt that you sent: an observation with sender **unconfirmed** (§6.3). For Codex, Brain reads the prompt from the `response_item` user message only; the `event_msg` `user_message` is a copy of it;
+- each shell command of the agent, with its exit status when the file has one: a command record (§6.7), and a failure excerpt from its output when it failed. Claude marks a failed tool result with `is_error`. Codex keeps the exit code only in the output text, so Brain records it only from a known exit line (§17 item 34);
+- the last assistant text of each turn, as a `Stop` record gives it: sender **assistant**, context only (§6.5);
+- the tokens of each turn, from the usage fields that the file records (§17 item 33). A turn is a prompt and everything up to the next prompt.
+  - Claude: `input_tokens` + `cache_creation_input_tokens` + `cache_read_input_tokens` + `output_tokens` of `message.usage`, once for each assistant `message.id`. Several lines of one message carry the same usage.
+  - Codex: the growth of `total_token_usage.total_tokens` in the `token_count` events of the turn. Its `input_tokens` already holds the cached input. The growth, not the sum of the lines, so a repeated line or a forked session adds nothing.
+- These observations have the source `transcript`. The capture identity is (harness, record id). The record id is the record `uuid` for Claude, and the agent session id with the byte offset of the line for Codex [NEW]. So a second read adds nothing.
+- Excerpts are at most 500 characters and commands at most 4 KB, as for hook records. Brain stores no whole transcript and no transcript path.
+
+**What Brain drops** (the §6.3 filters, with the marks of the files):
+- Brain blocks (`brain:begin`) and the output of other start hooks;
+- system reminders and CLI scaffolding: `<system-reminder>` (Claude saves hook `additionalContext` in it), `<environment_context>`, `<user_instructions>`, Codex `# AGENTS.md instructions` text, `<command-name>`, `<local-command-stdout>`, `[Request interrupted`, Claude records with `isMeta`, and Claude assistant records of the model `<synthetic>`;
+- Claude user records that carry only a `tool_result`: they are tool replies, not prompts;
+- compaction summaries: Claude `isCompactSummary` records, `summary` records and `system` records of a compact boundary; Codex `compacted`;
+- sub-agent side chains: Claude `isSidechain` records and the `subagents/` files; Codex sessions with a parent thread (`parent_thread_id`);
+- every tool result except the failure excerpt of a shell command. File text that an agent read never enters the store;
+- images and attachments.
+
+**Repeats with no model call**
+- After the read, the signal rules (§7.1) run over the scanned sessions of each scope: each workspace, and the global pool.
+- A signal goes on only when it reaches the gate of its kind inside the scan (§7.2): a plain-words lesson at 1; a correction or a repeated prompt when the local text match finds it 2 or more times; a failure in 2 sessions; a procedure 3 times; a command chain in 3 sessions. A correction marker with no repeat stays evidence only.
+- These signals are the **findings** of the scan. For each finding, Brain counts its sessions and its tokens: the sum of the tokens of the turns that hold its occurrences.
+
+**Efficiency report** (in `brain status`; no new command)
+- One summary line, for example: `History scan, done 2026-10-13 14:05: 64 sessions read (41 Claude, 23 Codex), 12.4 M tokens recorded. 18 repeats, in turns that used 2.1 M tokens.`
+- Then at most 10 findings [NEW], most tokens first, one line each: the excerpt of the newest occurrence on one line, what it can become, its sessions, its tokens, and its proposal id when one exists:
+  - a repeated instruction or correction, or a plain-words lesson: an item in the brief;
+  - a repeated prompt or a procedure: a skill or a tool;
+  - a repeated command chain: a tool;
+  - a repeated command failure: a lesson.
+- Tokens are only what the files record. A repeat shows "tokens spent on this repeat", with its count. Brain makes no forecast of a saving. When the files of a CLI version have no usage field, the report says "tokens: unknown", never 0.
+- The scan row keeps the findings as ids and numbers only, with no text. `brain status` reads each excerpt from the newest observation of the finding. So a forget removes the finding from the report too.
+- The finding lines show for 7 days after the scan [NEW]. Then only the summary line stays.
+
+**Proposals**
+- Brain packs the findings of one scope into **scan batches**, most tokens first, up to the input byte cap of a call (§7.3). The extractor input is the §7.3 input of that scope: the workspace and the approved global context, or the global context alone for the global pool.
+- A scan batch commits as any batch (G3). Its stable id is (scan, scope, first and last finding). The scan row holds the progress in place of a watermark. The read sets the watermark of each scanned session to its end, so the normal pass never extracts it again.
+- From the global pool, Brain keeps only the claims that the extractor marks global (`scope_guess`). A claim about one project has no workspace to go to, so Brain drops it. The proposal says "global". Your approval is the explicit choice of global scope (§1.3).
+- A scan proposal shows one measured line, for example: `Seen in 5 past sessions; those turns used 48,200 tokens.`
+- **Caps:** scan batches use the daily caps of §7.3. Live batches go first. Scan batches use at most half of each daily cap, rounded down [NEW]: with the defaults, 20 of the 40 calls and 7 of the 15 new proposals. So live learning keeps room on the first day. The rest waits for the next day, and `brain status` says so.
+- With the extractor choice none, the scan still reads and shows the report. Its batches wait until you choose an extractor (§7.3).
+
+**Privacy and forget**
+- The secret filter runs on each record before storage, and again before the extractor (§6.7).
+- Only the excerpts of scan batches leave the machine, through the extractor CLI that you chose (D9).
+- `brain forget --session <id>` works for a scanned session (§6.7).
+- The scan row records what Brain read: the times, the window, and for each CLI the sessions read and the sessions skipped, by reason (not interactive, already known, shared checkout, learning off, compressed, unknown format).
+
+**Fail closed**
+- The reader of each CLI fails closed (§6.6). It skips a file with an unknown shape and counts it. When no file of a CLI parses, the scan stops for that CLI, and `brain status` and `brain doctor` report it. The other CLI continues.
+
+**Once**
+- The scan runs once for each store. The scan row is the done mark. A second `brain setup`, also `brain setup --session <name>` for another herdr session, shows `History scan: done on <date>` and asks nothing.
+- A new store asks again.
+- Sessions after the scan reach Brain only through herdr capture and hook records (D5).
 
 ---
 
@@ -859,7 +951,7 @@ The facts below come from vendor docs and source, read on 2026-09-27. None is te
 
 ### 8.3 The herdr hook (`brain hook`)
 
-Brain installs one hook entry in each CLI's user-level config, as its profile says. Setup shows all its changes and the uninstall steps, then asks once. It keeps all other hooks in those files, for example the herdr integration hooks.
+Brain installs one hook entry in each CLI's user-level config, as its profile says. Setup shows all its changes and the uninstall steps, then asks once. The plan also holds the answer to the history scan question (§6.8). It keeps all other hooks in those files, for example the herdr integration hooks.
 
 What `brain hook` does at session start ("print nothing" means the profile's `output_none`: no bytes for Claude and Codex, `{}` for agy, E16-S2):
 1. If `HERDR_ENV` is not `1`: print nothing, exit 0. A session outside herdr gets no Brain items.
@@ -1171,7 +1263,8 @@ The M column says the first milestone that needs the table. M1 builds only the M
 | `prompt_index` | M2 | normalized prompt hash, normalized prompt text (secret-filtered, ≤ 500 characters, for close matches only), workspace key, session key, observation id, proposal ids, at |
 | `suggestions` | M2 | id, proposal id, agent pane id, review pane id, prompt hash, shown at, result (approved/rejected/changed/later/expired) |
 | `cursors` | M2 | session key, source, position (last capture identity or byte offset), extraction watermark |
-| `extraction_batches` | M2 | batch id (session key + first and last capture identity), start watermark, status (active/committed/empty/failed/invalid/discarded), model calls, at |
+| `extraction_batches` | M2 | batch id (session key + first and last capture identity), start watermark, status (active/committed/empty/failed/invalid/discarded), model calls, at, scan id (a scan batch only: it spans several sessions of one scope, and its session key is the session of its first finding, §6.8) |
+| `history_scans` | first release | id, binding that ran it, status (pending/reading/extracting/done), requested, started, finished, window (from, to), for each CLI: sessions found, read and skipped by reason, unknown-format files, tokens recorded; findings (kind, scope, observation ids, sessions, tokens: ids and numbers only, no text); extraction progress. One row for each store: it is the done mark (§6.8, D16). |
 | `candidates` | M2 | id, claim id, scope, workspace key, kind, harnesses, count, priority, first seen, last seen, status (open/proposed/expired) |
 | `outcomes` | M2 | item id, revision, session key, kind (comeback/uncertain/delivery gap/unknown), observation id, at |
 | `tools` | M4 | id, name, scope, workspace key, `tool.toml` contract, contract hash, cwd, timeout, effects, restriction, approved |
@@ -1179,6 +1272,8 @@ The M column says the first milestone that needs the table. M1 builds only the M
 | `gateway_calls` | M4 | method (find_tool/run_tool/recall/remember), result, at [NEW] |
 | `automations` | M4 | id, workspace key, folder, trigger condition, CLI kind, tool id, contract hash, approved at, enabled, last result, last run |
 | `automation_runs` | M4 | automation id + event key (unique), claimed at, started at (the launch mark, §10.4), finished at, result (ok/failed/skipped/cancelled/unknown) |
+
+The history scan (§6.8) needs one new table and one new column. `history_scans` holds the setup answer, the progress and the report, which no other table can hold. The `extraction_batches` scan id marks a batch that spans sessions, so its commit uses the scan progress in place of a session watermark. Scanned sessions use the `sessions`, `segments`, `observations` (source `transcript`, which exists) and `command_records` tables as they are. Brain stores no transcript path for them.
 
 File snapshots and adapter states are not store tables. They live in `<data home>/install.json` (E8), because the CLI files are shared by all bindings.
 
@@ -1212,6 +1307,7 @@ No learning score (R6). Brain shows raw counts and real examples. It sets no per
 | Review results | Counts of approve, edit, reject and later |
 | Live suggestions (M2) | Counts of shown, approved, rejected, changed and later, per week |
 | Block size | Bytes per block against the budget (§8.1) |
+| History scan | Sessions read and skipped, findings with their sessions and recorded tokens, and the decisions on scan proposals (§6.8) |
 | Evals | The last eval run: labels per stage and harness, with the reply text of each STALE, INVENTED, MISS and UNSURE result (§12.1) |
 | User view | Each early user answers at week 2 and week 4: "name one thing that got better". The answer is the user's choice to send. Brain sends nothing. |
 
@@ -1331,7 +1427,8 @@ The full goal needs all four milestones. M1 alone is useful, but it is not the f
 **Product bar** (owner rule, v1.6)
 - Brain is for any herdr user on herdr 0.9.1 or later. It is not a tool for the owner only. No default comes from the owner's data alone without a [NEW] label.
 - **First release:** M1, after it passes its exit test and the first-use test below. M2-M4 come later as updates. [NEW]
-- **First-use test:** a new user with herdr 0.9.1 or later and Claude or Codex installs Brain and runs `brain setup`. The user remembers one item in one CLI. A new session in the other CLI uses it. Target: 5 minutes or less (a guess, M1 measures it). [NEW] `brain setup` ends with these steps as a short guide.
+- **History scan in the first release** (owner decision 2026-10-13, D16): the first release (v0.1.0) also has the history scan at setup (§6.8). It is the first way a new user sees what Brain can do: a report of the repeats in the user's own past sessions, with recorded tokens, and the first proposals. Its exit test: S85-S94 pass, and one real run on the M2 test Mac gives a report and at least one proposal that the owner judges useful [NEW].
+- **First-use test:** a new user with herdr 0.9.1 or later and Claude or Codex installs Brain and runs `brain setup`. The user remembers one item in one CLI. A new session in the other CLI uses it. Target: 5 minutes or less (a guess, M1 measures it). [NEW] `brain setup` ends with these steps as a short guide. With a yes to the history scan, `brain status` shows the scan report when the scan is done (§6.8).
 - **Clear failures:** `brain doctor` explains each failed check in one line and gives the fix: herdr too old, no bound herdr session, profile not configured, hook socket blocked.
 - **Clean environments:** the M1 exit runs the first-use test with an empty home folder, on herdr 0.9.1 and on the latest release.
 - Early users keep all data local. A result report is something that the user chooses to send (§12).
@@ -1431,6 +1528,17 @@ The full goal needs all four milestones. M1 alone is useful, but it is not the f
 | S84 | A new user runs `brain doctor` and `brain status` in an unbound herdr session | Both explain the problem and print the `brain setup` command. No item content is read. Nothing is written. |
 | S77 | `brain forget <item>` while a hand edit blocks the compile | Forget reports "pending". The hook withholds the brief until repair removes the old generations. |
 | S78 | Two eval cases in a row; the first one changes and forgets items | The second case starts from its own setup only. Nothing from the first case reaches it. |
+| **History scan (D16, §6.8)** | | |
+| S85 | `brain setup` on a new main store; you answer "no" to the history question, or "no" to the plan | No transcript is read. No scan row. The next `brain setup` asks again. |
+| S86 | You answer "yes" and approve the plan; transcript fixtures of Claude and Codex with repeats exist in a test home | `brained` runs the scan once. `brain status` shows the progress, then the summary line and the findings with sessions and recorded tokens. One herdr notification. Scan proposals wait in `brain review`. No review pane opens. |
+| S87 | A second `brain setup`, and `brain setup --session <other>` on the same main store; `brain setup --session <name> --test <folder>` | No question. The plan shows `History scan: done on <date>`. The test binding never gets the question and never reads a transcript. |
+| S88 | A fixture session holds a system reminder, a Brain brief, a compaction summary, a sub-agent side chain, `AGENTS.md` text, a file that the agent read, and a secret in a prompt | None of them is stored. The secret is removed before storage and before the extractor. |
+| S89 | A fixture session that the store already knows from hook records; `brained` restarts in the middle of the read | The known session is skipped. The restarted read adds nothing twice. Each occurrence counts once. |
+| S90 | Fixture sessions with a cwd in one workspace, in a checkout of two workspaces, and in no workspace | Workspace scope for the first. The second is skipped and counted. The third goes to the global pool, and only a claim that the extractor marks global becomes a proposal. |
+| S91 | A finding with 4 occurrences in 3 sessions | The report and the proposal show 3 sessions and the sum of the recorded tokens of the 4 turns. A fixture with no usage field shows "tokens: unknown". No forecast. |
+| S92 | `brain forget --session <id>` for a scanned session | Its observations, command records and prompt index rows are gone. Its findings leave the report. Affected items are listed first (§6.7). |
+| S93 | A scan with more findings than fit the caps; a live batch waits at the same time | The live batch goes first. Scan batches use at most 20 calls and 7 new proposals in the day (half of each default cap). The rest waits, and `brain status` says so. With the extractor choice none, the report shows and the batches wait. |
+| S94 | A Codex fixture file with an unknown line shape, and a non-interactive session (`codex exec`, `claude -p`) | The file is skipped and counted; when no Codex file parses, the scan stops for Codex, `brain doctor` reports it, and Claude continues. The non-interactive session is skipped. |
 
 ---
 
@@ -1470,7 +1578,7 @@ The first decisions are dated 2026-09-27. Later decisions have dates in their ro
 | D3 | CLIs with no tested start-time delivery | `brain status` shows the gap. Fallback B only if needed. Export to a rules file was removed later by the rule below. |
 | D3a | Adapter design | One base adapter (shared Go code) plus a data profile for each harness. Code overrides only where a profile cannot express the behavior (§8.5). |
 | D4 | Extractor CLI | You pick one in `brain setup`. No automatic provider switch. Failures wait and show in status. |
-| D5 | Transcript readers | Off. Built only if M0 or later use shows consequential evidence loss. |
+| D5 | Transcript readers | Off for ongoing capture. Built only if M0 or later use shows consequential evidence loss. Changed 2026-10-13: the one-time, opt-in history scan at setup is allowed (D16, §6.8). |
 | D6 | herdr version | Changed in v1.6: herdr 0.9.1 or later. Older versions are refused. Untested newer versions get a warning. Installed on this machine: 0.8.2, so M0 needs an upgrade. |
 | D7 | Items of a closed workspace | Keep them, without delivery. Relink only on request. Archive candidates appear in status. No forced 90-day prompt. |
 | D8 | Global delivery | Global and workspace items go through the herdr hook. No native global files by default. Two scope labels, one byte budget, one manifest. The same item never goes through both paths. |
@@ -1486,6 +1594,7 @@ The first decisions are dated 2026-09-27. Later decisions have dates in their ro
 | D13 | CLI update (2026-10-07, #251) | A newer CLI version gives only the warning "newer than tested" in `brain status` and `brain doctor`. Hook records and learning stay on. Doctor and update pass while hook receipts arrive. Evals after a CLI update are recommended, not required (§6.1, §8.5, §12.1, S14). [OWNER] |
 | D14 | Disputed anchors (2026-10-07, #252) | Only a rename (move) or delete of the anchor file makes an item disputed. A normal edit does not (§9.1, S72). [OWNER] |
 | D15 | Plain-words lessons (2026-10-07, #253) | A new signal "explicit lesson in plain words" from herdr capture, with gate 1. The brief tells agents to run `brain remember` when you ask them to remember something (§7.1, §7.2, §8.1). [OWNER] |
+| D16 | History scan at setup (2026-10-13) | In the first release. `brain setup` asks once whether Brain may read your past Claude and Codex sessions. A yes runs one bounded scan in `brained`: repeats with no model call, a report with the tokens that the files record, and proposals through the normal pipeline and caps. Only your own history, no shipped catalog of skills or tools. One scan for each store. agy, OpenCode and pi come later (§6.8). [OWNER] |
 | — | Sequencing | The 30-60 minute look-back and the M0 spike can run at the same time. The look-back gives probes; it is not a gate. Facts that M1 does not need can stay unknown. |
 | — | Product bar (v1.6) | Brain is for every herdr user on herdr 0.9.1 or later. The first use must show why Brain is needed (§13). [OWNER] |
 | — | Waku study (v1.5) | You asked for v1.5 with gaps G1-G7 and the eval method (§12.1). D12 stays open. |
@@ -1532,6 +1641,13 @@ M0 checks the facts that M1 needs first (marked **M1**). The others can stay **u
 29. **M1** Whether the agent session id in the SessionStart hook input matches the live `agent_session` of the pane at that time. herdr may fill it in later. If it does not match reliably, the G1 check stays a target-pane check only (§8.3). **Answered `[M0]`:** herdr fills it in after the hook. The later value matches for Claude and Codex. The hook check stays a target-pane check. The next `brain` call checks the match (§8.3).
 30. **M1** That a CLI hook subprocess can open the herdr socket with its real permissions. Astra's sandboxed `herdr pane get` failed with `PermissionDenied` (2026-09-27). If a CLI sandbox blocks the socket, that CLI gets no brief, and `brain status` shows an adapter gap. **PASS `[M0]`** for Claude and Codex SessionStart hooks: the hook subprocess reached the socket.
 31. **M1** On herdr 0.9.1: what a restart keeps, and what a deletion and new start of session state keeps. Does herdr give a persistent session identity? Are workspace ids reused after state deletion? The continuity rule of §8.3 uses the answer. **Answered `[M0]`:** a restart keeps ids and `identity_cwd`. A deletion reuses `w1` for a new folder. There is no persistent session identity (§4.2).
+
+The history scan (§6.8, D16) uses the facts below. They come from docs, source and parsers [TX], not from a real file. A test on a test machine has not checked them. The real run on the M2 test Mac (E21-S5) answers each open point. No real transcript was read on this machine.
+
+32. **Scan** Files and sessions. Known [TX]: Claude keeps one `projects/<folder>/<session id>.jsonl` for each session under `~/.claude` or `CLAUDE_CONFIG_DIR`, sub-agents in `<session>/subagents/agent-*.jsonl`, large tool output in `<session>/tool-results/`, and set-aside copies named `*.orphaned-*` and `*.superseded-*`. It deletes files after `cleanupPeriodDays` (default 30). Codex keeps `sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl` under `~/.codex` or `CODEX_HOME`, with local time in the folder and file names and UTC times in the lines. Its first line is `session_meta` with `id`, `cwd`, `source`, `originator`, `cli_version`, `forked_from_id` and `parent_thread_id`. It can compress old files to `.jsonl.zst`. Open: the field that marks a `claude -p` run (none found; until then Brain keeps such a session, with sender unconfirmed as always); which Codex versions compress, and when; how much Claude history the cleanup left.
+33. **Scan** Token fields. Known [TX]: Claude `message.usage` has `input_tokens` (no cached tokens in it), `cache_creation_input_tokens`, `cache_read_input_tokens` and `output_tokens`; the lines of one API message repeat the same usage under one `message.id`. Codex `event_msg` `token_count` has `info.total_token_usage` and `info.last_token_usage`, each with `input_tokens` (cached included), `cached_input_tokens`, `output_tokens`, `reasoning_output_tokens` and `total_tokens`. The total grows over the whole thread. Lines can repeat, and a fork starts from its parent's total. Open: whether a Claude line on disk can hold a placeholder `output_tokens`; the shape of a Codex `token_count` with no `info`; whether a Codex total can jump to a context-window fill value in a saved file.
+34. **Scan** Records and filters. Known [TX]: Claude lines have `type` (user, assistant, system, summary and others), `uuid`, `parentUuid`, `sessionId`, `cwd`, `timestamp`, `isSidechain`, `isMeta`, `isCompactSummary`; `message.content` is a string or a list of blocks (`text`, `tool_use`, `tool_result` with `is_error`, `thinking`, `image`). Codex lines are `{timestamp, type, payload}` with `session_meta`, `response_item`, `event_msg`, `turn_context` and `compacted`; commands are `function_call` and `local_shell_call` with a `function_call_output`; current Codex does not save `exec_command_end`, so the exit code is only in the output text. Codex marks injected text with `<user_instructions>`, `<environment_context>` and `# AGENTS.md instructions`. Open: which of the Claude fields exist in the installed version; whether inline `isSidechain` lines still occur; the exact Codex exit line text in the installed version; whether the installed Codex writes the legacy history form.
+35. **Scan** Copies after a resume. Open: whether a resumed Claude session writes its old records again, in the same file or a new one, and with the same `uuid`. The capture identity uses the Claude `uuid` alone, so a copy with the same `uuid` counts once. A copy with a new `uuid` would count twice; then the scan needs a text and time match, as §6.4 uses for hook records.
 
 ---
 
@@ -1591,6 +1707,7 @@ Tags used in §3. Paths are relative to `docs/research/`.
 | [M0] | The M0 spike on this machine, 2026-09-27: herdr 0.9.1, Claude Code 2.1.283, codex-cli 0.154.0. Results: `herdr-brain/spike/m0/FINDINGS.md` |
 | [DOC] | Claude Code and Codex docs, read through Context7 on 2026-09-27; Codex source `codex-rs/hooks/src/schema.rs` and `dispatcher.rs`; agy 1.2.11, OpenCode v2.0.18 and pi hook, plugin and extension docs, read on 2026-09-27 (not tested on this machine) |
 | [OWNER] | Your idea or decision in this chat, 2026-09-27. Decisions are recorded in `herdr-brain-hld-20260927/OWNER_QUESTIONS.md`. |
+| [TX] | Transcript format sources, read on 2026-10-13 for the history scan (§6.8): Claude Code docs at code.claude.com/docs (`claude-directory`, `hooks`, `agent-sdk/cost-tracking`, `agent-sdk/sessions`); Codex source `github.com/openai/codex` at commit `5ef96ab` (`codex-rs` `protocol.rs`, `rollout/src/recorder.rs`, `rollout/src/policy.rs`, `rollout/src/compression.rs`, `history/src/rollout_payload.rs`, `core/src/context/user_instructions.rs`); the parsers of memex (MIT) and session-digger (ISC) in `reference_proj/`, read for facts only, with no text or code copied. No real transcript was read. |
 | [NEW] | A Brain design choice with no outside source. Treat it as untested. |
 
 Limits:
