@@ -13,7 +13,7 @@ Times are unix seconds. TERM lines are my own kill commands, not herdr.
 1790636186.603 TERM pid=84338
 
 == startup env (pid 83711, session brain-e11s1)
-HERDR_BIN_PATH=/Users/aryanvijaywargia/.local/bin/herdr
+HERDR_BIN_PATH=/Users/me/.local/bin/herdr
 HERDR_ENV=1
 HERDR_PANE_ID=w1:p1
 HERDR_PLUGIN_CONFIG_DIR=/tmp/e11s1/home/.config/herdr/plugins/config/e11probe
@@ -28,7 +28,7 @@ HERDR_TAB_ID=w1:t1
 HERDR_WORKSPACE_ID=w1
 
 == startup env (pid 84338, scratch default: no HERDR_SESSION line)
-HERDR_BIN_PATH=/Users/aryanvijaywargia/.local/bin/herdr
+HERDR_BIN_PATH=/Users/me/.local/bin/herdr
 HERDR_ENV=1
 HERDR_PLUGIN_CONFIG_DIR=/tmp/e11s1/home/.config/herdr/plugins/config/e11probe
 HERDR_PLUGIN_CONTEXT_JSON={"invocation_source":"startup","correlation_id":"plugin.startup"}

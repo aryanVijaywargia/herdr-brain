@@ -8,8 +8,10 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 
-// The want values are trusted_hash values that Codex 0.154 wrote to
-// ~/.codex/config.toml when the owner trusted these hooks in the TUI.
+// Codex 0.154 wrote the golden values (spike/m0/data/e8s3-trust-hash.txt) to
+// ~/.codex/config.toml when the owner trusted these hooks in the TUI. The home
+// path in the commands is now /Users/me, so the want values are those of the
+// same hookHash for the new commands.
 func TestHookHashMatchesCodex(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -21,21 +23,21 @@ func TestHookHashMatchesCodex(t *testing.T) {
 		{
 			name:  "M0 inline session flags hook",
 			event: "SessionStart",
-			h:     handler{Command: "/Users/aryanvijaywargia/Projects/herdr-brain/spike/m0/hook/brainspike codex", Timeout: ptr[uint64](5)},
-			want:  "sha256:e13f3a03acf65bd0d2f320a9d8879834e42e07d4b30f5954058c1aa9c22f28c7",
+			h:     handler{Command: "/Users/me/Projects/herdr-brain/spike/m0/hook/brainspike codex", Timeout: ptr[uint64](5)},
+			want:  "sha256:4fed4ee72a2f82fa75f16a67f8c029472a60db04e4f514cad71688593c7fec5f",
 		},
 		{
 			name:  "hooks.json session start, no matcher",
 			event: "SessionStart",
-			h:     handler{Command: "bash '/Users/aryanvijaywargia/.codex/herdr-agent-state.sh' session", Timeout: ptr[uint64](10)},
-			want:  "sha256:9b6563c12756ab055c0b4a03352e4016706dd0f8a43d2e5cbcf1a84241a84d01",
+			h:     handler{Command: "bash '/Users/me/.codex/herdr-agent-state.sh' session", Timeout: ptr[uint64](10)},
+			want:  "sha256:5f6e3cf290a1a1d3bb540c44b4e67ea428b1b011a759d70107ff33d9b29aa31f",
 		},
 		{
 			name:    "hooks.json subagent start, matcher, default timeout",
 			event:   "SubagentStart",
 			matcher: ptr("tldraw-offline"),
-			h:       handler{Command: "sh '/Users/aryanvijaywargia/skills/tldraw-offline/inject-server-context.sh' SubagentStart"},
-			want:    "sha256:a7e36c07775b97099838895ecb15743029e4c59ce6144ae67a2e98ccc2b306b3",
+			h:       handler{Command: "sh '/Users/me/skills/tldraw-offline/inject-server-context.sh' SubagentStart"},
+			want:    "sha256:9f0508aa58e15ee9d34edd5d468d37aed5d5baf373b75883eb09fc497ba486eb",
 		},
 	}
 	for _, tt := range tests {

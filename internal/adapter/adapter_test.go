@@ -46,9 +46,9 @@ func TestGolden(t *testing.T) {
 		transcript string
 	}{
 		{"claude", "6a345ec1-3050-4e61-b736-d0e9d2edab82",
-			"/Users/aryanvijaywargia/.claude/projects/-Users-aryanvijaywargia-Projects-herdr-projects/6a345ec1-3050-4e61-b736-d0e9d2edab82.jsonl"},
+			"/Users/me/.claude/projects/-Users-me-Projects-herdr-projects/6a345ec1-3050-4e61-b736-d0e9d2edab82.jsonl"},
 		{"codex", "01a0e36c-7b20-7172-b5f9-59a6946c8aba",
-			"/Users/aryanvijaywargia/.codex/sessions/2026/09/27/rollout-2026-09-27T20-42-12-01a0e36c-7b20-7172-b5f9-59a6946c8aba.jsonl"},
+			"/Users/me/.codex/sessions/2026/09/27/rollout-2026-09-27T20-42-12-01a0e36c-7b20-7172-b5f9-59a6946c8aba.jsonl"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.harness, func(t *testing.T) {
@@ -61,7 +61,7 @@ func TestGolden(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Parse() = %v", err)
 			}
-			want := Input{SessionID: tt.sessionID, CWD: "/Users/aryanvijaywargia/Projects/herdr-projects", TranscriptPath: tt.transcript}
+			want := Input{SessionID: tt.sessionID, CWD: "/Users/me/Projects/herdr-projects", TranscriptPath: tt.transcript}
 			if in != want {
 				t.Errorf("Parse() = %+v, want %+v", in, want)
 			}

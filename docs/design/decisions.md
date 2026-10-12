@@ -32,7 +32,7 @@ Tests ran on macOS with herdr 0.9.1 on 2026-09-27.
 S=$(mktemp -d /tmp/brain-e1s2-XXXX); mkdir -p $S/home
 # h: runs herdr with the scratch HOME only
 printf '#!/bin/sh\nexec env -i HOME=%s/home PATH=/usr/bin:/bin:/usr/local/go/bin:%s/.local/bin GIT_TERMINAL_PROMPT=0 herdr "$@"\n' $S $HOME > $S/h; chmod +x $S/h
-# The repo is private: git reads a local bare clone, so no token is used.
+# git reads a local bare clone, so the test needs no token.
 git clone -q --bare . $S/remote.git
 printf '[url "%s/remote.git"]\n\tinsteadOf = https://github.com/aryanVijaywargia/herdr-brain\n' $S > $S/home/.gitconfig
 # test refs, only in the scratch clone: v0.0.2-test (version 0.0.2), broken-build (build.sh exits 1), other (= main)

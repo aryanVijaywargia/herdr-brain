@@ -85,8 +85,8 @@ lines=5000 try=3 rc=0 count=142 markers=121
 recent 300:      142 markers=121
 visible:       40 markers=35
 == full idle read --lines 300, head 16 and tail 8
-192:agent aryanvijaywargia$ codex -c 'projects."/private/tmp/e11s1b/agent".trust_level="trusted"'
-192:agent aryanvijaywargia$ /tmp/e11s1b/cx
+host:agent me$ codex -c 'projects."/private/tmp/e11s1b/agent".trust_level="trusted"'
+host:agent me$ /tmp/e11s1b/cx
 
 ╭────────────────────────────────────────────────╮
 │ >_ OpenAI Codex (v0.154.0)                     │
@@ -119,8 +119,8 @@ shell_pid 18634 pgid 21984 [(22054, 'codex'), (21984, 'node')]
 
 == idle reads, run 2 (after turn 4; the pane scrollback still holds run 1: 122 mq-8823 lines = 120 rows,
 == the run 1 prompt and the run 1 "codex resume" title line)
-lines=300 rc=0 count=208 run1_rows=122 run2_marker=2 run1_header_line=2:192:agent aryanvijaywargia$ /tmp/e11s1b/cx
-lines=1000 rc=0 count=208 run1_rows=122 run2_marker=2 run1_header_line=2:192:agent aryanvijaywargia$ /tmp/e11s1b/cx
+lines=300 rc=0 count=208 run1_rows=122 run2_marker=2 run1_header_line=2:host:agent me$ /tmp/e11s1b/cx
+lines=1000 rc=0 count=208 run1_rows=122 run2_marker=2 run1_header_line=2:host:agent me$ /tmp/e11s1b/cx
 == agent get
 {"id":"cli:agent:get","result":{"agent":{"agent":"codex","agent_session":{"agent":"codex","kind":"id","source":"herdr:codex","value":"01a0ec41-83c7-7463-a232-9faa89066336"},"agent_status":"idle","cwd":"/private/tmp/e11s1b/agent","focused":true,"foreground_cwd":"/private/tmp/e11s1b/agent","pane_id":"w1:p1","revision":161,"state_change_seq":20,"tab_id":"w1:t1","terminal_id":"term_65c9acb584b091","terminal_title":"Run command with approval | agent","terminal_title_stripped":"Run command with approval | agent","workspace_id":"w1"},"type":"agent_info"}}
 == process-info run2

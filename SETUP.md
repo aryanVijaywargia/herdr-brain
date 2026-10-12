@@ -21,16 +21,14 @@ Ask your user the same questions, show them what setup will change, and answer o
 | OS | `uname -s` | `Darwin` or `Linux`. Brain has no Windows support. |
 | herdr | `herdr --version` | `herdr 0.9.1` or later |
 | An agent CLI | `command -v claude codex` | At least one path. Brain works with Claude Code and Codex. |
-| Go, while the repo is private | `go version` | `go1.23` or later |
-| Repo access, while the repo is private | `git ls-remote https://github.com/aryanVijaywargia/herdr-brain HEAD` | One commit line |
+| Go, except for the release tag | `go version` | `go1.23` or later |
 
 If a check fails:
 
 - Wrong OS: stop and tell the user that Brain runs on macOS and Linux only.
 - herdr is missing or older than 0.9.1: tell the user to install or update herdr. Brain setup stops on an older herdr.
 - No `claude` and no `codex`: Brain installs, but no session gets items. Tell the user.
-- No Go 1.23 or later: tell the user to install Go. The repo is private, so there is no release binary yet, and the build needs Go.
-- No repo access: the user needs access to the private repo `aryanVijaywargia/herdr-brain` and working git sign-in for GitHub.
+- No Go 1.23 or later: install the release tag in step 2 with `--ref v0.1.0`. It uses the release binary. Any other ref needs Go.
 
 ## 2. Install the plugin
 
@@ -52,7 +50,7 @@ herdr plugin install --yes aryanVijaywargia/herdr-brain
 
 Expected:
 
-- The build prints `brain build: bin/brain <version> (built from source)`.
+- The build prints `brain build: bin/brain <version> (built from source)`, or `(release asset <asset>, checksum OK)` for the release tag.
 - `herdr plugin list --plugin brain` lists the plugin.
 - Within about a minute, the setup popup "Brain setup" opens in each running herdr session that has no Brain binding.
 
@@ -60,7 +58,7 @@ If it fails:
 
 - `brain build: this ref needs Go 1.23 or later`: install Go 1.23 or later, then install again.
 - `brain build: go build failed`: show the user the build output.
-- The clone fails: the user has no access to the private repo, or git cannot sign in to GitHub.
+- The clone fails: check the network, then install again.
 
 ## 3. Run setup
 

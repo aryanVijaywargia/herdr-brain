@@ -851,7 +851,7 @@ herdr server CPU (ps %cpu, a decaying average) and load average, sampled each se
 02:03:54 herdr_cpu=636.0 load={ 15.67 6.42 3.62 }
 
 ## pane-env.txt (probe pane w1:p1)
-HERDR_BIN_PATH=/Users/aryanvijaywargia/.local/bin/herdr
+HERDR_BIN_PATH=/Users/me/.local/bin/herdr
 HERDR_ENV=1
 HERDR_PANE_ID=w1:p1
 HERDR_SESSION=brain-spike-e7s4

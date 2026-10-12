@@ -13,7 +13,7 @@ Brain is a herdr plugin that fixes this. It keeps one store of facts, preference
 
 The name is temporary.
 
-Status: M1 to M4 are built. The repo is private, so there is no release binary yet. The design is in [`docs/design/HLD.md`](docs/design/HLD.md), and the M0 spike results are in [`spike/m0/FINDINGS.md`](spike/m0/FINDINGS.md).
+Status: M1 to M4 are built. The release is v0.1.0. The design is in [`docs/design/HLD.md`](docs/design/HLD.md), and the M0 spike results are in [`spike/m0/FINDINGS.md`](spike/m0/FINDINGS.md).
 
 ## What you get
 
@@ -28,7 +28,7 @@ Status: M1 to M4 are built. The repo is private, so there is no release binary y
 - macOS or Linux.
 - herdr 0.9.1 or later.
 - Claude Code or Codex.
-- While the repo is private, you need access to the repo and Go 1.23 or later. There is no release binary yet.
+- Go 1.23 or later, except for an install of the release tag (see [Without Go](#without-go)).
 
 ## Quick start
 
@@ -76,14 +76,18 @@ You can run it again at any time. It changes nothing that is already right.
 5. Codex runs a new hook only after you trust it. Setup prints the steps: start `codex`, open `/hooks`, and press `t`.
 6. It ends with a short first-use guide.
 
+Codex can ask for your approval each time an agent runs a `brain` command in its sandbox. Brain does not change Codex rules or permissions.
+To allow `brain` yourself, add it to the allow list when Codex asks, or add `prefix_rule(pattern = ["brain"], decision = "allow")` to `~/.codex/rules/default.rules` and restart Codex.
+An allow rule runs the command outside the sandbox with no prompt. See [Codex rules](https://developers.openai.com/codex/rules).
+
 herdr 0.9.1 gives a session no lasting identity. If you rename or recreate a session, run `brain setup` in it again.
 
 ### Without Go
 
+Install the release tag: `herdr plugin install aryanVijaywargia/herdr-brain --ref v0.1.0`.
 When the checkout is clean and `HEAD` is the commit of tag `v<manifest version>`, `scripts/build.sh` downloads the release asset `brain_<os>_<arch>`.
 It checks its SHA-256 against `checksums.txt`. If it cannot use the asset, it builds from source with Go.
 Any other ref builds from source and needs Go 1.23 or later.
-The asset path works only when the repo is public.
 
 ## Commands
 
@@ -197,3 +201,7 @@ If you ran `herdr plugin uninstall brain` first, the hook entries point to a mis
 ## Contributing
 
 Build, test, release steps and the repo layout are in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+## License
+
+MIT. See [`LICENSE`](LICENSE).
