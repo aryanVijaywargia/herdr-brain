@@ -51,9 +51,14 @@ func (cl caller) undo(ctx context.Context, id int64) error {
 	var next store.ItemRevision
 	var undone int64
 	var automation bool
+	var restored []store.ItemRevision // the items that the undo of a merge restores
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		it, n, u, err := cl.undoItem(ctx, tx, id)
 		next, undone, automation = n, u, it.Kind == store.KindAutomation
+		if err != nil || u != 0 {
+			return err
+		}
+		restored, err = cl.undoMerge(ctx, tx, next)
 		return err
 	})
 	if err != nil {
@@ -69,12 +74,52 @@ func (cl caller) undo(ctx context.Context, id int64) error {
 	}
 	_, err = fmt.Fprintf(cl.Stdout, "item %d: revision %d undone; the item is %s at revision %d (%s)\n",
 		id, *next.UndoesRevision, next.State, next.Revision, target)
+	for _, r := range restored {
+		if err == nil {
+			_, err = fmt.Fprintf(cl.Stdout, "item %d: the merge is undone; the item is %s at revision %d\n", r.ItemID, r.State, r.Revision)
+		}
+	}
 	if err == nil && automation {
 		_, err = fmt.Fprintln(cl.Stdout, "the automation starts no run again; undo cannot reverse effects that already happened")
 	}
 	// The build runs even when the message fails: the commit is done, and the next hook must
 	// print it (E4 post-commit build).
 	return errors.Join(err, cl.deliver(ctx, nil))
+}
+
+// undoMerge undoes the rest of a merge when next, the revision that undo wrote, undid the
+// revision of the kept item that a merge proposal wrote (§9.5 undo): it restores each retired
+// item of the merge whose latest revision is still its retirement by that merge, and removes
+// the same_as links of the merge. It returns the revisions that restore those items. A retired
+// item that changed since then, or that you forgot, stays as it is.
+func (cl caller) undoMerge(ctx context.Context, tx *sql.Tx, next store.ItemRevision) ([]store.ItemRevision, error) {
+	cur, err := store.ItemRevisionByKey(ctx, tx, next.ItemID, *next.UndoesRevision)
+	if err != nil || cur.ProposalID == nil {
+		return nil, err
+	}
+	p, err := store.ProposalByID(ctx, tx, *cur.ProposalID)
+	if err != nil || len(p.Merge) == 0 {
+		return nil, err
+	}
+	var restored []store.ItemRevision
+	for _, m := range p.Merge {
+		if m.Item == next.ItemID {
+			continue
+		}
+		_, rt, err := cl.item(ctx, tx, m.Item)
+		if err != nil {
+			return nil, err
+		}
+		if rt.ProposalID == nil || *rt.ProposalID != p.ID || rt.UndoesRevision != nil || forgotten(rt) {
+			continue
+		}
+		_, r, _, err := cl.undoItem(ctx, tx, m.Item)
+		if err != nil {
+			return nil, err
+		}
+		restored = append(restored, r)
+	}
+	return restored, store.UnlinkMerged(ctx, tx, p.ID)
 }
 
 // undone is the revision that undoes cur, the current revision of item it. It copies the fields

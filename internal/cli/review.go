@@ -487,6 +487,9 @@ func summary(p store.Proposal, it store.Item) string {
 	if p.Script() {
 		return scriptSummary(p)
 	}
+	if len(p.Merge) > 0 {
+		return mergeWhat(p) + ": " + oneLine(p.Text)
+	}
 	if p.Text == "" {
 		return fmt.Sprintf("retire item %d", it.ID)
 	}
@@ -536,6 +539,7 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	var claim string                // the claim of a script proposal
 	var sibs []store.Proposal       // the proposals that you pick between with p
 	var change string               // the lines of the change request of p (changeLines)
+	var saved int                   // the characters that a merge proposal saves (mergeSaved)
 	// The review pane shows a pending proposal only: it closes on one that another surface
 	// decided (E5-S1).
 	read := cl.proposal
@@ -567,6 +571,11 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 		if change, err = changeLines(ctx, tx, p); err != nil {
 			return err
 		}
+		if len(p.Merge) > 0 {
+			if saved, err = mergeSaved(ctx, tx, p); err != nil {
+				return err
+			}
+		}
 		if p.Script() {
 			// cl.proposal read the candidate of a script proposal: it is there.
 			c, err := cl.candidate(ctx, tx, p)
@@ -590,6 +599,9 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	fmt.Fprintf(&b, "diff:\n  %s\n", strings.ReplaceAll(p.Diff, "\n", "\n  "))
 	if len(p.Dispute) > 0 {
 		b.WriteString(disputeLine)
+	}
+	if len(p.Merge) > 0 {
+		fmt.Fprintf(&b, "saves:    %d characters\n", saved)
 	}
 	b.WriteString(promotionLines(others))
 	for _, c := range conflicts {
@@ -686,10 +698,37 @@ func what(p store.Proposal, it store.Item) string {
 	switch {
 	case p.Script():
 		return "new script"
+	case len(p.Merge) > 0:
+		return mergeWhat(p)
 	case it.State == store.StateDraft:
 		return "new item"
 	}
 	return fmt.Sprintf("changes item %d", it.ID)
+}
+
+// mergeWhat says what merge proposal p does (§9.5): "merges items 12, 15 and 19 into item 12".
+func mergeWhat(p store.Proposal) string {
+	ids := make([]string, len(p.Merge))
+	for i, r := range p.Merge {
+		ids[i] = strconv.FormatInt(r.Item, 10)
+	}
+	last := len(ids) - 1
+	return fmt.Sprintf("merges items %s and %s into item %d", strings.Join(ids[:last], ", "), ids[last], *p.ItemID)
+}
+
+// mergeSaved is the number of characters that merge proposal p saves in its part (§9.5): the
+// old texts of its items at their base revisions together, less the new text. Characters are
+// bytes, as the brief budgets count them (§8.1).
+func mergeSaved(ctx context.Context, tx *sql.Tx, p store.Proposal) (int, error) {
+	saved := -len(p.Text)
+	for _, r := range p.Merge {
+		old, err := store.ItemRevisionByKey(ctx, tx, r.Item, r.Revision)
+		if err != nil {
+			return 0, err
+		}
+		saved += len(old.Text)
+	}
+	return saved, nil
 }
 
 // detailLines are the detail lines of p in show (#254): the claim id and the revision it
@@ -841,6 +880,8 @@ func source(p store.Proposal, it store.Item, cur store.ItemRevision) string {
 		return "the exact repeats of a command chain, sender unconfirmed"
 	case len(p.Dispute) > 0:
 		return fmt.Sprintf("the anchor check of item %d: %s", it.ID, gone(p))
+	case len(p.Merge) > 0:
+		return "the daily merge pass: the extractor found items of this part that say the same thing"
 	case it.State != store.StateDraft:
 		return fmt.Sprintf("a change to %s item %d, asked in review", it.State, it.ID)
 	case learned(p, it):
@@ -902,6 +943,9 @@ func actions(b *strings.Builder, p store.Proposal, changeable, conflict bool) {
 		return
 	case p.Script():
 		fmt.Fprintf(b, "actions:  brain review %d --approve | --reject | --later\n", p.ID)
+		return
+	case len(p.Merge) > 0:
+		fmt.Fprintf(b, "actions:  brain review %d --approve [--edit \"<text>\"] [--pin] | --reject | --later\n", p.ID)
 		return
 	}
 	fmt.Fprintf(b, "actions:  brain review %d --approve [--edit \"<text>\"] [--scope global|workspace] [--pin] | --reject | --later", p.ID)
@@ -1091,7 +1135,7 @@ func (cl caller) decide(ctx context.Context, r review) error {
 func (cl caller) approve(ctx context.Context, r review) error {
 	var next store.ItemRevision
 	var retired []store.ItemRevision
-	var script bool
+	var script, merge bool
 	var superseded []int64 // the siblings of the proposal: you picked it (E17-S8)
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		p, it, cur, err := cl.pending(ctx, tx, r.id)
@@ -1107,8 +1151,7 @@ func (cl caller) approve(ctx context.Context, r review) error {
 			return err
 		}
 		if it.CurrentRevision != *p.BaseRevision {
-			return fmt.Errorf("item %d changed after proposal %d was made (the item is at revision %d, the proposal is for revision %d); nothing was written: reject it and make a new one",
-				it.ID, p.ID, it.CurrentRevision, *p.BaseRevision)
+			return changedError(it.ID, p.ID, it.CurrentRevision, *p.BaseRevision)
 		}
 		if next, err = cl.approved(r, p, it, cur); err != nil {
 			return err
@@ -1116,7 +1159,12 @@ func (cl caller) approve(ctx context.Context, r review) error {
 		if err := cl.checkBinding(ctx, tx, it, next); err != nil {
 			return err
 		}
-		if retired, err = cl.resolve(ctx, tx, r, p, &next); err != nil {
+		if merge = len(p.Merge) > 0; merge {
+			retired, err = cl.merge(ctx, tx, r, p, it, &next)
+		} else {
+			retired, err = cl.resolve(ctx, tx, r, p, &next)
+		}
+		if err != nil {
 			return err
 		}
 		if err := store.DecideProposal(ctx, tx, p.ID, store.ProposalApproved, cl.surface, cl.Now()); err != nil {
@@ -1170,9 +1218,13 @@ func (cl caller) approve(ctx context.Context, r review) error {
 	if err == nil {
 		err = cl.superseded(ctx, superseded)
 	}
+	why := "the new item replaces it"
+	if merge {
+		why = fmt.Sprintf("merged into item %d", next.ItemID)
+	}
 	for _, rt := range retired {
 		if err == nil {
-			_, err = fmt.Fprintf(cl.Stdout, "item %d retired at revision %d: the new item replaces it\n", rt.ItemID, rt.Revision)
+			_, err = fmt.Fprintf(cl.Stdout, "item %d retired at revision %d: %s\n", rt.ItemID, rt.Revision, why)
 		}
 	}
 	if err == nil && next.ExceptionToItem != nil {
@@ -1184,6 +1236,46 @@ func (cl caller) approve(ctx context.Context, r review) error {
 	}
 	// The build runs even when the message fails: the commit is done (§7.5, as in undo).
 	return errors.Join(err, cl.deliver(ctx, &r.id))
+}
+
+// changedError says that item id is at revision cur, no longer at revision base of proposal p:
+// approve writes nothing (§7.4).
+func changedError(id, p, cur, base int64) error {
+	return fmt.Errorf("item %d changed after proposal %d was made (the item is at revision %d, the proposal is for revision %d); nothing was written: reject it and make a new one",
+		id, p, cur, base)
+}
+
+// merge returns the revisions that retire the items of merge proposal p other than it, its
+// kept item, and links the claim of each to the claim of it as a confirmed same_as link (§9.5
+// approve). Each item must still be at its base revision. next, the revision of it that approve
+// writes, is pinned when an item of the merge is pinned. A merge stays in its part, and has no
+// conflict to resolve.
+func (cl caller) merge(ctx context.Context, tx *sql.Tx, r review, p store.Proposal, it store.Item, next *store.ItemRevision) ([]store.ItemRevision, error) {
+	switch {
+	case r.scope != "":
+		return nil, fmt.Errorf("proposal %d merges items of one part: approve it without --scope; nothing was written", p.ID)
+	case r.conflict != "":
+		return nil, fmt.Errorf("proposal %d has no open conflict: approve it without --%s; nothing was written", p.ID, r.conflict)
+	}
+	var retired []store.ItemRevision
+	var claims []string
+	for _, m := range p.Merge {
+		if m.Item == it.ID {
+			continue
+		}
+		other, cur, err := cl.item(ctx, tx, m.Item)
+		if err != nil {
+			return nil, err
+		}
+		if other.CurrentRevision != m.Revision {
+			return nil, changedError(other.ID, p.ID, other.CurrentRevision, m.Revision)
+		}
+		next.Pinned = next.Pinned || cur.Pinned
+		rt := nextRevision(cur, cl.Now())
+		rt.Revision, rt.State, rt.ProposalID = m.Revision+1, store.StateRetired, &p.ID
+		retired, claims = append(retired, rt), append(claims, other.ClaimID)
+	}
+	return retired, store.LinkMerged(ctx, tx, p.ID, it.ClaimID, claims)
 }
 
 // approved is the revision that approving p with the edits of r writes.
