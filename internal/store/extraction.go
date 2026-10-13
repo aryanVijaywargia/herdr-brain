@@ -433,11 +433,12 @@ func CallsSince(ctx context.Context, tx *sql.Tx, since time.Time) (int, error) {
 	return n, nil
 }
 
-// ExtractorProposalsSince returns the proposals made since since from a candidate, and the
-// drafts of the change requests of item revisions (E15-S1, a skill patch of E20-S5): only the
-// extractor makes them (§7.3 caps). Your own edit in review has neither. A script proposal does
-// not count: it comes only beside the tool draft of its candidate, and a tool proposal and its
-// script form count as one proposal (§7.3 caps, #355). It is the one proposal of a candidate with
+// ExtractorProposalsSince returns the proposals made since since from a candidate, the
+// drafts of the change requests of item revisions (E15-S1, a skill patch of E20-S5) and the
+// merge proposals (§9.5): only the extractor makes them (§7.3 caps). Your own edit in review
+// has none of them. A script proposal does not count: it comes only beside the tool draft of
+// its candidate, and a tool proposal and its script form count as one proposal (§7.3 caps,
+// #355). It is the one proposal of a candidate with
 // no item, as §11 has no script kind; a forget of the tool item blanks its target, not that.
 func ExtractorProposalsSince(ctx context.Context, tx *sql.Tx, since time.Time) (int, error) {
 	var n int
@@ -452,7 +453,8 @@ func ExtractorProposalsSince(ctx context.Context, tx *sql.Tx, since time.Time) (
 // extractorProposals is the condition of the proposals that ExtractorProposalsSince counts,
 // with the since time and ChangeItem as its arguments.
 const extractorProposals = `created >= ? AND (candidate_id IS NOT NULL
-		AND item_id IS NOT NULL OR id IN (SELECT new_proposal_id FROM change_requests WHERE source = ?))`
+		AND item_id IS NOT NULL OR id IN (SELECT new_proposal_id FROM change_requests WHERE source = ?)
+		OR json_array_length(merge) > 0)`
 
 // NthCallSince returns the time of extractor call n since since, in time order: 0 is the
 // oldest. A full call cap has room again when that call is a day old (#372).

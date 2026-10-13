@@ -121,11 +121,11 @@ func columns(t *testing.T, s *Store, table string) []column {
 // coordinator's brief says the 9 of the issue's table list (adapters and file_snapshots move
 // to install.json, E8). E9-S4 adds learning_settings; E11-S3 and E11-S4 add the capture tables; E11-S5 adds command_records;
 // E11-S6 adds forgotten_captures; E12-S2 adds claims, candidates and evidence_links; E12-S3 adds rejections;
-// E13-S2 adds extraction_batches, extraction_watermarks and extractor_settings; E13-S4 adds extraction_calls; E13-S5 adds change_requests; E14-S1 adds prompt_index; E14-S3 adds suggestions; E15-S1 adds outcomes; E17-S3 adds tools; E17-S4 adds tool_calls; E17-S10 adds automations; E17-S11 adds automation_runs; E20-S2 adds recalls; #358 adds claims_apart; E21-S2 adds history_scans.
+// E13-S2 adds extraction_batches, extraction_watermarks and extractor_settings; E13-S4 adds extraction_calls; E13-S5 adds change_requests; E14-S1 adds prompt_index; E14-S3 adds suggestions; E15-S1 adds outcomes; E17-S3 adds tools; E17-S4 adds tool_calls; E17-S10 adds automations; E17-S11 adds automation_runs; E20-S2 adds recalls; #358 adds claims_apart; E21-S2 adds history_scans; E22-S1 adds merge_links and merge_passes.
 func TestM1Tables(t *testing.T) {
 	s := openM1(t)
 	want := []string{"applied_edits", "automation_runs", "automations", "candidates", "change_requests", "claims", "claims_apart", "command_records", "cursors", "deliveries", "evidence_links",
-		"extraction_batches", "extraction_calls", "extraction_watermarks", "extractor_settings", "forgotten_captures", "history_scans", "item_revisions", "items", "learning_settings",
+		"extraction_batches", "extraction_calls", "extraction_watermarks", "extractor_settings", "forgotten_captures", "history_scans", "item_revisions", "items", "learning_settings", "merge_links", "merge_passes",
 		"observations", "outcomes", "outputs", "prompt_index", "proposals", "recalls", "rejections", "review_panes", "segments", "sessions", "suggestions", "tombstones", "tool_calls", "tools", "workspaces"}
 	if got := tableNames(t, s); !slices.Equal(got, want) {
 		t.Errorf("tables = %v, want %v", got, want)
@@ -391,6 +391,7 @@ func TestRoundTrip(t *testing.T) {
 			p.ChangeRequest, p.Status, p.Surface = ptr("shorter"), ProposalChanged, ptr(SurfacePane)
 			p.Decided, p.ReviewSeconds = later, ptr[int64](12)
 			p.Dispute = []string{"a.go"}
+			p.Merge = []RevisionRef{{Item: 1, Revision: 1}}
 			id, err := InsertProposal(ctx, tx, p)
 			if err != nil {
 				return nil, nil, err

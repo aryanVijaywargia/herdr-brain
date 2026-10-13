@@ -65,6 +65,7 @@ func noItemTextFields() []Field {
 		{"proposals", "scope"},
 		{"proposals", "trigger_prompts"}, // Prompt hashes (§11).
 		{"proposals", "conflicts_with"},  // Item ids (§11).
+		{"proposals", "merge"}, // Item ids and revisions of a merge (§9.5): no text.
 		{"proposals", "status"},
 		{"proposals", "surface"},
 		{"proposals", "created"},
@@ -154,6 +155,12 @@ func noItemTextFields() []Field {
 		{"claims", "drafted"},
 		{"claims_apart", "claim_id"}, // Claim ids: no text (§7.2).
 		{"claims_apart", "other_id"},
+		{"merge_passes", "workspace_key"}, // The part and its hash at the last merge pass (§9.5).
+		{"merge_passes", "sha256"},
+		{"merge_passes", "at"},
+		{"merge_links", "claim_id"}, // Claim ids and a link state: no text (§9.5).
+		{"merge_links", "same_as"},
+		{"merge_links", "same_as_status"},
 		{"candidates", "claim_id"},
 		{"candidates", "scope"},
 		{"candidates", "workspace_key"},
