@@ -643,6 +643,28 @@ func TestScanFindings(t *testing.T) {
 	}
 }
 
+// Owner decision 2026-10-13, S5 gap HS-G2: a repeated prompt needs at least 3 words. A
+// 2-word prompt in 3 sessions is no finding; a 3-word prompt in 2 sessions is one.
+func TestScanPromptWords(t *testing.T) {
+	f := newScanFix(t, bindings.KindMain)
+	for i, id := range []string{"s1", "s2", "s3"} {
+		lines := []string{cUser(id+"-u1", "/nowhere", 1, "pls continue"), cAssistant(id+"-a1", id+"-m1", 2, 10, cText("ok"))}
+		if i < 2 {
+			lines = append(lines, cUser(id+"-u2", "/nowhere", 3, "run the tests"),
+				cAssistant(id+"-a2", id+"-m2", 4, 10, cText("ok")))
+		}
+		f.claude(id, time.Duration(i+1)*time.Hour, lines...)
+	}
+	f.run()
+	var got []string
+	for _, rep := range f.report().Repeats {
+		got = append(got, fmt.Sprintf("%s %q %d sessions", rep.Finding.Kind, rep.Excerpt, rep.Sessions))
+	}
+	if want := []string{`prompt "run the tests" 2 sessions`}; !slices.Equal(got, want) {
+		t.Errorf("repeats = %q, want %q", got, want)
+	}
+}
+
 // AC 5, S92: a session that brain forget --session removed stays out: its capture identities
 // are in the forget tombstones, so a second read stores nothing for it. A forget takes its
 // occurrences out of the report, and a finding below its gate leaves it.

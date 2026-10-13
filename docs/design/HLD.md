@@ -745,7 +745,7 @@ Brain starts empty. A skill or a tool draft needs repeats, and repeats take week
 
 **Repeats with no model call**
 - After the read, the signal rules (§7.1) run over the stored observations of the scanned sessions of each scope: each workspace, and the global pool.
-- A signal goes on only when it reaches the gate of its kind inside the scan (§7.2): a plain-words lesson at 1; a correction when the local text match finds it 2 or more times; a repeated prompt 2 or more times [NEW]; a failure in 2 sessions; a procedure 3 times; a command chain in 3 sessions. A correction marker with no repeat stays evidence only.
+- A signal goes on only when it reaches the gate of its kind inside the scan (§7.2): a plain-words lesson at 1; a correction when the local text match finds it 2 or more times; a repeated prompt 2 or more times [NEW], with at least 3 words (owner decision 2026-10-13, S5 gap HS-G2); a failure in 2 sessions; a procedure 3 times; a command chain in 3 sessions. A correction marker with no repeat stays evidence only.
 - These signals are the **findings** of the scan. The scan row keeps them as numbers only, with no text: for each finding, its id (its place in the list, fixed at the end of the read), its kind, its scope and its observation ids with the turn of each; for each turn, its id and its recorded tokens.
 - The numbers of a finding come from its observations that still exist: its sessions, and its tokens, the sum over its distinct turns. Turns with unknown tokens show apart: `48,200 tokens recorded; 2 turns with no usage`. So a forget removes its observations from the numbers, and a finding below its gate leaves the report.
 

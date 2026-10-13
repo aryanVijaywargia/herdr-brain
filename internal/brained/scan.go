@@ -38,6 +38,9 @@ const (
 	argvLimit = 4096
 	// scanTitle is the title of the notification at the end of the read. [NEW]
 	scanTitle = "Brain history scan"
+	// promptWords is the least count of words of a repeated prompt in the scan (owner decision
+	// 2026-10-13, S5 gap HS-G2): "continue" and "go on" are no repeat.
+	promptWords = 3
 )
 
 // ScanText is the text of the notification at the end of the read, from the report r and
@@ -605,8 +608,8 @@ type group struct {
 //   - text that repeats earlier text joins its earlier text. The correction rule and the
 //     repeated-prompt rule find the same repeats there, so a repeat is a correction when one of
 //     its texts holds a correction marker, a lesson when one gives a lesson in plain words, else
-//     a repeated prompt [NEW]. A correction marker with no repeat stays one occurrence, below its
-//     gate;
+//     a repeated prompt [NEW] with at least promptWords words. A correction marker with no
+//     repeat stays one occurrence, below its gate;
 //   - a procedure joins the earlier procedures that it is like. A procedure whose texts are all
 //     in one text repeat is that repeat, and a lesson in a text repeat is part of it.
 func groups(ins []store.SignalInput) []group {
@@ -667,6 +670,9 @@ func textRepeats(sets [][]int64, byID map[int64]store.SignalInput, lessons []int
 			kind = store.CandidateCorrection
 		case slices.ContainsFunc(set, func(id int64) bool { return slices.Contains(lessons, id) }):
 			kind = store.CandidateLesson
+		}
+		if kind == store.FindingPrompt && signal.Words(byID[set[0]].Excerpt) < promptWords {
+			continue
 		}
 		if len(set) > 1 {
 			for _, id := range set {

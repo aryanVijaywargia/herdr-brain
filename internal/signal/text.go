@@ -24,6 +24,11 @@ func newText(in store.SignalInput) text {
 	return t
 }
 
+// Words returns the count of words of s in the normal form that the text rules match.
+func Words(s string) int {
+	return len(strings.Fields(normalize(s)))
+}
+
 // normalize returns s in lower case, with typographic apostrophes as "'", every other
 // character that is not a letter or a digit as a space, and single spaces. It is the small
 // local normal form of the rules; E14-S1 defines the prompt fingerprint.
