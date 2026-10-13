@@ -159,11 +159,8 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 	if err := chooseExtractor(ctx, d, storeDir, again, &p, in, stdout); err != nil {
 		return err
 	}
-	// A test binding never gets the history question, so evals never read your history (S87).
-	if test == "" {
-		if err := askScan(ctx, d, storeDir, &p, in, stdout); err != nil {
-			return err
-		}
+	if err := askScan(ctx, d, storeDir, test, &p, in, stdout); err != nil {
+		return err
 	}
 
 	fmt.Fprintln(stdout, "\nStep 3: the changes.")
@@ -353,8 +350,12 @@ func readExtractor(ctx context.Context, dir string) (store.ExtractorSetting, err
 // askScan asks whether Brain may read your past Claude and Codex sessions once, for the main
 // store in folder dir (§6.8), and adds the answer to p as one line. A yes adds the write of the
 // pending scan row; setup itself reads no transcript. A "no" writes nothing, so the next setup
-// asks again (S85). A store with a scan row shows its state and asks nothing (S87).
-func askScan(ctx context.Context, d setupDeps, dir string, p *plan, in *bufio.Reader, stdout io.Writer) error {
+// asks again (S85). A store with a scan row shows its state and asks nothing. A test binding
+// (test is its folder) never gets the question, so evals never read your history (S87).
+func askScan(ctx context.Context, d setupDeps, dir, test string, p *plan, in *bufio.Reader, stdout io.Writer) error {
+	if test != "" {
+		return nil
+	}
 	sc, ok, err := readScan(ctx, dir)
 	if err != nil {
 		return err
