@@ -117,14 +117,14 @@ func (s *historyScan) run(ctx context.Context, g Gate) (done bool, err error) {
 	return s.scan(ctx, g, st, sc)
 }
 
-// scanRun is what one read of the scan keeps in memory: the counts of each CLI, the sessions
-// that it read, the turn of each observation and the tokens of each turn.
+// scanRun is what one read of the scan keeps in memory: the counts of each CLI.
 type scanRun struct {
-	counts   map[string]store.ScanCounts
-	sessions map[int64]bool
-	turnOf   map[int64]int64  // observation id → turn id
-	tokens   map[int64]*int64 // turn id → recorded tokens; nil for a turn with no usage field
+	counts map[string]store.ScanCounts
 }
+
+// errPaused says that learning went off for the whole store during the read: the scan waits,
+// and the row stays reading for a read from the start when learning is on again (§6.8).
+var errPaused = errors.New("learning is off for the store")
 
 // skip counts one session of harness that the scan did not read, with reason.
 func (r *scanRun) skip(harness string, reason store.SkipReason) {
@@ -137,23 +137,22 @@ func (r *scanRun) skip(harness string, reason store.SkipReason) {
 }
 
 // scan reads the files of claimed scan sc, imports each session in its own transaction, then
-// stores the findings and ends the read with one herdr notification. A failed refresh of the
-// workspace map does not stop it: the scan uses the map that the store holds.
-func (s *historyScan) scan(ctx context.Context, g Gate, st *store.Store, sc store.Scan) (bool, error) {
+// stores the findings and ends the read with one herdr notification. It first refreshes the
+// workspace map: a failed refresh stops it, so no session goes to a scope from an old map. done
+// is false while the row still needs a read: a later run reads again from the start.
+func (s *historyScan) scan(ctx context.Context, g Gate, st *store.Store, sc store.Scan) (done bool, err error) {
 	gates, _, err := extract.ReadConfig(s.config)
 	if err != nil {
 		return false, fmt.Errorf("history scan: %w", err)
 	}
-	syncErr := s.sync(ctx, g, st)
-	if syncErr != nil {
-		syncErr = fmt.Errorf("history scan: workspace map: %w", syncErr)
+	if err := s.sync(ctx, g, st); err != nil {
+		return false, fmt.Errorf("history scan: workspace map: %w", err)
 	}
 	files, compressed, err := s.files(sc.Claimed)
 	if err != nil {
-		return false, errors.Join(syncErr, err)
+		return false, err
 	}
-	r := &scanRun{counts: map[string]store.ScanCounts{}, sessions: map[int64]bool{}, turnOf: map[int64]int64{},
-		tokens: map[int64]*int64{}}
+	r := &scanRun{counts: map[string]store.ScanCounts{}}
 	for _, f := range files {
 		c := r.counts[f.Harness]
 		c.Found++
@@ -162,22 +161,32 @@ func (s *historyScan) scan(ctx context.Context, g Gate, st *store.Store, sc stor
 	for range compressed {
 		r.skip(transcript.Codex, store.SkipCompressed)
 	}
-	var wss []store.Workspace
-	err = st.Write(ctx, func(tx *sql.Tx) (err error) {
-		if wss, err = store.ScanWorkspaces(ctx, tx); err != nil {
-			return err
-		}
-		return store.SetScanCounts(ctx, tx, sc.ID, r.counts)
-	})
+	err = st.Write(ctx, func(tx *sql.Tx) error { return store.SetScanCounts(ctx, tx, sc.ID, r.counts) })
 	if err != nil {
-		return false, errors.Join(syncErr, err)
+		return false, err
 	}
 	for _, f := range files {
-		if err := s.file(ctx, g, st, sc, f, wss, r); err != nil {
-			return false, errors.Join(syncErr, err)
+		if err := ctx.Err(); err != nil {
+			return false, err // brained stops: the next brained reads again
+		}
+		err := s.file(ctx, g, st, sc, f, r)
+		if errors.Is(err, errPaused) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
 		}
 	}
-	return true, errors.Join(syncErr, s.end(ctx, g, st, sc, gates, r))
+	body, err := s.end(ctx, st, sc, gates)
+	if err != nil {
+		return false, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	if err := s.notify(ctx, g, body); err != nil {
+		return true, fmt.Errorf("history scan: notification: %w", err)
+	}
+	return true, nil
 }
 
 // files returns the files of the scan with claim time claimed, newest first, and the count of
@@ -216,8 +225,7 @@ func cliHomes(environ []string) (claude, codex string, err error) {
 // file reads session file f up to its size now and imports its session in one transaction
 // with the new counts. A file with an unknown shape is skipped and counted: the reader fails
 // closed (§6.6).
-func (s *historyScan) file(ctx context.Context, g Gate, st *store.Store, sc store.Scan, f transcript.File,
-	wss []store.Workspace, r *scanRun) error {
+func (s *historyScan) file(ctx context.Context, g Gate, st *store.Store, sc store.Scan, f transcript.File, r *scanRun) error {
 	info, err := os.Stat(f.Path)
 	if err != nil {
 		return fmt.Errorf("history scan: %w", err)
@@ -228,9 +236,12 @@ func (s *historyScan) file(ctx context.Context, g Gate, st *store.Store, sc stor
 		return fmt.Errorf("history scan: %w", err)
 	}
 	return st.Write(ctx, func(tx *sql.Tx) error {
+		if on, err := store.LearningOnWholeStore(ctx, tx, true); err != nil || !on {
+			return cmp.Or(err, errPaused)
+		}
 		reason := store.SkipUnknownFormat
 		if !unknown {
-			if reason, err = s.add(ctx, tx, g, sc, f.Harness, ses, wss, r); err != nil {
+			if reason, err = s.add(ctx, tx, g, sc, f.Harness, ses); err != nil {
 				return err
 			}
 		}
@@ -247,9 +258,9 @@ func (s *historyScan) file(ctx context.Context, g Gate, st *store.Store, sc stor
 
 // add imports session ses of harness in tx, or returns why the scan skips it (§6.8): not
 // interactive, a fork, known from capture or hook records, a shared checkout, or learning off
-// for its workspace.
+// for its workspace. It reads the workspaces in tx, so a change during a slow read applies.
 func (s *historyScan) add(ctx context.Context, tx *sql.Tx, g Gate, sc store.Scan, harness string,
-	ses transcript.Session, wss []store.Workspace, r *scanRun) (store.SkipReason, error) {
+	ses transcript.Session) (store.SkipReason, error) {
 	switch {
 	case !ses.Interactive || ses.SideChain:
 		return store.SkipNotInteractive, nil
@@ -259,6 +270,10 @@ func (s *historyScan) add(ctx context.Context, tx *sql.Tx, g Gate, sc store.Scan
 	known, err := store.KnownSession(ctx, tx, harness, ses.ID)
 	if err != nil || known {
 		return store.SkipKnown, err
+	}
+	wss, err := store.ScanWorkspaces(ctx, tx)
+	if err != nil {
+		return "", err
 	}
 	key, binding, ok := scope(ses.CWD, wss, g.Binding.Session)
 	if !ok {
@@ -274,22 +289,10 @@ func (s *historyScan) add(ctx context.Context, tx *sql.Tx, g Gate, sc store.Scan
 	if err != nil {
 		return "", err
 	}
-	r.sessions[session] = true
 	imp := importer{tx: tx, harness: harness, segment: segment, cwd: ses.CWD, at: last}
-	var turns []store.ScanTurn
-	for _, t := range ses.Turns {
-		id, err := imp.turn(ctx, t, r.turnOf)
-		if err != nil {
-			return "", err
-		}
-		if id == 0 {
-			continue // nothing of the turn is stored: forget removed it, or it held no text
-		}
-		turns = append(turns, store.ScanTurn{ID: id, Tokens: t.Tokens, Known: t.TokensKnown})
-		r.tokens[id] = nil
-		if t.TokensKnown {
-			r.tokens[id] = &t.Tokens
-		}
+	turns, err := imp.turns(ctx, ses.Turns)
+	if err != nil {
+		return "", err
 	}
 	if err := store.AddScanTurns(ctx, tx, sc.ID, turns); err != nil {
 		return "", err
@@ -342,11 +345,37 @@ type importer struct {
 	lastIdentity string
 }
 
+// turns stores the records of each turn of ts and returns the scan turns, each id once.
+func (imp *importer) turns(ctx context.Context, ts []transcript.Turn) ([]store.ScanTurn, error) {
+	var turns []store.ScanTurn
+	at := map[int64]int{} // a turn id → its place in turns
+	for _, t := range ts {
+		id, err := imp.turn(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+		if id == 0 {
+			continue // nothing of the turn is stored: forget removed it, or it held no text
+		}
+		// A record that the file repeats gives the same turn id again; the reader counts the
+		// usage of each assistant message once, so the tokens of both parts add up.
+		if i, ok := at[id]; ok {
+			turns[i].Tokens += t.Tokens
+			turns[i].Known = turns[i].Known || t.TokensKnown
+			continue
+		}
+		at[id] = len(turns)
+		turns = append(turns, store.ScanTurn{ID: id, Tokens: t.Tokens, Known: t.TokensKnown})
+	}
+	return turns, nil
+}
+
 // turn stores the records of turn t (§6.8 "What Brain takes"): the prompt, each shell command
 // with its command record and the failure excerpt of a failed one, and the last assistant
-// text. It records the turn of each observation in turnOf, and returns the turn id: the id of
-// its first stored observation, 0 when none is stored.
-func (imp *importer) turn(ctx context.Context, t transcript.Turn, turnOf map[int64]int64) (int64, error) {
+// text. It returns the turn id: the id of its first stored observation, 0 when none is stored.
+// A session stores its records in file order, so each later observation of the turn has a
+// higher id (turnsOf).
+func (imp *importer) turn(ctx context.Context, t transcript.Turn) (int64, error) {
 	var ids []int64
 	add := func(id int64, err error) error {
 		if id != 0 {
@@ -376,9 +405,6 @@ func (imp *importer) turn(ctx context.Context, t transcript.Turn, turnOf map[int
 	}
 	if len(ids) == 0 {
 		return 0, nil
-	}
-	for _, id := range ids {
-		turnOf[id] = ids[0]
 	}
 	return ids[0], nil
 }
@@ -457,18 +483,24 @@ func cutBytes(s string, n int) string {
 	return strings.ToValidUTF8(s[:n], "")
 }
 
-// end stores the findings of the read and moves scan sc to extracting, in one transaction, then
-// shows one herdr notification with the report (§6.8): the scan proposals wait for the
-// extractor pass, and no review pane opens.
-func (s *historyScan) end(ctx context.Context, g Gate, st *store.Store, sc store.Scan, gates store.Gates, r *scanRun) error {
+// end stores the findings of the read and moves scan sc to extracting, in one transaction, and
+// returns the text of the notification (§6.8): the scan proposals wait for the extractor pass,
+// and no review pane opens.
+func (s *historyScan) end(ctx context.Context, st *store.Store, sc store.Scan, gates store.Gates) (string, error) {
 	var body string
 	err := st.Write(ctx, func(tx *sql.Tx) error {
 		ins, err := store.SignalInputs(ctx, tx)
 		if err != nil {
 			return err
 		}
-		ins = slices.DeleteFunc(ins, func(in store.SignalInput) bool { return !r.sessions[in.SessionID] })
-		if err := store.SetScanFindings(ctx, tx, sc.ID, findings(ins, r, store.ScanGates(gates))); err != nil {
+		turns, err := store.ScanTurns(ctx, tx, sc.ID)
+		if err != nil {
+			return err
+		}
+		// The findings come from the records of the scan only: a session can resume in a pane,
+		// and its live evidence takes the live path.
+		ins = slices.DeleteFunc(ins, func(in store.SignalInput) bool { return in.Source != store.SourceTranscript })
+		if err := store.SetScanFindings(ctx, tx, sc.ID, findings(ins, turns, store.ScanGates(gates))); err != nil {
 			return err
 		}
 		if err := store.SetScanStatus(ctx, tx, sc.ID, store.ScanExtracting, s.now()); err != nil {
@@ -482,22 +514,36 @@ func (s *historyScan) end(ctx context.Context, g Gate, st *store.Store, sc store
 		body = s.text(rep, x.CLI != "")
 		return err
 	})
-	if err != nil {
-		return err
+	return body, err
+}
+
+// turnsOf returns the turn of each observation of ins: the newest turn of its session at or
+// before it. A turn id is the id of the first stored observation of the turn (importer.turn).
+func turnsOf(ins []store.SignalInput, turns map[int64]*int64) map[int64]int64 {
+	bySession := map[int64][]int64{}
+	for _, in := range ins {
+		bySession[in.SessionID] = append(bySession[in.SessionID], in.ID)
 	}
-	ctx, cancel := context.WithTimeout(ctx, callTimeout)
-	defer cancel()
-	if err := s.notify(ctx, g, body); err != nil {
-		return fmt.Errorf("history scan: notification: %w", err)
+	of := map[int64]int64{}
+	for _, ids := range bySession {
+		slices.Sort(ids)
+		var turn int64
+		for _, id := range ids {
+			if _, ok := turns[id]; ok {
+				turn = id
+			}
+			of[id] = turn
+		}
 	}
-	return nil
+	return of
 }
 
 // findings returns the findings of the scanned observations ins (§6.8 "Repeats with no model
 // call"): the signal rules run over the observations of each scope apart, and a finding stays
 // only when it reaches the scan gate of its kind. The list is most tokens first, and the id of
 // a finding is its place in it.
-func findings(ins []store.SignalInput, r *scanRun, gates store.Gates) []store.Finding {
+func findings(ins []store.SignalInput, turns map[int64]*int64, gates store.Gates) []store.Finding {
+	turnOf := turnsOf(ins, turns)
 	byScope := map[string][]store.SignalInput{}
 	for _, in := range ins {
 		byScope[in.WorkspaceKey] = append(byScope[in.WorkspaceKey], in)
@@ -520,11 +566,11 @@ func findings(ins []store.SignalInput, r *scanRun, gates store.Gates) []store.Fi
 			seen := map[int64]bool{}
 			for _, id := range g.obs {
 				sessions[sessionOf[id]] = true
-				turn := r.turnOf[id]
+				turn := turnOf[id]
 				f.Obs = append(f.Obs, store.FindingObs{Observation: id, Identity: identity[id], Turn: turn})
 				if !seen[turn] {
 					seen[turn] = true
-					if n := r.tokens[turn]; n != nil {
+					if n := turns[turn]; n != nil {
 						t.Tokens += *n
 					}
 				}

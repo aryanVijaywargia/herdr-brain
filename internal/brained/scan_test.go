@@ -825,3 +825,167 @@ func TestScanNoCodexParses(t *testing.T) {
 		t.Errorf("row = %s %v, want extracting %v", sc.Status, sc.Counts, want)
 	}
 }
+
+// Sol fix: learning off for the store during the read stops the read; the row stays reading,
+// with no session skipped for it, and the read starts again when learning is on (AC 10).
+func TestScanPausesWhenLearningOff(t *testing.T) {
+	f := newScanFix(t, bindings.KindMain)
+	f.claude("c1", time.Hour, cUser("u1", "/nowhere", 1, "a prompt"))
+	f.claude("c2", 2*time.Hour, cUser("u2", "/nowhere", 1, "a prompt"))
+	read := f.s.read
+	f.s.read = func(file transcript.File, limit int64) (transcript.Session, error) {
+		f.write(func(ctx context.Context, tx *sql.Tx) error {
+			return store.SetLearning(ctx, tx, store.LearningSetting{Scope: store.LearningStore, Changed: time.Now()})
+		})
+		return read(file, limit)
+	}
+	if f.run() {
+		t.Fatal("run with learning off = done, want a wait")
+	}
+	if sc := f.row(); sc.Status != store.ScanReading || len(sc.Counts["claude"].Skipped) != 0 {
+		t.Errorf("row = %s %v, want reading with no skip", sc.Status, sc.Counts)
+	}
+	f.s.read = read
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		return store.SetLearning(ctx, tx, store.LearningSetting{Scope: store.LearningStore, On: true, Changed: time.Now()})
+	})
+	if !f.run() || f.row().Counts["claude"].Read != 2 {
+		t.Errorf("run with learning on: row %+v, want 2 sessions read", f.row())
+	}
+}
+
+// Sol fix: a failed refresh of the workspace map stops the scan before it reads, so no session
+// goes to a scope from an old map (AC 4). A workspace that appears during the read applies.
+func TestScanWorkspaceMap(t *testing.T) {
+	f := newScanFix(t, bindings.KindMain)
+	f.claude("c1", time.Hour, cUser("u1", "/nowhere", 1, "a prompt"))
+	f.s.sync = func(context.Context, Gate, *store.Store) error { return errors.New("herdr is down") }
+	if done, err := f.s.run(context.Background(), f.g); done || err == nil {
+		t.Fatalf("run = %v, %v; want not done with the refresh error", done, err)
+	}
+	if obs, _ := f.observations(); len(obs) != 0 {
+		t.Errorf("observations = %d, want none before the refresh works", len(obs))
+	}
+	f.s.sync = func(context.Context, Gate, *store.Store) error { return nil }
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.claude("c1", time.Hour, cUser("u1", dir, 1, "a prompt"))
+	read := f.s.read
+	f.s.read = func(file transcript.File, limit int64) (transcript.Session, error) {
+		f.workspaceAt("k1", "s1", dir) // mapped after the scan started
+		return read(file, limit)
+	}
+	f.run()
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		ss, err := store.Sessions(ctx, tx)
+		if len(ss) != 1 || ss[0].WorkspaceKey != "k1" {
+			t.Errorf("sessions = %+v, want one in workspace k1", ss)
+		}
+		return err
+	})
+}
+
+// Sol fix: an imported session whose file changed after the claim time is out of the restart's
+// pick, and its records still count in the findings; live records of a scanned session take the
+// live path and are no finding input (AC 6, S89). The end of brained stops the read between two
+// files.
+func TestScanRestartKeepsImported(t *testing.T) {
+	f := newScanFix(t, bindings.KindMain)
+	p := f.claude("c1", time.Hour, cUser("u1", "/nowhere", 1, "run the full suite"), cAssistant("a1", "m1", 2, 10, cText("ok")))
+	f.claude("c2", 2*time.Hour, cUser("u2", "/nowhere", 1, "run the full suite"), cAssistant("a2", "m2", 2, 20, cText("ok")))
+	f.claude("c3", 3*time.Hour, cUser("u3", "/nowhere", 1, "a prompt"))
+	ctx, cancel := context.WithCancel(context.Background())
+	read, n := f.s.read, 0
+	f.s.read = func(file transcript.File, limit int64) (transcript.Session, error) {
+		if n++; n == 3 {
+			cancel() // brained stops after the first two files
+		}
+		return read(file, limit)
+	}
+	if done, err := f.s.run(ctx, f.g); done || !errors.Is(err, context.Canceled) {
+		t.Fatalf("run = %v, %v; want a stop", done, err)
+	}
+	f.s.read = read
+	after := scanClaim.Add(time.Hour)
+	if err := os.Chtimes(p, after, after); err != nil {
+		t.Fatal(err)
+	}
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		ss, err := store.SessionsByID(ctx, tx, "s1", "c2")
+		if err != nil || len(ss) != 1 {
+			return fmt.Errorf("sessions of c2 = %v, %w", ss, err)
+		}
+		segs, err := store.Segments(ctx, tx)
+		for _, g := range segs {
+			if g.SessionID == ss[0].ID {
+				_, err = store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: "live/1", Source: store.SourceHerdr,
+					SegmentID: g.ID, Event: "idle", Excerpt: "run the full suite", Status: store.ObservationComplete,
+					Sender: store.SenderUnconfirmed, Counts: true, At: scanClaim})
+			}
+		}
+		return err
+	})
+	f.run()
+	reps := f.report().Repeats
+	if len(reps) != 1 || len(reps[0].Finding.Obs) != 2 || reps[0].Turns != (store.TurnTokens{Tokens: 30, Known: 2}) {
+		t.Fatalf("repeats = %+v, want one of the 2 scanned prompts, 30 tokens", reps)
+	}
+	for _, o := range reps[0].Finding.Obs {
+		if !strings.HasPrefix(o.Identity, "claude:") || o.Turn == 0 {
+			t.Errorf("finding observation %+v, want a scanned record with its turn", o)
+		}
+	}
+}
+
+// Sol fix: a Claude file that repeats a prompt record gives one turn, and the usage of each
+// assistant message counts once in it (§6.4).
+func TestScanRepeatedRecord(t *testing.T) {
+	f := newScanFix(t, bindings.KindMain)
+	u := cUser("u1", "/nowhere", 1, "a prompt")
+	f.claude("c1", time.Hour, u, cAssistant("a1", "m1", 2, 100, cText("ok")), u, cAssistant("a2", "m2", 3, 50, cText("done")))
+	f.run()
+	if r := f.report(); r.All != (store.TurnTokens{Tokens: 150, Known: 1}) {
+		t.Errorf("turn tokens = %+v, want one turn of 150 tokens", r.All)
+	}
+}
+
+// Sol fix: the done mark of the scan belongs to the binding: a binding that changes (here a
+// test binding that becomes main) gets a scan run again.
+func TestScanDoneFollowsBinding(t *testing.T) {
+	h := newHarness(t, bindings.KindTest)
+	runs := make(chan Gate, 4)
+	h.d.scan = func(_ context.Context, g Gate) (bool, error) {
+		runs <- g
+		return true, nil
+	}
+	h.start(t)
+	h.check(t)
+	wantRun := func(kind bindings.Kind) {
+		t.Helper()
+		select {
+		case g := <-runs:
+			if g.Binding.Kind != kind {
+				t.Errorf("scan run of a %s binding, want %s", g.Binding.Kind, kind)
+			}
+		case <-time.After(wait):
+			t.Fatalf("no scan run of the %s binding", kind)
+		}
+	}
+	wantRun(bindings.KindTest)
+	h.check(t)
+	h.check(t)
+	b := bindings.Binding{Session: "s1", Socket: h.f.path, Store: h.store, Kind: bindings.KindMain, Created: time.Now()}
+	if err := bindings.Write(h.d.bindingsFile, []bindings.Binding{b}); err != nil {
+		t.Fatal(err)
+	}
+	h.check(t)
+	wantRun(bindings.KindMain)
+	h.check(t)
+	select {
+	case <-runs:
+		t.Error("a done scan ran again for the same binding")
+	default:
+	}
+}

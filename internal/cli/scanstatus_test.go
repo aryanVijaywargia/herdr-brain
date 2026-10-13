@@ -122,6 +122,8 @@ func TestStatusHistoryScan(t *testing.T) {
 		f := newStatusFixture(t)
 		sessions := scanRow(t, f.store, store.ScanExtracting, map[string]store.ScanCounts{"claude": {Found: 2, Read: 2}})
 		wantLines(t, f.mustStatus(t),
+			// The scan work of the global pool waits under its own name, not an empty key.
+			"  waiting in the global pool: 1 batch, the oldest 3h old; no extractor CLI is chosen; run brain setup",
 			string(WaitExtractor),
 			"History scan: read 2 sessions; its proposals wait in the extractor queue.",
 			"History scan, read done: 2 sessions read (2 Claude), 300 tokens recorded. 1 repeat, in turns that used 300 tokens.",
@@ -143,7 +145,7 @@ func TestDoctorHistoryScanUnparsed(t *testing.T) {
 	f := newDoctorFixture(t)
 	receipt(t, f.store, "default", "claude", "w14:p1", "s-1", store.ResultEmitted, "")
 	f.herdr.panes = []herdr.Pane{agent("w14:p1", "claude", "s-1")}
-	scanRow(t, f.store, store.ScanExtracting, map[string]store.ScanCounts{
+	scanRow(t, f.store, store.ScanDone, map[string]store.ScanCounts{
 		"claude": {Found: 2, Read: 2},
 		"codex":  {Found: 3, Skipped: map[store.SkipReason]int{store.SkipUnknownFormat: 3}},
 	})

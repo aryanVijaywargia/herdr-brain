@@ -744,7 +744,11 @@ func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
 		s.w.printf("  waiting: none\n")
 	}
 	for _, w := range ws {
-		s.w.printf("  waiting in workspace %s: %s, the oldest %s old; %s\n", w.WorkspaceKey, batches(w.Batches),
+		where := "workspace " + w.WorkspaceKey
+		if w.WorkspaceKey == "" {
+			where = "the global pool" // scan work of the global pool (§6.8)
+		}
+		s.w.printf("  waiting in %s: %s, the oldest %s old; %s\n", where, batches(w.Batches),
 			age(s.Now().Sub(w.Oldest)), cmp.Or(w.Why, "the next pass takes them"))
 	}
 	bs, err := store.FailedBatches(ctx, tx)
@@ -797,8 +801,16 @@ func (s *statusCall) historyScan(ctx context.Context, tx *sql.Tx) error {
 	if err != nil {
 		return err
 	}
+	fs := make([]store.Finding, len(r.Repeats))
+	for i, rep := range r.Repeats {
+		fs[i] = rep.Finding
+	}
+	proposals, err := store.ScanProposals(ctx, tx, fs)
+	if err != nil {
+		return err
+	}
 	s.w.printf("%s\n", ScanSummary(r))
-	for _, line := range ScanFindings(r, nil) {
+	for _, line := range ScanFindings(r, proposals) {
 		s.w.printf("%s\n", line)
 	}
 	return nil

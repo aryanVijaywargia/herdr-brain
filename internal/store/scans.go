@@ -169,7 +169,7 @@ func SetScanCounts(ctx context.Context, tx *sql.Tx, id int64, counts map[string]
 // AddScanTurns adds turns to scan id. A turn with a known id is replaced, so a second read of
 // a session counts its tokens once.
 func AddScanTurns(ctx context.Context, tx *sql.Tx, id int64, turns []ScanTurn) error {
-	all, err := scanTurns(ctx, tx, id)
+	all, err := ScanTurns(ctx, tx, id)
 	if err != nil {
 		return err
 	}
@@ -214,7 +214,9 @@ func scanProgress(ctx context.Context, tx *sql.Tx, id int64) (map[string]int, er
 	return p, readScanJSON(ctx, tx, id, "progress", &p)
 }
 
-func scanTurns(ctx context.Context, tx *sql.Tx, id int64) (map[int64]*int64, error) {
+// ScanTurns returns the turns of scan id: the recorded tokens of each turn id, nil for a turn
+// with no usage field.
+func ScanTurns(ctx context.Context, tx *sql.Tx, id int64) (map[int64]*int64, error) {
 	t := map[int64]*int64{}
 	return t, readScanJSON(ctx, tx, id, "turns", &t)
 }
@@ -363,7 +365,7 @@ func HistoryScanReport(ctx context.Context, tx *sql.Tx, id int64, gates Gates) (
 	if err != nil {
 		return ScanReport{}, fmt.Errorf("read history scan: %w", err)
 	}
-	turns, err := scanTurns(ctx, tx, id)
+	turns, err := ScanTurns(ctx, tx, id)
 	if err != nil {
 		return ScanReport{}, err
 	}

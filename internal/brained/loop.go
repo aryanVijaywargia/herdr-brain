@@ -82,14 +82,16 @@ type loop struct {
 	lastStale time.Time  // the start of the last stale check of every workspace
 	staled    chan error // the end of a stale check
 
-	scanning  bool            // the history scan runs
-	scanDone  bool            // the history scan has nothing more for this brained
-	scanAfter time.Time       // the next try after a scan that failed
-	scanned   chan scanResult // the end of a history scan
+	scanning  bool             // the history scan runs
+	scanFor   bindings.Binding // the binding of the last scan run; a new one starts again
+	scanDone  bool             // the history scan has nothing more for scanFor
+	scanAfter time.Time        // the next try after a scan that failed
+	scanned   chan scanResult  // the end of a history scan
 }
 
-// scanResult is the end of one history scan run.
+// scanResult is the end of one history scan run of binding b.
 type scanResult struct {
+	b    bindings.Binding
 	done bool
 	err  error
 }
@@ -142,7 +144,8 @@ func (d *daemon) run(ctx context.Context) error {
 			l.staling = false
 			l.report(err)
 		case r := <-l.scanned:
-			l.scanning, l.scanDone = false, r.done
+			l.scanning = false
+			l.scanDone = r.done && r.b == l.scanFor
 			if r.err != nil && !r.done {
 				l.scanAfter = time.Now().Add(extractEvery)
 			}
@@ -161,7 +164,14 @@ func newLoop(d *daemon) *loop {
 // runs beside the loop: reading the files takes time, and the events do not wait for it. The
 // end of ctx stops it.
 func (l *loop) historyScan(ctx context.Context) {
-	if l.d.scan == nil || l.gate == nil || l.scanning || l.scanDone || time.Now().Before(l.scanAfter) {
+	if l.d.scan == nil || l.gate == nil || l.scanning {
+		return
+	}
+	if l.gate.Binding != l.scanFor {
+		// Another binding, store or kind: what the last one found does not hold for it.
+		l.scanFor, l.scanDone, l.scanAfter = l.gate.Binding, false, time.Time{}
+	}
+	if l.scanDone || time.Now().Before(l.scanAfter) {
 		return
 	}
 	l.scanning = true
@@ -170,7 +180,7 @@ func (l *loop) historyScan(ctx context.Context) {
 	go func() {
 		defer l.wg.Done()
 		done, err := l.d.scan(ctx, g)
-		l.scanned <- scanResult{done, err}
+		l.scanned <- scanResult{g.Binding, done, err}
 	}()
 }
 
