@@ -93,8 +93,9 @@ type job struct {
 
 // Run runs the pass: it runs the learned automation case, forms the batches of the finished
 // sessions and takes the change requests that wait, and extracts and commits them one after the other in round robin order across workspace keys, so a session has one
-// active batch at a time. The caps stop the calls; the rest waits for a later pass (§7.3). A
-// failed batch does not stop the others.
+// active batch at a time. The scan batches of the history scan come after them (§6.8). The caps
+// stop the calls; the rest waits for a later pass (§7.3). A failed batch does not stop the
+// others.
 func (p Pass) Run(ctx context.Context) error {
 	var jobs []job
 	err := p.Store.Write(ctx, func(tx *sql.Tx) (err error) {
@@ -112,7 +113,13 @@ func (p Pass) Run(ctx context.Context) error {
 		}
 		jobs = append(jobs, reqs...)
 		last, err := store.LastCalls(ctx, tx)
+		if err != nil {
+			return err
+		}
 		jobs = order(jobs, last)
+		// Live batches go first; scan batches use what is left of the daily caps (§6.8, S93).
+		scan, err := p.scanPlan(ctx, tx)
+		jobs = append(jobs, scan...)
 		return err
 	})
 	if err != nil {
@@ -409,17 +416,22 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 	var rs []ref
 	for id, k := range kinds {
 		o := byID[id]
-		// The model copies the command of a tool draft whole: the excerpt is cut at 500
-		// characters, the command record at 4 KB (§6.7).
-		if o.Command != nil && !heldBack(*o.Command) {
-			o.Excerpt = o.Command.Argv
-		}
 		rs = append(rs, ref{id: fmt.Sprintf("e%d", id), obs: id, identity: o.CaptureIdentity, workspace: o.WorkspaceKey,
-			sender: o.Sender, excerpt: o.Excerpt, kind: k, lesson: lessons[id], cmd: o.Command, chain: chains[id],
+			sender: o.Sender, excerpt: inputText(o), kind: k, lesson: lessons[id], cmd: o.Command, chain: chains[id],
 			earlier: occurrences(earlier[id], o.WorkspaceKey, byID)})
 	}
 	slices.SortFunc(rs, func(a, b ref) int { return int(a.obs - b.obs) })
 	return rs
+}
+
+// inputText is the text of observation o in the extractor input: its excerpt, or its whole
+// command. The model copies the command of a tool draft whole: the excerpt is cut at 500
+// characters, the command record at 4 KB (§6.7).
+func inputText(o store.SignalInput) string {
+	if o.Command != nil && !heldBack(*o.Command) {
+		return o.Command.Argv
+	}
+	return o.Excerpt
 }
 
 // occurrences returns the refs of ids, the earlier occurrences of an observation, that are in
@@ -450,7 +462,7 @@ func (p Pass) extract(ctx context.Context, j job) error {
 			skip = true
 			return err
 		}
-		if wm, err := store.Watermark(ctx, tx, j.batch.SessionID, j.batch.WorkspaceKey); err != nil || wm != j.batch.StartWatermark {
+		if wm, err := watermark(ctx, tx, j.batch); err != nil || wm != j.batch.StartWatermark {
 			skip = true
 			return err
 		}
@@ -465,8 +477,14 @@ func (p Pass) extract(ctx context.Context, j job) error {
 		if j, err = scope(ctx, tx, j); err != nil {
 			return err
 		}
-		b, err = store.StartBatch(ctx, tx, j.batch, p.Now())
-		skip = b.Done()
+		if !j.batch.Scan() {
+			b, err = store.StartBatch(ctx, tx, j.batch, p.Now())
+			skip = b.Done()
+			return err
+		}
+		var started bool
+		b, started, err = store.StartScanBatch(ctx, tx, j.batch, p.HerdrSession, p.Now())
+		skip = !started || b.Done()
 		return err
 	})
 	if err != nil || skip {
@@ -539,7 +557,7 @@ func (p Pass) commit(ctx context.Context, j job, id int64, claims []Claim, dropp
 			return err
 		}
 		committed = true
-		return store.MoveWatermark(ctx, tx, j.batch)
+		return advance(ctx, tx, j.batch)
 	})
 	if err != nil {
 		return err
@@ -565,7 +583,7 @@ func (p Pass) stale(ctx context.Context, tx *sql.Tx, j job) (string, error) {
 	if on, err := p.allowed(ctx, tx, j); err != nil || !on {
 		return "extraction or learning is off", err
 	}
-	wm, err := store.Watermark(ctx, tx, j.batch.SessionID, j.batch.WorkspaceKey)
+	wm, err := watermark(ctx, tx, j.batch)
 	if err != nil {
 		return "", err
 	}
@@ -589,6 +607,27 @@ func (p Pass) stale(ctx context.Context, tx *sql.Tx, j job) (string, error) {
 		return "the claim keys or the brief of the input changed", nil
 	}
 	return "", nil
+}
+
+// watermark returns the watermark of the session and workspace key of batch b now; for a scan
+// batch, the last committed finding id of its scope (§6.8 "Proposals").
+func watermark(ctx context.Context, tx *sql.Tx, b store.Batch) (int64, error) {
+	if b.Scan() {
+		n, err := store.ScanProgress(ctx, tx, b.ScanID, b.WorkspaceKey)
+		return int64(n), err
+	}
+	return store.Watermark(ctx, tx, b.SessionID, b.WorkspaceKey)
+}
+
+// advance moves the watermark past batch b in the transaction that commits it (G3); for a scan
+// batch, the progress of its scope to its last finding (§6.8). stale checked the start in the
+// same transaction, so the move cannot miss.
+func advance(ctx context.Context, tx *sql.Tx, b store.Batch) error {
+	if b.Scan() {
+		_, err := store.MoveScanProgress(ctx, tx, b.ScanID, b.WorkspaceKey, int(b.StartWatermark), b.LastFinding)
+		return err
+	}
+	return store.MoveWatermark(ctx, tx, b)
 }
 
 // untombstoned returns the refs whose evidence no tombstone names.
