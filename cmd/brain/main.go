@@ -116,7 +116,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "start":
 		err = start(context.Background(), osStartDeps(os.Environ()))
 	case "brained":
-		err = brained.Main(context.Background(), os.Environ(), stderr)
+		err = brained.Main(context.Background(), os.Environ(), stderr, cli.ScanNotification)
 		if errors.Is(err, brained.ErrStop) {
 			fmt.Fprintf(stderr, "brain brained: %v\n", err)
 			return 0

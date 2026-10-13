@@ -98,6 +98,9 @@ func (d *doctorCall) run(ctx context.Context) {
 	if err := d.extraction(ctx); err != nil {
 		d.fail("extraction: %v", err)
 	}
+	if err := d.historyScan(ctx); err != nil {
+		d.fail("history scan: %v", err)
+	}
 	ps, err := adapter.LoadAll(d.Profiles)
 	if err != nil {
 		d.fail("profiles: %v", err)
@@ -107,6 +110,25 @@ func (d *doctorCall) run(ctx context.Context) {
 		d.fail("hooks: %v", err)
 	}
 	d.conflicts()
+}
+
+// historyScan reports each CLI whose session files the history scan could not parse (§6.8
+// "Fail closed", S94). It is a note, not a failed check: the scan runs once, and the other CLI
+// and herdr capture still work.
+func (d *doctorCall) historyScan(ctx context.Context) error {
+	var sc store.Scan
+	var ok bool
+	err := d.Store.Write(ctx, func(tx *sql.Tx) (err error) {
+		sc, ok, err = store.HistoryScan(ctx, tx)
+		return err
+	})
+	if err != nil || !ok {
+		return err
+	}
+	for _, line := range ScanUnparsed(sc) {
+		d.w.printf("note: %s; Brain may need an update for this format: brain update\n", line)
+	}
+	return nil
 }
 
 // hooks checks the hook entry, the hook record entries of an installed CLI (#315), the CLI

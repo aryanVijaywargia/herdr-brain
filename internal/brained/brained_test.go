@@ -160,7 +160,7 @@ func TestSecondCopy(t *testing.T) {
 	}
 	defer unlock()
 	environ := []string{"HERDR_SESSION=s1", "HERDR_SOCKET_PATH=/tmp/none", "HERDR_PLUGIN_STATE_DIR=" + dir, "HERDR_PLUGIN_ID=brain"}
-	err = Main(context.Background(), environ, nil)
+	err = Main(context.Background(), environ, nil, nil)
 	if !errors.Is(err, ErrRunning) || !strings.Contains(err.Error(), `brained already runs for herdr session "s1"`) {
 		t.Errorf("second Main = %v, want ErrRunning for s1", err)
 	}

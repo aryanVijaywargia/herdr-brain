@@ -303,7 +303,7 @@ func TestList(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := List(home)
+	got, err := List(filepath.Join(home, ".claude"), filepath.Join(home, ".codex"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +322,8 @@ func TestList(t *testing.T) {
 }
 
 func TestListEmptyHome(t *testing.T) {
-	got, err := List(t.TempDir())
+	home := t.TempDir()
+	got, err := List(filepath.Join(home, ".claude"), filepath.Join(home, ".codex"))
 	if err != nil || len(got.Files) != 0 || got.Compressed != 0 {
 		t.Errorf("List(empty home) = %+v, %v; want nothing", got, err)
 	}

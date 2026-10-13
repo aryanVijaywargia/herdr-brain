@@ -104,6 +104,54 @@ func ScanNotification(r store.ScanReport, extractor bool) string {
 		plural(top.Sessions, "session"), tokensUsed(top.Turns), next)
 }
 
+// skipWords are the words of each skip reason (§6.8 "Privacy and forget"), in the order that the
+// skip line shows them.
+var skipWords = []struct {
+	reason store.SkipReason
+	words  string
+}{
+	{store.SkipNotInteractive, "not interactive"}, {store.SkipFork, "fork"}, {store.SkipKnown, "already known"},
+	{store.SkipSharedCheckout, "shared checkout"}, {store.SkipLearningOff, "learning off"},
+	{store.SkipCompressed, "compressed"}, {store.SkipUnknownFormat, "unknown format"},
+}
+
+// ScanSkipped is the line of the sessions that scan s did not read, by CLI and reason: "History
+// scan skipped: Claude 2 already known; Codex 1 fork, 3 compressed." It is "" when it skipped
+// none.
+func ScanSkipped(s store.Scan) string {
+	var parts []string
+	for _, h := range slices.Sorted(maps.Keys(s.Counts)) {
+		var reasons []string
+		for _, w := range skipWords {
+			if n := s.Counts[h].Skipped[w.reason]; n > 0 {
+				reasons = append(reasons, fmt.Sprintf("%d %s", n, w.words))
+			}
+		}
+		if len(reasons) > 0 {
+			parts = append(parts, cliName(h)+" "+strings.Join(reasons, ", "))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "History scan skipped: " + strings.Join(parts, "; ") + "."
+}
+
+// ScanUnparsed are the lines of the CLIs of scan s with no session file that parsed: each file
+// that the scan tried had an unknown format, so the scan read no session of that CLI (§6.8
+// "Fail closed", S94). The other CLI continues.
+func ScanUnparsed(s store.Scan) []string {
+	var lines []string
+	for _, h := range slices.Sorted(maps.Keys(s.Counts)) {
+		c := s.Counts[h]
+		if n := c.Skipped[store.SkipUnknownFormat]; n > 0 && n == c.Found {
+			lines = append(lines, fmt.Sprintf("History scan: no %s session file parsed (%s of unknown format), "+
+				"so the scan read no %s session", cliName(h), plural(n, "file"), cliName(h)))
+		}
+	}
+	return lines
+}
+
 // TokensRecorded is the tokens form of t: "48,200 tokens recorded; 2 turns with no usage".
 // The turns with no usage show apart, never as 0 tokens, and with no turn that has a usage
 // field it is "tokens: unknown" (S91).

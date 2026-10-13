@@ -65,6 +65,8 @@ const (
 	SourceHerdr = "herdr" // a pane read
 	SourceHook  = "hook"  // a CLI hook (E11-S5)
 	SourceGit   = "git"   // a revert that git shows (#283, §7.1)
+	// SourceTranscript is a record of a past session file that the history scan read (§6.8).
+	SourceTranscript = "transcript"
 )
 
 // Sender says who wrote the text of an observation (§6.5).
