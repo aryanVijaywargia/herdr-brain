@@ -33,7 +33,7 @@ func TestSetupHookRecords(t *testing.T) {
 	t.Run("yes", func(t *testing.T) {
 		home := setupHome(t, "0.9.1")
 		fakeClaude(t, home, p.TestedVersion)
-		code, out, errOut := runSetup(t, "\ny\n")
+		code, out, errOut := runSetup(t, "\ny\ny\n")
 		if code != 0 {
 			t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 		}
@@ -80,7 +80,7 @@ func TestSetupHookRecords(t *testing.T) {
 	t.Run("newer than tested", func(t *testing.T) {
 		home := setupHome(t, "0.9.1")
 		fakeClaude(t, home, "2.1.292")
-		code, out, errOut := runSetup(t, "\ny\n")
+		code, out, errOut := runSetup(t, "\ny\ny\n")
 		if code != 0 {
 			t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 		}

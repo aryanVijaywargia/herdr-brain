@@ -21,6 +21,7 @@ import (
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
+	"github.com/aryanVijaywargia/herdr-brain/internal/cli"
 	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
@@ -57,6 +58,11 @@ Codex runs a new hook only after you trust it:
 // locality explains where the excerpts of an extractor call go (§7.3 D9, D4). It is one
 // paragraph with no line breaks: setup wraps it at the pane width (#255).
 const locality = `Brain learns lessons from your finished sessions with one headless call of an official CLI that you choose: claude -p or codex exec, with no tools. Each call sends short excerpts of your sessions, after the secret filter, to the provider that this CLI is set up for, with the CLI's own sign-in. Brain never reads its tokens. Your agents already send their sessions to their provider the same way. Extraction is on after this step. To stop the calls for one workspace or for all: brain extract off [--workspace <id>]. Capture and the signal rules keep running then. Brain never picks or switches the extractor CLI by itself.
+`
+
+// historyScan says what the history scan reads, what it keeps and what leaves the machine
+// (§6.8). It is one paragraph with no line breaks: setup wraps it at the pane width (#255).
+const historyScan = `Brain can read your past Claude Code and Codex sessions once, to find what you repeat now instead of after weeks. brained reads them in the background after setup: the newest 300 session files of the last 30 days in ~/.claude and ~/.codex. It keeps short excerpts of your prompts, of the agent's commands and of their failures, after the secret filter, and the token counts that the files record. It keeps no whole transcript and no file path. Only the excerpts of extractor calls leave this machine, through the extractor CLI that you chose. To remove one session later: brain forget --session <id>.
 `
 
 const firstUse = `First use:
@@ -151,6 +157,9 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 
 	fmt.Fprintln(stdout, "\nStep 2: the extractor CLI.")
 	if err := chooseExtractor(ctx, d, storeDir, again, &p, in, stdout); err != nil {
+		return err
+	}
+	if err := askScan(ctx, d, storeDir, test, &p, in, stdout); err != nil {
 		return err
 	}
 
@@ -336,6 +345,72 @@ func readExtractor(ctx context.Context, dir string) (store.ExtractorSetting, err
 		return err
 	})
 	return x, errors.Join(err, s.Close())
+}
+
+// askScan asks whether Brain may read your past Claude and Codex sessions once, for the main
+// store in folder dir (§6.8), and adds the answer to p as one line. A yes adds the write of the
+// pending scan row; setup itself reads no transcript. A "no" writes nothing, so the next setup
+// asks again (S85). A store with a scan row shows its state and asks nothing. A test binding
+// (test is its folder) never gets the question, so evals never read your history (S87).
+func askScan(ctx context.Context, d setupDeps, dir, test string, p *plan, in *bufio.Reader, stdout io.Writer) error {
+	if test != "" {
+		return nil
+	}
+	sc, ok, err := readScan(ctx, dir)
+	if err != nil {
+		return err
+	}
+	if ok {
+		p.say("- %s\n", cli.ScanState(sc))
+		return nil
+	}
+	fmt.Fprint(stdout, "\n"+historyScan)
+	yes, err := ask(in, stdout, "Read your past Claude and Codex sessions once, to find repeats now? [y/N] ")
+	if err != nil {
+		return err
+	}
+	if !yes {
+		p.say("- History scan: not now. The next brain setup asks again.\n")
+		return nil
+	}
+	p.say("- History scan: record your yes in the store %s. brained reads your past sessions once, after setup.\n", dir)
+	p.add(func() error {
+		if err := writeScan(ctx, dir, d.now()); err != nil {
+			return err
+		}
+		fmt.Fprintln(stdout, "History scan: brained reads your past sessions at its next tick. brain status shows the progress.")
+		return nil
+	})
+	return nil
+}
+
+// writeScan writes the pending scan row of the store in folder dir.
+func writeScan(ctx context.Context, dir string, now time.Time) error {
+	s, err := store.Open(ctx, dir, setupBusyTimeout)
+	if err != nil {
+		return err
+	}
+	err = s.Write(ctx, func(tx *sql.Tx) error { return store.RequestScan(ctx, tx, now) })
+	return errors.Join(err, s.Close())
+}
+
+// readScan returns the scan row of the store in folder dir; false when it has none. A folder
+// with no store file has no row: setup does not make the store only to read it.
+func readScan(ctx context.Context, dir string) (store.Scan, bool, error) {
+	if _, err := os.Stat(filepath.Join(dir, store.FileName)); errors.Is(err, fs.ErrNotExist) {
+		return store.Scan{}, false, nil
+	}
+	s, err := store.Open(ctx, dir, setupBusyTimeout)
+	if err != nil {
+		return store.Scan{}, false, err
+	}
+	var sc store.Scan
+	var ok bool
+	err = s.Write(ctx, func(tx *sql.Tx) (err error) {
+		sc, ok, err = store.HistoryScan(ctx, tx)
+		return err
+	})
+	return sc, ok, errors.Join(err, s.Close())
 }
 
 // herdrSession finds the herdr session name and checks the version of its server (D6). An

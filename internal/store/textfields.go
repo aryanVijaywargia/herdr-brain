@@ -239,5 +239,16 @@ func noItemTextFields() []Field {
 		{"automation_runs", "started_at"},
 		{"automation_runs", "finished_at"},
 		{"automation_runs", "result"},
+		// The history scan row holds a herdr session name, fixed words, times, and JSON of
+		// numbers, ids, kinds and scope keys only (§6.8, §11).
+		{"history_scans", "binding"},
+		{"history_scans", "status"},
+		{"history_scans", "requested"},
+		{"history_scans", "claimed"},
+		{"history_scans", "finished"},
+		{"history_scans", "counts"},
+		{"history_scans", "turns"},
+		{"history_scans", "findings"},
+		{"history_scans", "progress"},
 	}
 }

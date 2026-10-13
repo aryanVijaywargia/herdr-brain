@@ -134,7 +134,7 @@ func readBindings(t *testing.T, home string) []bindings.Binding {
 // Setup twice gives the same files and one binding; the second run asks nothing.
 func TestSetupTwice(t *testing.T) {
 	home := setupHome(t, "0.9.1")
-	code, out, errOut := runSetup(t, "\ny\n")
+	code, out, errOut := runSetup(t, "\ny\ny\n")
 	if code != 0 {
 		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 	}
@@ -181,12 +181,12 @@ func TestSetupOneYes(t *testing.T) {
 		t.Fatal(err)
 	}
 	fakeClaude(t, home, p.TestedVersion)
-	code, out, errOut := runSetup(t, "claude\n\ny\n")
+	code, out, errOut := runSetup(t, "claude\n\ny\ny\n")
 	if code != 0 {
 		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 	}
-	if n := strings.Count(out, "[y/N]"); n != 1 {
-		t.Errorf("setup asked %d yes or no questions, want 1:\n%s", n, out)
+	if n := strings.Count(out, "Apply all of this?"); n != 1 {
+		t.Errorf("setup asked %d times to apply its plan, want 1:\n%s", n, out)
 	}
 	if bs := readBindings(t, home); len(bs) != 1 || bs[0].Session != "default" {
 		t.Errorf("bindings = %+v", bs)
@@ -234,7 +234,7 @@ func TestSetupOneYes(t *testing.T) {
 // AC 2: "n", an empty answer or EOF writes nothing: no binding, no link, no hook entry, no
 // install.json, no store and no extractor setting.
 func TestSetupNo(t *testing.T) {
-	for name, answers := range map[string]string{"n": "claude\n\nn\n", "empty": "claude\n\n\n", "EOF": "claude\n\n"} {
+	for name, answers := range map[string]string{"n": "claude\n\nn\nn\n", "empty": "claude\n\n\n\n", "EOF": "claude\n\n"} {
 		t.Run(name, func(t *testing.T) {
 			home := setupHome(t, "0.9.1")
 			p, err := adapter.Load("claude")
@@ -247,8 +247,8 @@ func TestSetupNo(t *testing.T) {
 			if code != 0 {
 				t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 			}
-			if n := strings.Count(out, "[y/N]"); n != 1 || !strings.Contains(out, "Setup wrote nothing.") {
-				t.Errorf("setup asked %d yes or no questions, want 1:\n%s", n, out)
+			if n := strings.Count(out, "Apply all of this?"); n != 1 || !strings.Contains(out, "Setup wrote nothing.") {
+				t.Errorf("setup asked %d times to apply its plan, want 1:\n%s", n, out)
 			}
 			if after := snapshot(t, home); !maps.Equal(before, after) {
 				t.Errorf("setup changed files after the answer %s:\nbefore %v\nafter  %v", name, before, after)
@@ -260,7 +260,7 @@ func TestSetupNo(t *testing.T) {
 // AC 4: a hook entry that you edited stays as it is, and the plan says so.
 func TestSetupKeepsEditedEntry(t *testing.T) {
 	home := setupHome(t, "0.9.1")
-	if code, out, errOut := runSetup(t, "\ny\n"); code != 0 {
+	if code, out, errOut := runSetup(t, "\ny\ny\n"); code != 0 {
 		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 	}
 	file := filepath.Join(home, ".codex", "hooks.json")
@@ -321,11 +321,11 @@ func TestSetupS81(t *testing.T) {
 // A test binding gets its own store folder, beside the main binding.
 func TestSetupTestBinding(t *testing.T) {
 	home := setupHome(t, "0.9.1")
-	if code, out, errOut := runSetup(t, "\ny\n"); code != 0 {
+	if code, out, errOut := runSetup(t, "\ny\ny\n"); code != 0 {
 		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 	}
 	store := filepath.Join(home, "eval", "store")
-	code, out, errOut := runSetup(t, "\ny\n", "--session", "brain-test", "--test", store)
+	code, out, errOut := runSetup(t, "\ny\ny\n", "--session", "brain-test", "--test", store)
 	if code != 0 {
 		t.Fatalf("setup --test = %d: %s\n%s", code, errOut, out)
 	}
@@ -383,19 +383,19 @@ func TestSetupS76(t *testing.T) {
 			home := setupHome(t, "0.9.1")
 			main := filepath.Join(home, ".local", "share", "brain", "main")
 			if c.mainBound {
-				if code, out, errOut := runSetup(t, "\ny\n"); code != 0 {
+				if code, out, errOut := runSetup(t, "\ny\ny\n"); code != 0 {
 					t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 				}
 			}
 			other := filepath.Join(home, "other-test")
-			if code, out, errOut := runSetup(t, "\ny\n", "--session", "brain-test2", "--test", other); code != 0 {
+			if code, out, errOut := runSetup(t, "\ny\ny\n", "--session", "brain-test2", "--test", other); code != 0 {
 				t.Fatalf("setup --test = %d: %s\n%s", code, errOut, out)
 			}
 			folder := c.prep(t, home, main, other)
 			file := filepath.Join(home, ".local", "share", "brain", "bindings.json")
 			before := mustRead(t, file)
 			session := cmpOr(c.session, "brain-test")
-			code, out, errOut := runSetup(t, "\ny\n", "--session", session, "--test", folder)
+			code, out, errOut := runSetup(t, "\ny\ny\n", "--session", session, "--test", folder)
 			// A store folder that does not exist yet is checked after the answer: the binding is
 			// the first write, so setup stops before any other write.
 			if code != 1 || !strings.Contains(errOut, "refused") {
@@ -430,7 +430,7 @@ func TestSetupSkipsMissingCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := mustRead(t, filepath.Join(home, ".codex", "hooks.json"))
-	code, out, errOut := runSetup(t, "\ny\n")
+	code, out, errOut := runSetup(t, "\ny\ny\n")
 	if code != 0 {
 		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 	}
@@ -446,10 +446,10 @@ func TestSetupSkipsMissingCLI(t *testing.T) {
 // nothing on no.
 func TestSetupMissingConfigFolder(t *testing.T) {
 	for _, c := range []struct{ kind, dir, file, answers string }{
-		{"claude", ".claude", "settings.json", "\ny\n"},
-		{"codex", ".codex", "hooks.json", "\ny\n"},
-		{"claude", ".claude", "settings.json", "\nn\n"},
-		{"codex", ".codex", "hooks.json", "\nn\n"},
+		{"claude", ".claude", "settings.json", "\ny\ny\n"},
+		{"codex", ".codex", "hooks.json", "\ny\ny\n"},
+		{"claude", ".claude", "settings.json", "\nn\nn\n"},
+		{"codex", ".codex", "hooks.json", "\nn\nn\n"},
 	} {
 		yes := !strings.Contains(c.answers, "n")
 		t.Run(fmt.Sprintf("%s yes=%t", c.kind, yes), func(t *testing.T) {
@@ -494,8 +494,8 @@ func TestSetupOverlap(t *testing.T) {
 	home := setupHome(t, "0.9.1")
 	file := filepath.Join(home, ".local", "share", "brain", "bindings.json")
 	var other []byte
-	in := &hookReader{r: strings.NewReader("\ny\n"), fn: func() {
-		if code, out, errOut := runSetup(t, "\ny\n", "--session", "brain-test2"); code != 0 {
+	in := &hookReader{r: strings.NewReader("\ny\ny\n"), fn: func() {
+		if code, out, errOut := runSetup(t, "\ny\ny\n", "--session", "brain-test2"); code != 0 {
 			t.Fatalf("other setup = %d: %s\n%s", code, errOut, out)
 		}
 		other = mustRead(t, file)
