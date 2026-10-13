@@ -94,8 +94,8 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 	// The list comes first, before anything is deleted (§6.7).
 	w := e.Stdout
 	for i, s := range ss {
-		if _, err := fmt.Fprintf(w, "session %d: %s in pane %s, %s id %s, agent session %q: %d observations, %d command records, %d evidence links, %d prompt index rows, %d outcomes\n",
-			s.ID, s.Key.Harness, s.PaneID, s.Key.Kind, s.Key.ID, agentOf(s), ev[i].Observations, ev[i].CommandRecords, ev[i].EvidenceLinks,
+		if _, err := fmt.Fprintf(w, "session %d: %s%s, %s id %s, agent session %q: %d observations, %d command records, %d evidence links, %d prompt index rows, %d outcomes\n",
+			s.ID, s.Key.Harness, inPane(s.PaneID), s.Key.Kind, s.Key.ID, agentOf(s), ev[i].Observations, ev[i].CommandRecords, ev[i].EvidenceLinks,
 			ev[i].Prompts, ev[i].Outcomes); err != nil {
 			return err
 		}
@@ -189,6 +189,15 @@ func agentIDs(id string, ss []store.Session) []string {
 		}
 	}
 	return ids
+}
+
+// inPane is the pane part of the list line of a session in pane paneID: none for a history
+// scan session, which has no pane (§6.8).
+func inPane(paneID string) string {
+	if paneID == "" {
+		return ""
+	}
+	return " in pane " + paneID
 }
 
 // agentOf returns the agent session id of capture session s, or "" when herdr gave none.
