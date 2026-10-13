@@ -145,7 +145,10 @@ func (s *historyScan) scan(ctx context.Context, g Gate, st *store.Store, sc stor
 	if err != nil {
 		return false, fmt.Errorf("history scan: %w", err)
 	}
-	if err := s.sync(ctx, g, st); err != nil {
+	mctx, mcancel := context.WithTimeout(ctx, callTimeout)
+	err = s.sync(mctx, g, st)
+	mcancel()
+	if err != nil {
 		return false, fmt.Errorf("history scan: workspace map: %w", err)
 	}
 	files, compressed, err := s.files(sc.Claimed)

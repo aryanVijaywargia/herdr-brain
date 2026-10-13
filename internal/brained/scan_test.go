@@ -887,6 +887,31 @@ func TestScanWorkspaceMap(t *testing.T) {
 	})
 }
 
+// #406: the scan's real refresh of the workspace map runs `herdr workspace list` with a
+// deadline. The herdr client refuses a call with none, and brained runs the scan with a context
+// that has none.
+func TestScanWorkspaceMapDeadline(t *testing.T) {
+	f := newScanFix(t, bindings.KindMain)
+	f.claude("c1", time.Hour, cUser("u1", "/nowhere", 1, "a prompt"))
+	dir := t.TempDir()
+	bin, called := filepath.Join(dir, "herdr"), filepath.Join(dir, "called")
+	script := "#!/bin/sh\ntouch " + called + "\n" +
+		`echo '{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[]}}'` + "\n"
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f.s.sync = newHistoryScan([]string{"HOME=" + f.home, "PATH=/usr/bin:/bin", "HERDR_BIN_PATH=" + bin}, "", nil).sync
+	if !f.run() {
+		t.Error("scan = not done, want done")
+	}
+	if _, err := os.Stat(called); err != nil {
+		t.Errorf("fake herdr: %v, want one workspace list call", err)
+	}
+	if obs, _ := f.observations(); len(obs) != 1 {
+		t.Errorf("observations = %d, want 1", len(obs))
+	}
+}
+
 // Sol fix: an imported session whose file changed after the claim time is out of the restart's
 // pick, and its records still count in the findings; live records of a scanned session take the
 // live path and are no finding input (AC 6, S89). The end of brained stops the read between two
