@@ -103,8 +103,10 @@ func (c *codex) line(raw []byte, off int64) error {
 	case "event_msg":
 		c.at(at, "")
 		err = c.event(l.Payload)
-	case "turn_context", "compacted":
+	case "turn_context", "compacted", "world_state", "token_usage_record":
 		// A turn context holds no record of the turn; a compaction summary is dropped (§6.8).
+		// world_state and token_usage_record (codex-cli 0.160.1, #407) hold no prompt, reply or
+		// command: the tokens come from the event_msg token_count.
 		c.at(at, "")
 	default:
 		err = fmt.Errorf("%w: line type %q", ErrUnknownFormat, l.Type)

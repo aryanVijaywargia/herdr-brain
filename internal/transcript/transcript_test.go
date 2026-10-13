@@ -351,5 +351,29 @@ func FuzzReadClaude(f *testing.F) {
 }
 
 func FuzzReadCodex(f *testing.F) {
-	fuzz(f, ReadCodex, "codex-basic.jsonl", "codex-drops.jsonl")
+	fuzz(f, ReadCodex, "codex-basic.jsonl", "codex-drops.jsonl", "codex-0160.jsonl")
+}
+
+// #407: codex-cli 0.160.1 adds the top-level lines world_state and token_usage_record, which
+// the reader skips. Its shell commands are custom_tool_call exec scripts: no command record.
+func TestReadCodex0160(t *testing.T) {
+	path := filepath.Join("testdata", "codex-0160.jsonl")
+	got, err := ReadCodex(path, noLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := func(s string) time.Time { return at(t, "2026-10-13T09:"+s+".000Z") }
+	id := func(text string) string { return offset(t, path, "s-codex-0160", text) }
+	want := Session{
+		ID: "s-codex-0160", CWD: "/work/shop", Interactive: true,
+		First: ts("00:00"), Last: ts("00:08"),
+		Turns: []Turn{{
+			Prompt: Text{ID: id(`"list the files"`), At: ts("00:03"), Text: "list the files"},
+			Reply:  Text{ID: id("The folder holds"), At: ts("00:07"), Text: "The folder holds main.go."},
+			Tokens: 720, TokensKnown: true,
+		}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ReadCodex(%s) =\n%+v\nwant\n%+v", path, got, want)
+	}
 }
