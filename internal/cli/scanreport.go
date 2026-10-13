@@ -60,8 +60,15 @@ func ScanSummary(r store.ScanReport) string {
 		head = "History scan, read done"
 	}
 	_, read := scanSessions(r.Scan)
-	return fmt.Sprintf("%s: %s read (%s), %s. %s, in turns that used %s tokens.", head, plural(read, "session"),
-		perCLI(r.Scan), TokensRecorded(r.All), plural(len(r.Repeats), "repeat"), tokenCount(r.InRepeats.Tokens))
+	repeats := plural(len(r.Repeats), "repeat")
+	switch {
+	case r.InRepeats.Known > 0:
+		repeats += ", in turns that used " + tokensUsed(r.InRepeats)
+	case r.InRepeats.Unknown > 0:
+		repeats += "; " + tokensUsed(r.InRepeats)
+	}
+	return fmt.Sprintf("%s: %s read (%s), %s. %s.", head, plural(read, "session"), perCLI(r.Scan),
+		TokensRecorded(r.All), repeats)
 }
 
 // ScanFindings are the finding lines of the report r, at most maxScanFindings, most tokens
@@ -93,14 +100,30 @@ func ScanNotification(r store.ScanReport, extractor bool) string {
 	if !extractor {
 		next = "Proposals wait for an extractor choice: brain setup --extractor"
 	}
-	return fmt.Sprintf("%s Top repeat: %q, %s, %s tokens. %s", head, scanExcerpt(top.Excerpt),
-		plural(top.Sessions, "session"), tokenCount(top.Turns.Tokens), next)
+	return fmt.Sprintf("%s Top repeat: %q, %s, %s. %s", head, scanExcerpt(top.Excerpt),
+		plural(top.Sessions, "session"), tokensUsed(top.Turns), next)
 }
 
 // TokensRecorded is the tokens form of t: "48,200 tokens recorded; 2 turns with no usage".
-// The turns with no usage show apart, never as 0 tokens.
+// The turns with no usage show apart, never as 0 tokens, and with no turn that has a usage
+// field it is "tokens: unknown" (S91).
 func TokensRecorded(t store.TurnTokens) string {
-	s := tokenCount(t.Tokens) + " tokens recorded"
+	return tokens(t, " tokens recorded")
+}
+
+// tokensUsed is the tokens form of t in a sentence about use: "48,200 tokens; 2 turns with no
+// usage", or "tokens: unknown" (S91).
+func tokensUsed(t store.TurnTokens) string {
+	return tokens(t, " tokens")
+}
+
+// tokens is the known tokens of t with the unit unit, and its turns with no usage apart; with
+// no known turn it is "tokens: unknown".
+func tokens(t store.TurnTokens, unit string) string {
+	if t.Known == 0 {
+		return "tokens: unknown"
+	}
+	s := tokenCount(t.Tokens) + unit
 	if t.Unknown > 0 {
 		s += "; " + plural(t.Unknown, "turn") + " with no usage"
 	}

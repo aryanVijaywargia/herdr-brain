@@ -252,10 +252,12 @@ type ScanReport struct {
 	InRepeats TurnTokens // the distinct turns of every repeat
 }
 
-// TurnTokens are the recorded tokens of a set of turns, and the count of its turns with no
-// usage field.
+// TurnTokens are the recorded tokens of a set of turns, the count of its turns with a usage
+// field, and the count of its turns with none. With no known turn, the tokens are unknown, never
+// 0 (S91).
 type TurnTokens struct {
 	Tokens  int64
+	Known   int
 	Unknown int
 }
 
@@ -265,6 +267,7 @@ func (t *TurnTokens) add(tokens *int64) {
 		t.Unknown++
 		return
 	}
+	t.Known++
 	t.Tokens += *tokens
 }
 
