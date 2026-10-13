@@ -57,9 +57,10 @@ var ErrRunning = errors.New("brained already runs")
 var errRestart = errors.New("the brained binary changed")
 
 // Main runs brained for the herdr session of environ, the environment that herdr gives a
-// [[startup]] process. It reads the panes with Capture and writes its errors to log. When its
-// binary file changes, it drops the lock and runs the new binary in its place (E19-S4).
-func Main(ctx context.Context, environ []string, log io.Writer) error {
+// [[startup]] process. It reads the panes with Capture and writes its errors to log. text is
+// the notification text of the history scan. When its binary file changes, it drops the lock
+// and runs the new binary in its place (E19-S4).
+func Main(ctx context.Context, environ []string, log io.Writer, text ScanText) error {
 	// The path comes from the start: on Linux, os.Executable of a replaced file ends in
 	// " (deleted)".
 	bin, err := paths.BinaryPath()
@@ -70,7 +71,7 @@ func Main(ctx context.Context, environ []string, log io.Writer) error {
 	if err != nil {
 		return err
 	}
-	err = serve(ctx, environ, log, func() bool { return changed(bin, fi) })
+	err = serve(ctx, environ, log, text, func() bool { return changed(bin, fi) })
 	if !errors.Is(err, errRestart) {
 		return err
 	}
@@ -91,8 +92,9 @@ func changed(bin string, fi os.FileInfo) bool {
 	return !os.SameFile(fi, now) || !now.ModTime().Equal(fi.ModTime())
 }
 
-// serve runs brained with the D7 lock until it stops. moved reports a change of the binary.
-func serve(ctx context.Context, environ []string, log io.Writer, moved func() bool) error {
+// serve runs brained with the D7 lock until it stops. text is the notification text of the
+// history scan, and moved reports a change of the binary.
+func serve(ctx context.Context, environ []string, log io.Writer, text ScanText, moved func() bool) error {
 	e, err := parseEnv(environ)
 	if err != nil {
 		return err
@@ -122,6 +124,7 @@ func serve(ctx context.Context, environ []string, log io.Writer, moved func() bo
 			return extractPass(ctx, g, config, environ, reverts, log, Start)
 		},
 		stale: func(ctx context.Context, g Gate) error { return Stale(ctx, g, "", time.Now) },
+		scan:  newHistoryScan(environ, config, text).run,
 	}
 	return d.run(ctx)
 }

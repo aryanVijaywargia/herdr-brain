@@ -33,7 +33,7 @@ func helper(log string) int {
 		err = appendStart(log, bin)
 	}
 	if err == nil {
-		err = Main(context.Background(), os.Environ(), os.Stderr)
+		err = Main(context.Background(), os.Environ(), os.Stderr, nil)
 	}
 	fmt.Fprintf(os.Stderr, "brained helper: %v\n", err)
 	return 1
@@ -177,7 +177,7 @@ func TestRestartRunsNewBinary(t *testing.T) {
 		t.Errorf("brained starts = %q, want a second start %q in the same process", got, want)
 	}
 	waitLock(t, environ, done)
-	if err := Main(context.Background(), environ, io.Discard); !errors.Is(err, ErrRunning) {
+	if err := Main(context.Background(), environ, io.Discard, nil); !errors.Is(err, ErrRunning) {
 		t.Errorf("second Main after the restart = %v, want ErrRunning", err)
 	}
 }

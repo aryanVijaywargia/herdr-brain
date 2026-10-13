@@ -265,8 +265,8 @@ func TestHistoryScanReport(t *testing.T) {
 	}
 
 	r := report()
-	if r.All != (TurnTokens{10520, 1}) || r.InRepeats != (TurnTokens{10500, 1}) {
-		t.Errorf("tokens = all %+v, in repeats %+v; want {10520 1} and {10500 1}", r.All, r.InRepeats)
+	if r.All != (TurnTokens{10520, 4, 1}) || r.InRepeats != (TurnTokens{10500, 3, 1}) {
+		t.Errorf("tokens = all %+v, in repeats %+v; want {10520 4 1} and {10500 3 1}", r.All, r.InRepeats)
 	}
 	var got []string
 	for _, rep := range r.Repeats {

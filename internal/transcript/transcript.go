@@ -228,14 +228,14 @@ type Listing struct {
 	Compressed int
 }
 
-// List lists the candidate session files under home: Claude
-// <home>/.claude/projects/<folder>/<id>.jsonl and Codex
-// <home>/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl, by change time, newest first (§6.8). The
+// List lists the candidate session files under the Claude home claudeHome and the Codex home
+// codexHome: Claude <claude home>/projects/<folder>/<id>.jsonl and Codex
+// <codex home>/sessions/YYYY/MM/DD/rollout-*.jsonl, by change time, newest first (§6.8). The
 // fixed depths leave out the Claude subagents/ and tool-results/ folders and Codex
 // archived_sessions/. It skips Claude set-aside copies and counts Codex *.jsonl.zst files.
-func List(home string) (Listing, error) {
+func List(claudeHome, codexHome string) (Listing, error) {
 	var l Listing
-	claude, err := atDepth(filepath.Join(home, ".claude", "projects"), 2)
+	claude, err := atDepth(filepath.Join(claudeHome, "projects"), 2)
 	if err != nil {
 		return Listing{}, err
 	}
@@ -248,7 +248,7 @@ func List(home string) (Listing, error) {
 			}
 		}
 	}
-	codex, err := atDepth(filepath.Join(home, ".codex", "sessions"), 4)
+	codex, err := atDepth(filepath.Join(codexHome, "sessions"), 4)
 	if err != nil {
 		return Listing{}, err
 	}

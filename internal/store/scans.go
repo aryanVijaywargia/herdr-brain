@@ -169,7 +169,7 @@ func SetScanCounts(ctx context.Context, tx *sql.Tx, id int64, counts map[string]
 // AddScanTurns adds turns to scan id. A turn with a known id is replaced, so a second read of
 // a session counts its tokens once.
 func AddScanTurns(ctx context.Context, tx *sql.Tx, id int64, turns []ScanTurn) error {
-	all, err := scanTurns(ctx, tx, id)
+	all, err := ScanTurns(ctx, tx, id)
 	if err != nil {
 		return err
 	}
@@ -214,7 +214,9 @@ func scanProgress(ctx context.Context, tx *sql.Tx, id int64) (map[string]int, er
 	return p, readScanJSON(ctx, tx, id, "progress", &p)
 }
 
-func scanTurns(ctx context.Context, tx *sql.Tx, id int64) (map[int64]*int64, error) {
+// ScanTurns returns the turns of scan id: the recorded tokens of each turn id, nil for a turn
+// with no usage field.
+func ScanTurns(ctx context.Context, tx *sql.Tx, id int64) (map[int64]*int64, error) {
 	t := map[int64]*int64{}
 	return t, readScanJSON(ctx, tx, id, "turns", &t)
 }
@@ -243,6 +245,80 @@ func setScanJSON(ctx context.Context, tx *sql.Tx, id int64, column string, v any
 	return nil
 }
 
+// scanReadSource is the read source of the segment of a scanned session. The session has no
+// pane read, and the column takes only the two read sources of capture; nothing reads it for a
+// scanned session. [NEW]
+const scanReadSource = "visible"
+
+// ScanWorkspaces returns the live workspaces of the store that have a project folder, in every
+// bound herdr session, by key. The scan maps the cwd of a session to one of them (§6.8).
+func ScanWorkspaces(ctx context.Context, tx *sql.Tx) ([]Workspace, error) {
+	return query(ctx, tx, `SELECT key, herdr_session, herdr_workspace_id, label, root_folder, status, last_seen
+		FROM workspaces WHERE root_folder IS NOT NULL AND status = ? ORDER BY key`,
+		func(rows *sql.Rows) (Workspace, error) {
+			var w Workspace
+			err := rows.Scan(&w.Key, &w.HerdrSession, &w.HerdrWorkspaceID, &w.Label, &w.RootFolder, &w.Status,
+				timeDest{&w.LastSeen})
+			return w, err
+		}, WorkspaceLive)
+}
+
+// KnownSession reports whether the store knows agent session id of harness from herdr capture
+// or hook records, in any binding: a session row of a pane. A session that the scan imported has
+// no pane, so it is not known in this sense (§6.8).
+func KnownSession(ctx context.Context, tx *sql.Tx, harness, id string) (bool, error) {
+	var n int
+	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE harness = ?1 AND pane_id != ''
+		AND (key_kind = ?2 AND key_id = ?3 OR agent_session_id = ?3)`, harness, KeyAgent, id).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("find known session: %w", err)
+	}
+	return n > 0, nil
+}
+
+// ScanSession stores the session row of a scanned session with agent key k, in workspace
+// workspaceKey ("" for the global pool), from its first to its last record, and its one segment
+// with no pane. A second read of the session returns the same rows (§6.8).
+func ScanSession(ctx context.Context, tx *sql.Tx, k SessionKey, workspaceKey string, first, last time.Time) (session, segment int64, err error) {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions
+		(herdr_session, harness, key_kind, key_id, agent_session_id, pane_id, workspace_key, started, ended)
+		VALUES (?1, ?2, ?3, ?4, ?4, '', ?5, ?6, ?7) ON CONFLICT DO NOTHING`,
+		k.HerdrSession, k.Harness, k.Kind, k.ID, nullText(workspaceKey), timeArg(first), timeArg(last)); err != nil {
+		return 0, 0, fmt.Errorf("add scanned session: %w", err)
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM sessions WHERE `+keyWhere, keyArgs(k)...).Scan(&session); err != nil {
+		return 0, 0, fmt.Errorf("read scanned session: %w", err)
+	}
+	err = tx.QueryRowContext(ctx, `SELECT id FROM segments WHERE session_id = ? ORDER BY id LIMIT 1`, session).Scan(&segment)
+	switch {
+	case err == nil:
+		return session, segment, nil
+	case !errors.Is(err, sql.ErrNoRows):
+		return 0, 0, fmt.Errorf("read scanned segment: %w", err)
+	}
+	err = tx.QueryRowContext(ctx, `INSERT INTO segments (session_id, pane_id, workspace_key, read_source, started, ended)
+		VALUES (?, '', ?, ?, ?, ?) RETURNING id`, session, nullText(workspaceKey), scanReadSource, timeArg(first),
+		timeArg(last)).Scan(&segment)
+	if err != nil {
+		return 0, 0, fmt.Errorf("add scanned segment: %w", err)
+	}
+	return session, segment, nil
+}
+
+// ObservationID returns the id of the observation with capture identity, or 0 when the store
+// holds none: a second read of a session finds the rows of the first.
+func ObservationID(ctx context.Context, tx *sql.Tx, identity string) (int64, error) {
+	var id int64
+	err := tx.QueryRowContext(ctx, `SELECT id FROM observations WHERE capture_identity = ?`, identity).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("find observation: %w", err)
+	}
+	return id, nil
+}
+
 // ScanReport holds the report numbers of the scan, from the observations that still exist
 // (§6.8 "Repeats"). A forget removes its observations from the numbers.
 type ScanReport struct {
@@ -252,10 +328,12 @@ type ScanReport struct {
 	InRepeats TurnTokens // the distinct turns of every repeat
 }
 
-// TurnTokens are the recorded tokens of a set of turns, and the count of its turns with no
-// usage field.
+// TurnTokens are the recorded tokens of a set of turns, the count of its turns with a usage
+// field, and the count of its turns with none. With no known turn, the tokens are unknown, never
+// 0 (S91).
 type TurnTokens struct {
 	Tokens  int64
+	Known   int
 	Unknown int
 }
 
@@ -265,6 +343,7 @@ func (t *TurnTokens) add(tokens *int64) {
 		t.Unknown++
 		return
 	}
+	t.Known++
 	t.Tokens += *tokens
 }
 
@@ -286,7 +365,7 @@ func HistoryScanReport(ctx context.Context, tx *sql.Tx, id int64, gates Gates) (
 	if err != nil {
 		return ScanReport{}, fmt.Errorf("read history scan: %w", err)
 	}
-	turns, err := scanTurns(ctx, tx, id)
+	turns, err := ScanTurns(ctx, tx, id)
 	if err != nil {
 		return ScanReport{}, err
 	}

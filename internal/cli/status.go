@@ -164,6 +164,9 @@ func (s *statusCall) run(ctx context.Context) {
 		if err := s.extraction(ctx, tx); err != nil {
 			return err
 		}
+		if err := s.historyScan(ctx, tx); err != nil {
+			return err
+		}
 		if err := s.archive(ctx, tx); err != nil {
 			return err
 		}
@@ -741,7 +744,11 @@ func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
 		s.w.printf("  waiting: none\n")
 	}
 	for _, w := range ws {
-		s.w.printf("  waiting in workspace %s: %s, the oldest %s old; %s\n", w.WorkspaceKey, batches(w.Batches),
+		where := "workspace " + w.WorkspaceKey
+		if w.WorkspaceKey == "" {
+			where = "the global pool" // scan work of the global pool (§6.8)
+		}
+		s.w.printf("  waiting in %s: %s, the oldest %s old; %s\n", where, batches(w.Batches),
 			age(s.Now().Sub(w.Oldest)), cmp.Or(w.Why, "the next pass takes them"))
 	}
 	bs, err := store.FailedBatches(ctx, tx)
@@ -759,6 +766,85 @@ func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
 			b.Status, b.Reason, age(s.Now().Sub(b.At)))
 	}
 	return s.failedChanges(ctx, tx)
+}
+
+// historyScan prints the history scan of the store, when it has one (§6.8): why it waits, its
+// progress line, the sessions that it skipped and each CLI with no file that parsed, then the
+// report from the observations that still exist. A forget takes its observations out of the
+// numbers, and a finding below its gate leaves the report (S92).
+func (s *statusCall) historyScan(ctx context.Context, tx *sql.Tx) error {
+	sc, ok, err := store.HistoryScan(ctx, tx)
+	if err != nil || !ok {
+		return err
+	}
+	s.w.printf("\n")
+	if wait, err := s.scanWait(ctx, tx, sc); err != nil {
+		return err
+	} else if wait != "" {
+		s.w.printf("%s\n", wait)
+	}
+	s.w.printf("%s\n", ScanState(sc))
+	if line := ScanSkipped(sc); line != "" {
+		s.w.printf("%s\n", line)
+	}
+	for _, line := range ScanUnparsed(sc) {
+		s.w.printf("%s\n", line)
+	}
+	if sc.Status == store.ScanPending {
+		return nil
+	}
+	gates, _, err := extract.ReadConfig(s.Config)
+	if err != nil {
+		gates = store.DefaultGates() // the extraction lines say what is wrong with the file
+	}
+	r, err := store.HistoryScanReport(ctx, tx, sc.ID, store.ScanGates(gates))
+	if err != nil {
+		return err
+	}
+	fs := make([]store.Finding, len(r.Repeats))
+	for i, rep := range r.Repeats {
+		fs[i] = rep.Finding
+	}
+	proposals, err := store.ScanProposals(ctx, tx, fs)
+	if err != nil {
+		return err
+	}
+	s.w.printf("%s\n", ScanSummary(r))
+	for _, line := range ScanFindings(r, proposals) {
+		s.w.printf("%s\n", line)
+	}
+	return nil
+}
+
+// scanWait returns why scan sc waits, or "": a scan that is not read waits for learning, or
+// for brained; a read scan waits for an extractor choice, or for room in the daily caps.
+func (s *statusCall) scanWait(ctx context.Context, tx *sql.Tx, sc store.Scan) (ScanWait, error) {
+	switch sc.Status {
+	case store.ScanPending, store.ScanReading:
+		on, err := store.LearningOnWholeStore(ctx, tx, learningDefault(s.Binding))
+		switch {
+		case err != nil:
+			return "", err
+		case !on:
+			return WaitLearning, nil
+		case sc.Status == store.ScanPending:
+			return WaitBrained, nil
+		}
+	case store.ScanExtracting:
+		x, err := store.Extractor(ctx, tx)
+		if err != nil || x.CLI == "" {
+			return WaitExtractor, err
+		}
+		// With a config that does not parse, the extraction lines say why no call goes.
+		if gates, caps, cerr := extract.ReadConfig(s.Config); cerr == nil {
+			d, err := extract.Pass{HerdrSession: s.Binding.Session, DefaultOn: learningDefault(s.Binding), Now: s.Now,
+				Gates: gates, Caps: caps}.Day(ctx, tx)
+			if err != nil || d.Paused() != "" {
+				return WaitCaps, err
+			}
+		}
+	}
+	return "", nil
 }
 
 // failedChanges prints the change requests whose last call failed or gave an invalid response,

@@ -20,8 +20,8 @@ func scanFixture(repeats int) store.ScanReport {
 				"codex":  {Found: 30, Read: 23, Skipped: map[store.SkipReason]int{store.SkipFork: 7}},
 				"claude": {Found: 41, Read: 41},
 			}},
-		All:       store.TurnTokens{Tokens: 12_400_000, Unknown: 3},
-		InRepeats: store.TurnTokens{Tokens: 2_100_000},
+		All:       store.TurnTokens{Tokens: 12_400_000, Known: 900, Unknown: 3},
+		InRepeats: store.TurnTokens{Tokens: 2_100_000, Known: 40},
 	}
 	kinds := []store.CandidateKind{store.CandidateCorrection, store.FindingPrompt, store.CandidateCommandChain,
 		store.CandidateFailure, store.CandidateProcedure, store.CandidateLesson}
@@ -29,7 +29,7 @@ func scanFixture(repeats int) store.ScanReport {
 		r.Repeats = append(r.Repeats, store.Repeat{
 			Finding:  store.Finding{ID: i + 1, Kind: kinds[i%len(kinds)]},
 			Sessions: 2 + i,
-			Turns:    store.TurnTokens{Tokens: int64(48_200 - i*1000), Unknown: i % 2 * 2},
+			Turns:    store.TurnTokens{Tokens: int64(48_200 - i*1000), Known: 3, Unknown: i % 2 * 2},
 			Excerpt:  fmt.Sprintf("use pnpm,\n  not npm %d", i+1),
 		})
 	}
@@ -47,10 +47,29 @@ func TestScanSummary(t *testing.T) {
 			"12.4 M tokens recorded; 3 turns with no usage. 18 repeats, in turns that used 2.1 M tokens."},
 		"one of each": {store.ScanReport{
 			Scan:      store.Scan{Status: store.ScanExtracting, Counts: map[string]store.ScanCounts{"claude": {Found: 1, Read: 1}}},
-			All:       store.TurnTokens{Tokens: 900},
-			InRepeats: store.TurnTokens{Tokens: 900},
+			All:       store.TurnTokens{Tokens: 900, Known: 1},
+			InRepeats: store.TurnTokens{Tokens: 900, Known: 1},
 			Repeats:   []store.Repeat{{}},
 		}, "History scan, read done: 1 session read (1 Claude), 900 tokens recorded. 1 repeat, in turns that used 900 tokens."},
+		// S91: turns with no usage show apart, and with no known turn the tokens are unknown,
+		// never 0.
+		"some unknown": {store.ScanReport{
+			Scan:      store.Scan{Status: store.ScanExtracting, Counts: map[string]store.ScanCounts{"claude": {Found: 2, Read: 2}}},
+			All:       store.TurnTokens{Tokens: 900, Known: 1, Unknown: 2},
+			InRepeats: store.TurnTokens{Tokens: 900, Known: 1, Unknown: 1},
+			Repeats:   []store.Repeat{{}},
+		}, "History scan, read done: 2 sessions read (2 Claude), 900 tokens recorded; 2 turns with no usage. " +
+			"1 repeat, in turns that used 900 tokens; 1 turn with no usage."},
+		"all unknown": {store.ScanReport{
+			Scan:      store.Scan{Status: store.ScanExtracting, Counts: map[string]store.ScanCounts{"codex": {Found: 1, Read: 1}}},
+			All:       store.TurnTokens{Unknown: 3},
+			InRepeats: store.TurnTokens{Unknown: 2},
+			Repeats:   []store.Repeat{{}, {}},
+		}, "History scan, read done: 1 session read (1 Codex), tokens: unknown. 2 repeats; tokens: unknown."},
+		"no repeats": {store.ScanReport{
+			Scan: store.Scan{Status: store.ScanExtracting, Counts: map[string]store.ScanCounts{"codex": {Found: 1, Read: 1}}},
+			All:  store.TurnTokens{Tokens: 70, Known: 1},
+		}, "History scan, read done: 1 session read (1 Codex), 70 tokens recorded. 0 repeats."},
 	} {
 		if got := ScanSummary(c.r); got != c.want {
 			t.Errorf("%s: ScanSummary = %q,\nwant %q", name, got, c.want)
@@ -89,11 +108,12 @@ func TestTokensRecorded(t *testing.T) {
 		in   store.TurnTokens
 		want string
 	}{
-		{store.TurnTokens{Tokens: 48_200, Unknown: 2}, "48,200 tokens recorded; 2 turns with no usage"},
-		{store.TurnTokens{Tokens: 48_200}, "48,200 tokens recorded"},
-		{store.TurnTokens{Unknown: 1}, "0 tokens recorded; 1 turn with no usage"},
-		{store.TurnTokens{Tokens: 1_234_567}, "1.2 M tokens recorded"},
-		{store.TurnTokens{Tokens: 999}, "999 tokens recorded"},
+		{store.TurnTokens{Tokens: 48_200, Known: 2, Unknown: 2}, "48,200 tokens recorded; 2 turns with no usage"},
+		{store.TurnTokens{Tokens: 48_200, Known: 1}, "48,200 tokens recorded"},
+		{store.TurnTokens{Unknown: 1}, "tokens: unknown"}, // S91: never 0
+		{store.TurnTokens{Known: 1}, "0 tokens recorded"}, // a usage field that says 0
+		{store.TurnTokens{Tokens: 1_234_567, Known: 9}, "1.2 M tokens recorded"},
+		{store.TurnTokens{Tokens: 999, Known: 1}, "999 tokens recorded"},
 	} {
 		if got := TokensRecorded(c.in); got != c.want {
 			t.Errorf("TokensRecorded(%+v) = %q, want %q", c.in, got, c.want)
@@ -114,11 +134,23 @@ func TestScanNotification(t *testing.T) {
 		{r, false, `Brain read 64 past sessions. Top repeat: "use pnpm, not npm 1", 2 sessions, 48,200 tokens. ` +
 			`Proposals wait for an extractor choice: brain setup --extractor`},
 		{scanFixture(0), true, `Brain read 64 past sessions. No repeats found.`},
+		// S91: the top repeat with turns with no usage, and with no known turn.
+		{unknownTop(store.TurnTokens{Tokens: 48_200, Known: 1, Unknown: 2}), true,
+			`Brain read 64 past sessions. Top repeat: "use pnpm, not npm 1", 2 sessions, 48,200 tokens; 2 turns with no usage. See brain review.`},
+		{unknownTop(store.TurnTokens{Unknown: 2}), true,
+			`Brain read 64 past sessions. Top repeat: "use pnpm, not npm 1", 2 sessions, tokens: unknown. See brain review.`},
 	} {
 		if got := ScanNotification(c.r, c.extractor); got != c.want {
 			t.Errorf("ScanNotification(extractor %v) = %q,\nwant %q", c.extractor, got, c.want)
 		}
 	}
+}
+
+// unknownTop is a report whose top repeat has the turns t.
+func unknownTop(t store.TurnTokens) store.ScanReport {
+	r := scanFixture(1)
+	r.Repeats[0].Turns = t
+	return r
 }
 
 // AC 3 and 5: the state line of each status, and the waiting reasons.

@@ -39,7 +39,10 @@ type daemon struct {
 	onBehind     func()                                  // tests only: called after a reader drops an event
 	extract      func(ctx context.Context, g Gate) error // one extraction pass of the store of g; nil for none
 	stale        func(ctx context.Context, g Gate) error // the stale check of every workspace of the store of g; nil for none
-	moved        func() bool                             // reports a new brained binary at its path; nil for none
+	// scan claims and runs the history scan of the store of g (§6.8); nil for none. done says
+	// that this brained has nothing more to scan.
+	scan  func(ctx context.Context, g Gate) (done bool, err error)
+	moved func() bool // reports a new brained binary at its path; nil for none
 }
 
 // item is one event, or the end of a stream, from a reader.
@@ -78,6 +81,19 @@ type loop struct {
 	staling   bool       // a stale check runs
 	lastStale time.Time  // the start of the last stale check of every workspace
 	staled    chan error // the end of a stale check
+
+	scanning  bool             // the history scan runs
+	scanFor   bindings.Binding // the binding of the last scan run; a new one starts again
+	scanDone  bool             // the history scan has nothing more for scanFor
+	scanAfter time.Time        // the next try after a scan that failed
+	scanned   chan scanResult  // the end of a history scan
+}
+
+// scanResult is the end of one history scan run of binding b.
+type scanResult struct {
+	b    bindings.Binding
+	done bool
+	err  error
 }
 
 // run connects, reconciles and then handles events until an ErrStop or ctx ends.
@@ -120,19 +136,52 @@ func (d *daemon) run(ctx context.Context) error {
 			}
 			l.extract(ctx)
 			l.checkStale(ctx)
+			l.historyScan(ctx)
 		case err := <-l.extracted:
 			l.extracting = false
 			l.report(err)
 		case err := <-l.staled:
 			l.staling = false
 			l.report(err)
+		case r := <-l.scanned:
+			l.scanning = false
+			l.scanDone = r.done && r.b == l.scanFor
+			if r.err != nil && !r.done {
+				l.scanAfter = time.Now().Add(extractEvery)
+			}
+			l.report(r.err)
 		}
 	}
 }
 
 func newLoop(d *daemon) *loop {
 	return &loop{d: d, items: make(chan item, d.queue), behind: make(chan struct{}, 1), panes: map[string]*pane{},
-		extracted: make(chan error, 1), staled: make(chan error, 1)}
+		extracted: make(chan error, 1), staled: make(chan error, 1), scanned: make(chan scanResult, 1)}
+}
+
+// historyScan starts the history scan of the bound store at a tick (§6.8 "Where it runs"),
+// unless it runs, has nothing more for this brained, or failed less than extractEvery ago. It
+// runs beside the loop: reading the files takes time, and the events do not wait for it. The
+// end of ctx stops it.
+func (l *loop) historyScan(ctx context.Context) {
+	if l.d.scan == nil || l.gate == nil || l.scanning {
+		return
+	}
+	if l.gate.Binding != l.scanFor {
+		// Another binding, store or kind: what the last one found does not hold for it.
+		l.scanFor, l.scanDone, l.scanAfter = l.gate.Binding, false, time.Time{}
+	}
+	if l.scanDone || time.Now().Before(l.scanAfter) {
+		return
+	}
+	l.scanning = true
+	g := *l.gate
+	l.wg.Add(1)
+	go func() {
+		defer l.wg.Done()
+		done, err := l.d.scan(ctx, g)
+		l.scanned <- scanResult{g.Binding, done, err}
+	}()
 }
 
 // checkStale starts the stale check of every workspace of the bound store (§9.1 "once a
