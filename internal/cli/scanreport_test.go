@@ -70,6 +70,9 @@ func TestScanSummary(t *testing.T) {
 			Scan: store.Scan{Status: store.ScanExtracting, Counts: map[string]store.ScanCounts{"codex": {Found: 1, Read: 1}}},
 			All:  store.TurnTokens{Tokens: 70, Known: 1},
 		}, "History scan, read done: 1 session read (1 Codex), 70 tokens recorded. 0 repeats."},
+		// #408: before the first count, no CLI has a count, and the line shows no "()".
+		"no counts yet": {store.ScanReport{Scan: store.Scan{Status: store.ScanReading}},
+			"History scan, read so far: 0 sessions read, tokens: unknown. 0 repeats."},
 	} {
 		if got := ScanSummary(c.r); got != c.want {
 			t.Errorf("%s: ScanSummary = %q,\nwant %q", name, got, c.want)
