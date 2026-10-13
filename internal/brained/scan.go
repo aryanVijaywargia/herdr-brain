@@ -555,8 +555,9 @@ type group struct {
 //   - a failure and a command chain join by their key;
 //   - text that repeats earlier text joins its earlier text. The correction rule and the
 //     repeated-prompt rule find the same repeats there, so a repeat is a correction when one of
-//     its texts holds a correction marker, else a repeated prompt [NEW]. A correction marker with
-//     no repeat stays one occurrence, below its gate;
+//     its texts holds a correction marker, a lesson when one gives a lesson in plain words, else
+//     a repeated prompt [NEW]. A correction marker with no repeat stays one occurrence, below its
+//     gate;
 //   - a procedure joins the earlier procedures that it is like. A procedure whose texts are all
 //     in one text repeat is that repeat, and a lesson in a text repeat is part of it.
 func groups(ins []store.SignalInput) []group {
@@ -589,8 +590,11 @@ func groups(ins []store.SignalInput) []group {
 	repeatOf := map[int64]int{} // a text in a text repeat → the index of the repeat in gs
 	for _, set := range text.sets() {
 		kind := store.FindingPrompt
-		if slices.ContainsFunc(set, func(id int64) bool { return hasMarker(byID[id]) }) {
+		switch {
+		case slices.ContainsFunc(set, func(id int64) bool { return hasMarker(byID[id]) }):
 			kind = store.CandidateCorrection
+		case slices.ContainsFunc(set, func(id int64) bool { return slices.Contains(lessons, id) }):
+			kind = store.CandidateLesson
 		}
 		if len(set) > 1 {
 			for _, id := range set {
