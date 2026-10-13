@@ -178,8 +178,11 @@ var injected = [][2]string{
 }
 
 // scaffold lists marks of a whole text that the CLI wrote, not you: a slash command, its local
-// output, an interrupt note and Codex AGENTS.md text (§6.8).
-var scaffold = []string{"<command-name>", "<local-command-stdout>"}
+// output, an interrupt note and Codex AGENTS.md text (§6.8). Claude also writes a task
+// notification, a local command caveat and a ! shell command with its output (owner decision
+// 2026-10-13, S5 gap HS-G4).
+var scaffold = []string{"<command-name>", "<local-command-stdout>", "<task-notification>", "<local-command-caveat>",
+	"<bash-input>", "<bash-stdout>"}
 
 // scaffoldStart lists marks that start a whole text that the CLI wrote.
 var scaffoldStart = []string{"[Request interrupted", "# AGENTS.md instructions"}

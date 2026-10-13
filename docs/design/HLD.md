@@ -736,7 +736,7 @@ Brain starts empty. A skill or a tool draft needs repeats, and repeats take week
 
 **What Brain drops** (the §6.3 filters, with the marks of the files):
 - Brain blocks (`brain:begin`) and the output of other start hooks;
-- system reminders and CLI scaffolding: `<system-reminder>` (Claude saves hook `additionalContext` in it), `<environment_context>`, `<user_instructions>`, Codex `# AGENTS.md instructions` text, `<command-name>`, `<local-command-stdout>`, `[Request interrupted`, Claude records with `isMeta`, and Claude assistant records of the model `<synthetic>`;
+- system reminders and CLI scaffolding: `<system-reminder>` (Claude saves hook `additionalContext` in it), `<environment_context>`, `<user_instructions>`, Codex `# AGENTS.md instructions` text, `<command-name>`, `<local-command-stdout>`, `<task-notification>`, `<local-command-caveat>`, `<bash-input>`, `<bash-stdout>` (owner decision 2026-10-13, S5 gap HS-G4), `[Request interrupted`, Claude records with `isMeta`, and Claude assistant records of the model `<synthetic>`;
 - Claude user records that carry only a `tool_result`: they are tool replies, not prompts;
 - compaction summaries: Claude `isCompactSummary` records, `summary` records and `system` records of a compact boundary; Codex `compacted`;
 - sub-agent side chains: Claude `isSidechain` records and the `subagents/` files; Codex sessions with a parent thread (`parent_thread_id`);
