@@ -14,7 +14,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// schema is the fixed JSON output schema of the extractor: the claim fields of §7.3, strict
+// claimSchema is the JSON output schema of the extractor for a batch or a change request: the claim fields of §7.3, strict
 // (spike/m0/data/e13s1-schema.json), the skill fields of a claim of kind skill (E16-S4):
 // name, description, required_tools, example and steps [NEW fields], and the contract fields of
 // a claim of kind tool (E17-S6, the E17-S3 tool.toml fields): name, description, commands,
@@ -22,7 +22,7 @@ import (
 // any other kind. covered_by is the claim id of a known skill whose steps cover the failure of
 // the claim, or null (E20-S5) [NEW field]. A strict schema needs every field in required, so
 // they are there too.
-const schema = `{"type":"object","additionalProperties":false,"required":["claims"],"properties":{"claims":{"type":"array",` +
+const claimSchema = `{"type":"object","additionalProperties":false,"required":["claims"],"properties":{"claims":{"type":"array",` +
 	`"items":{"type":"object","additionalProperties":false,"required":["kind","situation","rule","scope_guess",` +
 	`"evidence_refs","same_as","conflicts_with","touches_permission","expected_benefit",` +
 	`"name","description","required_tools","example","steps","commands","inputs","timeout_s","effects","read_only",` +

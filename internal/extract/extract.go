@@ -497,7 +497,7 @@ func (p Pass) extract(ctx context.Context, j job) error {
 	if err != nil || skip {
 		return err
 	}
-	out, err := call(ctx, p.Runner, s, input(j))
+	out, err := call(ctx, p.Runner, s, claimSchema, input(j))
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}

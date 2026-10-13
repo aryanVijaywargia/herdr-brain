@@ -292,13 +292,19 @@ func (p Pass) allowedEvidence(ctx context.Context, tx *sql.Tx, cand store.Candid
 	return refs, off, nil
 }
 
-// changeAllowed reports whether change request job j may call the extractor: extraction is on
-// for its scope, a CLI is chosen, and learning is on for the store and its workspace (§7.3).
+// changeAllowed reports whether change request job j may call the extractor: a switch holds
+// back none of its evidence, and its scope allows a call (scopeAllowed).
 func (p Pass) changeAllowed(ctx context.Context, tx *sql.Tx, j job) (bool, error) {
-	key := j.batch.WorkspaceKey
 	if len(j.refs) == 0 { // a switch holds back all its evidence
 		return false, nil
 	}
+	return p.scopeAllowed(ctx, tx, j.batch.WorkspaceKey)
+}
+
+// scopeAllowed reports whether a call for the scope of workspace key ("" for global) may run:
+// extraction is on for it, a CLI is chosen, and learning is on for the store and the workspace
+// (§7.3).
+func (p Pass) scopeAllowed(ctx context.Context, tx *sql.Tx, key string) (bool, error) {
 	if on, err := store.ExtractionOn(ctx, tx, key); err != nil || !on {
 		return false, err
 	}
@@ -368,7 +374,7 @@ func (p Pass) runChange(ctx context.Context, j job) error {
 	if err != nil || skip {
 		return err
 	}
-	out, err := call(ctx, p.Runner, s, changeInput(j))
+	out, err := call(ctx, p.Runner, s, claimSchema, changeInput(j))
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
