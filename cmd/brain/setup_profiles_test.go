@@ -47,9 +47,9 @@ func TestSetupFakeProfile(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(home, "path", "fake"), []byte("#!/bin/sh\necho 'fake 0.0.1'\n"), 0o700); err != nil { //nolint:gosec // a test CLI must be executable
 				t.Fatal(err)
 			}
-			answers := "\ny\n" // no extractor, then yes to all
+			answers := "\ny\ny\n" // no extractor, then yes to all
 			if !yes {
-				answers = "\nn\n"
+				answers = "\nn\nn\n"
 			}
 			fsys := fakeProfiles(t)
 			d := osSetupDeps(os.Environ())

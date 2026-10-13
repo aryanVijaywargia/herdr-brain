@@ -114,7 +114,7 @@ func TestPlanLinkKeepsExistingFiles(t *testing.T) {
 func TestSetupCommand(t *testing.T) {
 	home := setupHome(t, "0.9.1")
 	var out, errOut bytes.Buffer
-	if code := run([]string{"setup"}, strings.NewReader("\nn\n"), &out, &errOut); code != 0 {
+	if code := run([]string{"setup"}, strings.NewReader("\nn\nn\n"), &out, &errOut); code != 0 {
 		t.Fatalf("setup = %d, stderr %q", code, errOut.String())
 	}
 	if !strings.Contains(out.String(), "Brain binary: /") {
@@ -181,7 +181,7 @@ func TestSetupCommandError(t *testing.T) {
 	mustMkdir(t, filepath.Join(home, ".local", "bin"), 0o555)
 	var out, errOut bytes.Buffer
 	// No extractor, then yes: the binding is written, the link fails.
-	if code := run([]string{"setup"}, strings.NewReader("\ny\n"), &out, &errOut); code != 1 {
+	if code := run([]string{"setup"}, strings.NewReader("\ny\ny\n"), &out, &errOut); code != 1 {
 		t.Fatalf("setup = %d, want 1", code)
 	}
 	lines := strings.Split(strings.TrimSpace(errOut.String()), "\n")
