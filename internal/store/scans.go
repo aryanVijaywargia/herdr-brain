@@ -288,8 +288,11 @@ func ScanSession(ctx context.Context, tx *sql.Tx, k SessionKey, workspaceKey str
 		return 0, 0, fmt.Errorf("read scanned session: %w", err)
 	}
 	err = tx.QueryRowContext(ctx, `SELECT id FROM segments WHERE session_id = ? ORDER BY id LIMIT 1`, session).Scan(&segment)
-	if err == nil || !errors.Is(err, sql.ErrNoRows) {
-		return session, segment, err
+	switch {
+	case err == nil:
+		return session, segment, nil
+	case !errors.Is(err, sql.ErrNoRows):
+		return 0, 0, fmt.Errorf("read scanned segment: %w", err)
 	}
 	err = tx.QueryRowContext(ctx, `INSERT INTO segments (session_id, pane_id, workspace_key, read_source, started, ended)
 		VALUES (?, '', ?, ?, ?, ?) RETURNING id`, session, nullText(workspaceKey), scanReadSource, timeArg(first),

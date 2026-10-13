@@ -307,8 +307,8 @@ func (s *historyScan) add(ctx context.Context, tx *sql.Tx, g Gate, sc store.Scan
 // herdr session; the global pool ("") with binding runner when none does. ok is false for a
 // cwd in two or more workspaces, a shared checkout.
 func scope(cwd string, wss []store.Workspace, runner string) (key, binding string, ok bool) {
-	if real, err := filepath.EvalSymlinks(cwd); err == nil {
-		cwd = real
+	if canon, err := filepath.EvalSymlinks(cwd); err == nil {
+		cwd = canon
 	}
 	var in []store.Workspace
 	for _, w := range wss {
@@ -586,23 +586,7 @@ func groups(ins []store.SignalInput) []group {
 			keyed[k].obs = append(keyed[k].obs, s.Observations...)
 		}
 	}
-	var gs []group
-	repeatOf := map[int64]int{} // a text in a text repeat → the index of the repeat in gs
-	for _, set := range text.sets() {
-		kind := store.FindingPrompt
-		switch {
-		case slices.ContainsFunc(set, func(id int64) bool { return hasMarker(byID[id]) }):
-			kind = store.CandidateCorrection
-		case slices.ContainsFunc(set, func(id int64) bool { return slices.Contains(lessons, id) }):
-			kind = store.CandidateLesson
-		}
-		if len(set) > 1 {
-			for _, id := range set {
-				repeatOf[id] = len(gs)
-			}
-		}
-		gs = append(gs, group{kind: kind, obs: set})
-	}
+	gs, repeatOf := textRepeats(text.sets(), byID, lessons)
 	for _, set := range proc.sets() {
 		r, ok := repeatOf[set[0]]
 		if !ok || slices.ContainsFunc(set, func(id int64) bool { i, ok := repeatOf[id]; return !ok || i != r }) {
@@ -620,6 +604,29 @@ func groups(ins []store.SignalInput) []group {
 		gs = append(gs, group{kind: g.kind, obs: slices.Compact(g.obs)})
 	}
 	return gs
+}
+
+// textRepeats returns the finding of each set of texts that repeat each other (groups), and
+// the index of its repeat for each text in a set of two or more.
+func textRepeats(sets [][]int64, byID map[int64]store.SignalInput, lessons []int64) ([]group, map[int64]int) {
+	var gs []group
+	repeatOf := map[int64]int{}
+	for _, set := range sets {
+		kind := store.FindingPrompt
+		switch {
+		case slices.ContainsFunc(set, func(id int64) bool { return hasMarker(byID[id]) }):
+			kind = store.CandidateCorrection
+		case slices.ContainsFunc(set, func(id int64) bool { return slices.Contains(lessons, id) }):
+			kind = store.CandidateLesson
+		}
+		if len(set) > 1 {
+			for _, id := range set {
+				repeatOf[id] = len(gs)
+			}
+		}
+		gs = append(gs, group{kind: kind, obs: set})
+	}
+	return gs, repeatOf
 }
 
 // hasMarker reports whether text in holds a correction marker: the correction rule finds a

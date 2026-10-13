@@ -163,9 +163,9 @@ func (f *scanFix) claude(id string, age time.Duration, lines ...string) string {
 }
 
 // codex writes the Codex session file of session id.
-func (f *scanFix) codex(id string, age time.Duration, lines ...string) string {
+func (f *scanFix) codex(id string, age time.Duration, lines ...string) {
 	f.t.Helper()
-	return f.file(filepath.Join(".codex", "sessions", "2026", "10", "12", "rollout-"+id+".jsonl"), age, lines...)
+	f.file(filepath.Join(".codex", "sessions", "2026", "10", "12", "rollout-"+id+".jsonl"), age, lines...)
 }
 
 type obj = map[string]any
@@ -303,17 +303,17 @@ func TestScanImport(t *testing.T) {
 		got[o.CaptureIdentity] = fmt.Sprintf("%s %s %v %q", o.Event, o.Sender, o.Truncated, cut(o.Excerpt, 30))
 	}
 	want := map[string]string{
-		"claude:u1":                           `prompt unconfirmed false "use pnpm with key [secret]"`,
-		"claude:a1#1":                         `tool tool false "pnpm test"`,
-		"claude:a1#2":                         `tool tool false "pnpm lint"`,
-		"claude:u2#0":                         `tool tool false "Exit code 1\nFAIL a.test"`,
-		"claude:a2":                           `stop assistant false "The test fails."`,
-		"claude:u7":                           fmt.Sprintf("prompt unconfirmed true %q", cut(long, 30)),
-		"claude:a3#0":                         fmt.Sprintf("tool tool true %q", cut(big, 30)),
-		"codex:x1@" + offsetOf(t, f, "x1", 2): `prompt unconfirmed false "run the api tests"`,
-		"codex:x1@" + offsetOf(t, f, "x1", 3): `tool tool false "make test"`,
-		"codex:x1@" + offsetOf(t, f, "x1", 4): `tool tool false "Exit code: 2\nOutput:\nFAIL api"`,
-		"codex:x1@" + offsetOf(t, f, "x1", 6): `stop assistant false "make test fails."`,
+		"claude:u1":                     `prompt unconfirmed false "use pnpm with key [secret]"`,
+		"claude:a1#1":                   `tool tool false "pnpm test"`,
+		"claude:a1#2":                   `tool tool false "pnpm lint"`,
+		"claude:u2#0":                   `tool tool false "Exit code 1\nFAIL a.test"`,
+		"claude:a2":                     `stop assistant false "The test fails."`,
+		"claude:u7":                     fmt.Sprintf("prompt unconfirmed true %q", cut(long, 30)),
+		"claude:a3#0":                   fmt.Sprintf("tool tool true %q", cut(big, 30)),
+		"codex:x1@" + offsetOf(t, f, 2): `prompt unconfirmed false "run the api tests"`,
+		"codex:x1@" + offsetOf(t, f, 3): `tool tool false "make test"`,
+		"codex:x1@" + offsetOf(t, f, 4): `tool tool false "Exit code: 2\nOutput:\nFAIL api"`,
+		"codex:x1@" + offsetOf(t, f, 6): `stop assistant false "make test fails."`,
 	}
 	diffMaps(t, got, want)
 	// One record with two shell commands gives two command records (S89); a long command is cut
@@ -372,11 +372,11 @@ func TestScanImport(t *testing.T) {
 	}
 }
 
-// offsetOf returns the byte offset of line i of the Codex file of session id, the record id of
+// offsetOf returns the byte offset of line i of the Codex file of session x1, the record id of
 // that line (§6.8).
-func offsetOf(t *testing.T, f *scanFix, id string, i int) string {
+func offsetOf(t *testing.T, f *scanFix, i int) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(f.home, ".codex", "sessions", "2026", "10", "12", "rollout-"+id+".jsonl"))
+	b, err := os.ReadFile(filepath.Join(f.home, ".codex", "sessions", "2026", "10", "12", "rollout-x1.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -541,16 +541,7 @@ func TestScanRestart(t *testing.T) {
 		t.Fatalf("row after the stop = %+v, want reading by s1", sc)
 	}
 	// The session grew; a new brained of the same binding claims the row at its start.
-	b, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(p, append(b, []byte(strings.Join(more, "\n")+"\n")...), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chtimes(p, scanClaim.Add(-time.Minute), scanClaim.Add(-time.Minute)); err != nil {
-		t.Fatal(err)
-	}
+	grow(t, p, more...)
 	f.s.now = func() time.Time { return scanClaim.Add(time.Hour) } // the claim time stays the first
 	if !f.run() {
 		t.Fatal("second run = not done, want done")
@@ -561,7 +552,7 @@ func TestScanRestart(t *testing.T) {
 		ids = append(ids, o.CaptureIdentity)
 	}
 	slices.Sort(ids)
-	wantIDs := []string{"claude:a1#0", "claude:a1#1", "claude:a2", "claude:u1", "claude:u2", "codex:x1@" + offsetOf(t, f, "x1", 1)}
+	wantIDs := []string{"claude:a1#0", "claude:a1#1", "claude:a2", "claude:u1", "claude:u2", "codex:x1@" + offsetOf(t, f, 1)}
 	if !slices.Equal(ids, wantIDs) || len(cmds) != 2 {
 		t.Errorf("observations = %q, %d command records; want %q, 2", ids, len(cmds), wantIDs)
 	}
@@ -576,6 +567,21 @@ func TestScanRestart(t *testing.T) {
 	reads = 0
 	if !f.run() || reads != 0 {
 		t.Errorf("third run read %d files, want none", reads)
+	}
+}
+
+// grow adds lines to the session file at p, changed a minute before the claim time.
+func grow(t *testing.T, p string, lines ...string) {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, append(b, []byte(strings.Join(lines, "\n")+"\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(p, scanClaim.Add(-time.Minute), scanClaim.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -734,6 +740,13 @@ func TestScanInBackground(t *testing.T) {
 		t.Error("the scan ran again")
 	default:
 	}
+	f.noPaneNoCall(t, h)
+}
+
+// noPaneNoCall fails unless the scan showed one notification, asked herdr for no pane and made
+// no extractor batch, so no model call (S86).
+func (f *scanFix) noPaneNoCall(t *testing.T, h *harness) {
+	t.Helper()
 	if len(f.notes) != 1 {
 		t.Errorf("notifications = %q, want one", f.notes)
 	}

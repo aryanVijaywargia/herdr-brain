@@ -823,16 +823,14 @@ func (s *statusCall) scanWait(ctx context.Context, tx *sql.Tx, sc store.Scan) (S
 		if err != nil || x.CLI == "" {
 			return WaitExtractor, err
 		}
-		gates, caps, err := extract.ReadConfig(s.Config)
-		if err != nil {
-			return "", nil
+		// With a config that does not parse, the extraction lines say why no call goes.
+		if gates, caps, cerr := extract.ReadConfig(s.Config); cerr == nil {
+			d, err := extract.Pass{HerdrSession: s.Binding.Session, DefaultOn: learningDefault(s.Binding), Now: s.Now,
+				Gates: gates, Caps: caps}.Day(ctx, tx)
+			if err != nil || d.Paused() != "" {
+				return WaitCaps, err
+			}
 		}
-		d, err := extract.Pass{HerdrSession: s.Binding.Session, DefaultOn: learningDefault(s.Binding), Now: s.Now,
-			Gates: gates, Caps: caps}.Day(ctx, tx)
-		if err != nil || d.Paused() == "" {
-			return "", err
-		}
-		return WaitCaps, nil
 	}
 	return "", nil
 }
