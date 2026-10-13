@@ -515,6 +515,21 @@ func TestScanSkipsAndScope(t *testing.T) {
 	})
 }
 
+// Owner decision 2026-10-13, S5 gap HS-G1: a Claude session with the entrypoint sdk-cli
+// (claude -p, the Agent SDK) is not interactive and the scan skips it; one with cli is read.
+func TestScanClaudeEntrypoint(t *testing.T) {
+	f := newScanFix(t, bindings.KindMain)
+	f.claude("sdk", time.Hour, cUser("sdk-u", "/nowhere", 1, "a prompt", obj{"entrypoint": "sdk-cli"}))
+	f.claude("term", time.Hour, cUser("term-u", "/nowhere", 1, "a prompt", obj{"entrypoint": "cli"}))
+	f.run()
+	want := map[string]store.ScanCounts{
+		"claude": {Found: 2, Read: 1, Skipped: map[store.SkipReason]int{store.SkipNotInteractive: 1}},
+	}
+	if got := f.row().Counts; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("counts = %v,\nwant %v", got, want)
+	}
+}
+
 // AC 1, S89: a stop between two files and a file that grew after the first read: the row in
 // reading of the binding goes back to the start at the next run, with its first claim time.
 // The sessions that the scan imported are read again and add nothing, and each occurrence and
@@ -625,6 +640,46 @@ func TestScanFindings(t *testing.T) {
 	}
 	if len(f.notes) != 1 || f.notes[0] != "2 repeats, extractor false" {
 		t.Errorf("notifications = %q, want one with the report", f.notes)
+	}
+}
+
+// Owner decision 2026-10-13, S5 gap HS-G2: a repeated prompt needs at least 3 words. A
+// 2-word prompt in 3 sessions is no finding; a 3-word prompt in 2 sessions is one. The match
+// uses word sets, so "run tests" joins "run run tests": each prompt counts with its own words,
+// in either order.
+func TestScanPromptWords(t *testing.T) {
+	for name, c := range map[string]struct {
+		prompts [][]string // the prompts of each session, newest session first
+		want    []string
+	}{
+		"floor": {[][]string{{"pls continue", "run the tests"}, {"pls continue", "run the tests"}, {"pls continue"}},
+			[]string{`prompt "run the tests" 2 sessions`}},
+		"short first": {[][]string{{"run run tests"}, {"run run tests"}, {"run tests"}},
+			[]string{`prompt "run run tests" 2 sessions`}},
+		"short last": {[][]string{{"run tests"}, {"run run tests"}, {"run run tests"}},
+			[]string{`prompt "run run tests" 2 sessions`}},
+		"one long": {[][]string{{"run run tests"}, {"run tests"}}, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newScanFix(t, bindings.KindMain)
+			for i, ps := range c.prompts {
+				id := fmt.Sprintf("s%d", i+1)
+				var lines []string
+				for j, p := range ps {
+					u := fmt.Sprintf("%s-%d", id, j)
+					lines = append(lines, cUser(u+"u", "/nowhere", 2*j+1, p), cAssistant(u+"a", u+"m", 2*j+2, 10, cText("ok")))
+				}
+				f.claude(id, time.Duration(i+1)*time.Hour, lines...)
+			}
+			f.run()
+			var got []string
+			for _, rep := range f.report().Repeats {
+				got = append(got, fmt.Sprintf("%s %q %d sessions", rep.Finding.Kind, rep.Excerpt, rep.Sessions))
+			}
+			if !slices.Equal(got, c.want) {
+				t.Errorf("repeats = %q, want %q", got, c.want)
+			}
+		})
 	}
 }
 
@@ -885,6 +940,31 @@ func TestScanWorkspaceMap(t *testing.T) {
 		}
 		return err
 	})
+}
+
+// #406: the scan's real refresh of the workspace map runs `herdr workspace list` with a
+// deadline. The herdr client refuses a call with none, and brained runs the scan with a context
+// that has none.
+func TestScanWorkspaceMapDeadline(t *testing.T) {
+	f := newScanFix(t, bindings.KindMain)
+	f.claude("c1", time.Hour, cUser("u1", "/nowhere", 1, "a prompt"))
+	dir := t.TempDir()
+	bin, called := filepath.Join(dir, "herdr"), filepath.Join(dir, "called")
+	script := "#!/bin/sh\ntouch " + called + "\n" +
+		`echo '{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[]}}'` + "\n"
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f.s.sync = newHistoryScan([]string{"HOME=" + f.home, "PATH=/usr/bin:/bin", "HERDR_BIN_PATH=" + bin}, "", nil).sync
+	if !f.run() {
+		t.Error("scan = not done, want done")
+	}
+	if _, err := os.Stat(called); err != nil {
+		t.Errorf("fake herdr: %v, want one workspace list call", err)
+	}
+	if obs, _ := f.observations(); len(obs) != 1 {
+		t.Errorf("observations = %d, want 1", len(obs))
+	}
 }
 
 // Sol fix: an imported session whose file changed after the claim time is out of the restart's

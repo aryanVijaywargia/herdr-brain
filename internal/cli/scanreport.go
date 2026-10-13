@@ -67,8 +67,11 @@ func ScanSummary(r store.ScanReport) string {
 	case r.InRepeats.Unknown > 0:
 		repeats += "; " + tokensUsed(r.InRepeats)
 	}
-	return fmt.Sprintf("%s: %s read (%s), %s. %s.", head, plural(read, "session"), perCLI(r.Scan),
-		TokensRecorded(r.All), repeats)
+	sessions := plural(read, "session") + " read"
+	if per := perCLI(r.Scan); per != "" {
+		sessions += " (" + per + ")"
+	}
+	return fmt.Sprintf("%s: %s, %s. %s.", head, sessions, TokensRecorded(r.All), repeats)
 }
 
 // ScanFindings are the finding lines of the report r, at most maxScanFindings, most tokens

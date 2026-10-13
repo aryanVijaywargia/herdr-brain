@@ -4,6 +4,7 @@
 {"timestamp":"2026-09-02T08:00:03.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /work/api\n\n<INSTRUCTIONS>agents file text</INSTRUCTIONS>"}]}}
 {"timestamp":"2026-09-02T08:00:04.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>env text</environment_context>"}]}}
 {"timestamp":"2026-09-02T08:00:05.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<!-- brain:begin v1 -->\nBrain brief text\n<!-- brain:end -->"}]}}
+{"timestamp":"2026-09-02T08:00:05.500Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<user_shell_command>\n<command>shell command text</command>\n<result>Exit code: 0\nOutput:\nshell result text</result>\n</user_shell_command>"}]}}
 {"timestamp":"2026-09-02T08:00:06.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"keep this prompt"}]}}
 {"timestamp":"2026-09-02T08:00:06.000Z","type":"event_msg","payload":{"type":"user_message","message":"keep this prompt"}}
 {"timestamp":"2026-09-02T08:00:07.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,aW1hZ2U="}]}}

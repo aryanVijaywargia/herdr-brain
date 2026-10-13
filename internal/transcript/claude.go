@@ -25,6 +25,7 @@ type claudeLine struct {
 	UUID             string         `json:"uuid"`
 	Timestamp        string         `json:"timestamp"`
 	CWD              string         `json:"cwd"`
+	Entrypoint       string         `json:"entrypoint"`
 	IsSidechain      bool           `json:"isSidechain"`
 	IsMeta           bool           `json:"isMeta"`
 	IsCompactSummary bool           `json:"isCompactSummary"`
@@ -94,6 +95,10 @@ func (c *claude) line(raw []byte, _ int64) error {
 		return err
 	}
 	c.at(at, l.CWD)
+	// A claude -p or Agent SDK run is not interactive (owner decision 2026-10-13, S5 gap HS-G1).
+	if l.Entrypoint == "sdk-cli" {
+		c.s.Interactive = false
+	}
 	if l.Type != "user" && l.Type != "assistant" {
 		return nil
 	}
