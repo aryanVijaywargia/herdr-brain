@@ -515,6 +515,21 @@ func TestScanSkipsAndScope(t *testing.T) {
 	})
 }
 
+// Owner decision 2026-10-13, S5 gap HS-G1: a Claude session with the entrypoint sdk-cli
+// (claude -p, the Agent SDK) is not interactive and the scan skips it; one with cli is read.
+func TestScanClaudeEntrypoint(t *testing.T) {
+	f := newScanFix(t, bindings.KindMain)
+	f.claude("sdk", time.Hour, cUser("sdk-u", "/nowhere", 1, "a prompt", obj{"entrypoint": "sdk-cli"}))
+	f.claude("term", time.Hour, cUser("term-u", "/nowhere", 1, "a prompt", obj{"entrypoint": "cli"}))
+	f.run()
+	want := map[string]store.ScanCounts{
+		"claude": {Found: 2, Read: 1, Skipped: map[store.SkipReason]int{store.SkipNotInteractive: 1}},
+	}
+	if got := f.row().Counts; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("counts = %v,\nwant %v", got, want)
+	}
+}
+
 // AC 1, S89: a stop between two files and a file that grew after the first read: the row in
 // reading of the binding goes back to the start at the next run, with its first claim time.
 // The sessions that the scan imported are read again and add nothing, and each occurrence and
