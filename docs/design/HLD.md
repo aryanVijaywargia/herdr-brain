@@ -685,6 +685,7 @@ Limits:
 - **Forget evidence:** `brain forget --session <id>` deletes the observations, command records and prompt index rows of one session, and clears the transcript path of its receipts. First it lists the items and candidates that use them. You choose: keep those items, or also forget them.
 - **Forget content:** `brain forget <item>` removes the item text from items, revisions, proposals (with change requests and review previews), candidates, claim text, rejection reasons, applied edits, the prompt index, the extraction queue and every output generation. Brain builds a new generation and deletes the old ones (§7.5). Brain keeps only a tombstone with non-text ids (claim id, source keys), so the same evidence does not come back.
   - Forget acts on one scoped item. If another scope holds its own copy of the same claim, Brain lists it and does not erase it.
+  - If an approved merge retired the item into a kept item (§9.5), the kept item can hold merged text from it. When the merge is not undone and the kept item is not forgotten, forget names the kept item before it erases anything: `kept: item <k> holds merged text from item <id> (<where>); run brain forget <k> to remove it`. Forget does not change the kept item (owner decision 2026-10-14).
   - Forget reports **done** only when no output generation and no skill or tool revision file holds the text (owner decision 2026-09-29). Until then it reports **pending**, and the hook withholds the brief ("withheld: forget pending").
 - **Forget during extraction:** if a forget touches the input of an active batch, Brain discards the batch result. A later batch extracts again from the kept evidence (§7.3).
 - New derived records in later milestones join this list before they ship.
@@ -1142,7 +1143,7 @@ Brain stops most duplicates when a claim first comes in (`same_as`, §7.2). Near
 - **Approve** (also edit then approve): one transaction checks every base revision, writes the new revision of the kept item (pinned when an item of the group was pinned), retires the other items, and links the claim of each retired item to the claim of the kept item as a confirmed `same_as` link. So a later claim with the key of a retired item goes to the kept item. A changed base revision fails with the message of §7.4. The brief is built again.
 - **Undo:** `brain undo <kept item>` on the merge revision restores the old text of the kept item and the retired items in one transaction, and removes the links that the merge made. A second undo does nothing (§7.5).
 - **Reject:** Brain stores the id set of the group for that part. A later pass drops a group with the same id set.
-- **Forget:** a forget of an item in a waiting merge proposal removes that proposal (§6.7).
+- **Forget:** a forget of an item in a waiting merge proposal removes that proposal (§6.7). A forget of an item that an approved merge retired names the kept item and keeps it (§6.7).
 
 ---
 

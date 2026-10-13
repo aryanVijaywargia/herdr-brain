@@ -271,10 +271,11 @@ func newCandidates(ctx context.Context, tx *sql.Tx, ss []store.Session, listed [
 // remember and review refuse an empty text.
 func forgotten(cur store.ItemRevision) bool { return cur.Text == "" && cur.State == store.StateRetired }
 
-// forget lists the copies of item id's claim in other scopes, then forgets the item in one
-// transaction and builds the output, and reports "done" or "pending" (§6.7).
+// forget lists the copies of item id's claim in other scopes and the kept items of its merges,
+// then forgets the item in one transaction and builds the output, and reports "done" or
+// "pending" (§6.7).
 func (cl caller) forget(ctx context.Context, id int64) error {
-	var copies []store.Item
+	var copies, kept []store.Item
 	var was bool
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		_, cur, err := cl.item(ctx, tx, id)
@@ -282,7 +283,10 @@ func (cl caller) forget(ctx context.Context, id int64) error {
 			return err
 		}
 		was = forgotten(cur)
-		copies, err = store.ClaimCopies(ctx, tx, id)
+		if copies, err = store.ClaimCopies(ctx, tx, id); err != nil {
+			return err
+		}
+		kept, err = store.MergeKept(ctx, tx, id)
 		return err
 	})
 	if err != nil {
@@ -291,6 +295,14 @@ func (cl caller) forget(ctx context.Context, id int64) error {
 	// The copies come first, before anything is erased; forget keeps them (§6.7).
 	for _, c := range copies {
 		if _, err := fmt.Fprintf(cl.Stdout, "kept: item %d, a copy of the same claim (%s)\n", c.ID, cl.where(c)); err != nil {
+			return err
+		}
+	}
+	// A merge wrote one new text into the kept item, which may repeat the words of item id;
+	// forget keeps it (§6.7, owner decision 2026-10-14).
+	for _, k := range kept {
+		if _, err := fmt.Fprintf(cl.Stdout, "kept: item %d holds merged text from item %d (%s); run brain forget %d to remove it\n",
+			k.ID, id, cl.where(k), k.ID); err != nil {
 			return err
 		}
 	}
