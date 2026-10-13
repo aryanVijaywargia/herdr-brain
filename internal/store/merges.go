@@ -179,3 +179,36 @@ func UnlinkMerged(ctx context.Context, tx *sql.Tx, proposal int64) error {
 	}
 	return nil
 }
+
+// MergeKept reads the kept items that hold merged text from item, in id order (§6.7): the item
+// of each approved merge proposal that retired item, when the merge is not undone and the kept
+// item is not forgotten. Forget of item lists them and keeps them.
+func MergeKept(ctx context.Context, tx *sql.Tx, item int64) ([]Item, error) {
+	ids, err := query(ctx, tx, `SELECT DISTINCT p.item_id FROM proposals p
+		JOIN items k ON k.id = p.item_id
+		JOIN item_revisions c ON c.item_id = k.id AND c.revision = k.current_revision
+		WHERE p.status = ?2 AND json_array_length(p.merge) > 0 AND p.item_id != ?1
+			AND EXISTS (SELECT 1 FROM item_revisions r WHERE r.item_id = ?1 AND r.proposal_id = p.id)
+			AND NOT EXISTS (SELECT 1 FROM item_revisions m JOIN item_revisions u
+				ON u.item_id = m.item_id AND u.undoes_revision = m.revision
+				WHERE m.item_id = k.id AND m.proposal_id = p.id)
+			AND NOT (c.text = '' AND c.state = ?3)
+		ORDER BY p.item_id`,
+		func(rows *sql.Rows) (int64, error) {
+			var id int64
+			err := rows.Scan(&id)
+			return id, err
+		}, item, ProposalApproved, StateRetired)
+	if err != nil {
+		return nil, fmt.Errorf("read the merges of item %d: %w", item, err)
+	}
+	var its []Item
+	for _, id := range ids {
+		it, err := ItemByID(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+		its = append(its, it)
+	}
+	return its, nil
+}
