@@ -321,14 +321,18 @@ func (cl caller) gates() store.Gates {
 
 // list prints the pending proposals that the caller sees, after the exception links and the
 // same_as links that wait for review (#358). A proposal of a candidate below its gate waits in
-// brain review --all only (§7.2).
+// brain review --all only (§7.2). The history scan report comes first while its work waits
+// (scanTop).
 func (cl caller) list(ctx context.Context) error {
 	gates := cl.gates()
 	var lines []string
-	var paused string
+	var paused, top string
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		ids, err := store.PendingProposalIDs(ctx, tx)
 		if err != nil {
+			return err
+		}
+		if top, err = scanTop(ctx, tx, gates); err != nil {
 			return err
 		}
 		if paused, err = cl.paused(ctx, tx); err != nil {
@@ -368,11 +372,69 @@ func (cl caller) list(ctx context.Context) error {
 		paused += "\n"
 	}
 	if len(lines) == 0 {
-		_, err = fmt.Fprintf(cl.Stdout, "no proposals wait for your review\n%s", paused)
+		_, err = fmt.Fprintf(cl.Stdout, "%sno proposals wait for your review\n%s", top, paused)
 		return err
 	}
-	_, err = fmt.Fprintf(cl.Stdout, "%s\n\nshow one: brain review <id>\n%s", strings.Join(lines, "\n"), paused)
+	_, err = fmt.Fprintf(cl.Stdout, "%s%s\n\nshow one: brain review <id>\n%s", top, strings.Join(lines, "\n"), paused)
 	return err
+}
+
+// scanTop is the history scan report at the top of brain review (§6.8 "Efficiency report"): its
+// summary line and its finding lines, while a scan batch waits (the scan is extracting) or a
+// scan proposal waits, then an empty line. "" when neither waits.
+func scanTop(ctx context.Context, tx *sql.Tx, gates store.Gates) (string, error) {
+	r, ok, err := scanReport(ctx, tx, gates)
+	if err != nil || !ok {
+		return "", err
+	}
+	ps, err := store.ScanProposals(ctx, tx, repeatFindings(r))
+	if err != nil || r.Scan.Status == store.ScanDone && len(ps) == 0 {
+		return "", err
+	}
+	return strings.Join(append([]string{ScanSummary(r)}, ScanFindings(r, ps)...), "\n") + "\n\n", nil
+}
+
+// scanReport returns the report of the history scan once its read ended, with the scan gates of
+// gates; false before that, and for a store with no scan.
+func scanReport(ctx context.Context, tx *sql.Tx, gates store.Gates) (store.ScanReport, bool, error) {
+	s, ok, err := store.HistoryScan(ctx, tx)
+	if err != nil || !ok || s.Status != store.ScanExtracting && s.Status != store.ScanDone {
+		return store.ScanReport{}, false, err
+	}
+	r, err := store.HistoryScanReport(ctx, tx, s.ID, store.ScanGates(gates))
+	return r, err == nil, err
+}
+
+// repeatFindings returns the findings of the repeats of r.
+func repeatFindings(r store.ScanReport) []store.Finding {
+	fs := make([]store.Finding, len(r.Repeats))
+	for i, rep := range r.Repeats {
+		fs[i] = rep.Finding
+	}
+	return fs
+}
+
+// scanLine is the line of show for a scan proposal p (§6.8 "Proposals"): the numbers of its
+// whole finding, not of the proposal alone. "" for any other proposal.
+func scanLine(ctx context.Context, tx *sql.Tx, gates store.Gates, p store.Proposal) (string, error) {
+	if p.CandidateID == nil {
+		return "", nil
+	}
+	r, ok, err := scanReport(ctx, tx, gates)
+	if err != nil || !ok {
+		return "", err
+	}
+	f, ok, err := store.FindingOf(ctx, tx, *p.CandidateID, repeatFindings(r))
+	if err != nil || !ok {
+		return "", err
+	}
+	i := slices.IndexFunc(r.Repeats, func(rep store.Repeat) bool { return rep.Finding.ID == f.ID })
+	rep := r.Repeats[i]
+	used := tokenCount(rep.Turns.Tokens) + " tokens"
+	if rep.Turns.Unknown > 0 {
+		used += "; " + plural(rep.Turns.Unknown, "turn") + " with no usage"
+	}
+	return fmt.Sprintf("From the history scan: %s; those turns used %s.\n", plural(rep.Sessions, "past session"), used), nil
 }
 
 // paused is the line that says that learning waits for a full daily cap, and the local time
@@ -463,6 +525,8 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	var claim string                // the claim of a script proposal
 	var sibs []store.Proposal       // the proposals that you pick between with p
 	var change string               // the lines of the change request of p (changeLines)
+	var scan string                 // the finding line of a scan proposal (scanLine)
+	gates := cl.gates()
 	// The review pane shows a pending proposal only: it closes on one that another surface
 	// decided (E5-S1).
 	read := cl.proposal
@@ -492,6 +556,9 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 			return err
 		}
 		if change, err = changeLines(ctx, tx, p); err != nil {
+			return err
+		}
+		if scan, err = scanLine(ctx, tx, gates, p); err != nil {
 			return err
 		}
 		if p.Script() {
@@ -526,6 +593,7 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 		fmt.Fprintf(&b, "excerpts:\n  %s\n", strings.Join(excerpts, "\n  "))
 	}
 	fmt.Fprintf(&b, "source:   %s, %s\n", from, localTime(p.Created))
+	b.WriteString(scan)
 	b.WriteString(match)
 	b.WriteString(change)
 	if p.Status == store.ProposalPending {

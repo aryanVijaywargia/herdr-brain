@@ -707,6 +707,11 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	if err != nil || id == 0 || covered {
 		return Suggestion{}, err
 	}
+	if j.batch.Scan() {
+		// A scan proposal opens no review pane: no agent pane asked for it (§6.8, S86).
+		_, _, err := p.proposal(ctx, tx, id, c, now)
+		return Suggestion{}, err
+	}
 	return p.propose(ctx, tx, id, c, now)
 }
 

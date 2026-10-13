@@ -542,3 +542,27 @@ func TestScanSwitches(t *testing.T) {
 		t.Errorf("calls: ws-A %d, global %d; want 0 and 1", f.calls("ws-A"), f.calls(""))
 	}
 }
+
+// AC (S86): a scan proposal opens no review pane, as no agent pane asked for it: a lesson
+// proposal of a scan batch reserves no suggestion.
+func TestScanLessonNoPane(t *testing.T) {
+	f := newFixture(t)
+	a1 := f.scanned("a1", "ws-A", vet)
+	f.scanRow(finding(1, store.CandidateLesson, "ws-A", a1))
+	f.cli.reply = func(_ context.Context, prompt string) ([]byte, error) {
+		return claudeReply(map[string]any{"claims": []any{replyOf(map[string]any{"kind": "lesson", "situation": "committing",
+			"rule": "run go vet first", "evidence_refs": promptRefs(prompt)})}})
+	}
+	var suggested int
+	p := f.pass()
+	p.Suggest = func(context.Context, Suggestion) error { suggested++; return nil }
+	if err := p.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(f.proposals()); n != 1 {
+		t.Fatalf("proposals = %d, want the lesson proposal", n)
+	}
+	if n := f.count(`SELECT COUNT(*) FROM suggestions`); suggested != 0 || n != 0 {
+		t.Errorf("suggestions: %d started, %d reserved; want none", suggested, n)
+	}
+}

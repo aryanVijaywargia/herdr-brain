@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -556,4 +557,22 @@ func ScanProposals(ctx context.Context, tx *sql.Tx, findings []Finding) (map[int
 		}
 	}
 	return m, nil
+}
+
+// FindingOf returns the first of findings with an observation that is evidence of candidate id:
+// the finding of a scan proposal of the candidate (§6.8 "Proposals"). It returns false for none.
+func FindingOf(ctx context.Context, tx *sql.Tx, id int64, findings []Finding) (Finding, bool, error) {
+	obs, err := query(ctx, tx, `SELECT observation_id FROM evidence_links WHERE candidate_id = ?`,
+		func(r *sql.Rows) (o int64, err error) { return o, r.Scan(&o) }, id)
+	if err != nil {
+		return Finding{}, false, fmt.Errorf("read evidence of candidate %d: %w", id, err)
+	}
+	for _, f := range findings {
+		for _, o := range f.Obs {
+			if slices.Contains(obs, o.Observation) {
+				return f, true, nil
+			}
+		}
+	}
+	return Finding{}, false, nil
 }
