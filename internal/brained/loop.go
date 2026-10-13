@@ -39,6 +39,7 @@ type daemon struct {
 	onBehind     func()                                  // tests only: called after a reader drops an event
 	extract      func(ctx context.Context, g Gate) error // one extraction pass of the store of g; nil for none
 	stale        func(ctx context.Context, g Gate) error // the stale check of every workspace of the store of g; nil for none
+	merge        func(ctx context.Context, g Gate) error // the merge pass of the store of g (§9.5); nil for none
 	// scan claims and runs the history scan of the store of g (§6.8); nil for none. done says
 	// that this brained has nothing more to scan.
 	scan  func(ctx context.Context, g Gate) (done bool, err error)
@@ -81,6 +82,10 @@ type loop struct {
 	staling   bool       // a stale check runs
 	lastStale time.Time  // the start of the last stale check of every workspace
 	staled    chan error // the end of a stale check
+
+	merging   bool       // a merge pass runs
+	lastMerge time.Time  // the start of the last merge pass
+	merged    chan error // the end of a merge pass
 
 	scanning  bool             // the history scan runs
 	scanFor   bindings.Binding // the binding of the last scan run; a new one starts again
@@ -136,12 +141,16 @@ func (d *daemon) run(ctx context.Context) error {
 			}
 			l.extract(ctx)
 			l.checkStale(ctx)
+			l.mergePass(ctx)
 			l.historyScan(ctx)
 		case err := <-l.extracted:
 			l.extracting = false
 			l.report(err)
 		case err := <-l.staled:
 			l.staling = false
+			l.report(err)
+		case err := <-l.merged:
+			l.merging = false
 			l.report(err)
 		case r := <-l.scanned:
 			l.scanning = false
@@ -156,7 +165,8 @@ func (d *daemon) run(ctx context.Context) error {
 
 func newLoop(d *daemon) *loop {
 	return &loop{d: d, items: make(chan item, d.queue), behind: make(chan struct{}, 1), panes: map[string]*pane{},
-		extracted: make(chan error, 1), staled: make(chan error, 1), scanned: make(chan scanResult, 1)}
+		extracted: make(chan error, 1), staled: make(chan error, 1), merged: make(chan error, 1),
+		scanned: make(chan scanResult, 1)}
 }
 
 // historyScan starts the history scan of the bound store at a tick (§6.8 "Where it runs"),
@@ -197,6 +207,23 @@ func (l *loop) checkStale(ctx context.Context) {
 	go func() {
 		defer l.wg.Done()
 		l.staled <- l.d.stale(ctx, g)
+	}()
+}
+
+// mergePass starts the merge pass of the bound store (§9.5 "once a day"), unless one runs or
+// the last one started less than mergeEvery ago. The first tick with a binding starts one. It
+// runs beside the loop, as the stale check; the store keeps the hash of each part at its last
+// pass, so a restart does not pass an unchanged part again.
+func (l *loop) mergePass(ctx context.Context) {
+	if l.d.merge == nil || l.gate == nil || l.merging || !l.lastMerge.IsZero() && time.Since(l.lastMerge) < mergeEvery {
+		return
+	}
+	l.merging, l.lastMerge = true, time.Now()
+	g := *l.gate
+	l.wg.Add(1)
+	go func() {
+		defer l.wg.Done()
+		l.merged <- l.d.merge(ctx, g)
 	}()
 }
 

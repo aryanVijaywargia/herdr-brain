@@ -613,8 +613,10 @@ func TestCandidateIDMigration(t *testing.T) {
 	merged := e.mustAttach(t, Candidate{ClaimID: e.claim(t, "use bun"), Scope: ScopeWorkspace, WorkspaceKey: "ws-a",
 		Kind: CandidateCorrection}, e.observe(t, "claude", "a1", "ws-a", SenderUnconfirmed, testNow))
 	write(t, e.Store, func(tx *sql.Tx) error {
-		if _, err := InsertProposal(ctx, tx, Proposal{CandidateID: &merged.ID, Text: "rule", Scope: ScopeWorkspace,
-			Target: "fact", Diff: "+ rule", Status: ProposalSuperseded, Created: testNow}); err != nil {
+		// The proposals table of migration 33: InsertProposal writes the later merge column.
+		if _, err := tx.Exec(`INSERT INTO proposals (candidate_id, text, scope, target, diff, expected_benefit,
+			permission_warning, trigger_prompts, status, created) VALUES (?, 'rule', ?, 'fact', '+ rule', '', 0, '[]', ?, ?)`,
+			merged.ID, ScopeWorkspace, ProposalSuperseded, timeArg(testNow)); err != nil {
 			return err
 		}
 		_, err := tx.Exec(`DELETE FROM evidence_links WHERE candidate_id = ?`, merged.ID)

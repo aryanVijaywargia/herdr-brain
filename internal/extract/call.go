@@ -160,10 +160,11 @@ func cleanEnv() []string {
 		"LANG=en_US.UTF-8"}
 }
 
-// call runs the extractor CLI of s with prompt, outside any transaction, in a new scratch
-// folder, and returns the result object that the schema describes. An error that wraps
-// ErrInvalid is an invalid response; any other error is a failure.
-func call(ctx context.Context, r Runner, s store.ExtractorSetting, prompt string) (json.RawMessage, error) {
+// call runs the extractor CLI of s with prompt and the JSON output schema schema, outside any
+// transaction, in a new scratch folder, and returns the result object that schema describes:
+// claimSchema for a batch or a change request, mergeSchema for the merge pass (§9.5). An error
+// that wraps ErrInvalid is an invalid response; any other error is a failure.
+func call(ctx context.Context, r Runner, s store.ExtractorSetting, schema, prompt string) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	dir, err := os.MkdirTemp("", "brain-extract-")
@@ -174,7 +175,7 @@ func call(ctx context.Context, r Runner, s store.ExtractorSetting, prompt string
 	env := cleanEnv()
 	switch s.CLI {
 	case store.ExtractorClaude:
-		out, err := r.Run(ctx, Command{Dir: dir, Argv: claudeArgv(s.Model, prompt), Env: env})
+		out, err := r.Run(ctx, Command{Dir: dir, Argv: claudeArgv(s.Model, schema, prompt), Env: env})
 		if err != nil {
 			return nil, runError(s.CLI, out, err)
 		}
@@ -200,9 +201,9 @@ func call(ctx context.Context, r Runner, s store.ExtractorSetting, prompt string
 	return nil, fmt.Errorf("no extractor CLI is chosen")
 }
 
-// claudeArgv is the E13-S1 argv of claude -p: no tools, no MCP, no settings, no hooks, no
-// slash commands and no session file.
-func claudeArgv(model, prompt string) []string {
+// claudeArgv is the E13-S1 argv of claude -p with the output schema schema: no tools, no MCP,
+// no settings, no hooks, no slash commands and no session file.
+func claudeArgv(model, schema, prompt string) []string {
 	argv := []string{"claude", "-p"}
 	if model != "" {
 		argv = append(argv, "--model", model)

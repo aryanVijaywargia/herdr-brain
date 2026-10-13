@@ -18,10 +18,12 @@ func (p Proposal) Script() bool { return p.ItemID == nil && p.Target == ScriptTa
 // its claim in its scope (E17-S8): a script proposal comes with the tool draft of the same
 // command chain, so forget of that item erases the script text too (§6.7). It does not test the
 // target, as forget erases the target first: a script is the only proposal of a candidate with
-// no item.
+// no item. It holds the merge proposals that list the item too (§9.5): their text and diff hold
+// its text, and forget of the item removes a waiting one from the queue.
 const scriptsOfItem = `(item_id = ?1 OR item_id IS NULL AND candidate_id IN (
 	SELECT c.id FROM candidates c JOIN items i ON i.id = ?1
-	WHERE c.claim_id = i.claim_id AND COALESCE(c.workspace_key, '') = COALESCE(i.workspace_key, '')))`
+	WHERE c.claim_id = i.claim_id AND COALESCE(c.workspace_key, '') = COALESCE(i.workspace_key, ''))
+	OR EXISTS (SELECT 1 FROM json_each(merge) WHERE json_extract(value, '$.item') = ?1))`
 
 // ScriptOffered reports whether candidate id had a script proposal, in any status, or an
 // approved proposal: then you picked already, and Brain offers no new script.

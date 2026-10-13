@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -284,4 +285,41 @@ func readChecked(dir string, m Manifest, name string) ([]byte, error) {
 func hash(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+// Part is one brief part of a generation: its workspace key, "" for the global part, its text
+// and the hash of its file in the manifest.
+type Part struct {
+	Key, Text, SHA256 string
+}
+
+// Parts reads the pointer in out once and returns the brief parts of that generation, each
+// checked against its manifest: the global part, then the workspace parts by key (§9.5). With
+// no pointer yet, the error wraps fs.ErrNotExist.
+func Parts(out string) ([]Part, error) {
+	gen, err := readPointer(out)
+	if err != nil {
+		return nil, err
+	}
+	dir := filepath.Join(out, folder(gen))
+	m, _, err := readManifest(dir)
+	if err != nil {
+		return nil, err
+	}
+	var ps []Part
+	for _, name := range slices.Sorted(maps.Keys(m.Files)) {
+		key, ok := strings.CutPrefix(strings.TrimSuffix(name, ".md"), workspaceDir+"/")
+		switch {
+		case name == globalName:
+			key = ""
+		case !ok:
+			continue
+		}
+		b, err := readChecked(dir, m, name)
+		if err != nil {
+			return nil, err
+		}
+		ps = append(ps, Part{Key: key, Text: string(b), SHA256: m.Files[name].SHA256})
+	}
+	return ps, nil
 }

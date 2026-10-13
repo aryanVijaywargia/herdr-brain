@@ -259,7 +259,10 @@ type Proposal struct {
 	ChangeRequest  *string
 	// Dispute are the paths of the anchors whose change made the item disputed (§9.1). Empty
 	// for a proposal of another kind.
-	Dispute       []string
+	Dispute []string
+	// Merge are the items of a merge proposal with their base revisions, the kept item too
+	// (§9.5). Empty for a proposal of another kind.
+	Merge         []RevisionRef
 	Status        ProposalStatus
 	Surface       *Surface
 	Created       time.Time
@@ -271,12 +274,12 @@ type Proposal struct {
 func InsertProposal(ctx context.Context, tx *sql.Tx, p Proposal) (int64, error) {
 	return insertRow(ctx, tx, "proposal", `INSERT INTO proposals
 		(candidate_id, item_id, base_revision, text, scope, target, diff, expected_benefit,
-		permission_warning, conflicts_with, trigger_prompts, change_request, dispute, status, surface, created,
+		permission_warning, conflicts_with, trigger_prompts, change_request, dispute, merge, status, surface, created,
 		decided, review_seconds)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.CandidateID, p.ItemID, p.BaseRevision, p.Text, p.Scope, p.Target, p.Diff, p.ExpectedBenefit,
 		p.PermissionWarning, jsonList[int64](p.ConflictsWith), jsonList[string](p.TriggerPrompts), p.ChangeRequest,
-		jsonList[string](p.Dispute), p.Status, p.Surface, timeArg(p.Created), timeArg(p.Decided), p.ReviewSeconds)
+		jsonList[string](p.Dispute), jsonList[RevisionRef](p.Merge), p.Status, p.Surface, timeArg(p.Created), timeArg(p.Decided), p.ReviewSeconds)
 }
 
 // ProposalByID reads the proposal with id. It returns sql.ErrNoRows when there is none.
@@ -284,10 +287,10 @@ func ProposalByID(ctx context.Context, tx *sql.Tx, id int64) (Proposal, error) {
 	var p Proposal
 	err := tx.QueryRowContext(ctx, `SELECT id, candidate_id, item_id, base_revision, text, scope, target,
 		diff, expected_benefit, permission_warning, conflicts_with, trigger_prompts, change_request, dispute,
-		status, surface, created, decided, review_seconds FROM proposals WHERE id = ?`, id).Scan(
+		merge, status, surface, created, decided, review_seconds FROM proposals WHERE id = ?`, id).Scan(
 		&p.ID, &p.CandidateID, &p.ItemID, &p.BaseRevision, &p.Text, &p.Scope, &p.Target, &p.Diff,
 		&p.ExpectedBenefit, &p.PermissionWarning, listDest[int64]{&p.ConflictsWith}, listDest[string]{&p.TriggerPrompts}, &p.ChangeRequest,
-		listDest[string]{&p.Dispute}, &p.Status, &p.Surface, timeDest{&p.Created}, timeDest{&p.Decided}, &p.ReviewSeconds)
+		listDest[string]{&p.Dispute}, listDest[RevisionRef]{&p.Merge}, &p.Status, &p.Surface, timeDest{&p.Created}, timeDest{&p.Decided}, &p.ReviewSeconds)
 	if err != nil {
 		return Proposal{}, fmt.Errorf("read proposal %d: %w", id, err)
 	}
