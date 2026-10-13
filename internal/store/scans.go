@@ -84,10 +84,13 @@ type Finding struct {
 	Obs   []FindingObs  `json:"obs"`
 }
 
-// FindingObs is one observation of a finding and the turn it belongs to.
+// FindingObs is one observation of a finding and the turn it belongs to. Identity is the
+// capture identity of the observation: a forget deletes the row, and the identity check stops a
+// reused row id, as ObservationHeld does.
 type FindingObs struct {
-	Observation int64 `json:"observation"`
-	Turn        int64 `json:"turn"`
+	Observation int64  `json:"observation"`
+	Identity    string `json:"identity"`
+	Turn        int64  `json:"turn"`
 }
 
 const scanColumns = `id, COALESCE(binding, ''), status, requested, claimed, finished, counts`
@@ -182,7 +185,10 @@ func AddScanTurns(ctx context.Context, tx *sql.Tx, id int64, turns []ScanTurn) e
 // SetScanFindings replaces the findings of scan id, in finding order. The list is fixed at the
 // end of the read (§6.8 "Repeats").
 func SetScanFindings(ctx context.Context, tx *sql.Tx, id int64, findings []Finding) error {
-	return setScanJSON(ctx, tx, id, "findings", jsonList[Finding](findings))
+	if findings == nil {
+		findings = []Finding{}
+	}
+	return setScanJSON(ctx, tx, id, "findings", findings)
 }
 
 // ScanProgress returns the last committed finding id of scope in scan id: 0 for none.
@@ -320,24 +326,27 @@ func repeat(ctx context.Context, tx *sql.Tx, f Finding, turns map[int64]*int64, 
 		return Repeat{}, false, nil
 	}
 	ids := make([]any, len(f.Obs))
+	identity := map[int64]string{}
 	for i, o := range f.Obs {
 		ids[i] = o.Observation
+		identity[o.Observation] = o.Identity
 	}
 	type held struct {
-		id, session int64
-		excerpt     string
+		id, session       int64
+		identity, excerpt string
 	}
 	// Newest last: the time of the observation, then its id.
-	hs, err := query(ctx, tx, `SELECT o.id, g.session_id, o.excerpt FROM observations o
+	hs, err := query(ctx, tx, `SELECT o.id, g.session_id, o.capture_identity, o.excerpt FROM observations o
 		JOIN segments g ON g.id = o.segment_id WHERE o.id IN (?`+strings.Repeat(", ?", len(ids)-1)+`)
 		ORDER BY o.at, o.id`, func(rows *sql.Rows) (held, error) {
 		var h held
-		err := rows.Scan(&h.id, &h.session, &h.excerpt)
+		err := rows.Scan(&h.id, &h.session, &h.identity, &h.excerpt)
 		return h, err
 	}, ids...)
 	if err != nil {
 		return Repeat{}, false, fmt.Errorf("read finding observations: %w", err)
 	}
+	hs = slices.DeleteFunc(hs, func(h held) bool { return identity[h.id] != h.identity })
 	if len(hs) == 0 {
 		return Repeat{}, false, nil
 	}

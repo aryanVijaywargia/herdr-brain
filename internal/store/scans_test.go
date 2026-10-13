@@ -12,8 +12,8 @@ import (
 )
 
 // scanSession adds one scanned session of binding default with one observation for each
-// excerpt, one minute apart, and returns the session id and the observation ids.
-func scanSession(t *testing.T, tx *sql.Tx, id string, excerpts ...string) (int64, []int64) {
+// excerpt, one minute apart, and returns the session id and the observations, with no turn.
+func scanSession(t *testing.T, tx *sql.Tx, id string, excerpts ...string) (int64, []FindingObs) {
 	t.Helper()
 	ctx := context.Background()
 	key := SessionKey{HerdrSession: "default", Harness: "claude", Kind: KeyAgent, ID: id}
@@ -25,7 +25,7 @@ func scanSession(t *testing.T, tx *sql.Tx, id string, excerpts ...string) (int64
 	if err != nil {
 		t.Fatal(err)
 	}
-	var obs []int64
+	var obs []FindingObs
 	for i, e := range excerpts {
 		o := Observation{CaptureIdentity: fmt.Sprintf("claude:%s-%d", id, i), Source: SourceHook, SegmentID: seg,
 			Event: "prompt", Excerpt: e, Status: ObservationComplete, Counts: true,
@@ -34,9 +34,15 @@ func scanSession(t *testing.T, tx *sql.Tx, id string, excerpts ...string) (int64
 		if err != nil {
 			t.Fatal(err)
 		}
-		obs = append(obs, oid)
+		obs = append(obs, FindingObs{Observation: oid, Identity: o.CaptureIdentity})
 	}
 	return sid, obs
+}
+
+// inTurn is o in turn.
+func inTurn(o FindingObs, turn int64) FindingObs {
+	o.Turn = turn
+	return o
 }
 
 func readScan(t *testing.T, s *Store) (Scan, bool) {
@@ -71,6 +77,10 @@ func TestHistoryScanRowHoldsNoText(t *testing.T) {
 
 	secret := "use pnpm, not npm"
 	write(t, s, func(tx *sql.Tx) error {
+		// No findings is an empty list.
+		if err := SetScanFindings(ctx, tx, sc.ID, nil); err != nil {
+			return err
+		}
 		_, obs := scanSession(t, tx, "s1", secret, secret+" again")
 		if err := SetScanCounts(ctx, tx, sc.ID, map[string]ScanCounts{
 			"claude": {Found: 3, Read: 1, Skipped: map[SkipReason]int{SkipKnown: 1, SkipUnknownFormat: 1}},
@@ -81,7 +91,7 @@ func TestHistoryScanRowHoldsNoText(t *testing.T) {
 			return err
 		}
 		return SetScanFindings(ctx, tx, sc.ID, []Finding{{ID: 1, Kind: CandidateCorrection, Scope: "k1",
-			Obs: []FindingObs{{obs[0], 7}, {obs[1], 8}}}})
+			Obs: []FindingObs{inTurn(obs[0], 7), inTurn(obs[1], 8)}}})
 	})
 
 	var row []string
@@ -103,7 +113,7 @@ func TestHistoryScanRowHoldsNoText(t *testing.T) {
 	want := []string{"1", "", "pending", "2026-09-28T10:30:15.123Z", "", "",
 		`{"claude":{"found":3,"read":1,"skipped":{"known":1,"unknown_format":1}}}`,
 		`{"7":48200,"8":null}`,
-		`[{"id":1,"kind":"correction","scope":"k1","obs":[{"observation":1,"turn":7},{"observation":2,"turn":8}]}]`,
+		`[{"id":1,"kind":"correction","scope":"k1","obs":[{"observation":1,"identity":"claude:s1-0","turn":7},{"observation":2,"identity":"claude:s1-1","turn":8}]}]`,
 		`{}`}
 	if !reflect.DeepEqual(row, want) {
 		t.Errorf("history_scans row = %q,\nwant %q", row, want)
@@ -237,10 +247,12 @@ func TestHistoryScanReport(t *testing.T) {
 			return err
 		}
 		return SetScanFindings(ctx, tx, 1, []Finding{
-			{ID: 1, Kind: CandidateCorrection, Scope: "k1", Obs: []FindingObs{{a[0], 1}, {a[1], 1}, {b[0], 3}}},
-			{ID: 2, Kind: FindingPrompt, Scope: "k1", Obs: []FindingObs{{a[2], 2}, {b[1], 4}}},
-			{ID: 3, Kind: CandidateLesson, Scope: "", Obs: []FindingObs{{b[1], 4}}},
-			{ID: 4, Kind: CandidateProcedure, Scope: "k1", Obs: []FindingObs{{a[0], 1}}},
+			{ID: 1, Kind: CandidateCorrection, Scope: "k1", Obs: []FindingObs{inTurn(a[0], 1), inTurn(a[1], 1), inTurn(b[0], 3)}},
+			{ID: 2, Kind: FindingPrompt, Scope: "k1", Obs: []FindingObs{inTurn(a[2], 2), inTurn(b[1], 4)}},
+			{ID: 3, Kind: CandidateLesson, Scope: "", Obs: []FindingObs{inTurn(b[1], 4)}},
+			{ID: 4, Kind: CandidateProcedure, Scope: "k1", Obs: []FindingObs{inTurn(a[0], 1)}},
+			// A reused row id with another capture identity is not the observation of the finding.
+			{ID: 5, Kind: CandidateLesson, Scope: "", Obs: []FindingObs{{Observation: b[1].Observation, Identity: "claude:gone-0", Turn: 4}}},
 		})
 	})
 	report := func() ScanReport {
@@ -267,7 +279,7 @@ func TestHistoryScanReport(t *testing.T) {
 		`1 correction 2 sessions 1000+1 "use pnpm again"`,
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("repeats = %q,\nwant %q (most tokens first; the procedure is below its gate)", got, want)
+		t.Errorf("repeats = %q,\nwant %q (most tokens first; the procedure is below its gate; finding 5 has no observation)", got, want)
 	}
 
 	write(t, s, func(tx *sql.Tx) error { return ForgetSession(ctx, tx, forget) })
