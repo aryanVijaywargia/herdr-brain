@@ -1,0 +1,23 @@
+{"timestamp":"2026-09-02T08:00:00.000Z","type":"session_meta","payload":{"id":"s-codex-1","timestamp":"2026-09-02T08:00:00.000Z","cwd":"/work/api","originator":"codex_cli_rs","cli_version":"0.160.1","source":"cli"}}
+{"timestamp":"2026-09-02T08:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/work/api</cwd>\n</environment_context>"}]}}
+{"timestamp":"2026-09-02T08:00:02.000Z","type":"event_msg","payload":{"type":"token_count","info":null}}
+{"timestamp":"2026-09-02T08:00:03.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"run the tests"}]}}
+{"timestamp":"2026-09-02T08:00:03.000Z","type":"event_msg","payload":{"type":"user_message","message":"event copy of the prompt"}}
+{"timestamp":"2026-09-02T08:00:04.000Z","type":"turn_context","payload":{"cwd":"/work/api","model":"test-model"}}
+{"timestamp":"2026-09-02T08:00:05.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\": [\"bash\", \"-lc\", \"make test\"], \"workdir\": \"/work/api\"}","call_id":"c1"}}
+{"timestamp":"2026-09-02T08:00:06.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"Exit code: 2\nWall time: 1.2 seconds\nOutput:\nFAIL api_test"}}
+{"timestamp":"2026-09-02T08:00:07.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\": \"make lint\"}","call_id":"c2"}}
+{"timestamp":"2026-09-02T08:00:08.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c2","output":"Chunk ID: 1\nWall time: 0.5 seconds\nProcess exited with code 0\nOutput:\nlint ok"}}
+{"timestamp":"2026-09-02T08:00:09.000Z","type":"response_item","payload":{"type":"local_shell_call","call_id":"c3","status":"completed","action":{"type":"exec","command":["ls","-la"]}}}
+{"timestamp":"2026-09-02T08:00:10.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c3","output":"the command ended with exit code 3"}}
+{"timestamp":"2026-09-02T08:00:11.000Z","type":"response_item","payload":{"type":"reasoning","summary":[]}}
+{"timestamp":"2026-09-02T08:00:12.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":990,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":1000},"last_token_usage":{"total_tokens":1000}}}}
+{"timestamp":"2026-09-02T08:00:12.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":990,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":1000},"last_token_usage":{"total_tokens":1000}}}}
+{"timestamp":"2026-09-02T08:00:13.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"make test fails in api_test."}]}}
+{"timestamp":"2026-09-02T08:01:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"thanks"}]}}
+{"timestamp":"2026-09-02T08:01:01.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"You are welcome."}]}}
+{"timestamp":"2026-09-02T08:02:00.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"run it again"}]}}
+{"timestamp":"2026-09-02T08:02:01.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1290,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":1300},"last_token_usage":{"total_tokens":1300}}}}
+{"timestamp":"2026-09-02T08:02:02.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1290,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":1300},"last_token_usage":{"total_tokens":1300}}}}
+{"timestamp":"2026-09-02T08:02:03.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1490,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":1500},"last_token_usage":{"total_tokens":1500}}}}
+{"timestamp":"2026-09-02T08:02:04.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done."}]}}
