@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/secret"
+	"github.com/aryanVijaywargia/herdr-brain/internal/signal"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
@@ -290,5 +291,58 @@ func TestForgetRemovesChangeRequest(t *testing.T) {
 	}
 	if p := f.rows(t).proposals; p[len(p)-1].ChangeRequest != nil {
 		t.Errorf("change request text = %q, want none", *p[len(p)-1].ChangeRequest)
+	}
+}
+
+// AC #411 (§7.4, §6.8): a proposal with evidence of history scan sessions of the global pool
+// shows their excerpts, with the global pool in place of a workspace, in the proposal and in its
+// evidence view. A global pool session of another binding stays hidden.
+func TestReviewGlobalPoolExcerpts(t *testing.T) {
+	f := newFixture(t)
+	sessions := scanRow(t, f.store, store.ScanExtracting, map[string]store.ScanCounts{})
+	claim := f.claim(t)
+	var c store.Candidate
+	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
+		for _, id := range []string{"claude:c1", "claude:c2"} {
+			o, err := store.ObservationID(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			cid, err := store.Attach(ctx, tx, store.Candidate{ClaimID: claim, Scope: store.ScopeGlobal,
+				Kind: store.CandidateCorrection}, o, store.DefaultGates(), signal.Supports)
+			if err != nil {
+				return err
+			}
+			if c, err = store.CandidateByID(ctx, tx, cid); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	pid, err := f.propose(t, c, "global")
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := func(session int64) string {
+		return fmt.Sprintf("unconfirmed, session %d (claude), the global pool, ", session)
+	}
+	out := f.mustReview(t, fmt.Sprint(pid))
+	ev := f.mustReview(t, fmt.Sprint(pid), "--evidence")
+	for _, s := range sessions {
+		if !strings.Contains(out, head(s)) || !strings.Contains(out, ": use pnpm, not npm") {
+			t.Errorf("show lacks the excerpt of session %d:\n%s", s, out)
+		}
+		if !strings.Contains(ev, head(s)) {
+			t.Errorf("evidence view lacks the excerpt of session %d:\n%s", s, ev)
+		}
+	}
+
+	// The binding rule: a global pool session of another herdr session is not shown.
+	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE sessions SET herdr_session = 'other' WHERE id = ?`, sessions[0])
+		return err
+	})
+	if out := f.mustReview(t, fmt.Sprint(pid)); strings.Contains(out, head(sessions[0])) || !strings.Contains(out, head(sessions[1])) {
+		t.Errorf("show with one session of another binding:\n%s\nwant only session %d", out, sessions[1])
 	}
 }

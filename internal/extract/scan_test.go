@@ -649,3 +649,21 @@ func TestScanLessonNoPane(t *testing.T) {
 		t.Errorf("suggestions: %d started, %d reserved; want none", suggested, n)
 	}
 }
+
+// AC #413 (§6.8 "Global pool", owner decision 2026-10-14, S5 gap HS-G10): the help text of a
+// global pool batch says where its sessions come from, that a rule of one project is dropped,
+// and that only a global claim that is no skill or tool comes back.
+func TestGlobalHelpText(t *testing.T) {
+	for _, want := range []string{
+		"project folders that have no herdr workspace",
+		"drops a rule about one project's code, files, commands, tools or release steps",
+		"holds in every project", "scope_guess global", "no skill or tool",
+	} {
+		if !strings.Contains(globalHelp, want) {
+			t.Errorf("globalHelp = %q, want %q", globalHelp, want)
+		}
+	}
+	if strings.Contains(globalHelp, "belong to no project") {
+		t.Errorf("globalHelp = %q, want no \"belong to no project\"", globalHelp)
+	}
+}

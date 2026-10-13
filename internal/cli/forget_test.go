@@ -687,3 +687,14 @@ func sessionLinks(t *testing.T, f *fixture, id int64) int {
 	})
 	return n
 }
+
+// AC #412 (§6.8): the list line of a history scan session, which has no pane, says no pane.
+func TestForgetScanSession(t *testing.T) {
+	f := newFixture(t)
+	sessions := scanRow(t, f.store, store.ScanExtracting, map[string]store.ScanCounts{})
+	out := f.mustForget(t, clock(), "--session", "c1")
+	want := fmt.Sprintf("session %d: claude, agent id c1, ", sessions[0])
+	if !strings.Contains(out, want) || strings.Contains(out, "in pane") {
+		t.Errorf("forget --session printed\n%s\nwant %q and no pane", out, want)
+	}
+}
