@@ -671,8 +671,15 @@ func textRepeats(sets [][]int64, byID map[int64]store.SignalInput, lessons []int
 		case slices.ContainsFunc(set, func(id int64) bool { return slices.Contains(lessons, id) }):
 			kind = store.CandidateLesson
 		}
-		if kind == store.FindingPrompt && signal.Words(byID[set[0]].Excerpt) < promptWords {
-			continue
+		if kind == store.FindingPrompt {
+			// Each prompt counts only with its own promptWords words: the match uses word sets,
+			// so a short prompt can join a longer one.
+			set = slices.DeleteFunc(slices.Clone(set), func(id int64) bool {
+				return signal.Words(byID[id].Excerpt) < promptWords
+			})
+			if len(set) == 0 {
+				continue
+			}
 		}
 		if len(set) > 1 {
 			for _, id := range set {

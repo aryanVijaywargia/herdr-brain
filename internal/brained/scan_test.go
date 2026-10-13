@@ -644,24 +644,42 @@ func TestScanFindings(t *testing.T) {
 }
 
 // Owner decision 2026-10-13, S5 gap HS-G2: a repeated prompt needs at least 3 words. A
-// 2-word prompt in 3 sessions is no finding; a 3-word prompt in 2 sessions is one.
+// 2-word prompt in 3 sessions is no finding; a 3-word prompt in 2 sessions is one. The match
+// uses word sets, so "run tests" joins "run run tests": each prompt counts with its own words,
+// in either order.
 func TestScanPromptWords(t *testing.T) {
-	f := newScanFix(t, bindings.KindMain)
-	for i, id := range []string{"s1", "s2", "s3"} {
-		lines := []string{cUser(id+"-u1", "/nowhere", 1, "pls continue"), cAssistant(id+"-a1", id+"-m1", 2, 10, cText("ok"))}
-		if i < 2 {
-			lines = append(lines, cUser(id+"-u2", "/nowhere", 3, "run the tests"),
-				cAssistant(id+"-a2", id+"-m2", 4, 10, cText("ok")))
-		}
-		f.claude(id, time.Duration(i+1)*time.Hour, lines...)
-	}
-	f.run()
-	var got []string
-	for _, rep := range f.report().Repeats {
-		got = append(got, fmt.Sprintf("%s %q %d sessions", rep.Finding.Kind, rep.Excerpt, rep.Sessions))
-	}
-	if want := []string{`prompt "run the tests" 2 sessions`}; !slices.Equal(got, want) {
-		t.Errorf("repeats = %q, want %q", got, want)
+	for name, c := range map[string]struct {
+		prompts [][]string // the prompts of each session, newest session first
+		want    []string
+	}{
+		"floor": {[][]string{{"pls continue", "run the tests"}, {"pls continue", "run the tests"}, {"pls continue"}},
+			[]string{`prompt "run the tests" 2 sessions`}},
+		"short first": {[][]string{{"run run tests"}, {"run run tests"}, {"run tests"}},
+			[]string{`prompt "run run tests" 2 sessions`}},
+		"short last": {[][]string{{"run tests"}, {"run run tests"}, {"run run tests"}},
+			[]string{`prompt "run run tests" 2 sessions`}},
+		"one long": {[][]string{{"run run tests"}, {"run tests"}}, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newScanFix(t, bindings.KindMain)
+			for i, ps := range c.prompts {
+				id := fmt.Sprintf("s%d", i+1)
+				var lines []string
+				for j, p := range ps {
+					u := fmt.Sprintf("%s-%d", id, j)
+					lines = append(lines, cUser(u+"u", "/nowhere", 2*j+1, p), cAssistant(u+"a", u+"m", 2*j+2, 10, cText("ok")))
+				}
+				f.claude(id, time.Duration(i+1)*time.Hour, lines...)
+			}
+			f.run()
+			var got []string
+			for _, rep := range f.report().Repeats {
+				got = append(got, fmt.Sprintf("%s %q %d sessions", rep.Finding.Kind, rep.Excerpt, rep.Sessions))
+			}
+			if !slices.Equal(got, c.want) {
+				t.Errorf("repeats = %q, want %q", got, c.want)
+			}
+		})
 	}
 }
 
