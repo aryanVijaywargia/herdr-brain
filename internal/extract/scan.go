@@ -18,10 +18,12 @@ const scanHelp = "These signals come from the user's past sessions, and each one
 	"preferences, lessons, procedures, skills and tools. A repeat that fits a hook best, such as \"run the formatter " +
 	"after each edit\", becomes a lesson or a tool: Brain proposes no hook, allow rule or automation from it.\n"
 
-// globalHelp tells the extractor that the sessions of the global pool belong to no project, so
-// Brain keeps only a claim that it marks global (§6.8 "Global pool", S90).
-const globalHelp = "These sessions belong to no project: return only a claim that holds in every project, with " +
-	"scope_guess global, and no skill or tool.\n"
+// globalHelp tells the extractor that the sessions of the global pool come from project folders
+// with no workspace, so Brain keeps only a claim that it marks global (§6.8 "Global pool", S90,
+// owner decision 2026-10-14, S5 gap HS-G10).
+const globalHelp = "These sessions come from project folders that have no herdr workspace. Brain drops a rule about " +
+	"one project's code, files, commands, tools or release steps: return only a claim that holds in every project, " +
+	"with scope_guess global, and no skill or tool.\n"
 
 // scanJobs returns every scan batch that waits (§6.8 "Proposals"): for each scope of the history
 // scan in its extracting state, the findings after the progress of the scope, in finding order,
