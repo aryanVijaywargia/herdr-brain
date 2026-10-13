@@ -43,9 +43,10 @@ func MergeItems(ctx context.Context, tx *sql.Tx, key string) ([]MergeItem, error
 }
 
 // mergesOf is the FROM and WHERE part of the merge proposals with status ?2 of the part of
-// workspace key ?1.
-const mergesOf = `FROM proposals p JOIN items i ON i.id = p.item_id
-	WHERE p.status = ?2 AND json_array_length(p.merge) > 0 AND COALESCE(i.workspace_key, '') = ?1`
+// workspace key ?1: the part of the base revision of the kept item, so a rejection stays with
+// its part when a link moves the item (§9.4).
+const mergesOf = `FROM proposals p JOIN item_revisions r ON r.item_id = p.item_id AND r.revision = p.base_revision
+	WHERE p.status = ?2 AND json_array_length(p.merge) > 0 AND COALESCE(r.workspace_key, '') = ?1`
 
 // MergeWaits reports whether a merge proposal of the part of workspace key waits for review.
 func MergeWaits(ctx context.Context, tx *sql.Tx, key string) (bool, error) {
@@ -90,6 +91,19 @@ func SetMergeHash(ctx context.Context, tx *sql.Tx, key, sum string, now time.Tim
 		ON CONFLICT (workspace_key) DO UPDATE SET sha256 = excluded.sha256, at = excluded.at`,
 		key, sum, timeArg(now)); err != nil {
 		return fmt.Errorf("record the merge pass of part %q: %w", key, err)
+	}
+	return nil
+}
+
+// ResetMergeHash puts sum back as the hash of the part of workspace key at its last merge pass,
+// at now, or removes the hash when sum is "": a merge call failed, so the next pass tries the
+// part again.
+func ResetMergeHash(ctx context.Context, tx *sql.Tx, key, sum string, now time.Time) error {
+	if sum != "" {
+		return SetMergeHash(ctx, tx, key, sum, now)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM merge_passes WHERE workspace_key = ?`, key); err != nil {
+		return fmt.Errorf("reset the merge pass of part %q: %w", key, err)
 	}
 	return nil
 }

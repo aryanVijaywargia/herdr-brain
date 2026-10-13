@@ -364,6 +364,18 @@ func TestS98MergeNoCall(t *testing.T) {
 		{name: "extraction off", fillers: 21, setup: func(t *testing.T, c *mergeCase) {
 			c.brain(t, cli.Extract, "off", "--workspace", "w1")
 		}},
+		{name: "proposal cap full", fillers: 21, setup: func(t *testing.T, c *mergeCase) {
+			c.tx(t, func(ctx context.Context, tx *sql.Tx) error {
+				for range extract.DefaultCaps().Proposals {
+					if _, err := store.InsertProposal(ctx, tx, store.Proposal{ItemID: &c.ids[0], BaseRevision: new(int64), Text: "x",
+						Scope: store.ScopeWorkspace, Merge: []store.RevisionRef{{Item: c.ids[0]}}, Status: store.ProposalRejected,
+						Created: pipelineNow.Add(-time.Hour)}); err != nil {
+						return err
+					}
+				}
+				return nil
+			})
+		}},
 		{name: "caps full", fillers: 21, setup: func(t *testing.T, c *mergeCase) {
 			c.tx(t, func(ctx context.Context, tx *sql.Tx) error {
 				for range extract.DefaultCaps().Calls {

@@ -145,13 +145,16 @@ func SkillHeld(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string) (b
 	return claimHeld(ctx, tx, claimID, workspaceKey, KindSkill)
 }
 
-// claimHeld is ClaimHeld for items of kind, or of any kind for "".
+// claimHeld is ClaimHeld for items of kind, or of any kind for "". An item whose claim has a
+// confirmed same_as link to claimID holds it too: a merge can keep the item of such a claim
+// (§9.5 approve).
 func claimHeld(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string, kind Kind) (bool, error) {
 	var held bool
-	err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM items i WHERE i.claim_id = ?1
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM items i WHERE (i.claim_id = ?1
+			OR i.claim_id IN (SELECT id FROM claims WHERE same_as = ?1 AND same_as_status = ?6))
 		AND COALESCE(i.workspace_key, '') IN (?2, '') AND ?5 IN ('', i.kind)
 		AND (i.state = ?3 OR EXISTS (SELECT 1 FROM proposals p WHERE p.item_id = i.id AND p.status = ?4)))`,
-		claimID, workspaceKey, StateActive, ProposalPending, kind).Scan(&held)
+		claimID, workspaceKey, StateActive, ProposalPending, kind, SameAsConfirmed).Scan(&held)
 	if err != nil {
 		return false, fmt.Errorf("read held state of claim %s: %w", claimID, err)
 	}

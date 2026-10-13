@@ -41,25 +41,37 @@ type group struct {
 
 // Merge runs the merge pass of part (§9.5): one extractor call with the items of the part that
 // may merge, outside any transaction, and one transaction that stores each group of the result
-// as a merge proposal on its kept item, and the hash of the part. It makes no call when the
-// part did not change since its last pass, a merge proposal of the part waits, extraction or
-// learning is off for it, no extractor CLI is chosen, a daily cap is full, or fewer than 2
-// items may merge. The call counts under the daily call cap, as a batch call does; a call that
-// the CLI refuses at a usage or rate limit does not (#377). A failed or invalid call stores no
-// hash, so the next daily pass tries the part again.
+// as a merge proposal on its kept item. It makes no call when the part did not change since its
+// last pass, a merge proposal of the part waits, extraction or learning is off for it, no
+// extractor CLI is chosen, a daily cap is full, or fewer than 2 items may merge. The items go in
+// id order until the input byte cap (§7.3). The transaction before the call stores the hash of
+// the part, so a pass of another herdr session that shares the store does not call for it too.
+// The call counts under the daily call cap, as a batch call does; a call that the CLI refuses at
+// a usage or rate limit does not (#377). A failed or invalid call puts the last hash back, so
+// the next daily pass tries the part again.
 func (p Pass) Merge(ctx context.Context, part MergePart) error {
 	var s store.ExtractorSetting
 	var items []store.MergeItem
 	var rejected [][]int64
+	var prev string // the hash of the last pass of part
 	var callID int64
 	err := p.Store.Write(ctx, func(tx *sql.Tx) (err error) {
-		if items, err = p.mergeItems(ctx, tx, part); err != nil || len(items) < 2 {
+		if prev, err = store.MergeHash(ctx, tx, part.Key); err != nil || prev == part.SHA256 {
 			return err
+		}
+		if items, err = p.mergeItems(ctx, tx, part.Key); err != nil {
+			return err
+		}
+		if items = fitMerge(items, p.caps().InputBytes); len(items) < 2 {
+			return nil
 		}
 		if rejected, err = store.RejectedMerges(ctx, tx, part.Key); err != nil {
 			return err
 		}
 		if s, err = store.Extractor(ctx, tx); err != nil {
+			return err
+		}
+		if err = store.SetMergeHash(ctx, tx, part.Key, part.SHA256, p.Now()); err != nil {
 			return err
 		}
 		callID, err = store.RecordMergeCall(ctx, tx, part.Key, p.Now())
@@ -69,15 +81,20 @@ func (p Pass) Merge(ctx context.Context, part MergePart) error {
 		return err
 	}
 	out, err := call(ctx, p.Runner, s, mergeSchema, mergeInput(items))
-	if errors.Is(err, ErrLimit) {
-		return errors.Join(err, p.Store.Write(ctx, func(tx *sql.Tx) error { return store.UncountMergeCall(ctx, tx, callID) }))
+	var groups []group
+	var dropped []string
+	if err == nil {
+		groups, dropped, err = checkMerge(out, items, rejected)
 	}
 	if err != nil {
-		return err
-	}
-	groups, dropped, err := checkMerge(out, items, rejected)
-	if err != nil {
-		return err
+		return errors.Join(err, p.Store.Write(ctx, func(tx *sql.Tx) error {
+			if errors.Is(err, ErrLimit) {
+				if err := store.UncountMergeCall(ctx, tx, callID); err != nil {
+					return err
+				}
+			}
+			return store.ResetMergeHash(ctx, tx, part.Key, prev, p.Now())
+		}))
 	}
 	if len(dropped) > 0 && p.Note != nil {
 		p.Note(fmt.Sprintf("merge pass of part %q dropped %d groups: %s", part.Key, len(dropped), strings.Join(dropped, "; ")))
@@ -85,22 +102,31 @@ func (p Pass) Merge(ctx context.Context, part MergePart) error {
 	return p.commitMerge(ctx, part, items, groups)
 }
 
-// mergeItems returns the items of part that a merge call may get, or none when the pass of
-// part makes no call now (§9.5 trigger).
-func (p Pass) mergeItems(ctx context.Context, tx *sql.Tx, part MergePart) ([]store.MergeItem, error) {
-	if sum, err := store.MergeHash(ctx, tx, part.Key); err != nil || sum == part.SHA256 {
+// mergeItems returns the items of the part of workspace key that a merge call may get, or none
+// when the pass of the part makes no call now (§9.5 trigger).
+func (p Pass) mergeItems(ctx context.Context, tx *sql.Tx, key string) ([]store.MergeItem, error) {
+	if waits, err := store.MergeWaits(ctx, tx, key); err != nil || waits {
 		return nil, err
 	}
-	if waits, err := store.MergeWaits(ctx, tx, part.Key); err != nil || waits {
-		return nil, err
-	}
-	if on, err := p.scopeAllowed(ctx, tx, part.Key); err != nil || !on {
+	if on, err := p.scopeAllowed(ctx, tx, key); err != nil || !on {
 		return nil, err
 	}
 	if d, err := p.Day(ctx, tx); err != nil || d.Full() != "" {
 		return nil, err
 	}
-	return store.MergeItems(ctx, tx, part.Key)
+	return store.MergeItems(ctx, tx, key)
+}
+
+// fitMerge returns the first items whose texts fit in limit bytes together: the input byte cap
+// of a call (§7.3).
+func fitMerge(items []store.MergeItem, limit int) []store.MergeItem {
+	size := 0
+	for i, it := range items {
+		if size += len(it.Text); size > limit {
+			return items[:i]
+		}
+	}
+	return items
 }
 
 // mergeInput is the extractor prompt of a merge call: the items of a part, marked as untrusted
@@ -205,16 +231,16 @@ func groupError(g rawGroup, byID map[int64]store.MergeItem, seen map[int64]int, 
 }
 
 // commitMerge is the one transaction of a merge call of part with items: it stores each group
-// of groups as a merge proposal (mergeProposal) and the hash of the part. It stores nothing when
-// a merge proposal of the part waits now, as another pass made one, or when extraction or
-// learning turned off during the call. A group with an item that changed during the call, or
-// may merge no more, is dropped.
+// of groups as a merge proposal (mergeProposal). It stores nothing when extraction or learning
+// turned off during the call, or when a forget touched an item of the input: the model saw its
+// text, so the whole result goes, as for a batch (§7.3). A group with an item that changed
+// during the call, or may merge no more, is dropped.
 func (p Pass) commitMerge(ctx context.Context, part MergePart, items []store.MergeItem, groups []group) error {
 	return p.Store.Write(ctx, func(tx *sql.Tx) error {
-		if waits, err := store.MergeWaits(ctx, tx, part.Key); err != nil || waits {
+		if on, err := p.scopeAllowed(ctx, tx, part.Key); err != nil || !on {
 			return err
 		}
-		if on, err := p.scopeAllowed(ctx, tx, part.Key); err != nil || !on {
+		if gone, err := forgotten(ctx, tx, items); err != nil || gone {
 			return err
 		}
 		now, err := store.MergeItems(ctx, tx, part.Key)
@@ -232,8 +258,23 @@ func (p Pass) commitMerge(ctx context.Context, part MergePart, items []store.Mer
 				}
 			}
 		}
-		return store.SetMergeHash(ctx, tx, part.Key, part.SHA256, p.Now())
+		return nil
 	})
+}
+
+// forgotten reports whether a forget touched an item of items after they were read: forget
+// blanks the text of every revision of the item (§6.7).
+func forgotten(ctx context.Context, tx *sql.Tx, items []store.MergeItem) (bool, error) {
+	for _, it := range items {
+		r, err := store.ItemRevisionByKey(ctx, tx, it.ID, it.Revision)
+		if err != nil {
+			return false, err
+		}
+		if r.Text != it.Text {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // unchanged reports whether item id is in now at the revision that it has in was.
