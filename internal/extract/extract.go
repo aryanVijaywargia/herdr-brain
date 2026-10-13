@@ -159,7 +159,7 @@ func (p Pass) gates() store.Gates {
 // evidence that waits for extraction (§7.2).
 func (p Pass) plan(ctx context.Context, tx *sql.Tx) ([]job, error) {
 	now := p.Now()
-	runs, sigs, byID, err := p.finished(ctx, tx)
+	runs, sigs, byID, err := p.finished(ctx, tx, p.HerdrSession)
 	if err != nil {
 		return nil, err
 	}
@@ -195,10 +195,10 @@ type pending struct {
 	start int64
 }
 
-// finished returns the uncovered runs of the finished sessions of the pass, with the signals of
-// the store and its signal inputs by id. A session is finished when it ended, or when its newest
-// observation is idle old.
-func (p Pass) finished(ctx context.Context, tx *sql.Tx) ([]pending, []signal.Signal, map[int64]store.SignalInput, error) {
+// finished returns the uncovered runs of the finished sessions of herdr session binding, "" for
+// every binding, with the signals of the store and its signal inputs by id. A session is finished
+// when it ended, or when its newest observation is idle old.
+func (p Pass) finished(ctx context.Context, tx *sql.Tx, binding string) ([]pending, []signal.Signal, map[int64]store.SignalInput, error) {
 	ins, err := store.SignalInputs(ctx, tx)
 	if err != nil {
 		return nil, nil, nil, err
@@ -222,7 +222,7 @@ func (p Pass) finished(ctx context.Context, tx *sql.Tx) ([]pending, []signal.Sig
 		}
 		slices.SortFunc(obs, func(a, b store.SignalInput) int { return int(a.ID - b.ID) })
 		done[s.ID] = !s.Ended.IsZero() || p.Now().Sub(obs[len(obs)-1].At) >= idle
-		if s.Key.HerdrSession != p.HerdrSession || !done[s.ID] {
+		if binding != "" && s.Key.HerdrSession != binding || !done[s.ID] {
 			continue
 		}
 		wm, err := store.Watermarks(ctx, tx, s.ID)
@@ -471,6 +471,13 @@ func (p Pass) extract(ctx context.Context, j job) error {
 			skip = true
 			return err
 		}
+		if j.batch.Scan() {
+			room, err := p.scanRoom(ctx, tx, d)
+			if err != nil || !room {
+				skip = true
+				return err
+			}
+		}
 		if s, err = store.Extractor(ctx, tx); err != nil {
 			return err
 		}
@@ -483,7 +490,7 @@ func (p Pass) extract(ctx context.Context, j job) error {
 			return err
 		}
 		var started bool
-		b, started, err = store.StartScanBatch(ctx, tx, j.batch, p.HerdrSession, p.Now())
+		b, started, err = store.StartScanBatch(ctx, tx, j.batch, p.Now())
 		skip = !started || b.Done()
 		return err
 	})

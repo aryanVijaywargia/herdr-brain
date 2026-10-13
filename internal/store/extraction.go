@@ -194,10 +194,10 @@ func StartBatch(ctx context.Context, tx *sql.Tx, b Batch, now time.Time) (Batch,
 // StartScanBatch makes scan batch b the one active scan batch, adds one model call to it and
 // returns it, as StartBatch does for a live batch (§6.8 "Proposals"). A batch with the same
 // stable id is used again; a done one is returned as it is, with no call added. The failed and
-// invalid scan batches of its scope are discarded: this one replaces them. An active scan batch
-// of the herdr session binding, left by a crash, is discarded too. An active scan batch of
-// another binding runs there: StartScanBatch then starts nothing and returns false.
-func StartScanBatch(ctx context.Context, tx *sql.Tx, b Batch, binding string, now time.Time) (Batch, bool, error) {
+// invalid scan batches of its scope are discarded: this one replaces them. Any other active scan
+// batch runs in another binding (DiscardScanBatches): StartScanBatch then starts nothing and
+// returns false.
+func StartScanBatch(ctx context.Context, tx *sql.Tx, b Batch, now time.Time) (Batch, bool, error) {
 	old, err := FindBatch(ctx, tx, b)
 	switch {
 	case err == nil && old.Done():
@@ -205,12 +205,10 @@ func StartScanBatch(ctx context.Context, tx *sql.Tx, b Batch, binding string, no
 	case err != nil && !errors.Is(err, sql.ErrNoRows):
 		return Batch{}, false, fmt.Errorf("read scan batch: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE extraction_batches SET status = ?1, reason = ?2, at = ?3
-		WHERE scan_id = ?4 AND NOT (workspace_key = ?5 AND first_finding = ?6 AND last_finding = ?7) AND (
-			status = ?8 AND session_id IN (SELECT id FROM sessions WHERE herdr_session = ?9)
-			OR workspace_key = ?5 AND status IN (?10, ?11))`,
-		BatchDiscarded, "replaced by a newer batch", timeArg(now), b.ScanID, b.WorkspaceKey, b.FirstFinding,
-		b.LastFinding, BatchActive, binding, BatchFailed, BatchInvalid); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE extraction_batches SET status = ?, reason = ?, at = ?
+		WHERE scan_id = ? AND workspace_key = ? AND status IN (?, ?) AND NOT (first_finding = ? AND last_finding = ?)`,
+		BatchDiscarded, "replaced by a newer batch", timeArg(now), b.ScanID, b.WorkspaceKey, BatchFailed, BatchInvalid,
+		b.FirstFinding, b.LastFinding); err != nil {
 		return Batch{}, false, fmt.Errorf("discard old scan batches: %w", err)
 	}
 	var busy bool
@@ -240,6 +238,18 @@ func StartScanBatch(ctx context.Context, tx *sql.Tx, b Batch, binding string, no
 	}
 	b, err = BatchByID(ctx, tx, id)
 	return b, true, err
+}
+
+// DiscardScanBatches discards the active scan batches of scan id whose session is of the herdr
+// session binding. The pass of a binding plans while none of its calls runs, so such a batch was
+// left by a crash: it would stop the scan batches of every binding (StartScanBatch).
+func DiscardScanBatches(ctx context.Context, tx *sql.Tx, id int64, binding string, now time.Time) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE extraction_batches SET status = ?, reason = ?, at = ?
+		WHERE scan_id = ? AND status = ? AND session_id IN (SELECT id FROM sessions WHERE herdr_session = ?)`,
+		BatchDiscarded, "a crash stopped it", timeArg(now), id, BatchActive, binding); err != nil {
+		return fmt.Errorf("discard crashed scan batches: %w", err)
+	}
+	return nil
 }
 
 // EmptyBatch records b as an empty batch with no model call: its range has no signal, so it

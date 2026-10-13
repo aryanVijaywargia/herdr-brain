@@ -300,8 +300,9 @@ func TestScanBatchCommit(t *testing.T) {
 }
 
 // AC: one scan batch is active at a time. An active scan batch of another binding runs there,
-// so this pass waits; one of this binding is left by a crash and is replaced. A done batch adds
-// nothing at a retry.
+// so this pass waits. An active scan batch of a binding at the start of its pass was left by a
+// crash: that pass discards it, also when the binding has no scan batch of its own left. A done
+// batch adds nothing at a retry.
 func TestScanBatchActive(t *testing.T) {
 	f := newFixture(t)
 	f.cli.reply = noClaims
@@ -313,18 +314,18 @@ func TestScanBatchActive(t *testing.T) {
 			Kind: store.KeyAgent, ID: "x"}, "", "ws-B", t0)
 		return err
 	})
-	start := func(b store.Batch, binding string) (store.Batch, bool) {
+	start := func(b store.Batch) (store.Batch, bool) {
 		t.Helper()
 		var got store.Batch
 		var ok bool
 		f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
-			got, ok, err = store.StartScanBatch(ctx, tx, b, binding, f.now)
+			got, ok, err = store.StartScanBatch(ctx, tx, b, f.now)
 			return err
 		})
 		return got, ok
 	}
 	running, ok := start(store.Batch{ScanID: 1, SessionID: other, WorkspaceKey: "ws-B", FirstCapture: "scan:9",
-		LastCapture: "scan:9", FirstFinding: 9, LastFinding: 9}, "work")
+		LastCapture: "scan:9", FirstFinding: 9, LastFinding: 9})
 	if !ok {
 		t.Fatal("StartScanBatch of the other binding = false, want true")
 	}
@@ -336,13 +337,26 @@ func TestScanBatchActive(t *testing.T) {
 		t.Errorf("waiting = %+v, want the scan batch of ws-A", ws)
 	}
 
-	// The batch of work ends there. A batch of this binding that a crash left active is replaced.
+	// The brained of work crashed, and a forget took its findings: its next pass has no scan batch
+	// of its own, and it discards the crashed one.
+	work := f.pass()
+	work.HerdrSession = "work"
+	if err := work.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	f.write(func(ctx context.Context, tx *sql.Tx) error {
-		_, err := store.EndBatch(ctx, tx, running.ID, store.BatchEmpty, "", f.now)
+		b, err := store.BatchByID(ctx, tx, running.ID)
+		if err == nil && (b.Status != store.BatchDiscarded || b.Reason != "a crash stopped it") {
+			err = fmt.Errorf("batch of work = %+v, want it discarded after the crash", b)
+		}
 		return err
 	})
+	if f.cli.calls() != 0 {
+		t.Fatalf("calls of the pass of work = %d, want 0", f.cli.calls())
+	}
+	// A batch of this binding that a crash left active is discarded too.
 	crashed, ok := start(store.Batch{ScanID: 1, SessionID: f.sessionOf(a1[0]), WorkspaceKey: "ws-A",
-		FirstCapture: "scan:7", LastCapture: "scan:7", FirstFinding: 7, LastFinding: 7}, "default")
+		FirstCapture: "scan:7", LastCapture: "scan:7", FirstFinding: 7, LastFinding: 7})
 	if !ok {
 		t.Fatal("StartScanBatch of this binding = false, want true")
 	}
@@ -362,7 +376,7 @@ func TestScanBatchActive(t *testing.T) {
 			done = b
 		}
 	}
-	if again, ok := start(done, "default"); !ok || again.ID != done.ID || again.ModelCalls != 1 {
+	if again, ok := start(done); !ok || again.ID != done.ID || again.ModelCalls != 1 {
 		t.Errorf("StartScanBatch of a done batch = %+v, %v; want it as it is, with no call", again, ok)
 	}
 	if n := f.count(`SELECT COUNT(*) FROM extraction_calls`); n != 3 {
@@ -408,6 +422,50 @@ func TestScanCaps(t *testing.T) {
 	f.mustRun()
 	if s, p := f.scan("ws-A"); f.cli.calls() != 3 || p["ws-A"] != 3 {
 		t.Errorf("the next day: calls = %d, progress %v, scan %s; want the rest extracted", f.cli.calls(), p, s.Status)
+	}
+}
+
+// AC (S93): the daily caps cover the store, so live batches go first across bindings: a scan
+// batch calls only while the caps keep room for each live batch of another binding that may call.
+func TestScanCapsOtherBinding(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = noClaims
+	f.caps = Caps{Calls: 1, Proposals: 15, InputBytes: 32 << 10}
+	a1, a2 := f.scanned("a1", "ws-A", pnpm), f.scanned("a2", "ws-A", pnpm)
+	f.scanRow(finding(1, store.CandidateCorrection, "ws-A", a1, a2))
+	key := store.SessionKey{HerdrSession: "work", Harness: "claude", Kind: store.KeyAgent, ID: "live"}
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		sid, err := store.OpenSession(ctx, tx, key, "w2:p1", "ws-B", t0)
+		if err != nil {
+			return err
+		}
+		seg, err := store.StartSegment(ctx, tx, sid, "w2:p1", "ws-B", "recent_unwrapped", t0)
+		if err != nil {
+			return err
+		}
+		if _, err := store.AddObservation(ctx, tx, store.Observation{CaptureIdentity: "live-0", Source: store.SourceHerdr,
+			SegmentID: seg, Event: "working", Excerpt: tabs, Status: store.ObservationComplete, Sender: store.SenderYou,
+			Counts: true, At: t0}); err != nil {
+			return err
+		}
+		return store.EndSession(ctx, tx, key, t0)
+	})
+	f.mustRun()
+	if f.cli.calls() != 0 {
+		t.Fatalf("calls = %d, want 0: the live batch of binding work keeps the last call", f.cli.calls())
+	}
+	work := f.pass()
+	work.HerdrSession = "work"
+	if err := work.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if f.cli.calls() != 1 || !strings.Contains(f.cli.prompts[0], tabs) {
+		t.Fatalf("calls = %d, want the live batch of work", f.cli.calls())
+	}
+	f.now = f.now.Add(25 * time.Hour)
+	f.mustRun()
+	if f.cli.calls() != 2 || len(f.scanBatches()) != 1 {
+		t.Errorf("the next day: calls = %d, scan batches %+v; want the scan batch", f.cli.calls(), f.scanBatches())
 	}
 }
 
@@ -505,15 +563,21 @@ func TestScanExactTool(t *testing.T) {
 	f := newFixture(t)
 	f.cli.reply = noClaims
 	prompt := rec{o: store.Observation{Event: "prompt", Excerpt: "check the code", Sender: store.SenderUnconfirmed}}
+	var chain []store.FindingObs
 	for i := range 3 {
-		f.scannedRecs(fmt.Sprintf("s%d", i), "ws-A", prompt, codexRec("go vet ./..."), codexRec("go test ./..."))
+		obs := f.scannedRecs(fmt.Sprintf("s%d", i), "ws-A", prompt, codexRec("go vet ./..."), codexRec("go test ./..."))
+		chain = append(chain, obs[1:]...)
 	}
+	f.scanRow(finding(1, store.CandidateCommandChain, "ws-A", chain))
 	f.mustRun()
 	if ps := f.toolProposals(); len(ps) != 1 || !strings.Contains(ps[0].Text, `"go", "vet"`) {
 		t.Fatalf("tool drafts = %+v, want one of the exact chain", ps)
 	}
-	if f.cli.calls() != 0 {
-		t.Errorf("calls = %d, want 0", f.cli.calls())
+	if f.cli.calls() != 0 || len(f.scanBatches()) != 0 {
+		t.Errorf("calls = %d, scan batches %+v; want none: the exact chain needs no scan batch", f.cli.calls(), f.scanBatches())
+	}
+	if s, _ := f.scan(); s.Status != store.ScanDone {
+		t.Errorf("scan status = %s, want done", s.Status)
 	}
 }
 

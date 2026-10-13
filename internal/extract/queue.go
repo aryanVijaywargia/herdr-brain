@@ -186,7 +186,7 @@ type Waiting struct {
 // Waiting returns the work that waits for extraction, by workspace key: the batches with a
 // signal of the finished sessions of the pass, and its scan batches. It only reads.
 func (p Pass) Waiting(ctx context.Context, tx *sql.Tx) ([]Waiting, error) {
-	runs, sigs, byID, err := p.finished(ctx, tx)
+	runs, sigs, byID, err := p.finished(ctx, tx, p.HerdrSession)
 	if err != nil {
 		return nil, err
 	}
