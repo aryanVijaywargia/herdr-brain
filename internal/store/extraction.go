@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -83,38 +85,54 @@ const (
 )
 
 // Batch is one row of extraction_batches. Its stable id is (SessionID, WorkspaceKey,
-// FirstCapture, LastCapture) (§7.3); ID is the row id.
+// FirstCapture, LastCapture) (§7.3); ID is the row id. A scan batch (ScanID not 0) is a fixed
+// run of findings of one scope of the history scan: its stable id is (ScanID, WorkspaceKey,
+// FirstFinding, LastFinding), and WorkspaceKey is the scope, "" for the global pool (§6.8).
 type Batch struct {
-	ID              int64
-	SessionID       int64
-	WorkspaceKey    string
-	FirstCapture    string
-	LastCapture     string
-	StartWatermark  int64 // the observation id of the watermark at the start; 0 for none
-	LastObservation int64 // the observation id of LastCapture
+	ID           int64
+	SessionID    int64 // for a scan batch, the session of the first observation of its first finding
+	WorkspaceKey string
+	FirstCapture string
+	LastCapture  string
+	// StartWatermark is the observation id of the watermark at the start, 0 for none; for a scan
+	// batch, the last committed finding id of its scope at the start.
+	StartWatermark  int64
+	LastObservation int64 // the observation id of LastCapture; 0 for a scan batch
 	Status          BatchStatus
 	ModelCalls      int
 	Reason          string // why it failed, was invalid or was discarded; no model text
 	At              time.Time
+	ScanID          int64 // the history scan of a scan batch; 0 for a live batch
+	FirstFinding    int   // the first and last finding id of a scan batch
+	LastFinding     int
 }
+
+// Scan reports whether b is a scan batch.
+func (b Batch) Scan() bool { return b.ScanID != 0 }
 
 // Done reports whether the batch is committed or empty: a retry adds nothing (§7.3).
 func (b Batch) Done() bool { return b.Status == BatchCommitted || b.Status == BatchEmpty }
 
 const batchColumns = `id, session_id, workspace_key, first_capture, last_capture, start_watermark, last_observation,
-	status, model_calls, reason, at`
+	status, model_calls, reason, at, COALESCE(scan_id, 0), COALESCE(first_finding, 0), COALESCE(last_finding, 0)`
 
 func scanBatch(rows interface{ Scan(...any) error }) (Batch, error) {
 	var b Batch
 	err := rows.Scan(&b.ID, &b.SessionID, &b.WorkspaceKey, &b.FirstCapture, &b.LastCapture, &b.StartWatermark,
-		&b.LastObservation, &b.Status, &b.ModelCalls, &b.Reason, timeDest{&b.At})
+		&b.LastObservation, &b.Status, &b.ModelCalls, &b.Reason, timeDest{&b.At}, &b.ScanID, &b.FirstFinding,
+		&b.LastFinding)
 	return b, err
 }
 
 // FindBatch returns the batch with the stable id of b, or sql.ErrNoRows.
 func FindBatch(ctx context.Context, tx *sql.Tx, b Batch) (Batch, error) {
+	if b.Scan() {
+		return scanBatch(tx.QueryRowContext(ctx, `SELECT `+batchColumns+` FROM extraction_batches
+			WHERE scan_id = ? AND workspace_key = ? AND first_finding = ? AND last_finding = ?`,
+			b.ScanID, b.WorkspaceKey, b.FirstFinding, b.LastFinding))
+	}
 	return scanBatch(tx.QueryRowContext(ctx, `SELECT `+batchColumns+` FROM extraction_batches
-		WHERE session_id = ? AND workspace_key = ? AND first_capture = ? AND last_capture = ?`,
+		WHERE scan_id IS NULL AND session_id = ? AND workspace_key = ? AND first_capture = ? AND last_capture = ?`,
 		b.SessionID, b.WorkspaceKey, b.FirstCapture, b.LastCapture))
 }
 
@@ -148,7 +166,7 @@ func StartBatch(ctx context.Context, tx *sql.Tx, b Batch, now time.Time) (Batch,
 		return Batch{}, fmt.Errorf("read batch: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE extraction_batches SET status = ?, reason = ?, at = ?
-		WHERE (session_id = ? AND status = ? OR session_id = ? AND workspace_key = ? AND status IN (?, ?))
+		WHERE scan_id IS NULL AND (session_id = ? AND status = ? OR session_id = ? AND workspace_key = ? AND status IN (?, ?))
 		AND NOT (workspace_key = ? AND first_capture = ? AND last_capture = ?)`,
 		BatchDiscarded, "replaced by a newer batch", timeArg(now), b.SessionID, BatchActive, b.SessionID,
 		b.WorkspaceKey, BatchFailed, BatchInvalid, b.WorkspaceKey, b.FirstCapture, b.LastCapture); err != nil {
@@ -171,6 +189,67 @@ func StartBatch(ctx context.Context, tx *sql.Tx, b Batch, now time.Time) (Batch,
 		return Batch{}, fmt.Errorf("record extractor call: %w", err)
 	}
 	return BatchByID(ctx, tx, id)
+}
+
+// StartScanBatch makes scan batch b the one active scan batch, adds one model call to it and
+// returns it, as StartBatch does for a live batch (§6.8 "Proposals"). A batch with the same
+// stable id is used again; a done one is returned as it is, with no call added. The failed and
+// invalid scan batches of its scope are discarded: this one replaces them. Any other active scan
+// batch runs in another binding (DiscardScanBatches): StartScanBatch then starts nothing and
+// returns false.
+func StartScanBatch(ctx context.Context, tx *sql.Tx, b Batch, now time.Time) (Batch, bool, error) {
+	old, err := FindBatch(ctx, tx, b)
+	switch {
+	case err == nil && old.Done():
+		return old, true, nil
+	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		return Batch{}, false, fmt.Errorf("read scan batch: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE extraction_batches SET status = ?, reason = ?, at = ?
+		WHERE scan_id = ? AND workspace_key = ? AND status IN (?, ?) AND NOT (first_finding = ? AND last_finding = ?)`,
+		BatchDiscarded, "replaced by a newer batch", timeArg(now), b.ScanID, b.WorkspaceKey, BatchFailed, BatchInvalid,
+		b.FirstFinding, b.LastFinding); err != nil {
+		return Batch{}, false, fmt.Errorf("discard old scan batches: %w", err)
+	}
+	var busy bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM extraction_batches WHERE scan_id = ? AND status = ?
+		AND NOT (workspace_key = ? AND first_finding = ? AND last_finding = ?))`, b.ScanID, BatchActive, b.WorkspaceKey,
+		b.FirstFinding, b.LastFinding).Scan(&busy); err != nil {
+		return Batch{}, false, fmt.Errorf("read active scan batch: %w", err)
+	}
+	if busy {
+		return Batch{}, false, nil
+	}
+	var id int64
+	err = tx.QueryRowContext(ctx, `INSERT INTO extraction_batches (session_id, workspace_key, first_capture,
+		last_capture, start_watermark, last_observation, status, model_calls, reason, at, scan_id, first_finding,
+		last_finding) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, 1, '', ?7, ?8, ?9, ?10)
+		ON CONFLICT (scan_id, workspace_key, first_finding, last_finding) WHERE scan_id IS NOT NULL DO UPDATE SET
+		session_id = excluded.session_id, start_watermark = excluded.start_watermark, status = excluded.status,
+		model_calls = model_calls + 1, reason = '', at = excluded.at RETURNING id`,
+		b.SessionID, b.WorkspaceKey, b.FirstCapture, b.LastCapture, b.StartWatermark, BatchActive, timeArg(now),
+		b.ScanID, b.FirstFinding, b.LastFinding).Scan(&id)
+	if err != nil {
+		return Batch{}, false, fmt.Errorf("start scan batch: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO extraction_calls (batch_id, workspace_key, at) VALUES (?, ?, ?)`,
+		id, b.WorkspaceKey, timeArg(now)); err != nil {
+		return Batch{}, false, fmt.Errorf("record extractor call: %w", err)
+	}
+	b, err = BatchByID(ctx, tx, id)
+	return b, true, err
+}
+
+// DiscardScanBatches discards the active scan batches of scan id whose session is of the herdr
+// session binding. The pass of a binding plans while none of its calls runs, so such a batch was
+// left by a crash: it would stop the scan batches of every binding (StartScanBatch).
+func DiscardScanBatches(ctx context.Context, tx *sql.Tx, id int64, binding string, now time.Time) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE extraction_batches SET status = ?, reason = ?, at = ?
+		WHERE scan_id = ? AND status = ? AND session_id IN (SELECT id FROM sessions WHERE herdr_session = ?)`,
+		BatchDiscarded, "a crash stopped it", timeArg(now), id, BatchActive, binding); err != nil {
+		return fmt.Errorf("discard crashed scan batches: %w", err)
+	}
+	return nil
 }
 
 // EmptyBatch records b as an empty batch with no model call: its range has no signal, so it
@@ -462,4 +541,48 @@ func uncountCall(ctx context.Context, tx *sql.Tx, table, column string, id int64
 		return fmt.Errorf("take back the call of %s %d: %w", table, id, err)
 	}
 	return nil
+}
+
+// ScanProposals returns, by finding id, the oldest pending proposal of a candidate with evidence
+// in the observations of each of findings: the scan proposal of that finding (§6.8 "Proposals").
+// A finding with none is not in the map.
+func ScanProposals(ctx context.Context, tx *sql.Tx, findings []Finding) (map[int]int64, error) {
+	m := map[int]int64{}
+	for _, f := range findings {
+		if len(f.Obs) == 0 {
+			continue
+		}
+		args := []any{ProposalPending}
+		for _, o := range f.Obs {
+			args = append(args, o.Observation)
+		}
+		var id sql.NullInt64
+		err := tx.QueryRowContext(ctx, `SELECT MIN(p.id) FROM proposals p JOIN evidence_links l ON l.candidate_id = p.candidate_id
+			WHERE p.status = ? AND l.observation_id IN (?`+strings.Repeat(", ?", len(f.Obs)-1)+`)`, args...).Scan(&id)
+		if err != nil {
+			return nil, fmt.Errorf("read scan proposals: %w", err)
+		}
+		if id.Valid {
+			m[f.ID] = id.Int64
+		}
+	}
+	return m, nil
+}
+
+// FindingOf returns the first of findings with an observation that is evidence of candidate id:
+// the finding of a scan proposal of the candidate (§6.8 "Proposals"). It returns false for none.
+func FindingOf(ctx context.Context, tx *sql.Tx, id int64, findings []Finding) (Finding, bool, error) {
+	obs, err := query(ctx, tx, `SELECT observation_id FROM evidence_links WHERE candidate_id = ?`,
+		func(r *sql.Rows) (o int64, err error) { return o, r.Scan(&o) }, id)
+	if err != nil {
+		return Finding{}, false, fmt.Errorf("read evidence of candidate %d: %w", id, err)
+	}
+	for _, f := range findings {
+		for _, o := range f.Obs {
+			if slices.Contains(obs, o.Observation) {
+				return f, true, nil
+			}
+		}
+	}
+	return Finding{}, false, nil
 }

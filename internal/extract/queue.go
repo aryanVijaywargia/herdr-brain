@@ -184,9 +184,9 @@ type Waiting struct {
 }
 
 // Waiting returns the work that waits for extraction, by workspace key: the batches with a
-// signal of the finished sessions of the pass. It only reads.
+// signal of the finished sessions of the pass, and its scan batches. It only reads.
 func (p Pass) Waiting(ctx context.Context, tx *sql.Tx) ([]Waiting, error) {
-	runs, sigs, byID, err := p.finished(ctx, tx)
+	runs, sigs, byID, err := p.finished(ctx, tx, p.HerdrSession)
 	if err != nil {
 		return nil, err
 	}
@@ -194,12 +194,24 @@ func (p Pass) Waiting(ctx context.Context, tx *sql.Tx) ([]Waiting, error) {
 	if err != nil {
 		return nil, err
 	}
-	var ws []Waiting
+	var jobs []job
 	for _, r := range runs {
-		j := p.job(r, sigs, byID)
-		if len(j.refs) == 0 {
-			continue
+		if j := p.job(r, sigs, byID); len(j.refs) > 0 {
+			jobs = append(jobs, j)
 		}
+	}
+	// The scan batches of the binding wait in their scope, the global pool under the key "" (§6.8).
+	_, scan, _, err := p.scanJobs(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	for _, j := range scan {
+		if j.session.Key.HerdrSession == p.HerdrSession {
+			jobs = append(jobs, j)
+		}
+	}
+	var ws []Waiting
+	for _, j := range jobs {
 		why, failed, err := p.why(ctx, tx, j, d)
 		if err != nil {
 			return nil, err
