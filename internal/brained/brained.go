@@ -124,7 +124,10 @@ func serve(ctx context.Context, environ []string, log io.Writer, text ScanText, 
 			return extractPass(ctx, g, config, environ, reverts, log, Start)
 		},
 		stale: func(ctx context.Context, g Gate) error { return Stale(ctx, g, "", time.Now) },
-		scan:  newHistoryScan(environ, config, text).run,
+		merge: func(ctx context.Context, g Gate) error {
+			return mergePass(ctx, g, config, log, extract.ExecRunner{}, time.Now)
+		},
+		scan: newHistoryScan(environ, config, text).run,
 	}
 	return d.run(ctx)
 }
