@@ -707,12 +707,7 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	if err != nil || id == 0 || covered {
 		return Suggestion{}, err
 	}
-	if j.batch.Scan() {
-		// A scan proposal opens no review pane: no agent pane asked for it (§6.8, S86).
-		_, _, err := p.proposal(ctx, tx, id, c, now)
-		return Suggestion{}, err
-	}
-	return p.propose(ctx, tx, id, c, now)
+	return p.propose(ctx, tx, j, id, c, now)
 }
 
 // recordClaim records claim c of batch j with claim id claim, and returns it with its same_as
@@ -1326,10 +1321,11 @@ func candidateKind(c Claim) store.CandidateKind {
 // through store.ProposeCandidate. Its draft item gets the scope and workspace key of the
 // candidate. It stores the §7.4 fields: the excerpts stay in the evidence links, and the
 // proposal holds the hashes of its trigger prompts (store.ProposeCandidate) and the items that
-// it conflicts with.
-func (p Pass) propose(ctx context.Context, tx *sql.Tx, id int64, c Claim, now time.Time) (Suggestion, error) {
+// it conflicts with. A lesson proposal of batch j gets its suggestion, but a scan proposal opens
+// no review pane: no agent pane asked for it (§6.8, S86).
+func (p Pass) propose(ctx context.Context, tx *sql.Tx, j job, id int64, c Claim, now time.Time) (Suggestion, error) {
 	cand, pid, err := p.proposal(ctx, tx, id, c, now)
-	if err != nil || pid == 0 || cand.Kind != store.CandidateLesson {
+	if err != nil || pid == 0 || cand.Kind != store.CandidateLesson || j.batch.Scan() {
 		return Suggestion{}, err
 	}
 	return lessonSuggestion(ctx, tx, cand, pid, now)

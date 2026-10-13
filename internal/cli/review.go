@@ -414,6 +414,17 @@ func repeatFindings(r store.ScanReport) []store.Finding {
 	return fs
 }
 
+// notes are the lines of show after the source line of p: the finding line of a scan proposal
+// (scanLine) and the match line of its suggestion (matchLine).
+func (cl caller) notes(ctx context.Context, tx *sql.Tx, p store.Proposal) (string, error) {
+	scan, err := scanLine(ctx, tx, cl.gates(), p)
+	if err != nil {
+		return "", err
+	}
+	match, err := matchLine(ctx, tx, p.ID, cl.PaneID)
+	return scan + match, err
+}
+
 // scanLine is the line of show for a scan proposal p (§6.8 "Proposals"): the numbers of its
 // whole finding, not of the proposal alone. "" for any other proposal.
 func scanLine(ctx context.Context, tx *sql.Tx, gates store.Gates, p store.Proposal) (string, error) {
@@ -521,12 +532,10 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	var excerpts, conflicts []string
 	var changeable bool
 	var others int                  // the workspaces of the "also seen" hint of a promotion; -1 for none
-	var binding, from, match string // match: the match line of the suggestion of p, if any
+	var binding, from, match string // match: the notes lines of p (notes)
 	var claim string                // the claim of a script proposal
 	var sibs []store.Proposal       // the proposals that you pick between with p
 	var change string               // the lines of the change request of p (changeLines)
-	var scan string                 // the finding line of a scan proposal (scanLine)
-	gates := cl.gates()
 	// The review pane shows a pending proposal only: it closes on one that another surface
 	// decided (E5-S1).
 	read := cl.proposal
@@ -552,13 +561,10 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 		if sibs, err = siblings(ctx, tx, p); err != nil {
 			return err
 		}
-		if match, err = matchLine(ctx, tx, p.ID, cl.PaneID); err != nil {
+		if match, err = cl.notes(ctx, tx, p); err != nil {
 			return err
 		}
 		if change, err = changeLines(ctx, tx, p); err != nil {
-			return err
-		}
-		if scan, err = scanLine(ctx, tx, gates, p); err != nil {
 			return err
 		}
 		if p.Script() {
@@ -593,7 +599,6 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 		fmt.Fprintf(&b, "excerpts:\n  %s\n", strings.Join(excerpts, "\n  "))
 	}
 	fmt.Fprintf(&b, "source:   %s, %s\n", from, localTime(p.Created))
-	b.WriteString(scan)
 	b.WriteString(match)
 	b.WriteString(change)
 	if p.Status == store.ProposalPending {

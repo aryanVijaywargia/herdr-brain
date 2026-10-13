@@ -192,37 +192,19 @@ func TestScanBatches(t *testing.T) {
 	case strings.Contains(second, pnpm) || strings.Contains(second, short):
 		t.Errorf("second ws-A prompt =\n%s\nwant finding 3 only", second)
 	}
-	for name, tc := range map[string]struct {
-		prompt   string
-		has, not []string
-	}{
-		"workspace":   {first, []string{"global brief rule", "workspace A brief rule", scanHelp}, []string{"workspace B brief rule", globalHelp}},
-		"global pool": {global, []string{"global brief rule", scanHelp, globalHelp}, []string{"workspace A brief rule", "workspace B brief rule", pnpm}},
-	} {
-		for _, s := range tc.has {
-			if !strings.Contains(tc.prompt, s) {
-				t.Errorf("%s prompt does not hold %q:\n%s", name, s, tc.prompt)
-			}
-		}
-		for _, s := range tc.not {
-			if strings.Contains(tc.prompt, s) {
-				t.Errorf("%s prompt holds %q:\n%s", name, s, tc.prompt)
-			}
-		}
-	}
-	type rng struct {
-		scope       string
-		first, last int
-	}
-	var got []rng
+	scopeInput(t, "workspace", first, []string{"global brief rule", "workspace A brief rule", scanHelp},
+		[]string{"workspace B brief rule", globalHelp})
+	scopeInput(t, "global pool", global, []string{"global brief rule", scanHelp, globalHelp},
+		[]string{"workspace A brief rule", "workspace B brief rule", pnpm})
+	var got []findingRange
 	for _, b := range f.scanBatches() {
 		if b.Status != store.BatchEmpty || b.ScanID == 0 || b.ModelCalls != 1 {
 			t.Errorf("scan batch %+v, want an empty batch with one call", b)
 		}
-		got = append(got, rng{b.WorkspaceKey, b.FirstFinding, b.LastFinding})
+		got = append(got, findingRange{b.WorkspaceKey, b.FirstFinding, b.LastFinding})
 	}
-	slices.SortFunc(got, func(a, b rng) int { return a.first - b.first })
-	if want := []rng{{"ws-A", 1, 2}, {"ws-A", 3, 3}, {"", 4, 4}}; !slices.Equal(got, want) {
+	slices.SortFunc(got, func(a, b findingRange) int { return a.first - b.first })
+	if want := []findingRange{{"ws-A", 1, 2}, {"ws-A", 3, 3}, {"", 4, 4}}; !slices.Equal(got, want) {
 		t.Errorf("scan batches = %+v, want %+v", got, want)
 	}
 	s, progress := f.scan("ws-A", "")
@@ -236,6 +218,28 @@ func TestScanBatches(t *testing.T) {
 	f.mustRun()
 	if s, _ := f.scan(); f.cli.calls() != 3 || s.Status != store.ScanDone {
 		t.Errorf("after a second pass: calls = %d, scan %s; want 3 calls and done", f.cli.calls(), s.Status)
+	}
+}
+
+// findingRange is the scope and the finding range of a scan batch.
+type findingRange struct {
+	scope       string
+	first, last int
+}
+
+// scopeInput checks that the prompt of a scan batch of the scope name holds each of has and none
+// of not.
+func scopeInput(t *testing.T, name, prompt string, has, not []string) {
+	t.Helper()
+	for _, s := range has {
+		if !strings.Contains(prompt, s) {
+			t.Errorf("%s prompt does not hold %q:\n%s", name, s, prompt)
+		}
+	}
+	for _, s := range not {
+		if strings.Contains(prompt, s) {
+			t.Errorf("%s prompt holds %q:\n%s", name, s, prompt)
+		}
 	}
 }
 
