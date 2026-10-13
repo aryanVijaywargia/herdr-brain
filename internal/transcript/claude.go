@@ -62,6 +62,9 @@ type claude struct {
 	session
 	usage   map[string]bool // the assistant message ids whose usage is counted
 	pending map[string]ref  // the shell tool_use ids that wait for their result
+	// replyID is the message id of the reply of the open turn: Claude can write the text
+	// blocks of one message on several lines, and the reply is the whole text of the message.
+	replyID string
 }
 
 // ReadClaude reads the Claude session file at path up to limit bytes (§6.8). The session id is
@@ -152,17 +155,14 @@ func (c *claude) user(l claudeLine, at time.Time, blocks []claudeBlock) error {
 	return nil
 }
 
-// toolResult reads the result of a shell command. Only the output of a failed command is kept
-// (S88); is_error marks the failure.
+// toolResult reads the result of a shell command: its exit status from the exit line, when it
+// has one. Only the output of a failed command is kept (S88); is_error marks the failure.
 func (c *claude) toolResult(b claudeBlock, t Text) error {
 	r, ok := c.pending[b.ToolUseID]
 	if !ok {
 		return nil
 	}
 	delete(c.pending, b.ToolUseID)
-	if !b.IsError {
-		return nil
-	}
 	out, err := claudeResultText(b.Content)
 	if err != nil {
 		return err
@@ -173,8 +173,12 @@ func (c *claude) toolResult(b claudeBlock, t Text) error {
 			exit = &n
 		}
 	}
-	t.Text = out
-	c.result(r, exit, &t)
+	var failure *Text
+	if b.IsError {
+		t.Text = out
+		failure = &t
+	}
+	c.result(r, exit, failure)
 	return nil
 }
 
@@ -211,7 +215,7 @@ func (c *claude) assistant(l claudeLine, at time.Time, blocks []claudeBlock) err
 		switch {
 		case b.Type == "text":
 			if t := clean(b.Text); t != "" {
-				c.reply(Text{ID: l.UUID, At: at, Text: t})
+				c.text(l, at, t)
 			}
 		case b.Type == "tool_use" && b.Name == claudeShell:
 			var in struct {
@@ -226,6 +230,23 @@ func (c *claude) assistant(l claudeLine, at time.Time, blocks []claudeBlock) err
 		}
 	}
 	return nil
+}
+
+// text adds text t of record l to the reply of the open turn. The text of a later message
+// replaces the reply; more text of the same message joins it, and the reply keeps the id of
+// its first record.
+func (c *claude) text(l claudeLine, at time.Time, t string) {
+	tn := c.turn()
+	if tn == nil {
+		return
+	}
+	if c.replyID == l.Message.ID && tn.Reply.ID != "" {
+		tn.Reply.Text += "\n" + t
+		tn.Reply.At = at
+		return
+	}
+	c.replyID = l.Message.ID
+	c.reply(Text{ID: l.UUID, At: at, Text: t})
 }
 
 // blockID is the record id of block i of the record uuid: one record can hold several commands

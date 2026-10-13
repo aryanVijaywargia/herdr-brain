@@ -57,7 +57,7 @@ type codexEvent struct {
 	Type string `json:"type"`
 	Info *struct {
 		TotalTokenUsage struct {
-			TotalTokens int64 `json:"total_tokens"`
+			TotalTokens *int64 `json:"total_tokens"`
 		} `json:"total_token_usage"`
 	} `json:"info"`
 }
@@ -135,11 +135,15 @@ func (c *codex) sessionMeta(payload json.RawMessage) error {
 }
 
 // item reads a response_item. The prompt comes only from a user message here, never from the
-// event_msg copy (§6.8). Other item types hold no prompt, command or reply.
+// event_msg copy (§6.8). Other item types, as reasoning, hold no prompt, command or reply: Codex
+// adds item types over time, so only an item with no type is an unknown shape.
 func (c *codex) item(payload json.RawMessage, t Text) error {
 	var it codexItem
 	if err := json.Unmarshal(payload, &it); err != nil {
 		return fmt.Errorf("%w: response_item: %w", ErrUnknownFormat, err)
+	}
+	if it.Type == "" {
+		return fmt.Errorf("%w: response_item with no type", ErrUnknownFormat)
 	}
 	switch it.Type {
 	case "message":
@@ -256,16 +260,21 @@ func (c *codex) output(it codexItem, t Text) {
 
 // event reads an event_msg. Only token_count is read: the turn takes the growth of
 // total_tokens, so a repeated line adds nothing (§6.8). A token_count with no info carries no
-// usage.
+// usage; an info with no total is an unknown shape, not a total of 0 (S91).
 func (c *codex) event(payload json.RawMessage) error {
 	var e codexEvent
 	if err := json.Unmarshal(payload, &e); err != nil {
 		return fmt.Errorf("%w: event_msg: %w", ErrUnknownFormat, err)
 	}
-	if e.Type != "token_count" || e.Info == nil {
+	switch {
+	case e.Type == "":
+		return fmt.Errorf("%w: event_msg with no type", ErrUnknownFormat)
+	case e.Type != "token_count" || e.Info == nil:
 		return nil
+	case e.Info.TotalTokenUsage.TotalTokens == nil:
+		return fmt.Errorf("%w: token_count with no total_tokens", ErrUnknownFormat)
 	}
-	total := e.Info.TotalTokenUsage.TotalTokens
+	total := *e.Info.TotalTokenUsage.TotalTokens
 	c.tokens(max(total-c.total, 0))
 	c.total = max(total, c.total)
 	return nil

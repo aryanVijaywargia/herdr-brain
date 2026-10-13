@@ -154,6 +154,29 @@ func TestDrops(t *testing.T) {
 	}
 }
 
+// TestClaudeMessage checks that the reply is the whole text of the last message, also over two
+// lines, and that a shell result that did not fail keeps its exit line but no output.
+func TestClaudeMessage(t *testing.T) {
+	path := write(t, `{"type":"user","uuid":"u1","message":{"content":"run it"}}
+{"type":"assistant","uuid":"a1","message":{"id":"m1","content":[{"type":"text","text":"First."},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"make"}}]}}
+{"type":"user","uuid":"u2","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Exit code 0\nok","is_error":false}]}}
+{"type":"assistant","uuid":"a2","message":{"id":"m2","content":[{"type":"text","text":"Tests failed."},{"type":"text","text":"Retry with pnpm."}]}}
+{"type":"assistant","uuid":"a3","message":{"id":"m2","content":[{"type":"text","text":"Done."}]}}
+`)
+	s, err := ReadClaude(path, noLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Turn{
+		Prompt:   Text{ID: "u1", Text: "run it"},
+		Commands: []Command{{ID: "a1#1", Command: "make", Exit: exit(0)}},
+		Reply:    Text{ID: "a2", Text: "Tests failed.\nRetry with pnpm.\nDone."},
+	}
+	if len(s.Turns) != 1 || !reflect.DeepEqual(s.Turns[0], want) {
+		t.Errorf("ReadClaude turns = %+v, want [%+v]", s.Turns, want)
+	}
+}
+
 func TestCodexMarks(t *testing.T) {
 	for _, tc := range []struct {
 		name                         string
@@ -233,6 +256,10 @@ func TestUnknownFormat(t *testing.T) {
 		{"codex shell arguments not json", ReadCodex, meta + `{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"x"}}` + "\n"},
 		{"codex shell with no command", ReadCodex, meta + `{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{}"}}` + "\n"},
 		{"codex local shell with no action", ReadCodex, meta + `{"type":"response_item","payload":{"type":"local_shell_call"}}` + "\n"},
+		{"codex item with no type", ReadCodex, meta + `{"type":"response_item","payload":{"role":"user"}}` + "\n"},
+		{"codex item null", ReadCodex, meta + `{"type":"response_item","payload":null}` + "\n"},
+		{"codex event with no type", ReadCodex, meta + `{"type":"event_msg","payload":{}}` + "\n"},
+		{"codex info with no total", ReadCodex, meta + `{"type":"event_msg","payload":{"type":"token_count","info":{}}}` + "\n"},
 		{"codex total a string", ReadCodex, meta + `{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":"x"}}}}` + "\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
