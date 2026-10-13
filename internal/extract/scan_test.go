@@ -299,10 +299,32 @@ func TestScanBatchCommit(t *testing.T) {
 	}
 }
 
+// startScan starts scan batch b with store.StartScanBatch.
+func (f *fixture) startScan(b store.Batch) (store.Batch, bool) {
+	f.t.Helper()
+	var got store.Batch
+	var ok bool
+	f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
+		got, ok, err = store.StartScanBatch(ctx, tx, b, f.now)
+		return err
+	})
+	return got, ok
+}
+
+// batch returns the batch with row id.
+func (f *fixture) batch(id int64) store.Batch {
+	f.t.Helper()
+	var b store.Batch
+	f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
+		b, err = store.BatchByID(ctx, tx, id)
+		return err
+	})
+	return b
+}
+
 // AC: one scan batch is active at a time. An active scan batch of another binding runs there,
 // so this pass waits. An active scan batch of a binding at the start of its pass was left by a
-// crash: that pass discards it, also when the binding has no scan batch of its own left. A done
-// batch adds nothing at a retry.
+// crash: that pass discards it, also when the binding has no scan batch of its own left.
 func TestScanBatchActive(t *testing.T) {
 	f := newFixture(t)
 	f.cli.reply = noClaims
@@ -314,17 +336,7 @@ func TestScanBatchActive(t *testing.T) {
 			Kind: store.KeyAgent, ID: "x"}, "", "ws-B", t0)
 		return err
 	})
-	start := func(b store.Batch) (store.Batch, bool) {
-		t.Helper()
-		var got store.Batch
-		var ok bool
-		f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
-			got, ok, err = store.StartScanBatch(ctx, tx, b, f.now)
-			return err
-		})
-		return got, ok
-	}
-	running, ok := start(store.Batch{ScanID: 1, SessionID: other, WorkspaceKey: "ws-B", FirstCapture: "scan:9",
+	running, ok := f.startScan(store.Batch{ScanID: 1, SessionID: other, WorkspaceKey: "ws-B", FirstCapture: "scan:9",
 		LastCapture: "scan:9", FirstFinding: 9, LastFinding: 9})
 	if !ok {
 		t.Fatal("StartScanBatch of the other binding = false, want true")
@@ -344,18 +356,22 @@ func TestScanBatchActive(t *testing.T) {
 	if err := work.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	f.write(func(ctx context.Context, tx *sql.Tx) error {
-		b, err := store.BatchByID(ctx, tx, running.ID)
-		if err == nil && (b.Status != store.BatchDiscarded || b.Reason != "a crash stopped it") {
-			err = fmt.Errorf("batch of work = %+v, want it discarded after the crash", b)
-		}
-		return err
-	})
+	if b := f.batch(running.ID); b.Status != store.BatchDiscarded || b.Reason != "a crash stopped it" {
+		t.Errorf("batch of work = %+v, want it discarded after the crash", b)
+	}
 	if f.cli.calls() != 0 {
 		t.Fatalf("calls of the pass of work = %d, want 0", f.cli.calls())
 	}
-	// A batch of this binding that a crash left active is discarded too.
-	crashed, ok := start(store.Batch{ScanID: 1, SessionID: f.sessionOf(a1[0]), WorkspaceKey: "ws-A",
+}
+
+// AC: a scan batch of this binding that a crash left active is discarded at the next pass, which
+// starts its own batch. A done batch adds nothing at a retry.
+func TestScanBatchCrash(t *testing.T) {
+	f := newFixture(t)
+	f.cli.reply = noClaims
+	a1, a2 := f.scanned("a1", "ws-A", pnpm), f.scanned("a2", "ws-A", pnpm)
+	f.scanRow(finding(1, store.CandidateCorrection, "ws-A", a1, a2))
+	crashed, ok := f.startScan(store.Batch{ScanID: 1, SessionID: f.sessionOf(a1[0]), WorkspaceKey: "ws-A",
 		FirstCapture: "scan:7", LastCapture: "scan:7", FirstFinding: 7, LastFinding: 7})
 	if !ok {
 		t.Fatal("StartScanBatch of this binding = false, want true")
@@ -371,16 +387,15 @@ func TestScanBatchActive(t *testing.T) {
 			if b.Status != store.BatchDiscarded {
 				t.Errorf("crashed batch = %+v, want discarded", b)
 			}
-		case running.ID:
 		default:
 			done = b
 		}
 	}
-	if again, ok := start(done); !ok || again.ID != done.ID || again.ModelCalls != 1 {
+	if again, ok := f.startScan(done); !ok || again.ID != done.ID || again.ModelCalls != 1 {
 		t.Errorf("StartScanBatch of a done batch = %+v, %v; want it as it is, with no call", again, ok)
 	}
-	if n := f.count(`SELECT COUNT(*) FROM extraction_calls`); n != 3 {
-		t.Errorf("extractor calls = %d, want 3", n)
+	if n := f.count(`SELECT COUNT(*) FROM extraction_calls`); n != 2 {
+		t.Errorf("extractor calls = %d, want 2", n)
 	}
 }
 
