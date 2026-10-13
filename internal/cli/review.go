@@ -534,12 +534,11 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 	var cur store.ItemRevision
 	var excerpts, conflicts []string
 	var changeable bool
-	var others int                  // the workspaces of the "also seen" hint of a promotion; -1 for none
-	var binding, from, match string // match: the notes lines of p (notes)
-	var claim string                // the claim of a script proposal
-	var sibs []store.Proposal       // the proposals that you pick between with p
-	var change string               // the lines of the change request of p (changeLines)
-	var saved int                   // the characters that a merge proposal saves (mergeSaved)
+	var others int                         // the workspaces of the "also seen" hint of a promotion; -1 for none
+	var binding, from, match, saves string // match: the notes lines of p (notes); saves: savesLine
+	var claim string                       // the claim of a script proposal
+	var sibs []store.Proposal              // the proposals that you pick between with p
+	var change string                      // the lines of the change request of p (changeLines)
 	// The review pane shows a pending proposal only: it closes on one that another surface
 	// decided (E5-S1).
 	read := cl.proposal
@@ -571,10 +570,8 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 		if change, err = changeLines(ctx, tx, p); err != nil {
 			return err
 		}
-		if len(p.Merge) > 0 {
-			if saved, err = mergeSaved(ctx, tx, p); err != nil {
-				return err
-			}
+		if saves, err = savesLine(ctx, tx, p); err != nil {
+			return err
 		}
 		if p.Script() {
 			// cl.proposal read the candidate of a script proposal: it is there.
@@ -596,12 +593,9 @@ func (cl caller) show(ctx context.Context, id int64, detail bool) error {
 		more = detailLines(p, it, claim)
 	}
 	showHead(&b, p, it, binding, more)
-	fmt.Fprintf(&b, "diff:\n  %s\n", strings.ReplaceAll(p.Diff, "\n", "\n  "))
+	fmt.Fprintf(&b, "diff:\n  %s\n%s", strings.ReplaceAll(p.Diff, "\n", "\n  "), saves)
 	if len(p.Dispute) > 0 {
 		b.WriteString(disputeLine)
-	}
-	if len(p.Merge) > 0 {
-		fmt.Fprintf(&b, "saves:    %d characters\n", saved)
 	}
 	b.WriteString(promotionLines(others))
 	for _, c := range conflicts {
@@ -716,19 +710,22 @@ func mergeWhat(p store.Proposal) string {
 	return fmt.Sprintf("merges items %s and %s into item %d", strings.Join(ids[:last], ", "), ids[last], *p.ItemID)
 }
 
-// mergeSaved is the number of characters that merge proposal p saves in its part (§9.5): the
-// old texts of its items at their base revisions together, less the new text. Characters are
-// bytes, as the brief budgets count them (§8.1).
-func mergeSaved(ctx context.Context, tx *sql.Tx, p store.Proposal) (int, error) {
+// savesLine is the line of show with the characters that merge proposal p saves in its part
+// (§9.5): the old texts of its items at their base revisions together, less the new text; ""
+// for a proposal of another kind. Characters are bytes, as the brief budgets count them (§8.1).
+func savesLine(ctx context.Context, tx *sql.Tx, p store.Proposal) (string, error) {
+	if len(p.Merge) == 0 {
+		return "", nil
+	}
 	saved := -len(p.Text)
 	for _, r := range p.Merge {
 		old, err := store.ItemRevisionByKey(ctx, tx, r.Item, r.Revision)
 		if err != nil {
-			return 0, err
+			return "", err
 		}
 		saved += len(old.Text)
 	}
-	return saved, nil
+	return fmt.Sprintf("saves:    %d characters\n", saved), nil
 }
 
 // detailLines are the detail lines of p in show (#254): the claim id and the revision it

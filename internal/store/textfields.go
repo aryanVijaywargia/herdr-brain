@@ -65,7 +65,7 @@ func noItemTextFields() []Field {
 		{"proposals", "scope"},
 		{"proposals", "trigger_prompts"}, // Prompt hashes (§11).
 		{"proposals", "conflicts_with"},  // Item ids (§11).
-		{"proposals", "merge"}, // Item ids and revisions of a merge (§9.5): no text.
+		{"proposals", "merge"},           // Item ids and revisions of a merge (§9.5): no text.
 		{"proposals", "status"},
 		{"proposals", "surface"},
 		{"proposals", "created"},
