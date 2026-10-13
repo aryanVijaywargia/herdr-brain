@@ -88,9 +88,9 @@ func (f *fixture) propose(t *testing.T, c store.Candidate, target string) (int64
 	defer closeStore(t, s)
 	var pid int64
 	err := s.Write(ctx, func(tx *sql.Tx) error {
-		key := c.WorkspaceKey
+		key := scopeKey(c.Scope, c.WorkspaceKey)
 		item, err := store.InsertItem(ctx, tx, store.Item{ClaimID: c.ClaimID, CurrentRevision: 1, Kind: store.KindPreference,
-			Scope: c.Scope, WorkspaceKey: &key, State: store.StateDraft, Created: testNow})
+			Scope: c.Scope, WorkspaceKey: key, State: store.StateDraft, Created: testNow})
 		if err != nil {
 			return err
 		}
@@ -101,7 +101,7 @@ func (f *fixture) propose(t *testing.T, c store.Candidate, target string) (int64
 			return err
 		}
 		return store.InsertItemRevision(ctx, tx, store.ItemRevision{ItemID: item, Revision: 1, Text: "use pnpm",
-			Scope: c.Scope, WorkspaceKey: &key, State: store.StateDraft, Author: store.AuthorBrain,
+			Scope: c.Scope, WorkspaceKey: key, State: store.StateDraft, Author: store.AuthorBrain,
 			Origin: store.OriginRemember, ProposalID: &pid, Created: testNow})
 	})
 	return pid, err

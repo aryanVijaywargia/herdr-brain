@@ -982,23 +982,35 @@ func stopMark(e store.Excerpt) string {
 	return "herdr status working → " + e.Event
 }
 
-// shown are the first excerptsShown excerpts of es in a scope that the caller sees.
+// shown are the first excerptsShown excerpts of es in a scope that the caller sees: its
+// workspace, or the global pool of its binding (§6.8).
 func (cl caller) shown(es []store.Excerpt) []store.Excerpt {
 	var shown []store.Excerpt
 	for _, e := range es {
 		if len(shown) == excerptsShown {
 			break
 		}
-		if e.WorkspaceKey != "" && cl.sees(&e.WorkspaceKey) {
+		if e.WorkspaceKey != "" && cl.sees(&e.WorkspaceKey) || cl.globalPool(e) {
 			shown = append(shown, e)
 		}
 	}
 	return shown
 }
 
-// excerptHead says where excerpt e comes from: its sender, session, workspace and local date.
+// globalPool reports whether excerpt e comes from a history scan session of the global pool of
+// the caller's binding: a scanned session with no workspace (§6.8 "Global pool").
+func (cl caller) globalPool(e store.Excerpt) bool {
+	return e.WorkspaceKey == "" && e.Source == store.SourceTranscript && e.HerdrSession == cl.Binding.Session
+}
+
+// excerptHead says where excerpt e comes from: its sender, session, workspace (or the global
+// pool) and local date.
 func (cl caller) excerptHead(e store.Excerpt) string {
-	return fmt.Sprintf("%s, session %d (%s), workspace %s, %s", e.Sender, e.SessionID, e.Harness, cl.label, localTime(e.At))
+	where := "workspace " + cl.label
+	if cl.globalPool(e) {
+		where = "the global pool"
+	}
+	return fmt.Sprintf("%s, session %d (%s), %s, %s", e.Sender, e.SessionID, e.Harness, where, localTime(e.At))
 }
 
 // evidence returns the evidence observations of p that are still in the store, the newest
