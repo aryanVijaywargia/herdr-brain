@@ -146,7 +146,7 @@ func TestDrops(t *testing.T) {
 			for _, text := range []string{"reminder", "hook text", "Brain brief", "/clear", "local output", "meta record",
 				"env text", "agents file", "developer", "read file body", "No response requested", "Request interrupted",
 				"sidechain", "compaction summary", "success output", "event copy", "image", "base64",
-				"task note", "local caveat", "bash input", "bash output"} {
+				"task note", "local caveat", "bash input", "bash output", "shell command text", "shell result"} {
 				if bytes.Contains(b, []byte(text)) {
 					t.Errorf("%s: session holds %q, want it dropped", tc.file, text)
 				}
