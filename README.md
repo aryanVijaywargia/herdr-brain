@@ -2,89 +2,144 @@
 
 One memory for every coding agent in herdr.
 
+[Why Brain](#why-brain) • [How it works](#how-it-works) • [Install](#install) • [Try it](#try-it) • [Commands](#everyday-commands) • [Privacy](#privacy)
+
 <p align="center"><a href="assets/herdr-brain-launch.mp4"><img src="assets/herdr-brain-launch.webp" width="640" alt="Animation in a herdr window. Lines typed in a Claude Code pane and a Codex pane become fragments, and a password turns into [secret]. The same correction, use pnpm, not npm, comes from both sessions and fuses into one lesson. You approve it in Brain's review pane. New Claude Code and Codex sessions get the lesson in their start brief. Brain suggests a tool for a repeated prompt. The pieces settle into a small memory graph, then the install command: herdr plugin install aryanVijaywargia/herdr-brain" /></a></p>
 
 > [!NOTE]
 > Are you an agent that sets up Brain for your user? Read [`SETUP.md`](SETUP.md). It has the exact steps.
 
-You tell Claude Code "use pnpm, not npm", and then Codex in the same project still uses npm. Brain is a herdr plugin that keeps one store of facts, preferences and lessons for Claude Code and Codex. You approve each item, and each new session in herdr gets the approved items at start. Your data stays on your machine.
+Herdr Brain is a [herdr](https://herdr.dev) plugin that gives Claude Code and Codex one shared memory. It notices what you keep telling your agents, drafts it as a short item, and asks you to approve it. After that, every new session in herdr starts out knowing it. Everything stays on your machine.
 
-## What you get
+## Why Brain
 
-- **You say it once.** Say "remember ..." or "from now on ..." in your agent session, or run `brain remember`.
-- **You decide what sticks.** Each item stays a draft until you approve it in a review pane. You can pin, undo or forget it later.
-- **Every new session knows it.** Global items go to every workspace; workspace items go to one herdr workspace.
-- **It learns over time.** Brain learns from your corrections and proposes skills and tools. A tool can run as an automation.
+If you use more than one coding agent, or even one agent across many sessions, you've probably hit these:
 
-## Requirements
+- **Each agent keeps its own memory.** You tell Claude Code to use pnpm instead of npm, then you open Codex in the same project and it reaches for npm again. Brain keeps one store for both, so a rule you give one agent reaches the other.
+- **Every new session starts blank.** So you repeat the same rules and the same corrections every morning. Brain hands the approved items to each new session when it starts, and you say a thing once.
+- **You retype the same long prompt.** Brain notices a prompt that you keep sending, or a procedure that you keep explaining, and drafts a skill or a tool from it. The next time you send that prompt, the draft opens beside you, ready to approve.
+- **Memory files fill up with near-duplicates.** Over a few weeks you end up with three ways of saying the same rule. Brain proposes to merge items that mean the same thing, and it flags an item when a file it mentions is moved or deleted.
+- **You can't see what your agents were told to remember.** With Brain, nothing becomes memory until you approve it. `brain status` shows what Brain holds and what waits for you, `brain recall` searches it, and every item stays in a local SQLite file that you own.
 
-- macOS or Linux.
-- herdr 0.9.1 or later.
-- Claude Code or Codex.
-- Go 1.23 or later. You do not need Go when you install the release tag with `--ref v0.1.0`.
+## How it works
 
-## Quick start
+1. **You work as usual.** You talk to Claude Code or Codex in a herdr pane, the way you always do.
+2. **Brain notices what matters.** When a session finishes or goes idle, Brain looks at what happened. A plain rule such as "from now on, use pnpm" or "always run the linter before you commit" becomes a draft. So does a correction that you make more than once.
+3. **You decide.** Each draft waits for your review. You can approve it, edit it first, ask for a better draft, or reject it. A rejected idea stays rejected until you reopen it.
+4. **Every new session knows it.** When a Claude Code or Codex session starts in herdr, a small hook gives it the approved items. Codex gets them with your first prompt.
+
+Items live at one of two levels, because not every rule fits every project. A **workspace** item belongs to one herdr workspace. "Use pnpm, not npm" is a good example, since it's true for this project but maybe not the next one. Drafts start at this level. A **global** item goes to every workspace, which suits a rule like "keep commit messages under 72 characters". You choose that level yourself, when you approve a draft or later with `brain promote`.
+
+You don't have to wait for Brain to notice, either. Run `brain remember "use pnpm, not npm"`, or ask your agent to remember something, and a review pane opens beside your session so you can approve it on the spot.
+
+Two more features round it out:
+
+- **Automations.** An automation runs one approved tool in one folder each time the agent stops working, for example to run the tests after every turn. You approve the exact tool and folder first.
+- **Upkeep.** Items that no session has needed for 90 days show up as candidates to archive. You can pin an item so it never ages, undo the last change to an item, or forget it completely.
+
+## Install
+
+You need:
+
+- macOS or Linux
+- herdr 0.9.1 or later
+- Claude Code, Codex, or both
+- Go 1.23 or later, unless you install the release tag
+
+Install the plugin from herdr:
 
 ```sh
 herdr plugin install aryanVijaywargia/herdr-brain
 ```
-Answer y. The setup popup opens, shows one plan and asks once. Codex needs you to trust the Brain hook once in `/hooks`.
-Then say "from now on, use pnpm, not npm" to your agent, or run this in a pane of a herdr workspace:
+
+herdr shows you what the plugin will run and asks for a yes. Then Brain's setup popup opens by itself. Setup collects every change into one plan and asks you once, so a "no" leaves your machine as it was. Along the way it asks two questions.
+
+The first is which CLI Brain may use to learn from your sessions, `claude`, `codex` or `none`. If you pick one, Brain calls it in the background with short excerpts of your finished sessions, and those excerpts go to that CLI's model provider. Your agents already send your sessions there the same way. With `none`, Brain makes no such call, so it learns much less by itself, but `brain remember` still works.
+
+The second is whether Brain may read your past Claude Code and Codex sessions once. That lets it find your repeated corrections on day one instead of after weeks. Say no and setup asks again next time.
+
+> [!IMPORTANT]
+> Codex runs a new hook only after you trust it, and only you can do that. Start `codex`, type `/hooks`, and press `t` on the Brain hook.
+
+Setup also offers a `~/.local/bin/brain` link, so you can type `brain` in any shell. If `~/.local/bin` isn't on your `PATH`, setup prints the full path to use.
+
+> [!TIP]
+> No Go? Install the release tag with `herdr plugin install aryanVijaywargia/herdr-brain --ref v0.1.0`. Brain then uses the prebuilt binary of the release and checks its checksum.
+
+## Try it
+
+Open a pane in a herdr workspace and give Brain its first item:
+
 ```sh
-brain remember "use pnpm, not npm"   # a draft for this workspace; a review pane opens beside you
+brain remember "use pnpm, not npm"
 ```
-Setup offers a `~/.local/bin/brain` link. If that folder is not on your `PATH`, setup prints the binary path to use.
+
+A review pane opens beside you with the draft. Approve it there. Now start a new Claude Code or Codex session in the same workspace and ask it which package manager to use. It already knows.
+
+If something doesn't work, run `brain doctor`. It checks the setup and prints a fix for each check that fails.
 
 ## Everyday commands
 
 | Command | What it does |
 |---|---|
-| `brain status` | Show Brain status |
-| `brain doctor [--fix]` | Check the setup and fix it |
-| `brain remember "<text>"` | Draft an item for your review |
-| `brain review` | The queue of proposals |
-| `brain recall <words>` | Find approved items |
-| `brain pin <item>` | Keep an item from aging |
-| `brain undo <item>` | Undo the latest change of an item |
-| `brain forget <item>` | Remove the text of an item |
-| `brain update` | Update Brain |
+| `brain status` | Shows what Brain holds, what waits for review, and whether extraction is on |
+| `brain doctor` | Checks the setup and tells you how to fix each problem. `--fix` repairs it for you |
+| `brain remember "<text>"` | Saves a draft for you to approve. Add `--global` for every workspace |
+| `brain review` | Lists the drafts that wait for you |
+| `brain recall <words>` | Searches your approved items |
+| `brain pin <item>` | Keeps an item from ever aging out |
+| `brain undo <item>` | Rolls back the last change to an item |
+| `brain forget <item>` | Removes an item's text from Brain |
+| `brain extract off` | Stops the calls to the learning CLI |
+| `brain update` | Updates Brain to the newest version |
 
-[`docs/commands.md`](docs/commands.md) has every command and flag.
+[`docs/commands.md`](docs/commands.md) lists every command and flag. Some of them are also herdr actions, such as "Brain: review" and "Brain: recall", so you can use them without a shell.
 
-## Your data stays local
+## Privacy
 
-- All Brain data stays on your machine, in `~/.local/share/brain`.
-- Learning sends short excerpts (at most 500 characters, after a secret filter) to the extractor CLI that you choose in setup. `brain extract off` turns this off.
-- `brain forget` cannot remove text from backups or from sessions that already got it.
+**Where is my data?** On your machine, in `~/.local/share/brain`. Brain has no cloud service and no account.
+
+**What leaves my machine?** Two things. If you chose a learning CLI in setup, Brain sends it short excerpts of your sessions, each at most 500 characters and run through a filter that replaces secrets such as passwords and tokens. A command that could become a tool goes whole, up to 4 KB. That CLI sends the excerpts to its model provider. Also, the approved items that a session gets at start are part of that agent's context, so the agent can send them to its own provider like any other text it reads.
+
+**What does Brain change on my machine?** Outside its own folders, it touches the hook files of your agent CLIs, such as `~/.claude/settings.json` and `~/.codex/hooks.json`, and the optional `~/.local/bin/brain` link. It adds its hook entries only after you say yes, and it removes only its own entries.
+
+**Can Brain forget something?** Yes. `brain forget <item>` removes the item's text from Brain. It can't reach copies that already left Brain, though, such as your backups and sessions that already got the item.
+
+**How do I turn learning off?** `brain extract off` stops the excerpts for all workspaces, or for one with `--workspace <id>`. `brain learn off` stops learning altogether, and your approved items keep reaching new sessions.
 
 ## Update
 
 ```sh
-brain update --check   # compare the installed commit with the newest one
-brain update           # install the newest commit, then run brain doctor --fix
+brain update --check   # is there a newer version?
+brain update           # install it, then check the setup
 ```
-A plugin that you installed with `--ref` does not follow the default branch. For it, `brain update` prints the install command.
 
-## Problems
+If you installed with `--ref`, Brain stays on that version, and `brain update` prints the install command to run instead.
+
+## Troubleshooting
 
 ```sh
-brain doctor --fix   # checks the setup and applies each offered repair
+brain doctor          # find what's wrong
+brain doctor --fix    # repair what it can
 ```
-[`SETUP.md`](SETUP.md#common-failures) lists the common failures and their fixes.
+
+If that doesn't sort it out, [`SETUP.md`](SETUP.md#common-failures) lists the common failures and their fixes.
 
 ## Uninstall
 
+Run these in order, because the first two need the plugin's binary:
+
 ```sh
-brain uninstall            # dry run: lists what would change
-brain uninstall --apply    # removes it; add --data to remove your stores too
+brain uninstall               # a dry run that shows what would be removed
+brain uninstall --apply       # removes the hooks and the link; add --data to delete your memory too
 herdr plugin uninstall brain
 ```
-Run the steps in this order. If you uninstalled the plugin first, see the [Uninstall part of `SETUP.md`](SETUP.md#uninstall).
 
-## Contributing
+Already removed the plugin first? The [uninstall section of `SETUP.md`](SETUP.md#uninstall) shows how to clean up by hand.
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for build, test and release steps, and [`docs/design/HLD.md`](docs/design/HLD.md) for the design.
+## Learn more
 
-## License
-
-MIT. See [`LICENSE`](LICENSE).
+- [`SETUP.md`](SETUP.md) has the step-by-step setup, written for an agent, and the common failures.
+- [`docs/commands.md`](docs/commands.md) lists every command and flag.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) covers building, testing and releasing Brain.
+- [`docs/design/HLD.md`](docs/design/HLD.md) is the full design.
