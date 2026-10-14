@@ -9,7 +9,7 @@ One memory for every coding agent in herdr.
 > [!NOTE]
 > Are you an agent that sets up Brain for your user? Read [`SETUP.md`](SETUP.md). It has the exact steps.
 
-Herdr Brain is a [herdr](https://herdr.dev) plugin that gives Claude Code and Codex one shared memory. It notices what you keep telling your agents, drafts it as a short item, and asks you to approve it. After that, every new session in herdr starts out knowing it. Everything stays on your machine.
+Herdr Brain is a [herdr](https://herdr.dev) plugin that gives Claude Code and Codex one shared memory. It notices what you keep telling your agents, drafts it as a short item, and asks you to approve it. After that, every new session in herdr starts out knowing it. Brain stores its data on your machine, and the [privacy](#privacy) section explains what can leave it.
 
 ## Why Brain
 
