@@ -137,6 +137,10 @@ Codex runs a new hook only after the user trusts it. You cannot do this for them
 Later, `/hooks` in Codex shows the trust state. `codex exec` does not show the review screen and skips an untrusted hook with no warning.
 Each new Brain hook entry needs trust again, also after an update.
 
+Codex can ask for the user's approval each time an agent runs a `brain` command in its sandbox. Brain does not change Codex rules or permissions.
+To allow `brain`, the user adds it to the allow list when Codex asks, or adds `prefix_rule(pattern = ["brain"], decision = "allow")` to `~/.codex/rules/default.rules` and restarts Codex.
+An allow rule runs the command outside the sandbox with no prompt. See [Codex rules](https://developers.openai.com/codex/rules). Do not add the rule for the user; let them decide.
+
 ## 5. Check the setup
 
 ```sh
@@ -218,4 +222,6 @@ herdr plugin uninstall brain
 If it fails:
 
 - `brain uninstall --apply` keeps a hook entry that the user edited, and tells them to remove it by hand.
-- If `herdr plugin uninstall brain` ran first, the hook entries point to a missing binary. Install the plugin again, which gets the same path, run `brain uninstall --apply`, then uninstall the plugin. The README "Uninstall" part also gives the steps to edit the files by hand.
+- If `herdr plugin uninstall brain` ran first, the hook entries point to a missing binary. Do one of these:
+  - Install the plugin again, which gets the same path. Run `brain uninstall --apply`, then uninstall the plugin.
+  - Or edit the files by hand. In `~/.claude/settings.json` and `~/.codex/hooks.json`, remove each hook group whose command contains `hook --profile claude --event` or `hook --profile codex --event`. In `~/.gemini/config/hooks.json`, remove the `brain` key. Then remove `~/.local/share/brain/install.json`, `~/.local/share/brain/bindings.json` and the `~/.local/bin/brain` link.
