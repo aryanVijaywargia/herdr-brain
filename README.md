@@ -4,7 +4,7 @@ One memory for every coding agent in herdr.
 
 [Why Brain](#why-brain) • [How it works](#how-it-works) • [Install](#install) • [Try it](#try-it) • [Commands](#everyday-commands) • [Privacy](#privacy)
 
-<p align="center"><a href="assets/herdr-brain-launch.mp4"><img src="assets/herdr-brain-launch.webp" width="640" alt="Animation in a herdr window. Lines typed in a Claude Code pane and a Codex pane become fragments, and a password turns into [secret]. The same correction, no, never edit an applied migration, add a new one, comes from both sessions and fuses into one lesson. You approve it in Brain's review pane. New Claude Code and Codex sessions get the lesson in their start brief. Brain suggests a tool, migrate-check, for a repeated prompt. The pieces settle into a small memory graph, then the install command: herdr plugin install aryanVijaywargia/herdr-brain" /></a></p>
+<p align="center"><a href="assets/herdr-brain-launch.mp4"><img src="assets/herdr-brain-launch.webp" width="480" alt="Animation in a herdr window. Lines typed in a Claude Code pane and a Codex pane become fragments, and a password turns into [secret]. The same correction, no, never edit an applied migration, add a new one, comes from both sessions and fuses into one lesson. You approve it in Brain's review pane. New Claude Code and Codex sessions get the lesson in their start brief. Brain suggests a tool, migrate-check, for a repeated prompt. The pieces settle into a small memory graph, then the install command: herdr plugin install aryanVijaywargia/herdr-brain" /></a></p>
 
 > [!NOTE]
 > Are you an agent that sets up Brain for your user? Read [`SETUP.md`](SETUP.md). It has the exact steps.
