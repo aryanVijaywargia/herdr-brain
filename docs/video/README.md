@@ -28,7 +28,7 @@ Show only what Brain does on `main`. Check each string on screen against the cod
 | The correction needs 2 sessions, in any harness | HLD §7.2, "Correction: 2 occurrences, in any harnesses" |
 | Brain reads a pane when its agent changes state; it extracts at idle or session end | HLD §5.3, §6.2 |
 | `[secret]` in place of a known secret pattern (`password=...` is the `password-pair` class) | `internal/secret/secret.go`, `internal/brained/filter.go` |
-| The review pane title `Brain review`, a split that keeps the focus on the caller, on its right | `herdr-plugin.toml` (`[[panes]]` review), `internal/herdr/client.go` (`--no-focus`), `spike/m0/FINDINGS.md` (E5-S3: the split opens on the right) |
+| The review pane title `Brain review`, a split that keeps the focus on the caller, on its right | `herdr-plugin.toml` (`[[panes]]` review), `internal/herdr/client.go` (`--no-focus`), M0 test E5-S3 (the split opens on the right) |
 | The review pane lines and keys of the lesson: a subset, in the same order | `internal/cli/testdata/pane/new-item.txt` |
 | `proposal 7 approved: item 4 is active at revision 1 (workspace w3 (api))` | `internal/cli/review.go` (the approve message) |
 | `## This workspace` and `- [4] Use pnpm, not npm.` in the start brief (the video shows only the workspace part) | `internal/brief/brief.go`, `internal/brief/testdata/` |

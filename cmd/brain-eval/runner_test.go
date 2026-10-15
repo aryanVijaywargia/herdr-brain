@@ -46,7 +46,7 @@ type fakePane struct {
 }
 
 // trustScreen is the folder-trust dialog of Claude Code 2.1.292 in folder dir, as herdr reads it
-// on the M2 test Mac.
+// on a test Mac.
 func (p *fakePane) trustScreen(dir string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "claude\n Accessing workspace:\n\n %s\n\n Quick safety check: Is this a project you created or one you trust?\n\n", dir)

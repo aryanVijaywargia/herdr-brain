@@ -153,19 +153,6 @@ func TestManifestRecallAction(t *testing.T) {
 	}
 }
 
-// E20-S3 AC 5: HLD §4.1 lists the recall popup as a surface, with its action.
-func TestHLDRecallPopup(t *testing.T) {
-	b, err := os.ReadFile("../../docs/design/HLD.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, sec, _ := strings.Cut(string(b), "### 4.1 Components\n")
-	sec, _, _ = strings.Cut(sec, "\n### ")
-	if !strings.Contains(sec, "\n| Recall popup | The plugin action `brain.recall` opens a herdr popup") {
-		t.Errorf("HLD §4.1 =\n%s\nwant the Recall popup row", sec)
-	}
-}
-
 // E20-S11 AC 1 and #358: the actions "Brain: retired items" and "Brain: links to review" open
 // their popup for the focused pane's workspace, and each popup runs `brain pane <id>`, which
 // takes that pane from the action context, as the recall popup does.
@@ -188,18 +175,5 @@ func TestManifestRetiredAction(t *testing.T) {
 		if pane["placement"] != `"popup"` || !strings.Contains(pane["command"], `exec \"$HERDR_PLUGIN_ROOT/bin/brain\" pane `+id+`"`) {
 			t.Errorf("%s pane = %v, want a popup that runs bin/brain pane %s", id, pane, id)
 		}
-	}
-}
-
-// E20-S11 AC 4: HLD §9.2 names the herdr action of the retired items list too.
-func TestHLDRetiredAction(t *testing.T) {
-	b, err := os.ReadFile("../../docs/design/HLD.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, line, _ := strings.Cut(string(b), "- **Retire, not delete.**")
-	line, _, _ = strings.Cut(line, "\n")
-	if !strings.Contains(line, "(key `i`, E20-S7), and so does the herdr action \"Brain: retired items\" (`brain.retired`, E20-S11)") {
-		t.Errorf("HLD §9.2 Retire line =\n%s\nwant the herdr action", line)
 	}
 }

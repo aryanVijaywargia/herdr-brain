@@ -141,7 +141,7 @@ func (c *Client) PromptAgent(ctx context.Context, target, text string, timeout t
 
 // ReadAgent returns the last lines of the agent target's screen as plain text, from `herdr
 // agent read --source recent-unwrapped`. herdr 0.9.1 prints text here, not JSON
-// (spike/m0/FINDINGS.md item 28).
+// (M0 test, item 28).
 func (c *Client) ReadAgent(ctx context.Context, target string, lines int) (string, error) {
 	out, err := c.run(ctx, "agent", "read", target, "--source", "recent-unwrapped", "--lines", strconv.Itoa(lines))
 	if err != nil {

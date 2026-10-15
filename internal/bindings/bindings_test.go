@@ -244,7 +244,7 @@ func caseInsensitive(t *testing.T, dir string) bool {
 	return err == nil
 }
 
-// Astra, CODE_E2-S2_REVIEW finding 1: a test store that holds the main store in another
+// A test store that holds the main store in another
 // letter case. A reset of the test store would delete the main store.
 func TestWriteRefusesCaseAliasParent(t *testing.T) {
 	dir := t.TempDir()
@@ -261,7 +261,7 @@ func TestWriteRefusesCaseAliasParent(t *testing.T) {
 	}
 }
 
-// Astra, CODE_E2-S2_REVIEW finding 1: two stores that differ only in letter case. Before the
+// Two stores that differ only in letter case. Before the
 // folders exist, nothing can tell whether they are one folder, so Write refuses a missing
 // store. Once created, they are one folder.
 func TestWriteRefusesCaseAliasOfMissingStore(t *testing.T) {
@@ -354,7 +354,7 @@ func TestBySocket(t *testing.T) {
 	if _, ok, err := BySocket(bs, broken); err == nil || ok {
 		t.Errorf("BySocket(link to a missing target) = %v, %v, want an error", ok, err)
 	}
-	// Astra, CODE_E2-S3_REVIEW finding 1: the kernel resolves link/.. to the parent of the
+	// The kernel resolves link/.. to the parent of the
 	// link target, but Clean would make this the stored socket.
 	other := mkdir(t, filepath.Join(dir, "other", "nested"))
 	dotdot := symlink(t, other, filepath.Join(sockets, "up")) + "/../herdr.sock"
@@ -445,7 +445,7 @@ func TestReadDropsBadTestBinding(t *testing.T) {
 			wantDropped: []string{"t1", "t2"},
 			wantErr:     "also the test store",
 		},
-		// Astra, CODE_E2-S3_REVIEW finding 3: the third one must not survive.
+		// The third one must not survive.
 		{
 			name:        "three test bindings share a store",
 			bs:          []Binding{def, test("t1", "t1.sock", shared), test("t2", "t2.sock", shared), test("t3", "t3.sock", shared)},
@@ -528,7 +528,7 @@ func TestWriteRefusesBadTestBinding(t *testing.T) {
 	}
 }
 
-// Astra, CODE_E2-S3_REVIEW finding 4: a test entry that does not decode drops only itself.
+// A test entry that does not decode drops only itself.
 func TestReadDropsMalformedTestEntry(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bindings.json")

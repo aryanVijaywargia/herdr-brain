@@ -36,7 +36,7 @@ func readFile(t *testing.T, name string) []byte {
 	return b
 }
 
-// TestGolden feeds the M0 hook inputs (spike/m0, /tmp/brainspike logs) to the embedded
+// TestGolden feeds the M0 hook inputs (the M0 test logs) to the embedded
 // profiles and compares the output with bytes that an independent JSON encoder built.
 func TestGolden(t *testing.T) {
 	brief := string(readFile(t, "brief.txt"))
@@ -77,7 +77,7 @@ func TestGolden(t *testing.T) {
 }
 
 // AC E15-S4: a start input with no transcript path, or with null, an empty or a non-string
-// path, still parses, with no path. Codex sends string|null (spike/m0/data/e11s1-codex-hooks.txt).
+// path, still parses, with no path. Codex sends string|null (M0 test E11-S1).
 func TestTranscriptPath(t *testing.T) {
 	for _, harness := range []string{"claude", "codex"} {
 		p, err := Load(harness)
@@ -258,7 +258,7 @@ func TestNoiseLines(t *testing.T) {
 }
 
 // TestAgyLike (E16-S11 AC): a fake profile with each new form runs with no Go change, on the
-// agy 1.2.16 hook inputs of E16-S2 (spike/m0/agyopencode/fixtures): an output path with an
+// agy 1.2.16 hook inputs of the M0 test E16-S2: an output path with an
 // array step, the "nothing" output, a start condition with two checks and input paths with an
 // array index.
 func TestAgyLike(t *testing.T) {

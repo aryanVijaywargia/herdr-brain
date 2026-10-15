@@ -15,7 +15,7 @@ import (
 )
 
 // claimSchema is the JSON output schema of the extractor for a batch or a change request: the claim fields of §7.3, strict
-// (spike/m0/data/e13s1-schema.json), the skill fields of a claim of kind skill (E16-S4):
+// (M0 test E13-S1), the skill fields of a claim of kind skill (E16-S4):
 // name, description, required_tools, example and steps [NEW fields], and the contract fields of
 // a claim of kind tool (E17-S6, the E17-S3 tool.toml fields): name, description, commands,
 // inputs, timeout_s, effects and read_only [NEW fields; Brain sets the cwd]. They are null for

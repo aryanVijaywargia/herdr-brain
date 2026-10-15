@@ -1,5 +1,0 @@
-1791040124 175288 ~/.claude.json
-1790635607 5146 ~/.claude/settings.json
-1784293970 299 ~/.claude/settings.local.json
-stat: ~/.mcp.json: stat: No such file or directory
-1790970643 10715 ~/.codex/config.toml

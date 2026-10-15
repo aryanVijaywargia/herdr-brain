@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-// sessionVersion is the session.json version of herdr 0.9.1 [M0] (spike/m0/FINDINGS.md, E2-S5).
+// sessionVersion is the session.json version of herdr 0.9.1 [M0] (M0 test E2-S5).
 const sessionVersion = 3
 
 // ErrIdentity means that the saved root of a workspace cannot be read, or lies outside the

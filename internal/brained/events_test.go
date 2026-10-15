@@ -730,7 +730,7 @@ func TestEventsShellPipeLeaderGone(t *testing.T) {
 }
 
 // The foreground processes of a brain command line in shellPane (#351). The native claude
-// binary is named by its version [spike/m0/data/e11s1-capture.txt].
+// binary is named by its version [M0 test E11-S1].
 const (
 	// procsPipe: "brain status | grep -i learning" while brain status runs its claude probe.
 	procsPipe = `[{"name":"brain","argv":["/Users/me/.local/bin/brain","status"],"pid":20},` +
@@ -813,14 +813,14 @@ func TestEventsRealAgentKept(t *testing.T) {
 }
 
 // The foreground processes of a real agent in shellPane, with the pid of their group leader
-// (#351). The native claude binary is named by its version [spike/m0/data/e11s1-capture.txt].
+// (#351). The native claude binary is named by its version [M0 test E11-S1].
 const (
 	// procsClaude: claude leads its group.
 	procsClaude = `[{"name":"2.1.295","argv":["claude"],"pid":40}]`
 	// procsClaudeTool: claude runs brain recall in its group.
 	procsClaudeTool = `[{"name":"2.1.295","argv":["claude"],"pid":40},{"name":"brain","argv":["brain","recall","tests"],"pid":41}]`
 	// procsNode: the npm codex, a node wrapper that leads the group and the codex binary
-	// [spike/m0/data/e11s1b-capture.txt].
+	// [M0 test E11-S1b].
 	procsNode = `[{"name":"codex","argv":["/usr/local/lib/node_modules/@openai/codex/bin/codex-aarch64-apple-darwin"],"pid":51},` +
 		`{"name":"node","argv":["node","/usr/local/bin/codex"],"pid":50}]`
 	// procsScript: a shell script that starts claude leads the group.

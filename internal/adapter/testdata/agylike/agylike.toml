@@ -1,5 +1,5 @@
 # A profile for a fake agy-like harness (E16-S11 AC), with the forms of the agy 1.2.16 facts
-# (spike/m0/FINDINGS.md "E16-S2"). The base adapter runs it with no Go change.
+# (M0 test "E16-S2"). The base adapter runs it with no Go change.
 kind = "agylike"
 install_target = "~/.gemini/config/hooks.json"
 # A named hook at the root of hooks.json, with flat handlers for the events but the tool event.

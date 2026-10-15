@@ -147,7 +147,7 @@ func TestRecord(t *testing.T) {
 }
 
 // AC #285: each codex-cli 0.160.1 payload of the live hook test that reaches `brain hook`
-// (spike/m0/data/e11s1c-codex-hooks.txt), in the order of the test, stores the record that
+// (M0 test E11-S1c), in the order of the test, stores the record that
 // Brain needs. A prompt keeps an @-mention as typed. A command record has the whole command and
 // the turn cwd, also when the command ran in another folder, and no exit status. A stop record
 // has the reply.

@@ -5,7 +5,7 @@ install_target = "~/.claude/settings.json"
 # Claude also runs SessionStart after resume, clear and compact; Brain delivers then too (§8.3).
 events.start = "SessionStart"
 # Hook records (E11-S5, §6.1): on after the E11-S1 live hook test on Claude Code 2.1.284
-# (spike/m0/data/e11s1-claude-hooks.txt). A failed command comes in PostToolUseFailure, so both
+# (M0 test E11-S1). A failed command comes in PostToolUseFailure, so both
 # tool events run `brain hook --event tool`, only for the shell tool.
 events.prompt = "UserPromptSubmit"
 events.tool = ["PostToolUse", "PostToolUseFailure"]
@@ -16,7 +16,7 @@ output_form = "hookSpecificOutput.additionalContext"
 input.session_id = "session_id"
 input.cwd = "cwd"
 # The start input names the CLI's transcript file; Brain stores the path in the receipt and
-# never reads the file (E15-S4, spike/m0/data/e11s1-claude-hooks.txt).
+# never reads the file (E15-S4, M0 test E11-S1).
 input.transcript_path = "transcript_path"
 input.prompt = "prompt"
 input.command = "tool_input.command"
@@ -28,7 +28,7 @@ input.reply = "last_assistant_message"
 alt_screen = true
 # A setup agent of the eval runner may run `brain remember` with no ask (E10-S3).
 eval.setup_args = ["--allowedTools", "Bash(brain remember:*)"]
-# The version of the M0 test (spike/m0/FINDINGS.md).
+# The version of the M0 test.
 tested_version = "2.1.283"
 # The Claude screen lines that change on each read and that herdr capture drops (§6.2, E11-S4):
 # the spinner, the done line of a turn, the empty prompt box, the rules, the status
@@ -44,7 +44,7 @@ noise_lines = ['[·✢✳✶✻✽*] \S+….*', '[·✢✳✶✻✽*] \S+ for .*
 # output. Under a prompt it was stored as user text. The folded tool calls are a block below.
   '\s{4,}\.\.\.',
 # Claude Code 2.1.292 (#291, M2 eval run): an announcement line, and the effort line at the
-# right of the prompt box (spike/m0/e17s2/data/screens.txt) for each effort. They were stored
+# right of the prompt box (M0 test E17-S2) for each effort. They were stored
 # as user text.
   '\s*▎ .*', '\s*[○◔◐◑◕●] \S+ · /effort',
 # Claude Code 2.1.293 (#316, M2 eval rerun 2026-10-08): the MCP warning at the top of the

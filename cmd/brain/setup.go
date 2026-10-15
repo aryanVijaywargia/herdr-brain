@@ -39,7 +39,7 @@ const setupHerdrDeadline = 5 * time.Second
 // 5 s, as the store commands.
 const setupBusyTimeout = 5 * time.Second
 
-// codexTrust are the trust steps of spike/m0/FINDINGS.md "E8-S3: trust check", for a profile
+// codexTrust are the trust steps of the M0 test "E8-S3: trust check", for a profile
 // with hook_trust "codex".
 const codexTrust = `trust the hook in Codex.
 Codex runs a new hook only after you trust it:
