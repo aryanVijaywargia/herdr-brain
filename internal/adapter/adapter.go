@@ -32,7 +32,7 @@ const defaultHooksKey = "hooks"
 
 // TrustCodex is the hook_trust value of a CLI that runs a new or changed hook entry only after
 // you trust it, with the trust state in the hooks.state table of its config.toml, as Codex
-// 0.154 does (spike/m0/FINDINGS.md "E8-S3: trust check").
+// 0.154 does (M0 test "E8-S3: trust check").
 const TrustCodex = "codex"
 
 var (
@@ -66,7 +66,7 @@ type Profile struct {
 	// may end in array steps such as "[0]" [NEW syntax].
 	OutputForm string `toml:"output_form"`
 	// OutputNone [NEW] is the output of a run that delivers nothing, for a CLI that wants JSON
-	// on every hook run: agy reads "{}" (spike/m0/FINDINGS.md "E16-S2"). "" prints nothing.
+	// on every hook run: agy reads "{}" (M0 test "E16-S2"). "" prints nothing.
 	OutputNone string `toml:"output_none"`
 	// HooksKey [NEW] is the root key of the object that holds the CLI events in the hook file:
 	// "hooks" when empty, as for Claude and Codex. agy keeps each named hook at its own root

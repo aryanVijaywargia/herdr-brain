@@ -142,4 +142,3 @@ Already removed the plugin first? The [uninstall section of `SETUP.md`](SETUP.md
 - [`SETUP.md`](SETUP.md) has the step-by-step setup, written for an agent, and the common failures.
 - [`docs/commands.md`](docs/commands.md) lists every command and flag.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) covers building, testing and releasing Brain.
-- [`docs/design/HLD.md`](docs/design/HLD.md) is the full design.

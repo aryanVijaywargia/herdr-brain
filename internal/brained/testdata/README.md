@@ -79,10 +79,10 @@ from a herdr client.
 - Date: 2026-10-02. herdr 0.9.1, Claude Code 2.1.287 (`claude-haiku-4-5-20251001`), codex-cli
   0.154.0 (gpt-6-astra high).
 - A test herdr session `brain-rec-199`, stopped and deleted after the recording. The herdr
-  client of the session ran in a pseudo-terminal of `spike/m0/s38rec/client.py`, with the
+  client of the session ran in a pseudo-terminal of a small Python script of the recording, with the
   clean environment above. The script sets the terminal size with `TIOCSWINSZ`, and the client
   resizes the panes of the focused workspace. Each read was one socket call of
-  `spike/m0/s38rec/read.py`, as `herdr.Socket.Read` makes it. The rows and columns below are
+  a second script of the recording, as `herdr.Socket.Read` makes it. The rows and columns below are
   the size of the client terminal; the pane is 26 columns narrower (the sidebar).
 - Claude in pane `w2:p1`, cwd `/private/tmp/e11s1/agent` (trusted in E11-S3), read `visible`
   (40 rows). Prompt: "Skip any progress report. Write one plain paragraph of about 120 words

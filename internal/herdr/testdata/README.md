@@ -7,9 +7,9 @@ with a scratch HOME), never the main server:
   `plugin-pane-opened.json`, `plugin-pane-closed.json`, `version.txt`
 - `error-pane-not-found.json`: stderr of `herdr pane get bogus` (exit 1)
 
-Made from the recorded replies and `spike/m0/data/api-schema-0.9.1.json`:
+Made from the recorded replies and the herdr 0.9.1 API schema (M0 test):
 
-- `pane-agent.json`: a pane with `agent` and `agent_session` (values from `spike/m0/FINDINGS.md`)
+- `pane-agent.json`: a pane with `agent` and `agent_session` (values from the M0 test)
 - `pane-null-optional.json`: `agent`, `agent_session` and `cwd` are null
 - `pane-bad-id.json`: `pane_id` is `p1`
 - `snapshot-0.8.2.json`, `snapshot-0.9.4.json`: only `version` and `protocol` changed
@@ -49,7 +49,7 @@ server` with a scratch HOME, no client attached) (E14-S3):
 Recorded by the M0 spikes (E11-S1b, E16-S2) on herdr 0.9.1 test sessions, copied for E17-S11:
 
 - `agent-get.json`: `herdr agent get w1:p1` of a Codex agent with its agent session
-  (`spike/m0/data/e11s1b-capture.txt` line 114)
+  (M0 test E11-S1b)
 - `agent-list.json` (made): `herdr agent list` (`agent_list` in the schema) with that agent and
-  the OpenCode agent of `spike/m0/agyopencode/data/opencode-screens.txt` line 81, which has no
+  the OpenCode agent of the M0 test E16-S2, which has no
   agent session

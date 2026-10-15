@@ -1,1 +1,0 @@
-{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"HOME=/tmp/e7s4/home HOOKLOAD_STORE=/tmp/e7s4/store HOOKLOAD_LOG=$HOOKLOAD_LOG /tmp/e7s4/bin/hookload hook","timeout":5}]}]}}

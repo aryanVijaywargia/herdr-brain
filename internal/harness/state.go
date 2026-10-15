@@ -114,7 +114,7 @@ type Files struct {
 }
 
 // versionRe matches a version word in `<cli> --version`: "2.1.283 (Claude Code)" and
-// "codex-cli 0.154.0" (spike/m0/FINDINGS.md).
+// "codex-cli 0.154.0" (M0 test).
 var versionRe = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
 // Check returns the status of each profile, in order. It finds each CLI by its profile kind on

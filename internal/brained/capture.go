@@ -938,7 +938,7 @@ func probeRun(p herdr.Process) bool {
 
 // runsAgent reports whether foreground process p runs agent, and not as a probe: its program or
 // its name is the agent, or it runs the agent as a script path, as "node /usr/local/bin/codex"
-// [spike/m0/data/e11s1b-capture.txt]. A word "claude" that grep looks for is no script path.
+// [M0 test E11-S1b]. A word "claude" that grep looks for is no script path.
 func runsAgent(p herdr.Process, agent string) bool {
 	if len(p.Argv) == 0 || probeRun(p) {
 		return false

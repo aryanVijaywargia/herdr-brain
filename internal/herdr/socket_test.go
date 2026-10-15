@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// Event lines as herdr 0.9.1 sent them in the M0 probe (spike/m0/e11probe).
+// Event lines as herdr 0.9.1 sent them in the M0 probe.
 func TestParseEvent(t *testing.T) {
 	tests := []struct {
 		name string

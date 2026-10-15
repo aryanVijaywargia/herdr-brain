@@ -26,5 +26,3 @@ herdr plugin unlink brain
 | `scripts/build.sh` | Build step that `herdr plugin install` runs |
 | `scripts/check-tag.sh` | Release gate: the tag must be `v<manifest version>` |
 | `.github/workflows/` | `ci.yml` (tests), `release.yml` (assets on tag `v*`) |
-| `docs/design/` | HLD, decisions and owner questions |
-| `spike/m0/` | M0 spike code and findings |

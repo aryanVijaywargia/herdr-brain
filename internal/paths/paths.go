@@ -1,6 +1,6 @@
 // Package paths gives the fixed paths that every Brain entry point uses: the binary path
 // for frozen hook commands, the data home and the optional ~/.local/bin link.
-// Decision and tests: docs/design/decisions.md (D1, D2, D3).
+// Decision and tests: E1-S2 (D1, D2, D3).
 package paths
 
 import (

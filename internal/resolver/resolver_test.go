@@ -216,7 +216,7 @@ func TestNoStore(t *testing.T) {
 		{name: "HERDR_ENV=0", environ: append(environ(f.mainSock, "", "w1:p1", "w1"), "HERDR_ENV=0"), want: NotInHerdr},
 		{name: "no socket", environ: environ("", "", "w1:p1", "w1"), want: NotInHerdr},
 		{name: "relative socket", environ: environ("herdr.sock", "", "w1:p1", "w1"), want: NotInHerdr},
-		// Astra, CODE_E2-S3_REVIEW finding 1: Clean would make it the main socket.
+		// Clean would make it the main socket.
 		{name: "socket with dot-dot", environ: environ(filepath.Join(f.dir, "link")+"/../herdr/herdr.sock", "", "w1:p1", "w1"), want: NotInHerdr},
 		{name: "no pane id", environ: environ(f.mainSock, "", "", "w1"), want: NotInHerdr},
 		{name: "no workspace id", environ: environ(f.mainSock, "", "w1:p1", ""), want: NotInHerdr},
@@ -583,7 +583,7 @@ func TestDroppedBinding(t *testing.T) {
 	}
 }
 
-// Astra, CODE_E2-S3_REVIEW finding 2: two real sessions share the main store and both have
+// Two real sessions share the main store and both have
 // pane w1:p1. A check in one session must not touch the records of the other.
 func TestAgentCheckStaysInItsSession(t *testing.T) {
 	f := newFixture(t)

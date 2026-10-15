@@ -1,4 +1,4 @@
-# agy profile (HLD §8.5), from the agy 1.2.16 facts (spike/m0/FINDINGS.md "E16-S2") and the
+# agy profile (HLD §8.5), from the agy 1.2.16 facts (M0 test "E16-S2") and the
 # live E16-S12 check. The base adapter runs it with no Go code of its own (S60).
 kind = "agy"
 # The user hooks file (§8.2). Each named hook is one root key of the file; Brain's key is

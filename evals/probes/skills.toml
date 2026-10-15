@@ -1,5 +1,5 @@
 # Skill choice (HLD §12.1 "Skill choice", E16-S5). The fixture skills and prompts come from the
-# E16-S1 spike (spike/m0/FINDINGS.md, "E16-S1: skill files from the brief").
+# E16-S1 spike (M0 test "E16-S1: skill files from the brief").
 #
 # [[skill]]: a fixture skill. Its example is its one example prompt; its steps hold
 # {{marker}}, a fresh opaque marker in each case. The runner seeds all fixture skills of this

@@ -1,5 +1,0 @@
-{"hooks":{
- "SessionStart":[{"hooks":[{"type":"command","command":"/private/tmp/e16s1/hooks/session-start.sh","timeout":5}]}],
- "PreToolUse":[{"hooks":[{"type":"command","command":"/private/tmp/e16s1/hooks/log-tool.sh","timeout":5}]}],
- "PostToolUse":[{"hooks":[{"type":"command","command":"/private/tmp/e16s1/hooks/log-tool.sh","timeout":5}]}]
-}}
