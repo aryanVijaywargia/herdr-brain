@@ -222,9 +222,11 @@
         color: var(--spot);
         font-weight: 700;
       }
+      /* With a right edge, a pane line wraps when the pane gets narrow, as the agent CLI redraws it. */
       .tx {
         position: absolute;
         left: 27px;
+        right: 27px;
         top: 34px;
         font-size: 23px;
         line-height: 30px;
@@ -233,6 +235,9 @@
       }
       .ln {
         display: block;
+        white-space: pre-wrap;
+        padding-left: 2ch;
+        text-indent: -2ch;
       }
       .p {
         color: var(--spot);
@@ -254,6 +259,11 @@
         line-height: 30px;
         white-space: pre;
         color: var(--ink);
+      }
+      .frag.wrap {
+        white-space: pre-wrap;
+        padding-left: calc(14px + 2ch);
+        text-indent: -2ch;
       }
       .frag .mask {
         display: none;
@@ -467,10 +477,10 @@
     >
       <div id="world">
         <svg id="syn" class="layer" width="1600" height="1100" viewBox="0 0 1600 1100">
-          <line id="s14" x1="260" y1="90" x2="420" y2="290" stroke="#908f96" stroke-width="2" />
-          <line id="s34" x1="199" y1="200" x2="420" y2="290" stroke="#908f96" stroke-width="2" />
-          <line id="s25" x1="790" y1="90" x2="840" y2="215" stroke="#908f96" stroke-width="2" />
-          <line id="s45" x1="420" y1="290" x2="840" y2="215" stroke="#908f96" stroke-width="2" />
+          <line id="s14" x1="260" y1="90" x2="420" y2="280" stroke="#908f96" stroke-width="2" />
+          <line id="s34" x1="199" y1="200" x2="420" y2="280" stroke="#908f96" stroke-width="2" />
+          <line id="s25" x1="790" y1="90" x2="850" y2="205" stroke="#908f96" stroke-width="2" />
+          <line id="s45" x1="420" y1="280" x2="850" y2="205" stroke="#908f96" stroke-width="2" />
         </svg>
 
         <div id="win">
@@ -483,39 +493,39 @@
               <div class="stitle">agents</div>
               <div class="row active" id="ag1"><div class="glyph"><span class="w g-w">●</span><span class="i g-i">○</span></div><div><b>api</b><small><span class="w g-w">working · claude</span><span class="i g-i">idle · claude</span></small></div></div>
               <div class="row" id="ag2"><div class="glyph"><span class="w g-w">●</span><span class="i g-i">○</span></div><div><b>api</b><small><span class="w g-w">working · codex</span><span class="i g-i">idle · codex</span></small></div></div>
-              <div class="row" id="ag3"><div class="glyph"><span class="w">●</span></div><div><b>deps</b><small class="w">working · claude</small></div></div>
-              <div class="row" id="ag4"><div class="glyph"><span class="w">●</span></div><div><b>deps</b><small class="w">working · codex</small></div></div>
+              <div class="row" id="ag3"><div class="glyph"><span class="w">●</span></div><div><b>db</b><small class="w">working · claude</small></div></div>
+              <div class="row" id="ag4"><div class="glyph"><span class="w">●</span></div><div><b>db</b><small class="w">working · codex</small></div></div>
             </div>
           </div>
           <div id="main">
-            <div id="tabs"><div class="tab on" id="tabA">api</div><div class="tab" id="tabB">deps</div><div class="tab" style="min-width: 54px">+</div></div>
+            <div id="tabs"><div class="tab on" id="tabA">api</div><div class="tab" id="tabB">db</div><div class="tab" style="min-width: 54px">+</div></div>
 
             <!-- Tab "api": claude above codex. Brain's review pane splits right of claude. -->
             <div class="panes" id="panesA">
-              <div class="pane focus" id="pc" style="left: 0; top: 0; width: 1118px; height: 269px"><div class="box"><span class="ttl">claude</span></div><div class="tx"><span class="ln" id="a0"><span class="p">❯</span> add a health check</span><span class="ln dim" id="a1">● Added GET /health.</span><span class="ln" id="a2"><span class="p">❯</span> staging password=hunter2</span><span class="ln" id="a3"><span class="p">❯</span> no, use pnpm, not npm</span></div></div>
-              <div class="pane" id="px" style="left: 0; top: 269px; width: 1118px; height: 269px"><div class="box"><span class="ttl">codex</span></div><div class="tx"><span class="ln" id="b0"><span class="p">›</span> fix the flaky login test</span><span class="ln dim" id="b1">• Fixed the retry wait.</span><span class="ln" id="b2"><span class="p">›</span> no, use pnpm, not npm</span></div></div>
+              <div class="pane focus" id="pc" style="left: 0; top: 0; width: 1118px; height: 269px"><div class="box"><span class="ttl">claude</span></div><div class="tx"><span class="ln" id="a0"><span class="p">❯</span> add a health check</span><span class="ln dim" id="a1">● Added GET /health.</span><span class="ln" id="a2"><span class="p">❯</span> staging password=hunter2</span><span class="ln" id="a3"><span class="p">❯</span> no, never edit an applied migration, add a new one</span></div></div>
+              <div class="pane" id="px" style="left: 0; top: 269px; width: 1118px; height: 269px"><div class="box"><span class="ttl">codex</span></div><div class="tx"><span class="ln" id="b0"><span class="p">›</span> fix the flaky login test</span><span class="ln dim" id="b1">• Fixed the retry wait.</span><span class="ln" id="b2"><span class="p">›</span> no, never edit an applied migration, add a new one</span></div></div>
               <div class="pane" id="pr" style="left: 559px; top: 0; width: 559px; height: 269px"><div class="box"><span class="ttl">Brain review</span></div><div class="tx" id="rv"><span id="body">proposal 7 (pending): new item
-<span class="dim">text:</span>     Use pnpm, not npm.
-<span class="dim">scope:</span>    workspace
-<span class="dim">target:</span>   workspace w3 (api)</span>
+<span class="dim">text:</span>     Never edit an applied
+          migration; add a new one.
+<span class="dim">scope:</span>    workspace</span>
 <span id="keys"><span id="ka">a</span> approve  e edit  r reject  l later</span><span id="done">proposal 7 approved: item 4 is
 active at revision 1 (workspace w3
 (api))</span></div></div>
             </div>
 
-            <!-- Tab "deps": new sessions in the same workspace get the item in their start brief. -->
+            <!-- Tab "db": new sessions in the same workspace get the item in their start brief. -->
             <div class="panes" id="panesB">
-              <div class="pane focus" id="pd" style="left: 0; top: 0; width: 1118px; height: 330px"><div class="box"><span class="ttl">claude</span></div><div class="tx"><span class="ln dim" id="d0">## This workspace</span><span class="ln" id="d1">- [4] Use pnpm, not npm.</span><span class="ln" id="d2"><span class="p">❯</span> install the deps</span><span class="ln dim" id="d3">● Bash(pnpm install)</span><span class="ln" id="d4"><span class="p">❯</span> run lint and tests</span></div></div>
+              <div class="pane focus" id="pd" style="left: 0; top: 0; width: 1118px; height: 330px"><div class="box"><span class="ttl">claude</span></div><div class="tx"><span class="ln dim" id="d0">## This workspace</span><span class="ln" id="d1">- [4] Never edit an applied migration; add a new one.</span><span class="ln" id="d2"><span class="p">❯</span> add a nickname column to users</span><span class="ln dim" id="d3">● Write(db/0005_add_nickname.sql)</span><span class="ln" id="d4"><span class="p">❯</span> reset the test db, migrate, run integration tests</span></div></div>
               <div class="pane" id="ps" style="left: 559px; top: 0; width: 559px; height: 330px"><div class="box"><span class="ttl">Brain review</span></div><div class="tx" id="sv">proposal 9 (pending): new item
 <span class="dim">kind:</span>     tool
-<span class="dim">target:</span>   workspace w3 (api)
-<span class="dim">benefit:</span>  runs these commands with
-          one reviewed contract
+<span class="dim">text:</span>
+  name = "migrate-check"
 <span class="dim">contract:</span>
-  <span class="dim">step 1:</span>    "pnpm" "lint"
-  <span class="dim">step 2:</span>    "pnpm" "test"
+  <span class="dim">step 1:</span>    "make" "db-reset"
+  <span class="dim">step 2:</span>    "make" "migrate"
+  <span class="dim">step 3:</span>    "make" "integration"
 a approve  e edit  r reject  l later</div></div>
-              <div class="pane" id="pe" style="left: 0; top: 330px; width: 1118px; height: 208px"><div class="box"><span class="ttl">codex</span></div><div class="tx"><span class="ln dim" id="e0">## This workspace</span><span class="ln" id="e1">- [4] Use pnpm, not npm.</span><span class="ln" id="e2"><span class="p">›</span> run the tests</span><span class="ln dim" id="e3">• Running pnpm test.</span></div></div>
+              <div class="pane" id="pe" style="left: 0; top: 330px; width: 1118px; height: 208px"><div class="box"><span class="ttl">codex</span></div><div class="tx"><span class="ln dim" id="e0">## This workspace</span><span class="ln" id="e1">- [4] Never edit an applied migration; add a new one.</span><span class="ln" id="e2"><span class="p">›</span> run the tests</span><span class="ln dim" id="e3">• Running make test.</span></div></div>
             </div>
           </div>
         </div>
@@ -523,11 +533,11 @@ a approve  e edit  r reject  l later</div></div>
         <div class="frag" id="f1"><span class="p">❯</span> add a health check</div>
         <div class="frag" id="f2"><span class="p">›</span> fix the flaky login test</div>
         <div class="frag" id="f3"><span class="p">❯</span> staging <span class="raw">password=hunter2</span><span class="mask">[secret]</span><div class="scan" id="scan"></div></div>
-        <div class="frag" id="f4"><span class="p">❯</span> no, use pnpm, not npm</div>
-        <div class="frag" id="f5"><span class="p">›</span> no, use pnpm, not npm</div>
+        <div class="frag wrap" id="f4"><span class="p">❯</span> no, never edit an applied migration, add a new one</div>
+        <div class="frag wrap" id="f5"><span class="p">›</span> no, never edit an applied migration, add a new one</div>
 
         <div id="ring"></div>
-        <div id="lesson">no, use pnpm, not npm</div>
+        <div id="lesson">no, never edit an applied migration, add a new one</div>
         <div id="note">2 sessions · claude + codex</div>
         <div id="node"></div>
 
@@ -552,7 +562,7 @@ a approve  e edit  r reject  l later</div></div>
       <div id="graph">
         <svg id="gsvg" class="layer" width="1080" height="1080" viewBox="0 0 1080 1080"></svg>
         <div id="gring"></div>
-        <div id="glesson">Use pnpm, not npm.</div>
+        <div id="glesson">Never edit an applied migration; add a new one.</div>
       </div>
       <div id="name">Herdr <span>Brain</span></div>
       <div id="tag">one memory for every agent in herdr</div>
@@ -648,13 +658,19 @@ a approve  e edit  r reject  l later</div></div>
       const frags = [
         ["#f1", 486, 420, 260, 90, 0.8],
         ["#f2", 527, 689, 790, 90, 1.2],
-        ["#f4", 507, 510, 420, 290, 2.75],
-        ["#f5", 507, 749, 840, 215, 3.3],
+        ["#f4", 708, 510, 420, 280, 2.75],
+        ["#f5", 708, 749, 850, 205, 3.3],
       ];
       for (const [id, sx, sy, tx, ty, t] of frags) {
         tl.set(id, at(sx, sy, { opacity: 0 }), 0);
         tl.to(id, { opacity: 1, duration: 0.15 }, t);
         tl.to(id, { x: tx, y: ty, duration: 1.1, ease: "power2.out" }, t + 0.1);
+      }
+      // The correction has 52 characters on its pane line. In flight it wraps once, after 27 of
+      // them, in one step: a width tween would show the lines between.
+      for (const [id, , , , , t] of frags.slice(2)) {
+        tl.set(id, { width: 752 }, 0);
+        tl.set(id, { width: 406 }, t + 0.3);
       }
       tl.to(["#a0", "#b0", "#a3", "#b2"], { color: FAINT, duration: 0.4 }, 3.6);
 
@@ -776,13 +792,13 @@ a approve  e edit  r reject  l later</div></div>
       const gsvg = document.getElementById("gsvg");
       const C = [540, 340];
       const T0 = 16.7;
-      const dims = [[440, 240], [660, 250], [345, 340], [470, 435], [630, 475], [760, 335], [200, 505], [880, 505], [250, 130], [900, 145]];
+      const dims = [[440, 240], [660, 250], [150, 340], [470, 435], [630, 475], [930, 335], [200, 505], [880, 505], [250, 130], [900, 145]];
       const src = [[230, 265, "claude · api"], [230, 415, "codex · api"]];
-      const fresh = [[820, 265, "claude · deps"], [820, 415, "codex · deps"]];
+      const fresh = [[820, 265, "claude · db"], [820, 415, "codex · db"]];
       const kinds = [
         [330, 175, "skill", "deploy", -1],
-        [620, 175, "tool", "lint-test", 1],
-        [540, 490, "automation", "lint-test after each stop", 0],
+        [620, 175, "tool", "migrate-check", 1],
+        [540, 490, "automation", "migrate-check after each stop", 0],
       ];
       function square(cls, x, y) {
         const d = document.createElement("div");
@@ -857,7 +873,7 @@ a approve  e edit  r reject  l later</div></div>
         tl.to(n, { backgroundColor: SPOT, duration: 0.2 }, t + 0.55);
         tl.to(l, { color: INK, duration: 0.2 }, t + 0.55);
       });
-      const recall = label("brain recall pnpm", 680, 423, -50, 0);
+      const recall = label("brain recall migration", 660, 423, -50, 0);
       tl.to(recall, { opacity: 1, duration: 0.3 }, T0 + 2.5);
       tl.from("#name", { opacity: 0, y: 30, duration: 0.7, ease: out }, 18.6);
       tl.from("#tag", { opacity: 0, duration: 0.6 }, 19.0);

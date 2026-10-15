@@ -159,7 +159,7 @@ If `brain doctor` fails, it prints one line for each failed check, with its fix 
 ## 6. Try it
 
 ```sh
-brain remember "use pnpm, not npm"
+brain remember "never edit an applied migration; add a new one"
 ```
 
 Expected: `proposal <id>: ... draft, waiting for your review in pane <pane> (or brain review)`. A review pane opens beside the pane, and the user approves it there.

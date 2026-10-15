@@ -15,7 +15,7 @@ from PIL import Image
 
 FPS = 15  # half of the 30 fps video, as the herdr-projects WebP
 SIZE = 720
-QUALITY = 72  # keeps the 22 s WebP under 3.5 MB
+QUALITY = 56  # keeps the 22 s WebP under 3.5 MB
 
 
 def main(src: str, dst: str) -> None:

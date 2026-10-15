@@ -4,7 +4,7 @@ One memory for every coding agent in herdr.
 
 [Why Brain](#why-brain) • [How it works](#how-it-works) • [Install](#install) • [Try it](#try-it) • [Commands](#everyday-commands) • [Privacy](#privacy)
 
-<p align="center"><a href="assets/herdr-brain-launch.mp4"><img src="assets/herdr-brain-launch.webp" width="640" alt="Animation in a herdr window. Lines typed in a Claude Code pane and a Codex pane become fragments, and a password turns into [secret]. The same correction, use pnpm, not npm, comes from both sessions and fuses into one lesson. You approve it in Brain's review pane. New Claude Code and Codex sessions get the lesson in their start brief. Brain suggests a tool for a repeated prompt. The pieces settle into a small memory graph, then the install command: herdr plugin install aryanVijaywargia/herdr-brain" /></a></p>
+<p align="center"><a href="assets/herdr-brain-launch.mp4"><img src="assets/herdr-brain-launch.webp" width="640" alt="Animation in a herdr window. Lines typed in a Claude Code pane and a Codex pane become fragments, and a password turns into [secret]. The same correction, no, never edit an applied migration, add a new one, comes from both sessions and fuses into one lesson. You approve it in Brain's review pane. New Claude Code and Codex sessions get the lesson in their start brief. Brain suggests a tool, migrate-check, for a repeated prompt. The pieces settle into a small memory graph, then the install command: herdr plugin install aryanVijaywargia/herdr-brain" /></a></p>
 
 > [!NOTE]
 > Are you an agent that sets up Brain for your user? Read [`SETUP.md`](SETUP.md). It has the exact steps.
@@ -15,26 +15,26 @@ Herdr Brain is a [herdr](https://herdr.dev) plugin that gives Claude Code and Co
 
 If you use more than one coding agent, or even one agent across many sessions, you've probably hit these:
 
-- **Each agent keeps its own memory.** You tell Claude Code to use pnpm instead of npm, then you open Codex in the same project and it reaches for npm again. Brain keeps one store for both, so a rule you give one agent reaches the other.
+- **Each agent keeps its own memory.** You tell Claude Code never to edit an applied migration, then you open Codex in the same project and it edits one again. Brain keeps one store for both, so a rule you give one agent reaches the other.
 - **Every new session starts blank.** So you repeat the same rules and the same corrections every morning. Brain hands the approved items to each new session when it starts, and you say a thing once.
-- **You retype the same long prompt.** Brain notices a prompt that you keep sending, or a procedure that you keep explaining, and drafts a skill or a tool from it. The next time you send that prompt, the draft opens beside you, ready to approve.
+- **You retype the same long prompt.** Brain notices a prompt that you keep sending, or a procedure that you keep explaining, and drafts a skill or a tool from it. Say you keep asking your agents to "reset the test database, run all migrations, then run the integration tests". Brain drafts a tool such as `migrate-check`, and the next time you send that prompt, the draft opens beside you, ready to approve. After that, agents run it with `brain run migrate-check`.
 - **Memory files fill up with near-duplicates.** Over a few weeks you end up with three ways of saying the same rule. Brain proposes to merge items that mean the same thing, and it flags an item when a file it mentions is moved or deleted.
 - **You can't see what your agents were told to remember.** With Brain, nothing becomes memory until you approve it. `brain status` shows what Brain holds and what waits for you, `brain recall` searches it, and every item stays in a local SQLite file that you own.
 
 ## How it works
 
 1. **You work as usual.** You talk to Claude Code or Codex in a herdr pane, the way you always do.
-2. **Brain notices what matters.** When a session finishes or goes idle, Brain looks at what happened. A plain rule such as "from now on, use pnpm" or "always run the linter before you commit" becomes a draft. So does a correction that you make more than once.
+2. **Brain notices what matters.** When a session finishes or goes idle, Brain looks at what happened. A plain rule such as "from now on, never edit an applied migration" or "always run the linter before you commit" becomes a draft. So does a correction that you make more than once.
 3. **You decide.** Each draft waits for your review. You can approve it, edit it first, ask for a better draft, or reject it. A rejected idea stays rejected until you reopen it.
 4. **Every new session knows it.** When a Claude Code or Codex session starts in herdr, a small hook gives it the approved items. Codex gets them with your first prompt.
 
-Items live at one of two levels, because not every rule fits every project. A **workspace** item belongs to one herdr workspace. "Use pnpm, not npm" is a good example, since it's true for this project but maybe not the next one. Drafts start at this level. A **global** item goes to every workspace, which suits a rule like "keep commit messages under 72 characters". You choose that level yourself, when you approve a draft or later with `brain promote`.
+Items live at one of two levels, because not every rule fits every project. A **workspace** item belongs to one herdr workspace. "Never edit an applied migration; add a new one" is a good example, since this project has a database but the next one may not. Drafts start at this level. A **global** item goes to every workspace, which suits a rule like "keep commit messages under 72 characters". You choose that level yourself, when you approve a draft or later with `brain promote`.
 
-You don't have to wait for Brain to notice, either. Run `brain remember "use pnpm, not npm"`, or ask your agent to remember something, and a review pane opens beside your session so you can approve it on the spot.
+You don't have to wait for Brain to notice, either. Run `brain remember "never edit an applied migration; add a new one"`, or ask your agent to remember something, and a review pane opens beside your session so you can approve it on the spot.
 
 Two more features round it out:
 
-- **Automations.** An automation runs one approved tool in one folder each time the agent stops working, for example to run the tests after every turn. You approve the exact tool and folder first.
+- **Automations.** An automation runs one approved tool in one folder each time the agent stops working. For example, `migrate-check` can run after every turn, so a broken migration shows up right after the turn that made it. When the same approved tool keeps running in the same folder right after the agent stops, in 3 sessions, Brain proposes the automation. You can also add one yourself with `brain automation add migrate-check --folder <dir> --cli claude`. Either way, you approve the exact tool and folder first.
 - **Upkeep.** Items that no session has needed for 90 days show up as candidates to archive. You can pin an item so it never ages, undo the last change to an item, or forget it completely.
 
 ## Install
@@ -71,10 +71,10 @@ Setup also offers a `~/.local/bin/brain` link, so you can type `brain` in any sh
 Open a pane in a herdr workspace and give Brain its first item:
 
 ```sh
-brain remember "use pnpm, not npm"
+brain remember "never edit an applied migration; add a new one"
 ```
 
-A review pane opens beside you with the draft. Approve it there. Now start a new Claude Code or Codex session in the same workspace and ask it which package manager to use. It already knows.
+A review pane opens beside you with the draft. Approve it there. Now start a new Claude Code or Codex session in the same workspace and ask it to add a nickname column to the users table. It writes a new migration and leaves the old ones alone.
 
 If something doesn't work, run `brain doctor`. It checks the setup and prints a fix for each check that fails.
 
