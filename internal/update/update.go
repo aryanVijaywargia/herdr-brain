@@ -1,9 +1,11 @@
 // Package update is `brain update` (E19-S4, HLD §4.1). herdr has no plugin update: a new
 // `herdr plugin install` replaces a managed checkout, and a linked checkout is the user's own
 // git clone. update finds the install kind and the repo in `herdr plugin list`, compares the
-// installed commit with the newest commit of the repo's default branch (`git ls-remote`), and
-// then reinstalls or pulls and builds, and runs the hook record step and `brain doctor --fix`
-// of the new binary. It is the only Brain command that uses the network (§0 point 13).
+// installed version with the newest version of the repo (`git ls-remote`), and then reinstalls
+// or pulls and builds, and runs the hook record step and `brain doctor --fix` of the new
+// binary. A managed install at a release tag follows the release tags (E19-S6); any other
+// install follows the default branch. It is the only Brain command that uses the network
+// (§0 point 13).
 package update
 
 import (
@@ -11,20 +13,25 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // Usage is the usage text of brain update.
 const Usage = `usage: brain update [--check | --records]
-  brain update            install the newest commit of the Brain repo, add the missing hook
-                          record entries of its profiles (one question), then run brain doctor --fix
-  brain update --check    compare the installed commit with the newest commit; change nothing
+  brain update            install the newest version of the Brain repo, add the missing hook
+                          record entries of its profiles (one question), then run brain doctor --fix;
+                          an install at a release tag (--ref v<x.y.z>) gets the newest release tag,
+                          any other install the newest commit of the default branch
+  brain update --check    compare the installed version with the newest version; change nothing
   brain update --records  add the missing hook record entries (one question), with no network call`
 
 // pluginID is the id in herdr-plugin.toml.
@@ -34,6 +41,9 @@ const pluginID = "brain"
 // the other commands. The install, git and the build get none: a build can take minutes, and
 // the user can stop them.
 const listDeadline = 5 * time.Second
+
+// releaseTag is the form of a release tag, v<major>.<minor>.<patch> (scripts/check-tag.sh).
+var releaseTag = regexp.MustCompile(`^v([0-9]+)\.([0-9]+)\.([0-9]+)$`)
 
 // plugin is the Brain entry of `herdr plugin list --json` (herdr v0.9.1
 // src/api/schema/plugins.rs, InstalledPluginInfo and PluginSourceInfo).
@@ -66,8 +76,12 @@ type updater struct {
 
 // state is what an install kind compares and how it updates.
 type state struct {
-	installed, newest string // commit ids
-	from, remote      string // for the output
+	commit            string // the installed commit, for the output
+	installed, newest string // commit ids, or the release tags of a release install
+	from, at          string // for the output: the install, and the newest version
+	// pinned stops an install at a ref that is not a release tag: update follows no newer
+	// version for it. "" for none.
+	pinned string
 	// guard stops an update before the compare: a linked checkout off main or with local
 	// changes stops with its reason also when it is at the newest commit. nil for none.
 	guard func(ctx context.Context) error
@@ -113,12 +127,21 @@ func Main(ctx context.Context, args, environ []string, stdin io.Reader, stdout, 
 			return err
 		}
 	}
+	if _, err := fmt.Fprintf(stdout, "installed: brain %s, commit %s (%s)\n", p.Version, short(s.commit), s.from); err != nil {
+		return err
+	}
+	if s.pinned != "" {
+		if !check {
+			return errors.New(s.pinned)
+		}
+		_, err := fmt.Fprintln(stdout, s.pinned)
+		return err
+	}
 	verdict := "update available"
 	if s.installed == s.newest {
 		verdict = "up to date"
 	}
-	if _, err := fmt.Fprintf(stdout, "installed: brain %s, commit %s (%s)\nnewest:    commit %s on the default branch of %s\n%s\n",
-		p.Version, short(s.installed), s.from, short(s.newest), s.remote, verdict); err != nil {
+	if _, err := fmt.Fprintf(stdout, "newest:    %s\n%s\n", s.at, verdict); err != nil {
 		return err
 	}
 	switch {
@@ -166,7 +189,9 @@ func (u *updater) plugin(ctx context.Context) (plugin, error) {
 }
 
 // managed is a GitHub install of herdr. herdr fetches https://github.com/<owner>/<repo>.git
-// (src/cli/plugin.rs, remote_url), so update asks the same URL.
+// (src/cli/plugin.rs, remote_url), so update asks the same URL. An install with no ref follows
+// the default branch, and an install at a release tag follows the release tags. An install at
+// any other ref, such as a branch or a commit, is pinned: update asks no remote for it.
 func (u *updater) managed(ctx context.Context, p plugin) (state, error) {
 	src := p.Source
 	if src.Owner == "" || src.Repo == "" || src.Commit == "" {
@@ -177,26 +202,43 @@ func (u *updater) managed(ctx context.Context, p plugin) (state, error) {
 		repo += "/" + src.Subdir
 	}
 	remote := "https://github.com/" + src.Owner + "/" + src.Repo + ".git"
-	newest, err := u.head(ctx, "", remote)
-	if err != nil {
-		return state{}, err
-	}
-	from := "github:" + repo
+	s := state{commit: src.Commit, from: "github:" + repo}
 	if src.Ref != "" {
-		from += " --ref " + src.Ref
+		s.from += " --ref " + src.Ref
 	}
-	apply := func(ctx context.Context) error {
-		if src.Ref != "" {
-			return fmt.Errorf("brain update follows the default branch, but this install is at --ref %s; "+
-				"to leave the ref, run: herdr plugin install %s --yes", src.Ref, repo)
+	switch _, release := version(src.Ref); {
+	case src.Ref == "":
+		newest, err := u.head(ctx, "", remote)
+		if err != nil {
+			return state{}, err
 		}
-		if err := u.run(ctx, "", nil, u.herdr, "plugin", "install", repo, "--yes"); err != nil {
-			return fmt.Errorf("herdr plugin install (herdr keeps the old checkout, so Brain stays at commit %s): %w",
-				short(src.Commit), err)
+		s.installed, s.newest = src.Commit, newest
+		s.at = fmt.Sprintf("commit %s on the default branch of %s", short(newest), repo)
+		s.apply = func(ctx context.Context) error { return u.install(ctx, src.Commit, repo) }
+	case release:
+		tag, err := u.newestTag(ctx, remote, src.Ref)
+		if err != nil {
+			return state{}, err
 		}
-		return nil
+		s.installed, s.newest = src.Ref, tag
+		s.at = fmt.Sprintf("release tag %s of %s", tag, repo)
+		s.apply = func(ctx context.Context) error { return u.install(ctx, src.Commit, repo, "--ref", tag) }
+	default:
+		s.pinned = fmt.Sprintf("this install is pinned to --ref %s, which is not a release tag, so brain update "+
+			"changes nothing; to leave the ref, run: herdr plugin install %s --yes", src.Ref, repo)
 	}
-	return state{installed: src.Commit, newest: newest, from: from, remote: repo, apply: apply}, nil
+	return s, nil
+}
+
+// install runs `herdr plugin install` with args and --yes. commit is the installed commit, for
+// the error.
+func (u *updater) install(ctx context.Context, commit string, args ...string) error {
+	args = append(append([]string{"plugin", "install"}, args...), "--yes")
+	if err := u.run(ctx, "", nil, u.herdr, args...); err != nil {
+		return fmt.Errorf("herdr plugin install (herdr keeps the old checkout, so Brain stays at commit %s): %w",
+			short(commit), err)
+	}
+	return nil
 }
 
 // linked is a checkout that `herdr plugin link` added. update pulls and builds it only on main
@@ -240,7 +282,8 @@ func (u *updater) linked(ctx context.Context, p plugin) (state, error) {
 		}
 		return u.run(ctx, root, nil, "sh", filepath.Join(root, "scripts", "build.sh"))
 	}
-	return state{installed: installed, newest: newest, from: "linked: " + root, remote: remote, guard: guard, apply: apply}, nil
+	return state{commit: installed, installed: installed, newest: newest, from: "linked: " + root,
+		at: fmt.Sprintf("commit %s on the default branch of %s", short(newest), remote), guard: guard, apply: apply}, nil
 }
 
 // head is the commit of the default branch (HEAD) of remote.
@@ -254,6 +297,45 @@ func (u *updater) head(ctx context.Context, dir, remote string) (string, error) 
 		return "", fmt.Errorf("git ls-remote %s: no HEAD", remote)
 	}
 	return commit, nil
+}
+
+// newestTag is the highest release tag of remote, or installed when remote has no higher one.
+// It ignores the tags that are not release tags.
+func (u *updater) newestTag(ctx context.Context, remote, installed string) (string, error) {
+	out, err := u.output(ctx, "", "git", "ls-remote", "--tags", "--refs", remote)
+	if err != nil {
+		return "", err
+	}
+	newest := installed
+	high, _ := version(installed) // a release tag: managed checks it
+	for _, line := range strings.Split(out, "\n") {
+		_, ref, _ := strings.Cut(line, "\t")
+		tag, ok := strings.CutPrefix(ref, "refs/tags/")
+		if !ok {
+			continue
+		}
+		if v, ok := version(tag); ok && slices.Compare(v[:], high[:]) > 0 {
+			newest, high = tag, v
+		}
+	}
+	return newest, nil
+}
+
+// version returns the numbers of a release tag, so tags compare as versions and not as text
+// (v0.10.0 is newer than v0.9.0). ok is false for any other ref.
+func version(ref string) (v [3]int, ok bool) {
+	m := releaseTag.FindStringSubmatch(ref)
+	if m == nil {
+		return v, false
+	}
+	for i := range v {
+		n, err := strconv.Atoi(m[i+1])
+		if err != nil {
+			return v, false // too large for an int, so not a Brain release
+		}
+		v[i] = n
+	}
+	return v, true
 }
 
 // after runs the new binary of the plugin root: its hook record step `brain update --records`,

@@ -198,11 +198,15 @@ brain update --check
 brain update
 ```
 
-`brain update --check` compares the installed commit with the newest commit of the repo and changes nothing.
-`brain update` installs the newest commit, shows the missing hook record entries and asks once, then runs `brain doctor --fix`.
+`brain update --check` compares the installed version with the newest version of the repo and changes nothing.
+`brain update` installs the newest version, shows the missing hook record entries and asks once, then runs `brain doctor --fix`.
 Ask the user before you answer that question. For Codex, each new entry needs trust again (step 4).
 
-If the plugin was installed with `--ref`, `brain update` prints the install command instead. Run it after the user agrees.
+The newest version depends on the install:
+
+- No `--ref`, or a linked checkout: the newest commit of the default branch.
+- A release tag, such as `--ref v0.1.0`: the newest release tag. It needs no Go.
+- Any other `--ref`: none. `brain update` changes nothing and prints the command to leave the ref. Run it after the user agrees. The default branch needs Go.
 
 ## Uninstall
 
