@@ -267,17 +267,128 @@ func TestManagedInstallFails(t *testing.T) {
 	}
 }
 
-// An install at a --ref is not moved to the default branch.
-func TestManagedRef(t *testing.T) {
-	f := newFixture(t)
-	f.managed(t, "v0.0.1")
-	f.push(t)
-	out, err := f.update(t)
-	if err == nil || !strings.Contains(err.Error(), "this install is at --ref v0.0.1") {
-		t.Errorf("update = %v, want the ref reason\n%s", err, out)
+// tag adds the tags to the remote at the current commit. An annotated tag has its own object
+// id, so the tags are annotated and lightweight in turn.
+func (f *fixture) tag(t *testing.T, tags ...string) {
+	t.Helper()
+	for i, tag := range tags {
+		args := []string{"tag", tag}
+		if i%2 == 1 {
+			args = []string{"tag", "-a", "-m", tag, tag}
+		}
+		f.git(t, f.src, args...)
+		f.git(t, f.src, "push", "-q", f.remote, "refs/tags/"+tag)
 	}
-	if strings.Contains(f.calls(t), "install") {
-		t.Errorf("calls = %q, want no install", f.calls(t))
+}
+
+// AC: an install at a release tag follows the newest release tag, compared as a version and
+// not as text. Tags that are not release tags and new commits on the default branch do not
+// count.
+func TestManagedRelease(t *testing.T) {
+	ignored := []string{"v9.9", "v10.0.0-rc1", "release-v11.0.0", "V12.0.0"}
+	tests := []struct {
+		name, ref string
+		tags      []string
+		want      string // the newest release tag
+	}{
+		{"newer tag", "v0.1.0", []string{"v0.1.0", "v0.2.0"}, "v0.2.0"},
+		{"no newer tag", "v0.2.0", []string{"v0.1.0", "v0.2.0"}, "v0.2.0"},
+		{"versions, not text", "v0.9.0", []string{"v0.9.0", "v0.10.0", "v0.2.0"}, "v0.10.0"},
+		{"newest is two digits", "v0.10.0", []string{"v0.9.0", "v0.10.0"}, "v0.10.0"},
+		{"major and patch", "v1.2.3", []string{"v1.2.3", "v1.2.10", "v0.99.0"}, "v1.2.10"},
+		{"installed tag not on the remote", "v0.3.0", []string{"v0.2.0"}, "v0.3.0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.managed(t, tt.ref)
+			c1 := f.head(t)
+			f.tag(t, append(tt.tags, ignored...)...)
+			f.push(t)
+			write(t, filepath.Join(f.dir, "next.json"), f.listJSON("github", f.head(t), tt.want), 0o600)
+			f.answer = "y\n"
+
+			out, err := f.update(t, "--check")
+			if err != nil {
+				t.Fatalf("update --check = %v\n%s", err, out)
+			}
+			verdict := "update available"
+			if tt.want == tt.ref {
+				verdict = "up to date"
+			}
+			contains(t, "brain update --check", out, "installed: brain 0.0.1, commit "+c1[:12]+" (github:acme/brain --ref "+tt.ref+")",
+				"newest:    release tag "+tt.want+" of acme/brain\n"+verdict+"\n")
+
+			out, err = f.update(t)
+			if err != nil {
+				t.Fatalf("update = %v\n%s", err, out)
+			}
+			want := "herdr plugin list --json --plugin brain\nherdr plugin list --json --plugin brain\n"
+			if tt.want != tt.ref {
+				want += "herdr plugin install acme/brain --ref " + tt.want + " --yes\nbrain-new update --records\nanswer y\nbrain-new doctor --fix\n"
+			}
+			if got := f.calls(t); got != want {
+				t.Errorf("calls =\n%s\nwant\n%s", got, want)
+			}
+		})
+	}
+}
+
+// A release tag with a number past the int range counts, and compares as a number.
+func TestReleaseTagBeyondMachineInt(t *testing.T) {
+	for _, tt := range []struct{ installed, newest string }{
+		{"v0.1.0", "v9223372036854775808.0.0"},
+		{"v9223372036854775808.0.0", "v9223372036854775809.0.0"},
+		{"v0.9.0", "v0.00010.0"},
+	} {
+		t.Run(tt.installed, func(t *testing.T) {
+			f := newFixture(t)
+			f.managed(t, tt.installed)
+			f.tag(t, tt.newest)
+			out, err := f.update(t, "--check")
+			if err != nil {
+				t.Fatalf("update --check = %v\n%s", err, out)
+			}
+			contains(t, "brain update --check", out, "release tag "+tt.newest+" of acme/brain\nupdate available\n")
+		})
+	}
+}
+
+// AC: an install at a branch, a commit or a tag that is not a release tag is pinned. --check
+// says so and prints the command to leave the ref; update says so and installs nothing.
+func TestManagedPinned(t *testing.T) {
+	for _, ref := range []string{"main", "commit", "v0.1", "nightly"} {
+		t.Run(ref, func(t *testing.T) {
+			f := newFixture(t)
+			if ref == "commit" {
+				ref = f.head(t)
+			}
+			f.managed(t, ref)
+			f.tag(t, "v0.1.0", "v0.2.0")
+			f.push(t)
+			pinned := "this install is pinned to --ref " + ref + ", which is not a release tag, so brain update changes nothing; " +
+				"to leave the ref, run: herdr plugin install acme/brain --yes"
+
+			out, err := f.update(t, "--check")
+			if err != nil {
+				t.Fatalf("update --check = %v\n%s", err, out)
+			}
+			contains(t, "brain update --check", out, "(github:acme/brain --ref "+ref+")", pinned)
+			if strings.Contains(out, "update available") || strings.Contains(out, "up to date") {
+				t.Errorf("brain update --check:\n%s\nwant no verdict", out)
+			}
+
+			out, err = f.update(t)
+			if err == nil || err.Error() != pinned {
+				t.Errorf("update = %v, want %q\n%s", err, pinned, out)
+			}
+			if c := f.calls(t); strings.Contains(c, "install") || strings.Contains(c, "brain-") {
+				t.Errorf("calls = %q, want no install and no new binary", c)
+			}
+			if f.records != 0 {
+				t.Errorf("update ran the hook record step %d times, want none", f.records)
+			}
+		})
 	}
 }
 

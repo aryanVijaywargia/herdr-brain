@@ -116,7 +116,12 @@ brain update --check   # is there a newer version?
 brain update           # install it, then check the setup
 ```
 
-If you installed with `--ref`, Brain stays on that version, and `brain update` prints the install command to run instead.
+What `brain update` follows depends on how you installed Brain:
+
+- **No `--ref`:** the newest commit of `main`.
+- **A release tag, such as `--ref v0.1.0`:** the newest release tag. You keep the prebuilt binary, so you still don't need Go.
+- **Any other `--ref`, such as a branch or a commit:** nothing. Brain stays on that ref, and `brain update` prints the command to leave it.
+- **A `herdr plugin link` checkout:** the newest commit of `main`. Brain pulls and builds it, but only on `main` with no local changes.
 
 ## Troubleshooting
 
