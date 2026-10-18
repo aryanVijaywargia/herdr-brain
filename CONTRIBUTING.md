@@ -25,4 +25,5 @@ herdr plugin unlink brain
 | `adapters/` | The adapter profiles of Claude Code, Codex and agy |
 | `scripts/build.sh` | Build step that `herdr plugin install` runs |
 | `scripts/check-tag.sh` | Release gate: the tag must be `v<manifest version>` |
+| `scripts/third-party-licenses.sh` | Release asset `THIRD_PARTY_LICENSES.txt`: the license files of the Go modules in the binary |
 | `.github/workflows/` | `ci.yml` (tests), `release.yml` (assets on tag `v*`) |

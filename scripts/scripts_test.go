@@ -466,6 +466,28 @@ func TestCheckTag(t *testing.T) {
 	}
 }
 
+// The release asset THIRD_PARTY_LICENSES.txt has a license of each module in the binary.
+func TestThirdPartyLicenses(t *testing.T) {
+	out, err := exec.Command("sh", "third-party-licenses.sh").Output()
+	if err != nil {
+		t.Fatalf("third-party-licenses.sh: %v", err)
+	}
+	for _, want := range []string{
+		"Go standard library ",
+		"modernc.org/sqlite v",
+		"github.com/BurntSushi/toml v",
+		"golang.org/x/text v",
+		"Redistribution and use in source and binary forms",
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("THIRD_PARTY_LICENSES.txt has no %q", want)
+		}
+	}
+	if strings.Contains(string(out), "github.com/aryanVijaywargia/herdr-brain") {
+		t.Error("THIRD_PARTY_LICENSES.txt lists the main module")
+	}
+}
+
 // #224 AC: no git process of the tests runs auto maintenance or auto gc.
 func TestGitAutoMaintenanceOff(t *testing.T) {
 	dir := newRepo(t)
