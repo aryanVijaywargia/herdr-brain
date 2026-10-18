@@ -20,7 +20,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -29,8 +28,9 @@ import (
 const Usage = `usage: brain update [--check | --records]
   brain update            install the newest version of the Brain repo, add the missing hook
                           record entries of its profiles (one question), then run brain doctor --fix;
-                          an install at a release tag (--ref v<x.y.z>) gets the newest release tag,
-                          any other install the newest commit of the default branch
+                          an install with no --ref and a linked checkout follow the default branch,
+                          an install at a release tag (--ref v<x.y.z>) follows the release tags, and
+                          an install at any other --ref, such as main or a commit, is pinned
   brain update --check    compare the installed version with the newest version; change nothing
   brain update --records  add the missing hook record entries (one question), with no network call`
 
@@ -110,15 +110,7 @@ func Main(ctx context.Context, args, environ []string, stdin io.Reader, stdout, 
 	if err != nil {
 		return err
 	}
-	var s state
-	switch p.Source.Kind {
-	case "github":
-		s, err = u.managed(ctx, p)
-	case "local":
-		s, err = u.linked(ctx, p)
-	default:
-		err = fmt.Errorf("herdr plugin list: unknown source kind %q", p.Source.Kind)
-	}
+	s, err := u.state(ctx, p)
 	if err != nil {
 		return err
 	}
@@ -186,6 +178,17 @@ func (u *updater) plugin(ctx context.Context) (plugin, error) {
 		return plugin{}, fmt.Errorf("herdr plugin list: plugin root %q is not an absolute path", p.Root)
 	}
 	return p, nil
+}
+
+// state is the state of the install kind of p.
+func (u *updater) state(ctx context.Context, p plugin) (state, error) {
+	switch p.Source.Kind {
+	case "github":
+		return u.managed(ctx, p)
+	case "local":
+		return u.linked(ctx, p)
+	}
+	return state{}, fmt.Errorf("herdr plugin list: unknown source kind %q", p.Source.Kind)
 }
 
 // managed is a GitHub install of herdr. herdr fetches https://github.com/<owner>/<repo>.git
@@ -314,28 +317,30 @@ func (u *updater) newestTag(ctx context.Context, remote, installed string) (stri
 		if !ok {
 			continue
 		}
-		if v, ok := version(tag); ok && slices.Compare(v[:], high[:]) > 0 {
+		if v, ok := version(tag); ok && slices.CompareFunc(v[:], high[:], compareNumber) > 0 {
 			newest, high = tag, v
 		}
 	}
 	return newest, nil
 }
 
-// version returns the numbers of a release tag, so tags compare as versions and not as text
-// (v0.10.0 is newer than v0.9.0). ok is false for any other ref.
-func version(ref string) (v [3]int, ok bool) {
+// version returns the numbers of a release tag as decimal text with no leading zeros. ok is
+// false for any other ref. The numbers stay text, so a number of any size counts.
+func version(ref string) (v [3]string, ok bool) {
 	m := releaseTag.FindStringSubmatch(ref)
 	if m == nil {
 		return v, false
 	}
 	for i := range v {
-		n, err := strconv.Atoi(m[i+1])
-		if err != nil {
-			return v, false // too large for an int, so not a Brain release
-		}
-		v[i] = n
+		v[i] = strings.TrimLeft(m[i+1], "0")
 	}
 	return v, true
+}
+
+// compareNumber compares two numbers of version as numbers and not as text, so 10 is more
+// than 9. A longer number is more; numbers of the same length compare as text.
+func compareNumber(a, b string) int {
+	return cmp.Or(cmp.Compare(len(a), len(b)), strings.Compare(a, b))
 }
 
 // after runs the new binary of the plugin root: its hook record step `brain update --records`,

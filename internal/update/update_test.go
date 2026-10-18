@@ -285,7 +285,7 @@ func (f *fixture) tag(t *testing.T, tags ...string) {
 // not as text. Tags that are not release tags and new commits on the default branch do not
 // count.
 func TestManagedRelease(t *testing.T) {
-	ignored := []string{"v9.9", "v10.0.0-rc1", "release-v11.0.0", "V12.0.0", "v99999999999999999999.0.0"}
+	ignored := []string{"v9.9", "v10.0.0-rc1", "release-v11.0.0", "V12.0.0"}
 	tests := []struct {
 		name, ref string
 		tags      []string
@@ -330,6 +330,26 @@ func TestManagedRelease(t *testing.T) {
 			if got := f.calls(t); got != want {
 				t.Errorf("calls =\n%s\nwant\n%s", got, want)
 			}
+		})
+	}
+}
+
+// A release tag with a number past the int range counts, and compares as a number.
+func TestReleaseTagBeyondMachineInt(t *testing.T) {
+	for _, tt := range []struct{ installed, newest string }{
+		{"v0.1.0", "v9223372036854775808.0.0"},
+		{"v9223372036854775808.0.0", "v9223372036854775809.0.0"},
+		{"v0.9.0", "v0.00010.0"},
+	} {
+		t.Run(tt.installed, func(t *testing.T) {
+			f := newFixture(t)
+			f.managed(t, tt.installed)
+			f.tag(t, tt.newest)
+			out, err := f.update(t, "--check")
+			if err != nil {
+				t.Fatalf("update --check = %v\n%s", err, out)
+			}
+			contains(t, "brain update --check", out, "release tag "+tt.newest+" of acme/brain\nupdate available\n")
 		})
 	}
 }
