@@ -38,8 +38,27 @@ jobs:
           name: brain_${{ matrix.goos }}_${{ matrix.goarch }}
           path: dist/brain_${{ matrix.goos }}_${{ matrix.goarch }}
 
+  # The BSD licenses of some modules say that a binary must carry their notice.
+  licenses:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: THIRD_PARTY_LICENSES.txt
+        run: |
+          mkdir -p dist
+          cp LICENSE dist/LICENSE
+          sh scripts/third-party-licenses.sh > dist/THIRD_PARTY_LICENSES.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: licenses
+          path: dist/
+
   publish:
-    needs: build
+    needs: [build, licenses]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

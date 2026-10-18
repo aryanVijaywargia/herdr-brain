@@ -2,7 +2,7 @@
 
 One memory for every coding agent in herdr.
 
-[![release](https://img.shields.io/github/v/release/aryanVijaywargia/herdr-brain)](https://github.com/aryanVijaywargia/herdr-brain/releases) [![herdr](https://img.shields.io/badge/herdr-0.9.1%2B-blue)](https://herdr.dev) [![platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-lightgrey)](#install) [![license](https://img.shields.io/github/license/aryanVijaywargia/herdr-brain)](LICENSE)
+[![ci](https://img.shields.io/github/actions/workflow/status/aryanVijaywargia/herdr-brain/ci.yml?branch=main&label=ci)](https://github.com/aryanVijaywargia/herdr-brain/actions/workflows/ci.yml) [![release](https://img.shields.io/github/v/release/aryanVijaywargia/herdr-brain)](https://github.com/aryanVijaywargia/herdr-brain/releases) [![herdr](https://img.shields.io/badge/herdr-0.9.1%2B-blue)](https://herdr.dev) [![platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-lightgrey)](#install) [![license](https://img.shields.io/github/license/aryanVijaywargia/herdr-brain)](LICENSE)
 
 [Why Brain](#why-brain) • [How it works](#how-it-works) • [Install](#install) • [Try it](#try-it) • [Commands](#everyday-commands) • [Privacy](#privacy)
 
@@ -144,3 +144,7 @@ Already removed the plugin first? The [uninstall section of `SETUP.md`](SETUP.md
 - [`SETUP.md`](SETUP.md) has the step-by-step setup, written for an agent, and the common failures.
 - [`docs/commands.md`](docs/commands.md) lists every command and flag.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) covers building, testing and releasing Brain.
+
+## License
+
+Brain is free and open source under the [MIT license](LICENSE). Each release also carries `THIRD_PARTY_LICENSES.txt`, with the licenses of the Go modules inside the `brain` binary.
