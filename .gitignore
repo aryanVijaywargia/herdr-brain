@@ -2,3 +2,7 @@
 /bin/
 /dist/
 .DS_Store
+
+# local agent files: skills and worktrees stay on the owner's machine
+/.agents/
+/.claude/

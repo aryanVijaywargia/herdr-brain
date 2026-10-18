@@ -1,4 +1,4 @@
-# golangci-lint v2. The rules behind this config: .claude/skills/go-quality/SKILL.md.
+# golangci-lint v2. The rules behind this config: the go-quality skill (a local file, not in git).
 # The thresholds are [NEW]: they have no source in the HLD or a story.
 version: "2"
 
