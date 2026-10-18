@@ -2,6 +2,8 @@
 
 One memory for every coding agent in herdr.
 
+[![release](https://img.shields.io/github/v/release/aryanVijaywargia/herdr-brain)](https://github.com/aryanVijaywargia/herdr-brain/releases) [![herdr](https://img.shields.io/badge/herdr-0.9.1%2B-blue)](https://herdr.dev) [![platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux-lightgrey)](#install) [![license](https://img.shields.io/github/license/aryanVijaywargia/herdr-brain)](LICENSE)
+
 [Why Brain](#why-brain) • [How it works](#how-it-works) • [Install](#install) • [Try it](#try-it) • [Commands](#everyday-commands) • [Privacy](#privacy)
 
 <p align="center"><a href="assets/herdr-brain-launch.mp4"><img src="assets/herdr-brain-launch.webp" width="480" alt="Animation in a herdr window. Lines typed in a Claude Code pane and a Codex pane become fragments, and a password turns into [secret]. The same correction, no, never edit an applied migration, add a new one, comes from both sessions and fuses into one lesson. You approve it in Brain's review pane. New Claude Code and Codex sessions get the lesson in their start brief. Brain suggests a tool, migrate-check, for a repeated prompt. The pieces settle into a small memory graph, then the install command: herdr plugin install aryanVijaywargia/herdr-brain" /></a></p>
