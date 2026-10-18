@@ -91,8 +91,7 @@ func newRepo(t *testing.T, tagArgs ...string) string {
 	return dir
 }
 
-// copyTracked copies one tracked path into the test repo. A symlink, such as
-// .agents/skills/go-quality, stays a symlink.
+// copyTracked copies one tracked path into the test repo. A symlink stays a symlink.
 func copyTracked(t *testing.T, src, dst string) {
 	t.Helper()
 	fi, err := os.Lstat(src)
