@@ -30,7 +30,8 @@ die() {
 # a session restore, so after an install nothing would start brained or setup. The new
 # bin/brain post-install writes a random nonce to bin/.install-nonce. Then a detached child of
 # it waits up to 60 s for `herdr plugin list --json` to list a GitHub install of this HEAD whose
-# plugin root holds that nonce, and invokes brain.start in each running herdr session. It uses
+# plugin root holds that nonce (when herdr listed this checkout before, also with a changed
+# registration), and invokes brain.start in each running herdr session. It uses
 # no herdr folder layout (internal/update/postinstall.go). herdr gives a build no HERDR_
 # variable (herdr plugin docs), so with HERDR_ENV set this is a build by hand in a herdr pane,
 # and it starts nothing. One 60 s deadline covers all herdr calls, and each herdr call also

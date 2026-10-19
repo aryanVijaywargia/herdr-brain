@@ -44,8 +44,9 @@ const pluginID = "brain"
 // can stop them.
 const herdrDeadline = 5 * time.Second
 
-// callWaitDelay is how long a herdr call waits for its output pipes after its deadline kills
-// it. [NEW] 500 ms: the kill of the process group closes them at once in the usual case.
+// callWaitDelay is the part of the time of a herdr call that is kept for the kill of herdr and
+// the wait for its output pipes. [NEW] 500 ms: the kill of the process group closes them at
+// once in the usual case.
 const callWaitDelay = 500 * time.Millisecond
 
 // releaseTag is the form of a release tag, v<major>.<minor>.<patch> (scripts/check-tag.sh).
@@ -57,14 +58,19 @@ type plugin struct {
 	ID      string `json:"plugin_id"`
 	Version string `json:"version"`
 	Root    string `json:"plugin_root"`
-	Source  struct {
-		Kind   string `json:"kind"` // "github" or "local"
-		Owner  string `json:"owner"`
-		Repo   string `json:"repo"`
-		Subdir string `json:"subdir"`
-		Ref    string `json:"requested_ref"`
-		Commit string `json:"resolved_commit"`
-	} `json:"source"`
+	Source  source `json:"source"`
+}
+
+// source is the registration of a plugin in herdr: PluginSourceInfo.
+type source struct {
+	Kind   string `json:"kind"` // "github" or "local"
+	Owner  string `json:"owner"`
+	Repo   string `json:"repo"`
+	Subdir string `json:"subdir"`
+	Ref    string `json:"requested_ref"`
+	Commit string `json:"resolved_commit"`
+	// Installed is the time of the install in Unix milliseconds, 0 when herdr gives none.
+	Installed uint64 `json:"installed_unix_ms"`
 }
 
 // Records is the hook record step of brain update (#315, §8.5): it shows the hook record
@@ -388,19 +394,32 @@ func (u *updater) run(ctx context.Context, dir string, stdin io.Reader, name str
 	return nil
 }
 
-// call runs herdr with args and the deadline herdrDeadline, or the earlier deadline of ctx, and
-// returns its stdout. herdr runs in its own process group, and the deadline kills the group:
-// a child of herdr that holds the output pipes would else keep the call open. A process that
-// leaves the group can still hold the pipes, so WaitDelay closes them after callWaitDelay.
+// call runs herdr with args and returns its stdout. The call ends by herdrDeadline from now, or
+// by the deadline of ctx when that is earlier: herdr gets that time less callWaitDelay, and the
+// kill and the wait for the output pipes use the rest. herdr runs in its own process group. The
+// deadline kills the group, and after each call a second kill of the group stops the children
+// that herdr left, also after a good answer: a child that holds the output pipes would else keep
+// the call open. A process that leaves the group on purpose (setsid) is out of scope; WaitDelay
+// only closes the pipes that it holds, so the call still ends in time.
 func (u *updater) call(ctx context.Context, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, herdrDeadline)
+	end := time.Now().Add(herdrDeadline)
+	if d, ok := ctx.Deadline(); ok && d.Before(end) {
+		end = d
+	}
+	ctx, cancel := context.WithDeadline(ctx, end.Add(-callWaitDelay))
 	defer cancel()
 	cmd := exec.CommandContext(ctx, u.herdr, args...)
 	cmd.Env = u.environ
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = callWaitDelay
-	return capture(cmd)
+	out, err := capture(cmd)
+	if cmd.Process != nil {
+		// While a child is left in the group, the group id stays in use, so this kill reaches
+		// only that group. With no child left, it finds no group (ESRCH): the error does not count.
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	return out, err
 }
 
 // git runs git with args in dir and returns its stdout with no space at the ends.

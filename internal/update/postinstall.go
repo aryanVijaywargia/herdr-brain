@@ -19,7 +19,7 @@ import (
 )
 
 // postInstallUsage is the usage of the hidden command post-install.
-const postInstallUsage = "usage: brain post-install --commit <sha> [--nonce <hex> --deadline <unix ms>]"
+const postInstallUsage = "usage: brain post-install --commit <sha> [--nonce <hex> --deadline <unix ms> [--old <json>]]"
 
 // nonceFile is the file in the bin folder of a build that holds the nonce of that build. /bin/
 // is in .gitignore, so the file does not change the clean check of build.sh.
@@ -36,47 +36,38 @@ const postInstallWait = 60 * time.Second
 // only the output of the herdr CLI and no herdr folder layout, so it works with each herdr
 // version that keeps that output.
 //
-// herdr runs the build "after confirmation and before Herdr registers the plugin" (herdr
-// plugin docs), and gives the build no HERDR_ variable. So when herdr already lists this
-// checkout as the Brain plugin root, the build is a build by hand of a linked checkout or of
-// the plugin root, and the command starts nothing. Else it writes a random nonce to
-// bin/.install-nonce and starts itself again, detached, with that nonce and one deadline,
-// postInstallWait from now. The child polls `herdr plugin list` until herdr lists a GitHub
-// install of this commit whose plugin root holds the same nonce: the install of this build.
-// herdr 0.9.1 moves the checkout with the file, and herdr 0.9.5 builds in place. Then the
-// child invokes brain.start in each running herdr session, because the build cannot know the
-// session of the install. Each herdr call stops at the deadline, also when its own 5 s are
-// not over.
+// The command writes a random nonce to bin/.install-nonce and starts itself again, detached,
+// with that nonce and one deadline, postInstallWait from now. The child polls `herdr plugin
+// list` until herdr lists a GitHub install of this commit whose plugin root holds the same
+// nonce: the install of this build. herdr 0.9.1 moves the checkout with the file, and herdr
+// 0.9.5 builds in place. When herdr already listed this checkout as the plugin root before
+// the child started, the child also needs a change in the registration of the entry (--old):
+// a build by hand in the plugin root changes none, and an install in place changes at least
+// the install time or the commit. Then the child invokes brain.start in each running herdr
+// session, because the build cannot know the session of the install. Each herdr call ends by
+// the deadline, also when its own 5 s are not over.
 func PostInstall(ctx context.Context, args, environ []string) error {
 	fs := flag.NewFlagSet("post-install", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	commit := fs.String("commit", "", "")
 	nonce := fs.String("nonce", "", "")
 	deadline := fs.String("deadline", "", "")
+	old := fs.String("old", "", "")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("%w\n%s", err, postInstallUsage)
 	}
-	if *commit == "" || fs.NArg() != 0 || (*nonce == "") != (*deadline == "") {
+	if *commit == "" || fs.NArg() != 0 || (*nonce == "") != (*deadline == "") || (*old != "" && *nonce == "") {
 		return errors.New(postInstallUsage)
 	}
 	u := &updater{environ: environ, herdr: cmp.Or(lookup(environ, "HERDR_BIN_PATH"), "herdr")}
 	if *deadline == "" {
 		return u.watch(ctx, *commit)
 	}
-	ms, err := strconv.ParseInt(*deadline, 10, 64)
-	if err != nil {
-		return fmt.Errorf("--deadline: %w", err)
-	}
-	ctx, cancel := context.WithDeadline(ctx, time.UnixMilli(ms))
-	defer cancel()
-	if !u.awaitInstall(ctx, *commit, *nonce) {
-		return nil
-	}
-	return u.startSessions(ctx)
+	return u.child(ctx, *commit, *nonce, *deadline, *old)
 }
 
-// watch is the part of post-install in the build: it starts the child that waits for the
-// install of this build, unless herdr already lists this checkout.
+// watch is the part of post-install in the build: it writes the nonce and starts the child
+// that waits for the install of this build.
 func (u *updater) watch(ctx context.Context, commit string) error {
 	wait := postInstallWait
 	if s := lookup(u.environ, "BRAIN_AUTO_SETUP_WAIT"); s != "" {
@@ -97,9 +88,6 @@ func (u *updater) watch(ctx context.Context, commit string) error {
 	if err != nil {
 		return err
 	}
-	if ok && sameDir(p.Root, root) {
-		return nil
-	}
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		return fmt.Errorf("nonce: %w", err)
@@ -108,7 +96,38 @@ func (u *updater) watch(ctx context.Context, commit string) error {
 	if err := os.WriteFile(filepath.Join(root, "bin", nonceFile), []byte(nonce), 0o600); err != nil {
 		return err
 	}
-	return detach("post-install", "--commit", commit, "--nonce", nonce, "--deadline", strconv.FormatInt(deadline.UnixMilli(), 10))
+	args := []string{"post-install", "--commit", commit, "--nonce", nonce, "--deadline", strconv.FormatInt(deadline.UnixMilli(), 10)}
+	if ok && sameDir(p.Root, root) {
+		old, err := json.Marshal(p.Source)
+		if err != nil {
+			return err
+		}
+		args = append(args, "--old", string(old))
+	}
+	return detach(args...)
+}
+
+// child is the detached part of post-install: it waits for the install of this build until
+// deadline (Unix milliseconds), then invokes brain.start. old is the JSON of the registration
+// that herdr listed for this checkout before the child started, "" for none.
+func (u *updater) child(ctx context.Context, commit, nonce, deadline, old string) error {
+	ms, err := strconv.ParseInt(deadline, 10, 64)
+	if err != nil {
+		return fmt.Errorf("--deadline: %w", err)
+	}
+	var before *source
+	if old != "" {
+		before = new(source)
+		if err := json.Unmarshal([]byte(old), before); err != nil {
+			return fmt.Errorf("--old: %w", err)
+		}
+	}
+	ctx, cancel := context.WithDeadline(ctx, time.UnixMilli(ms))
+	defer cancel()
+	if !u.awaitInstall(ctx, commit, nonce, before) {
+		return nil
+	}
+	return u.startSessions(ctx)
 }
 
 // sameDir reports whether the paths a and b name the same folder. A path that does not exist
@@ -124,9 +143,14 @@ func sameDir(a, b string) bool {
 
 // ours reports whether p is the install of this build: a GitHub install of commit whose plugin
 // root holds nonce in bin/.install-nonce. A root with no such file, or with the nonce of
-// another build, is another install, so a read error means no.
-func ours(p plugin, commit, nonce string) bool {
+// another build, is another install, so a read error means no. With old, the registration that
+// herdr listed for this checkout before, p must also differ from old in a field: the install
+// time (by inequality only, never by order), the ref or the commit, for example.
+func ours(p plugin, commit, nonce string, old *source) bool {
 	if p.Source.Kind != "github" || p.Source.Commit != commit || !filepath.IsAbs(p.Root) {
+		return false
+	}
+	if old != nil && p.Source == *old {
 		return false
 	}
 	b, err := os.ReadFile(filepath.Join(p.Root, "bin", nonceFile))
@@ -135,12 +159,12 @@ func ours(p plugin, commit, nonce string) bool {
 
 // awaitInstall polls `herdr plugin list` each second until herdr lists the install of this
 // build, and reports whether it did before the deadline of ctx.
-func (u *updater) awaitInstall(ctx context.Context, commit, nonce string) bool {
+func (u *updater) awaitInstall(ctx context.Context, commit, nonce string, old *source) bool {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for {
 		// An error is no answer yet: the next poll asks again, until the deadline.
-		if p, ok, err := u.listed(ctx); err == nil && ok && ours(p, commit, nonce) {
+		if p, ok, err := u.listed(ctx); err == nil && ok && ours(p, commit, nonce, old) {
 			return true
 		}
 		select {

@@ -2,12 +2,14 @@ package update
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -22,27 +24,40 @@ func nonceRoot(t *testing.T, nonce string) string {
 }
 
 // #427: only a GitHub install of the built commit whose plugin root holds the nonce of the
-// build is the install of the build. The install time does not count.
+// build is the install of the build. With the registration that herdr listed for this
+// checkout before (old), the entry must also differ from it; the order of install times does
+// not count.
 func TestOurs(t *testing.T) {
 	const commit = "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1"
 	ours1 := nonceRoot(t, "n1")
+	reg := func(kind, commit, ref string, ms uint64) *source {
+		return &source{Kind: kind, Commit: commit, Ref: ref, Installed: ms}
+	}
 	for _, c := range []struct {
 		name, kind, commit, root string
+		ms                       uint64
+		old                      *source
 		want                     bool
 	}{
-		{"install of this build", "github", commit, ours1, true},
-		{"install of another build", "github", commit, nonceRoot(t, "n2"), false},
-		{"install with no nonce", "github", commit, t.TempDir(), false},
-		{"root that does not exist", "github", commit, filepath.Join(t.TempDir(), "gone"), false},
-		{"other commit", "github", "d2", ours1, false},
-		{"linked checkout", "local", commit, ours1, false},
-		{"relative root", "github", commit, "bin/..", false},
+		{"install of this build", "github", commit, ours1, 2000, nil, true},
+		{"install of another build", "github", commit, nonceRoot(t, "n2"), 2000, nil, false},
+		{"install with no nonce", "github", commit, t.TempDir(), 2000, nil, false},
+		{"root that does not exist", "github", commit, filepath.Join(t.TempDir(), "gone"), 2000, nil, false},
+		{"other commit", "github", "d2", ours1, 2000, nil, false},
+		{"linked checkout", "local", commit, ours1, 0, nil, false},
+		{"relative root", "github", commit, "bin/..", 2000, nil, false},
+		{"same root, registration unchanged", "github", commit, ours1, 2000, reg("github", commit, "", 2000), false},
+		{"same root, later install time", "github", commit, ours1, 2000, reg("github", commit, "", 1000), true},
+		{"same root, lower install time", "github", commit, ours1, 1000, reg("github", commit, "", 2000), true},
+		{"same root, other commit before", "github", commit, ours1, 2000, reg("github", "d2", "", 2000), true},
+		{"same root, other ref before", "github", commit, ours1, 2000, reg("github", commit, "v0.1.0", 2000), true},
+		{"same root, linked before", "github", commit, ours1, 2000, reg("local", "", "", 0), true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var p plugin
-			p.Root, p.Source.Kind, p.Source.Commit = c.root, c.kind, c.commit
-			if got := ours(p, commit, "n1"); got != c.want {
-				t.Errorf("ours(%s %s %s, nonce n1) = %v, want %v", c.kind, c.commit, c.root, got, c.want)
+			p.Root, p.Source.Kind, p.Source.Commit, p.Source.Installed = c.root, c.kind, c.commit, c.ms
+			if got := ours(p, commit, "n1", c.old); got != c.want {
+				t.Errorf("ours(%s %s %s %d, nonce n1, old %+v) = %v, want %v", c.kind, c.commit, c.root, c.ms, c.old, got, c.want)
 			}
 		})
 	}
@@ -120,13 +135,18 @@ func TestPostInstallGivesUp(t *testing.T) {
 	}
 }
 
-// #427: one deadline covers the session list and every invoke. 13 invokes that do not answer
-// would take 65 s with only the 5 s deadline of each call.
+// slack is the time that a bound in these tests allows for the scheduler. [NEW] 300 ms: the
+// race detector and a busy CI machine slow each process start.
+const slack = 300 * time.Millisecond
+
+// #427: one deadline covers the session list and every invoke, with the kill of each call in
+// it. 13 invokes that do not answer would take 65 s with only the 5 s deadline of each call.
 func TestPostInstallDeadline(t *testing.T) {
 	environ, _ := postInstallHerdr(t, nonceRoot(t, "n1"), 13, true)
+	args := childArgs("n1", 2*time.Second)
 	start := time.Now()
 	done := make(chan error, 1)
-	go func() { done <- PostInstall(context.Background(), childArgs("n1", 2*time.Second), environ) }()
+	go func() { done <- PostInstall(context.Background(), args, environ) }()
 	select {
 	case err := <-done:
 		if err == nil {
@@ -135,38 +155,98 @@ func TestPostInstallDeadline(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("PostInstall still runs after 30 s")
 	}
-	// [NEW] 2 s of deadline, 500 ms of WaitDelay and a margin for a slow machine.
-	if d := time.Since(start); d > 5*time.Second {
+	if d := time.Since(start); d > 2*time.Second+slack {
 		t.Errorf("PostInstall took %v, want the 2 s deadline", d)
 	}
 }
 
-// #427: the deadline of a herdr call also ends a child of herdr that holds the output pipes,
-// in the process group of herdr or out of it.
+// gone reports whether the process pid has exited, within 2 s. An orphan child is a zombie until
+// init takes it, so the test asks again for a short time.
+func gone(pid int) bool {
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	end := time.After(2 * time.Second)
+	for {
+		if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
+			return true
+		}
+		select {
+		case <-end:
+			return false
+		case <-tick.C:
+		}
+	}
+}
+
+// #427: a herdr call ends by its deadline, the deadline of ctx or 5 s, with the kill of herdr
+// in it. After the call, no child of herdr is left in its process group, also after a good
+// answer. A child that leaves the group (setsid) is out of scope, but the call still ends in
+// time.
 func TestCallKillsHerdrChildren(t *testing.T) {
 	if _, err := exec.LookPath("perl"); err != nil {
 		t.Skip("perl is not on PATH")
 	}
-	for _, c := range []struct{ name, child string }{
-		{"child in the group", "sleep 20 &"},
-		{"child in its own session", "perl -e 'use POSIX; POSIX::setsid(); sleep 20' &"},
+	for _, c := range []struct {
+		name, script string
+		ctx          time.Duration // the deadline of ctx, 0 for none
+		bound        time.Duration // a deadline, or 1 s after an answer: the child holds the pipes for 20 s
+		ok           bool          // the call returns the answer
+		inGroup      bool          // the child stays in the process group of herdr
+	}{
+		{"answer, child holds the pipes", "sleep 20 & echo $! > pid\necho ok\n", 0, time.Second, false, true},
+		{"answer, child holds no pipe", "sleep 20 >/dev/null 2>&1 & echo $! > pid\necho ok\n", 0, time.Second, true, true},
+		{"no answer, child in the group", "sleep 20 & echo $! > pid\nexec sleep 20\n", time.Second, time.Second, false, true},
+		{"no answer, 5 s deadline", "sleep 20 & echo $! > pid\nexec sleep 20\n", 0, herdrDeadline, false, true},
+		{"no answer, child in its own session",
+			"perl -e 'use POSIX; POSIX::setsid(); open(F, \">pid.new\"); print F $$; close(F); rename(\"pid.new\", \"pid\"); sleep 20' &\n" +
+				"while [ ! -f pid ]; do sleep 0.01; done\nexec sleep 20\n",
+			time.Second, time.Second, false, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
-			write(t, filepath.Join(dir, "herdr"), "#!/bin/sh\n"+c.child+"\nexec sleep 20\n", 0o700)
+			write(t, filepath.Join(dir, "herdr"), "#!/bin/sh\ncd "+dir+"\n"+c.script, 0o700)
 			u := &updater{environ: []string{"PATH=" + os.Getenv("PATH")}, herdr: filepath.Join(dir, "herdr")}
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
-			start := time.Now()
-			if _, err := u.call(ctx, "session", "list"); err == nil {
-				t.Error("call = nil, want the deadline error")
+			ctx := context.Background()
+			if c.ctx != 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, c.ctx)
+				defer cancel()
 			}
-			// [NEW] 1 s of deadline, 500 ms of WaitDelay and a margin for a slow machine.
-			if d := time.Since(start); d > 4*time.Second {
-				t.Errorf("call took %v, want the 1 s deadline", d)
+			start := time.Now()
+			out, err := u.call(ctx, "session", "list")
+			d := time.Since(start)
+			pid := childPID(t, dir)
+			if (err == nil) != c.ok || (c.ok && out != "ok") {
+				t.Errorf("call = %q, %v, want answer %v", out, err, c.ok)
+			}
+			if d > c.bound+slack {
+				t.Errorf("call took %v, want at most %v", d, c.bound)
+			}
+			if c.inGroup && !gone(pid) {
+				t.Errorf("the child %d of herdr still runs after the call, want it killed", pid)
 			}
 		})
 	}
+}
+
+// childPID reads the pid of the child of the fake herdr in dir, and kills that child when the
+// test ends, if it still runs.
+func childPID(t *testing.T, dir string) int {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, "pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if syscall.Kill(pid, 0) == nil {
+			_ = syscall.Kill(pid, syscall.SIGKILL) // the test started this child; it ends with the test
+		}
+	})
+	return pid
 }
 
 func TestPostInstallErrors(t *testing.T) {

@@ -755,23 +755,19 @@ func TestBuildInstallStartsBrain(t *testing.T) {
 }
 
 // #427 AC: a build with BRAIN_NO_AUTO_SETUP=1, a build with no herdr on PATH, a build by hand in
-// a herdr pane (HERDR_ENV is set), a build when herdr does not answer, and a build by hand of
-// the checkout that herdr lists as the plugin root start no child.
+// a herdr pane (HERDR_ENV is set) and a build when herdr does not answer start no child.
 func TestBuildStartsNoChild(t *testing.T) {
 	for _, c := range []struct {
-		name   string
-		herdr  bool
-		hang   bool
-		listed string // the source kind of an entry that herdr lists with this checkout as root
-		env    []string
-		polls  int // the plugin list calls of the build
+		name  string
+		herdr bool
+		hang  bool
+		env   []string
+		polls int // the plugin list calls of the build
 	}{
-		{"BRAIN_NO_AUTO_SETUP=1", true, false, "", []string{"BRAIN_NO_AUTO_SETUP=1"}, 0},
-		{"no herdr on PATH", false, false, "", nil, 0},
-		{"in a herdr pane", true, false, "", []string{"HERDR_ENV=1"}, 0},
-		{"herdr does not answer", true, true, "", nil, 1},
-		{"rebuild of the plugin root", true, false, "github", nil, 1},
-		{"rebuild of a linked checkout", true, false, "local", nil, 1},
+		{"BRAIN_NO_AUTO_SETUP=1", true, false, []string{"BRAIN_NO_AUTO_SETUP=1"}, 0},
+		{"no herdr on PATH", false, false, nil, 0},
+		{"in a herdr pane", true, false, []string{"HERDR_ENV=1"}, 0},
+		{"herdr does not answer", true, true, nil, 1},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			assetName(t)
@@ -783,9 +779,6 @@ func TestBuildStartsNoChild(t *testing.T) {
 			if c.hang {
 				writeFile(t, filepath.Join(hd, "hang"), "")
 			}
-			if c.listed != "" {
-				list(t, hd, entry{c.listed, dir, head(t, dir), 1000})
-			}
 			select {
 			case <-buildDetached(t, dir, path, hd, c.env...):
 			case <-time.After(15 * time.Second): // [NEW] above the 5 s deadline of one herdr call
@@ -793,6 +786,61 @@ func TestBuildStartsNoChild(t *testing.T) {
 			}
 			if got, polls := calls(t, hd); got != "" || polls != c.polls {
 				t.Errorf("herdr calls = %q and %d plugin lists, want none and %d", got, polls, c.polls)
+			}
+		})
+	}
+}
+
+// #427 AC: herdr lists this checkout as the plugin root before the build. An install in place
+// changes the registration of the entry (the commit, the install time, also to a lower one, or
+// the source kind), so the child invokes brain.start. A build by hand of the plugin root or of
+// a linked checkout changes nothing, so the child invokes nothing and stops at its deadline.
+func TestBuildSameRoot(t *testing.T) {
+	other := strings.Repeat("0", 40)
+	for _, c := range []struct {
+		name          string
+		before, after func(dir, commit string) entry // after: a zero entry for no change
+		start         bool
+	}{
+		{"install in place over another commit",
+			func(dir, _ string) entry { return entry{"github", dir, other, 1000} },
+			func(dir, commit string) entry { return entry{"github", dir, commit, 2000} }, true},
+		{"reinstall in place, later install time",
+			func(dir, commit string) entry { return entry{"github", dir, commit, 1000} },
+			func(dir, commit string) entry { return entry{"github", dir, commit, 2000} }, true},
+		{"reinstall in place, lower install time",
+			func(dir, commit string) entry { return entry{"github", dir, commit, 2000} },
+			func(dir, commit string) entry { return entry{"github", dir, commit, 1000} }, true},
+		{"install in place over a link",
+			func(dir, _ string) entry { return entry{"local", dir, "", 0} },
+			func(dir, commit string) entry { return entry{"github", dir, commit, 1000} }, true},
+		{"rebuild of the plugin root",
+			func(dir, commit string) entry { return entry{"github", dir, commit, 1000} },
+			func(string, string) entry { return entry{} }, false},
+		{"rebuild of a linked checkout",
+			func(dir, _ string) entry { return entry{"local", dir, "", 0} },
+			func(string, string) entry { return entry{} }, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			assetName(t)
+			dir := installCheckout(t, "plugins/github-installations/brain-0123/123-0/checkout")
+			commit := head(t, dir)
+			hd, path := herdrDir(t, noGoPath(t))
+			list(t, hd, c.before(dir, commit))
+			done := buildDetached(t, dir, path, hd, "BRAIN_AUTO_SETUP_WAIT=2")
+			if e := c.after(dir, commit); e.kind != "" {
+				list(t, hd, e)
+			}
+			_, early := calls(t, hd)
+			waitDone(t, done)
+			want := ""
+			if c.start {
+				want = "session list --json\n" +
+					"--session default plugin action invoke brain.start\n--session work plugin action invoke brain.start\n"
+			}
+			if got, polls := calls(t, hd); got != want || (!c.start && polls <= early) {
+				t.Errorf("herdr calls = %q and %d plugin lists (%d before the change), want %q, "+
+					"and with no start, plugin lists also after the change", got, polls, early, want)
 			}
 		})
 	}
