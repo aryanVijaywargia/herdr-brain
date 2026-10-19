@@ -1,12 +1,12 @@
-# Claude Code profile (HLD §8.5). M1 fields only.
+# Claude Code profile. M1 fields only.
 kind = "claude"
-# The user settings file (E8 epic, M0 item 1).
+# The user settings file (E8 epic).
 install_target = "~/.claude/settings.json"
-# Claude also runs SessionStart after resume, clear and compact; Brain delivers then too (§8.3).
+# Claude also runs SessionStart after resume, clear and compact; Brain delivers then too.
 events.start = "SessionStart"
-# Hook records (E11-S5, §6.1): on after the E11-S1 live hook test on Claude Code 2.1.284
-# (M0 test E11-S1). A failed command comes in PostToolUseFailure, so both
-# tool events run `brain hook --event tool`, only for the shell tool.
+# Hook records (E11-S5): on after the E11-S1 live hook test on Claude Code 2.1.284. A failed
+# command comes in PostToolUseFailure, so both tool events run `brain hook --event tool`, only
+# for the shell tool.
 events.prompt = "UserPromptSubmit"
 events.tool = ["PostToolUse", "PostToolUseFailure"]
 events.tool_matcher = "Bash"
@@ -16,7 +16,7 @@ output_form = "hookSpecificOutput.additionalContext"
 input.session_id = "session_id"
 input.cwd = "cwd"
 # The start input names the CLI's transcript file; Brain stores the path in the receipt and
-# never reads the file (E15-S4, M0 test E11-S1).
+# never reads the file (E15-S4, E11-S1 test).
 input.transcript_path = "transcript_path"
 input.prompt = "prompt"
 input.command = "tool_input.command"
@@ -28,9 +28,9 @@ input.reply = "last_assistant_message"
 alt_screen = true
 # A setup agent of the eval runner may run `brain remember` with no ask (E10-S3).
 eval.setup_args = ["--allowedTools", "Bash(brain remember:*)"]
-# The version of the M0 test.
+# The tested CLI version.
 tested_version = "2.1.283"
-# The Claude screen lines that change on each read and that herdr capture drops (§6.2, E11-S4):
+# The Claude screen lines that change on each read and that herdr capture drops (E11-S4):
 # the spinner, the done line of a turn, the empty prompt box, the rules, the status
 # line and the mode line.
 # From the recorded reads in internal/brained/testdata (Claude Code 2.1.284). The status line
@@ -44,8 +44,7 @@ noise_lines = ['[·✢✳✶✻✽*] \S+….*', '[·✢✳✶✻✽*] \S+ for .*
 # output. Under a prompt it was stored as user text. The folded tool calls are a block below.
   '\s{4,}\.\.\.',
 # Claude Code 2.1.292 (#291, M2 eval run): an announcement line, and the effort line at the
-# right of the prompt box (M0 test E17-S2) for each effort. They were stored
-# as user text.
+# right of the prompt box (E17-S2 test) for each effort. They were stored as user text.
   '\s*▎ .*', '\s*[○◔◐◑◕●] \S+ · /effort',
 # Claude Code 2.1.293 (#316, M2 eval rerun 2026-10-08): the MCP warning at the top of the
 # screen (also in the recorded reads of Claude Code 2.1.287), the footer line of the model with
@@ -94,7 +93,7 @@ noise_blocks = [
   # The folder trust dialog of Claude Code 2.1.292 (#281, M2 eval run): its lines start with
   # one space, and its choices come after the ❯ cursor or under it. A wrapped line starts in
   # lower case. The lines are named, so the question of an approval dialog at the top of a
-  # read stays (§7.1).
+  # read stays.
   { start = '\s*Accessing workspace:', next = ''' (?:[~/]\S*|Quick safety check: .*|Claude Code'll be able to .*|Security guide|Enter to confirm · Esc to cancel|[a-z(].*)| ?(?:❯| ) +(?:No, exit|Yes, I trust this folder)|''' },
   # The fold line of the tool calls of a turn (Claude Code 2.1.292, #281), in each form of the
   # M2 eval rerun (#316): "Read 1 file, ran 2 shell commands", "Listed 1 directory, ran 1 shell

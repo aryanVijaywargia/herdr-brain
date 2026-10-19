@@ -18,7 +18,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
 )
 
-// session is the herdr session of every eval run (HLD §12.1).
+// session is the herdr session of every eval run.
 const session = "brain-eval"
 
 // Herdr is the herdr calls of the runner in its test session. *client has them; tests
@@ -46,14 +46,14 @@ type Server interface {
 	Stop(ctx context.Context) error
 }
 
-// Timeouts of a run. Each value is [NEW]: no source in the HLD or the story.
+// Timeouts of a run. Each value is [NEW]: the project's own choice, with no source in a story.
 type Timeouts struct {
 	Call   time.Duration // one herdr call: 10 s
 	Start  time.Duration // an agent start, which herdr bounds at 30 s itself: 60 s
 	Prompt time.Duration // one probe prompt, until the agent is done: 5 min
 	Step   time.Duration // one setup step: 60 s
 	// Map is the wait until a new case workspace is mapped. herdr saves a new workspace
-	// about 5 s after it creates it (HLD §11): 30 s.
+	// about 5 s after it creates it: 30 s.
 	Map  time.Duration
 	Exit time.Duration // the exit of the last case's processes: 10 s
 	Poll time.Duration // the check interval of the waits: 100 ms
@@ -74,8 +74,8 @@ var defaultTimeouts = Timeouts{
 // reply and the CLI footer (E10-S4 notes). [NEW] 400.
 const readLines = 400
 
-// Runner runs eval cases in the brain-eval test session (HLD §12.1). It holds the files,
-// the herdr calls and the clock of one run.
+// Runner runs eval cases in the brain-eval test session. It holds the files, the herdr calls
+// and the clock of one run.
 type Runner struct {
 	Bindings  string // the bindings file
 	Install   string // the install record
@@ -239,9 +239,8 @@ func (r *Runner) testBinding() (bindings.Binding, error) {
 	return b, nil
 }
 
-// lockFile takes the eval lock without waiting, so a second runner stops at once (HLD
-// §12.1). The lock ends with the process, so a killed run leaves no stale lock. The file
-// stays.
+// lockFile takes the eval lock without waiting, so a second runner stops at once. The lock
+// ends with the process, so a killed run leaves no stale lock. The file stays.
 func lockFile(path string) (unlock func(), err error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) // [NEW] 0o600, as the data home files
 	if err != nil {

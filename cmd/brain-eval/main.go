@@ -1,4 +1,4 @@
-// Command brain-eval is the eval runner of Brain (HLD §12.1, E10). It is a separate tool, not
+// Command brain-eval is the eval runner of Brain (E10). It is a separate tool, not
 // a brain command, and scripts/build.sh does not build it. It runs eval cases in the
 // brain-eval test herdr session against the test store, and never touches the real store,
 // a real pane, the CLI config files or the install record.

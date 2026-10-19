@@ -25,7 +25,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
 )
 
-// Status is the run status of one reply (HLD §12.1). It is apart from the answer label.
+// Status is the run status of one reply. It is apart from the answer label.
 type Status string
 
 // The run statuses.
@@ -36,7 +36,7 @@ const (
 	Skipped      Status = "skipped" // never a pass
 )
 
-// outDir is the out folder of a store, as the hook reads it (§7.5 step 3).
+// outDir is the out folder of a store, as the hook reads it.
 const outDir = "out"
 
 // expected is the brief that the hook of a pane in a case workspace prints with the test store,
@@ -341,7 +341,7 @@ func labelReply(c Case, markers map[string]string, rep Reply) (Label, string) {
 	})
 }
 
-// flagControlPass flags each meaning result whose control passed with the same CLI (§12.1): a
+// flagControlPass flags each meaning result whose control passed with the same CLI: a
 // fact that the CLI finds without Brain does not show that Brain delivered it. The result
 // stays. A restraint case must pass in its control, so it gets no flag; when its labeled
 // control does not pass, the result says so. A skill choice result gets no flag: its control

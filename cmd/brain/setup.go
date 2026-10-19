@@ -39,8 +39,8 @@ const setupHerdrDeadline = 5 * time.Second
 // 5 s, as the store commands.
 const setupBusyTimeout = 5 * time.Second
 
-// codexTrust are the trust steps of the M0 test "E8-S3: trust check", for a profile
-// with hook_trust "codex". Setup shows them under the step title "trust the Codex hook".
+// codexTrust are the trust steps of the E8-S3 trust check test, for a profile with
+// hook_trust "codex". Setup shows them under the step title "trust the Codex hook".
 const codexTrust = `- Start codex. Choose "Review hooks", then press t on the Brain hook.
 - "Trust all and continue" also trusts every other new or changed hook.
 - Do not choose "Continue without trusting": Brain then gets no context.
@@ -48,7 +48,7 @@ const codexTrust = `- Start codex. Choose "Review hooks", then press t on the Br
 - Trust again after a new or changed Brain hook entry: /hooks in Codex, then t.
 `
 
-// locality says where the excerpts of an extractor call go (§7.3 D9, D4).
+// locality says where the excerpts of an extractor call go.
 const locality = `- Brain calls claude -p or codex exec, with no tools, to learn from finished sessions.
 - Each call sends short excerpts, after the secret filter, to that CLI's provider or proxy.
 - The CLI signs in as it does in a herdr pane: its own login, or a key or proxy in the herdr env.
@@ -58,8 +58,7 @@ const locality = `- Brain calls claude -p or codex exec, with no tools, to learn
   Capture and the signal rules keep running.
 `
 
-// historyScan says what the history scan reads, what it keeps and what leaves the machine
-// (§6.8).
+// historyScan says what the history scan reads, what it keeps and what leaves the machine.
 const historyScan = `- brained reads ~/.claude and ~/.codex: the newest 300 files of the last 30 days.
 - It keeps short excerpts of prompts, commands and failures, and token counts.
 - The secret filter runs first. It keeps no whole transcript and no file path.
@@ -129,14 +128,14 @@ func osSetupDeps(environ []string) setupDeps {
 }
 
 // setup is `brain setup` (E9-S1), the first command a new user runs, from the herdr `setup`
-// action or by its path. It is the only command that makes a binding, so it needs none (HLD
-// §8.3). It checks herdr and asks the extractor choice, then shows every write in one plan and
-// asks once (E19-S2, D3): yes writes every step, and any other answer writes nothing. A step
-// that is already right shows as "already done"; with nothing to write, setup asks nothing.
-// It never edits a shell config file.
+// action or by its path. It is the only command that makes a binding, so it needs none. It
+// checks herdr and asks the extractor choice, then shows every write in one plan and asks once
+// (E19-S2): yes writes every step, and any other answer writes nothing. A step that is already
+// right shows as "already done"; with nothing to write, setup asks nothing. It never edits a
+// shell config file.
 //
-// herdr 0.9.1 has no persistent session identity (§4.2, [M0]), so no binding is ever marked
-// "rebind needed", and setup has no rebind path for it (§8.3 continuity).
+// herdr 0.9.1 has no persistent session identity, so no binding is ever marked "rebind
+// needed", and setup has no rebind path for it.
 func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, stdout io.Writer) error {
 	name, test, again, err := setupFlags(d, args)
 	if err != nil {
@@ -222,7 +221,7 @@ func setupFlags(d setupDeps, args []string) (name, test string, again bool, err 
 	if test != "" && name == "" {
 		return "", "", false, fmt.Errorf("--test needs --session <name>\n%s", setupUsage)
 	}
-	// This herdr session: a pane of the default session has no HERDR_SESSION (§4.2).
+	// This herdr session: a pane of the default session has no HERDR_SESSION.
 	return cmp.Or(name, lookupEnv(d.environ, "HERDR_SESSION"), "default"), test, again, nil
 }
 
@@ -260,9 +259,9 @@ func (p *plan) apply(in *bufio.Reader, stdout io.Writer, refused string) (bool, 
 }
 
 // chooseExtractor asks which CLI runs the extractor of the store in folder dir, and its model,
-// and adds the write of the answer (D4) to p. It first explains where the excerpts go (D9). A
-// store with a recorded choice keeps it with no question, unless again. The choice none is
-// recorded too, as a store row with no CLI, so that a second setup asks nothing.
+// and adds the write of the answer to p. It first explains where the excerpts go. A store with
+// a recorded choice keeps it with no question, unless again. The choice none is recorded too,
+// as a store row with no CLI, so that a second setup asks nothing.
 func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, p *plan, in *bufio.Reader, stdout io.Writer) error {
 	fmt.Fprint(stdout, locality)
 	cur, err := readExtractor(ctx, dir)
@@ -334,7 +333,7 @@ func planNone(ctx context.Context, d setupDeps, dir string, cur store.ExtractorS
 	case cur.CLI == "":
 		p.say("- Extractor: record none in the store %s. Brain makes no extractor call.\n", dir)
 	default:
-		// A stored choice is cleared: none means no call (D4, D9).
+		// A stored choice is cleared: none means no call.
 		p.say("- Extractor: clear the choice %s. Brain then makes no extractor call.\n", cur.CLI)
 	}
 	p.add(func() error {
@@ -375,7 +374,7 @@ func readExtractor(ctx context.Context, dir string) (store.ExtractorSetting, err
 }
 
 // askScan asks whether Brain may read your past Claude and Codex sessions once, for the main
-// store in folder dir (§6.8), as the next step of st. It adds the answer to p as one line under
+// store in folder dir, as the next step of st. It adds the answer to p as one line under
 // the extractor bullet. A yes adds the write of the pending scan row; setup itself reads no
 // transcript. A "no" writes nothing, so the next setup asks again (S85). A store with a scan
 // row shows its state and asks nothing. A test binding (test is its folder) never gets the
@@ -442,7 +441,7 @@ func readScan(ctx context.Context, dir string) (store.Scan, bool, error) {
 	return sc, ok, errors.Join(err, s.Close())
 }
 
-// herdrSession finds the herdr session name and checks the version of its server (D6). An
+// herdrSession finds the herdr session name and checks the version of its server. An
 // older herdr than 0.9.1 stops setup with the version and the fix (S81).
 func herdrSession(ctx context.Context, d setupDeps, name string, stdout io.Writer) (herdr.Session, error) {
 	lctx, cancel := context.WithTimeout(ctx, setupHerdrDeadline)
@@ -474,10 +473,10 @@ func herdrSession(ctx context.Context, d setupDeps, name string, stdout io.Write
 	return ss[i], nil
 }
 
-// planBind plans the binding of sess to the main store, or to the test store folder test
-// (§8.3). It refuses a test store that is, holds or sits inside the main store or another test
-// store, after links and aliases (S76), and a real session on a test store. A binding that is
-// already right stays as it is. It returns the store folder of the binding.
+// planBind plans the binding of sess to the main store, or to the test store folder test. It
+// refuses a test store that is, holds or sits inside the main store or another test store,
+// after links and aliases (S76), and a real session on a test store. A binding that is already
+// right stays as it is. It returns the store folder of the binding.
 func planBind(d setupDeps, sess herdr.Session, test string, p *plan, stdout io.Writer) (string, error) {
 	file, err := paths.BindingsFile()
 	if err != nil {
@@ -512,7 +511,7 @@ func planBind(d setupDeps, sess herdr.Session, test string, p *plan, stdout io.W
 	}
 
 	// The new file: every kept binding of another session, and want. A bad test binding that
-	// Read dropped leaves the file (owner decision 2026-09-28: it does not stop the others).
+	// Read dropped leaves the file: it does not stop the others.
 	next := slices.DeleteFunc(slices.Clone(bs), func(b bindings.Binding) bool { return b.Session == sess.Name })
 	want.Created = d.now().UTC()
 	next = append(next, want)
@@ -762,10 +761,10 @@ const (
 	setupRecordsHead  = "  Hook records of %s: Brain stores its prompts, commands and replies.\n  Add these entries to %s:\n"
 )
 
-// planRecords plans the hook record entries of p (E11-S5, §6.1), which setup adds after its
+// planRecords plans the hook record entries of p (E11-S5), which setup adds after its
 // start entry, under the line head. It plans them only when the profile turns them on, after
-// the E11-S1 test. A CLI version that no test passed does not stop them (D13). It returns the
-// hooks to add.
+// the E11-S1 test. A CLI version that no test passed does not stop them. It returns the hooks
+// to add.
 func planRecords(inst *install.Installer, p *adapter.Profile, pl *plan, head string) ([]adapter.Hook, error) {
 	hs := p.Hooks()[1:]
 	if len(hs) == 0 {
@@ -829,7 +828,7 @@ func applyHooks(inst *install.Installer, p *adapter.Profile, target string, star
 }
 
 // planLink shows the binary path and plans the link -> bin, as lines under the binding bullet.
-// It never replaces a file that it did not make (D3).
+// It never replaces a file that it did not make.
 func planLink(bin, link string, p *plan, stdout io.Writer) error {
 	p.say("  Brain binary: %s\n", bin)
 	target, err := filepath.EvalSymlinks(link)

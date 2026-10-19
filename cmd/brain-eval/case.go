@@ -30,7 +30,7 @@ type Case struct {
 	ID      string
 	Stage   string // one of stages; "" for an ad-hoc case
 	Source  string
-	Control bool     // the control: the same case with no setup steps (§12.1)
+	Control bool     // the control: the same case with no setup steps
 	Setup   []string // shell steps, run in order in the scratch folder
 	Probes  []Probe
 	// Check is what each reply is checked against. An ad-hoc case has none and gets no label.
@@ -88,7 +88,7 @@ const caseLabel = "brain-eval-case-"
 const brainProcess = "brain"
 
 // errExitUnconfirmed stops a run: a process of the last case may still write to the store,
-// so the runner must not reset it (HLD §12.1).
+// so the runner must not reset it.
 var errExitUnconfirmed = errors.New("could not confirm the exit of the last case's processes; no reset")
 
 // runCase runs one case in a fresh state: it checks that nothing else writes to the test
@@ -156,8 +156,8 @@ func (r *Runner) runCase(ctx context.Context, h Herdr, c Case, skip map[string]s
 }
 
 // mapWorkspace maps workspace id in the test store of b, as each `brain` call does, and waits
-// until it is mapped. herdr saves a new workspace about 5 s after it creates it (HLD §11), and
-// no call can map it before that. An unmapped case workspace fails a `brain remember` of a
+// until it is mapped. herdr saves a new workspace about 5 s after it creates it, and no call
+// can map it before that. An unmapped case workspace fails a `brain remember` of a
 // workspace item, and its hook receipt is "unmapped" (#277).
 func (r *Runner) mapWorkspace(ctx context.Context, h Herdr, b bindings.Binding, id string) (err error) {
 	st, err := store.Open(ctx, b.Store, r.Timeouts.Call)
@@ -264,7 +264,7 @@ func workspaceLabel(c Case) string {
 }
 
 // newMarkers returns a fresh marker for {{marker}}, for each other marker placeholder of c and
-// for each fixture skill of c (§12.1 "fresh opaque markers").
+// for each fixture skill of c.
 func newMarkers(c Case) (map[string]string, error) {
 	names := []string{"marker"}
 	for _, sk := range c.Skills {
@@ -317,9 +317,8 @@ func fillAll(ss []string, markers map[string]string) []string {
 
 // guard fails when a case workspace of an earlier run is still open, or when a pane that this
 // run did not open holds an agent, or a foreground process of the CLI of a profile or of Brain: it could write to
-// the test store during or after the reset (HLD §12.1). The runner closes its own panes at
-// the end of each case, so any such pane is foreign here, for example one of an interrupted
-// run.
+// the test store during or after the reset. The runner closes its own panes at the end of each
+// case, so any such pane is foreign here, for example one of an interrupted run.
 func (r *Runner) guard(ctx context.Context, h Herdr) error {
 	kinds := adapter.Kinds(r.Profiles) // the process name of each profile's CLI is its kind
 	ws, err := call(ctx, r.Timeouts.Call, h.Workspaces)
@@ -359,9 +358,8 @@ func (r *Runner) guard(ctx context.Context, h Herdr) error {
 }
 
 // reset empties the test store folder: the database with its WAL files, the workspace map,
-// and the compiled generations with their pointer (HLD §12.1). The folder stays: the
-// binding needs it. The results file and the report stay too: they hold only the markers of
-// old cases.
+// and the compiled generations with their pointer. The folder stays: the binding needs it.
+// The results file and the report stay too: they hold only the markers of old cases.
 func reset(store string) error {
 	entries, err := os.ReadDir(store)
 	if err != nil {
@@ -521,7 +519,7 @@ func (r *Runner) probe(ctx context.Context, h Herdr, shell herdr.Pane, dir, name
 		return Reply{}, err
 	}
 	rep.Screen, err = call(ctx, r.Timeouts.Call, func(ctx context.Context) (string, error) {
-		// An alternate-screen CLI has only its screen; a longer read scrolls it (HLD §6.2).
+		// An alternate-screen CLI has only its screen; a longer read scrolls it.
 		if prof.AltScreen {
 			return h.ReadAgentVisible(ctx, name)
 		}

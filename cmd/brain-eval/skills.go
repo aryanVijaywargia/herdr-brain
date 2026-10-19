@@ -13,8 +13,8 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// skillStage is the skill choice stage (HLD §12.1 "Skill choice", E16-S5). Its cases come from
-// the [[skill]] and [[negative]] entries of a probe file, not from [[probe]].
+// skillStage is the skill choice stage (E16-S5). Its cases come from the [[skill]] and
+// [[negative]] entries of a probe file, not from [[probe]].
 const skillStage = "skill-choice"
 
 // skillSetup is the setup step of a skill choice case: a Brain call in the shell pane maps the
@@ -44,7 +44,7 @@ func skillMarker(name string) string { return "skill:" + name }
 // seedSkills adds each fixture skill of c to the empty test store of b as an active global
 // skill, with its marker in its steps. No brain command adds a skill yet (the drafts come with
 // E16-S4), so the runner writes them itself; the setup step then builds the output. A control
-// gets no skill: its brief has no skill list (§12.1). [NEW] the global scope: the skill list is
+// gets no skill: its brief has no skill list. [NEW] the global scope: the skill list is
 // then in the brief also before the workspace map has the case's workspace.
 func (r *Runner) seedSkills(ctx context.Context, b bindings.Binding, c Case, markers map[string]string) error {
 	if c.Control || len(c.Skills) == 0 {
@@ -81,7 +81,7 @@ func (r *Runner) seedSkills(ctx context.Context, b bindings.Binding, c Case, mar
 // skillResults makes the results of one reply of skill choice case c: one for each fixture
 // skill. Its case id is the prompt's case id and the skill name. seeded are the markers of the
 // run of c with its skills; a control is checked against them too, as a marker of that run must
-// not reach the control (§12.1).
+// not reach the control.
 func skillResults(c Case, o Outcome, seeded map[string]string, rep Reply, clis map[string]probeCLI) []store.EvalResult {
 	rs := make([]store.EvalResult, 0, len(c.Skills))
 	for _, sk := range c.Skills {
@@ -98,13 +98,13 @@ func skillResults(c Case, o Outcome, seeded map[string]string, rep Reply, clis m
 	return rs
 }
 
-// skillLabel labels reply rep for fixture skill sk, whose markers are markers (§12.1 skill
-// choice). The example prompt of the skill must use its marker: only the skill file holds it,
-// so the marker shows that the agent read the file and followed its steps. Every other prompt,
-// and every control, must not use it. A skipped reply gets no label, a reply that the runner
-// could not see whole is UNSURE, and a reply without its brief gets no label, except in a
-// control. As in label, a marker with a negation or a refusal is UNSURE; so is a marker that
-// shows only in the step text of the skill file, which a CLI can print when it reads the file.
+// skillLabel labels reply rep for fixture skill sk, whose markers are markers. The example
+// prompt of the skill must use its marker: only the skill file holds it, so the marker shows
+// that the agent read the file and followed its steps. Every other prompt, and every control,
+// must not use it. A skipped reply gets no label, a reply that the runner could not see whole is
+// UNSURE, and a reply without its brief gets no label, except in a control. As in label, a
+// marker with a negation or a refusal is UNSURE; so is a marker that shows only in the step text
+// of the skill file, which a CLI can print when it reads the file.
 func skillLabel(c Case, sk FixtureSkill, markers []string, rep Reply) (Label, string) {
 	switch {
 	case rep.Status == Skipped:

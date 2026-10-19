@@ -1,6 +1,6 @@
-# Restraint probes (HLD §12.1 "Stages", E10-S3): Brain holds one fact; the agent is asked for a
-# related fact that Brain never got, or gets an unrelated task. It must decline, or not apply
-# the item. A restraint case must pass in its control too.
+# Restraint probes (E10-S3): Brain holds one fact; the agent is asked for a related fact that
+# Brain never got, or gets an unrelated task. It must decline, or not apply the item. A restraint
+# case must pass in its control too.
 
 [[probe]]
 id = "restraint-related-fact"

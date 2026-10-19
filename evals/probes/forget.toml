@@ -1,6 +1,6 @@
-# Undo and forget probes (HLD §12.1 "Stages", stage id forget, E10-S3). After undo, a fresh
-# session gives the older revision. After forget, the marker is in no reply, in no Brain output
-# file and in no text field of the store (forgotten).
+# Undo and forget probes (stage id forget, E10-S3). After undo, a fresh session gives the older
+# revision. After forget, the marker is in no reply, in no Brain output file and in no text
+# field of the store (forgotten).
 
 [[probe]]
 id = "forget-undo"

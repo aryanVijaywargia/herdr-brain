@@ -23,7 +23,7 @@ const startHerdrDeadline = 5 * time.Second
 // startDeps are the parts of start that reach outside the process; tests replace them.
 type startDeps struct {
 	environ []string
-	// running reports whether a brained holds the D7 lock of this session (brained.Running).
+	// running reports whether a brained holds the brained lock of this session (brained.Running).
 	running func(environ []string) (bool, error)
 	// spawn starts `brain brained` with environ and does not wait for it.
 	spawn func(environ []string) error
@@ -45,8 +45,8 @@ func osStartDeps(environ []string) startDeps {
 // start is `brain start`, the plugin `start` action (E19-S3). The build of `herdr plugin
 // install` invokes it, because herdr runs [[startup]] only after a session restore. An action
 // gets the same environment as [[startup]], so brained finds its session there. start starts
-// brained when none holds the D7 lock, then opens the setup popup when the session has no
-// binding. Two starts at once can both spawn brained; the D7 lock stops the second one.
+// brained when none holds the brained lock, then opens the setup popup when the session has
+// no binding. Two starts at once can both spawn brained; the brained lock stops the second one.
 func start(ctx context.Context, d startDeps) error {
 	running, err := d.running(d.environ)
 	if err != nil {
@@ -79,7 +79,7 @@ func bound(environ []string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	// The default session has no HERDR_SESSION (M0).
+	// The default session has no HERDR_SESSION.
 	return ok && b.Session == cmp.Or(lookupEnv(environ, "HERDR_SESSION"), "default"), nil
 }
 

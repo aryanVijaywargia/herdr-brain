@@ -1,14 +1,14 @@
-# Codex CLI profile (HLD §8.5). M1 fields only.
+# Codex CLI profile. M1 fields only.
 kind = "codex"
-# The user hooks file; trust keys use this path (M0 test E8-S3).
+# The user hooks file; trust keys use this path (E8-S3 test).
 install_target = "~/.codex/hooks.json"
-# Codex 0.154 fires SessionStart at the first prompt, not at start (M0 item 1).
+# Codex 0.154 fires SessionStart at the first prompt, not at start.
 events.start = "SessionStart"
-# Hook records (E11-S5, §6.1): on after the live hook test on codex-cli 0.160.1 (#285,
-# M0 test E11-S1c). Codex has no failure event: PostToolUse also fires for
-# a command that fails. Every tool fires PostToolUse, MCP tools too, and only the shell tool
-# has a command, so the tool hook runs only for "Bash". The Stop hook gives the stop record;
-# `notify` is not a Brain source. Each new hook entry needs Codex trust again.
+# Hook records (E11-S5): on after the live hook test on codex-cli 0.160.1 (#285, E11-S1c
+# test). Codex has no failure event: PostToolUse also fires for a command that fails. Every
+# tool fires PostToolUse, MCP tools too, and only the shell tool has a command, so the tool
+# hook runs only for "Bash". The Stop hook gives the stop record; `notify` is not a Brain source.
+# Each new hook entry needs Codex trust again.
 events.prompt = "UserPromptSubmit"
 events.tool = ["PostToolUse"]
 events.tool_matcher = "Bash"
@@ -18,7 +18,7 @@ output_form = "hookSpecificOutput.additionalContext"
 input.session_id = "session_id"
 input.cwd = "cwd"
 # The start input names the CLI's transcript file; Brain stores the path in the receipt and
-# never reads the file (E15-S4, M0 test E11-S1).
+# never reads the file (E15-S4, E11-S1 test).
 input.transcript_path = "transcript_path"
 # The hook record paths (live on codex-cli 0.160.1, #285). The prompt is the text as typed: an
 # @-mention stays "@file", and a hook with no output leaves the prompt unchanged. The shell
@@ -42,12 +42,12 @@ hook_trust = "codex"
 # in ~/.codex/config.toml. The key is a quoted TOML key, because Codex splits a dotted -c key at
 # each dot (E10-S3).
 eval.args = ['-c', 'projects={{{dir}}={trust_level="trusted"}}', '-c', 'check_for_update_on_startup=false']
-# The version of the M0 test.
+# The tested CLI version.
 tested_version = "0.154.0"
 # The hook entry sets additionalContextLimit 0, so Codex sends the whole brief inline, not a
 # preview of a saved file (E8 epic, official Codex hooks docs).
 additional_context_limit = 0
-# The Codex screen lines that change on each read and that herdr capture drops (§6.2, E11-S4):
+# The Codex screen lines that change on each read and that herdr capture drops (E11-S4):
 # the empty composer, the footer, the spinner and the rules. From the recorded reads in
 # internal/brained/testdata (codex-cli 0.154.0). The footer starts with the git branch, so the
 # pattern takes any text before " · Context".
@@ -62,7 +62,7 @@ noise_lines = ['› Ask Codex to do anything', '\s*.* · Context \d+% (?:used|le
   '\s*└ Tip: .*',
 # The choices of an approval dialog: the first one has the prompt mark, and "don't" made a
 # correction signal. The question, the reason and the command stay: the blocked approval
-# signal reads them (§7.1).
+# signal reads them.
   '(?:›| ) \d\. (?:Yes, proceed|Yes, and don.t ask again|No, and tell Codex) .*', '  Press enter to confirm or esc to cancel',
 # Codex 0.160.1 (#316, M2 eval rerun 2026-10-08): the line of a turn that you stop, and the
 # shell prompt line that started Codex above its banner, also a bare "$ codex". They were

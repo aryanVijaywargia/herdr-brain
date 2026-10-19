@@ -36,9 +36,9 @@ func extractorOf(t *testing.T, home string) store.ExtractorSetting {
 	return x
 }
 
-// AC: setup explains where the excerpts go (D9), asks which CLI extracts and its model (D4),
-// and stores the choice with extraction on. A second setup keeps it and asks nothing;
-// --extractor asks again.
+// AC: setup explains where the excerpts go, asks which CLI extracts and its model, and stores
+// the choice with extraction on. A second setup keeps it and asks nothing; --extractor asks
+// again.
 func TestSetupExtractor(t *testing.T) {
 	home := setupHome(t, "0.9.1")
 	code, out, errOut := runSetup(t, "claude\nsonnet\ny\ny\n")

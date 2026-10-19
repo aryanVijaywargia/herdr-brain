@@ -12,7 +12,7 @@ import (
 )
 
 // The verdicts of the score of a run (E10-S3). A control gets none: it is the no-memory side of
-// its case (§12.1).
+// its case.
 const (
 	verdictPass    = "pass"
 	verdictFail    = "fail"
@@ -24,8 +24,8 @@ const (
 // verdicts returns the verdict of each result of rs, in order: "" for a control and for an
 // ad-hoc case. A result with no label did not get its brief, so it fails. A restraint case
 // must pass in its control too: it fails when its control does not pass, also when its control
-// was skipped, and it is unsure while its control is UNSURE (§12.1). A skill choice control
-// gets its own verdict: no marker may appear in it (§12.1).
+// was skipped, and it is unsure while its control is UNSURE. A skill choice control gets its
+// own verdict: no marker may appear in it.
 func verdicts(rs []store.EvalResult) []string {
 	ctl := map[[2]string]string{}
 	for _, r := range rs {
@@ -77,7 +77,7 @@ func score(vs []string) string {
 
 // writeReport writes the short report of a run to the test store folder and prints its score
 // to w: the score, one line for each probe, the UNSURE results that you resolve at the
-// milestone exit, the usefulness records (§12.1, E10-S3), and the skill choice verdict of each
+// milestone exit, the usefulness records (E10-S3), and the skill choice verdict of each
 // CLI (E16-S5). A run of ad-hoc cases only has no report.
 func writeReport(storeDir string, cases []Case, rs []store.EvalResult, w io.Writer) error {
 	if !hasStage(cases) {

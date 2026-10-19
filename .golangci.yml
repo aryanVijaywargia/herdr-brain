@@ -1,5 +1,6 @@
-# golangci-lint v2. The rules behind this config: the go-quality skill (a local file, not in git).
-# The thresholds are [NEW]: they have no source in the HLD or a story.
+# golangci-lint v2. This config enforces the repo's Go rules: errors handled once and wrapped, no
+# dropped errors, small flat functions, no dead code, and comments that say why.
+# The thresholds are [NEW]: they are the project's own choice.
 version: "2"
 
 linters:

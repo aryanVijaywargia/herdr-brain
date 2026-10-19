@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Label is the answer label of one reply (HLD §12.1).
+// Label is the answer label of one reply.
 type Label string
 
 // The answer labels.
@@ -41,9 +41,9 @@ var word = regexp.MustCompile(`[\p{L}\p{N}'-]+`)
 // sentenceEnd ends a sentence: ".", "!" or "?" before a space, or a line break.
 var sentenceEnd = regexp.MustCompile(`[.!?]\s|\n`)
 
-// label decides the answer label of reply from the rules of §12.1, and names the rule. The
-// rules look only for the exact answers of the probe, so anything that they cannot decide is
-// UNSURE (S73): both an expected and a stale answer, a negation, a refusal with a claim.
+// label decides the answer label of reply from its rules, and names the rule. The rules look
+// only for the exact answers of the probe, so anything that they cannot decide is UNSURE (S73):
+// both an expected and a stale answer, a negation, a refusal with a claim.
 func label(reply string, c Check) (Label, string) {
 	text := normalize(reply)
 	refused := refusal(text)

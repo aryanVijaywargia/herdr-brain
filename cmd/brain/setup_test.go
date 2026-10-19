@@ -84,7 +84,7 @@ func TestPlanLinkKeepsExistingFiles(t *testing.T) {
 	}
 
 	// Another file or a broken link at the link path: never replaced, and the plan gives the
-	// binary path (D3).
+	// binary path.
 	other := filepath.Join(filepath.Dir(link), "other")
 	if err := os.WriteFile(other, []byte("x"), 0o755); err != nil {
 		t.Fatal(err)

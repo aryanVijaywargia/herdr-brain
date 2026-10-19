@@ -15,9 +15,8 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// probeFile is one file evals/probes/*.toml (HLD §12.1 "Probe format"). Its [[skill]] and
-// [[negative]] entries make the skill choice cases (E16-S5), and its [[bug]] entries the
-// regression cases (E20-S1).
+// probeFile is one file evals/probes/*.toml. Its [[skill]] and [[negative]] entries make the
+// skill choice cases (E16-S5), and its [[bug]] entries the regression cases (E20-S1).
 type probeFile struct {
 	Probe    []probeEntry    `toml:"probe"`
 	Skill    []skillEntry    `toml:"skill"`
@@ -67,12 +66,12 @@ type probeEntry struct {
 	Forgotten []string `toml:"forgotten"`
 }
 
-// stages are the eval stages of §12.1.
+// stages are the eval stages.
 var stages = []string{"delivery", "exclusion", "transfer", "update", "restraint", "forget", "usefulness", skillStage, regressionStage}
 
-// hookModes are the herdr states in which an exclusion probe calls the hook (§12.1
-// exclusion): no herdr, a closed pane, no herdr answer in time, a socket with no binding, and
-// a workspace with no map entry, which gets only the global part.
+// hookModes are the herdr states in which an exclusion probe calls the hook: no herdr, a
+// closed pane, no herdr answer in time, a socket with no binding, and a workspace with no map
+// entry, which gets only the global part.
 var hookModes = []string{"no-herdr-env", "closed-pane", "no-herdr-answer", "unbound-session", "other-workspace"}
 
 // probeID is the form of a probe id: it goes into a herdr workspace label. [NEW] form.
@@ -86,7 +85,7 @@ var markerName = regexp.MustCompile(`^marker[0-9]*$`)
 
 // loadProbes reads the probe files of path, a probe file or a folder of *.toml files in name
 // order, and returns the cases: each probe and then its control, the same case with no setup
-// steps (§12.1 "Control"), and each regression case, which has no control. An error names the
+// steps, and each regression case, which has no control. An error names the
 // file and the probe.
 func loadProbes(path string) ([]Case, error) {
 	files := []string{path}

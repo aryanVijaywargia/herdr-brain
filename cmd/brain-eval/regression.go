@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-// regressionStage is the stage of the regression cases (HLD §12.1, E20-S1): each bug that
+// regressionStage is the stage of the regression cases (E20-S1): each bug that
 // real use found gets its own case, named with its issue number, so one fix cannot hide
 // another failure. Its cases come from the [[bug]] entries of a probe file. A case runs the
 // Go tests that hold the fixture of its bug, with no herdr, no CLI and no model, so it has no

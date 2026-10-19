@@ -1,7 +1,7 @@
-# Regression cases (HLD §12.1, E20-S1 #265): each bug that real use found gets its own case,
-# named with its issue number (bug-<issue>), so one fix cannot hide another failure and a bug
-# cannot come back in silence. The bugs come from the M2 real-use test, the M2 eval run
-# (2026-10-07), its rerun (2026-10-08) and the reviews of their fixes.
+# Regression cases (E20-S1 #265): each bug that real use found gets its own case, named with its
+# issue number (bug-<issue>), so one fix cannot hide another failure and a bug cannot come back
+# in silence. The bugs come from the M2 real-use test, the M2 eval run (2026-10-07), its rerun
+# (2026-10-08) and the reviews of their fixes.
 #
 # A case runs the Go tests that hold the fixture of its bug: the made screens, hook inputs,
 # fake herdr replies and stores that the fix added. brain-eval runs them with go test in the
@@ -167,7 +167,7 @@ tests = [
 ]
 
 # Rejected proposals keep using the daily proposal cap, and a full cap stops all extraction.
-# The fix makes the gates and caps a config (HLD §7.2); rejected proposals still count.
+# The fix makes the gates and caps a config; rejected proposals still count.
 # Fix: PR #292.
 [[bug]]
 issue = 282
@@ -734,7 +734,7 @@ tests = [
 # workspace item as an exception to global item 11 ("Never add a new npm dependency without
 # asking the user first."), whose claim has the permission flag but whose text has no
 # permission word. The review refuses a link that relaxes a known global permission or safety
-# rule (§7.4): the claim flag counts too. Fix: the PR of #388.
+# rule: the claim flag counts too. Fix: the PR of #388.
 [[bug]]
 issue = 388
 tests = [
@@ -756,7 +756,7 @@ tests = [
 
 # M2 eval run 7 (2026-10-11, R7-5): a made-up key `sk-test-` + 40 letters was stored in clear,
 # also inside a quoted command `"API_KEY=sk-test-…"`. The openai-api-key class took only
-# sk-proj-, sk-svcacct- and sk-admin-, and the env-secret class only the line start (§6.7, S12).
+# sk-proj-, sk-svcacct- and sk-admin-, and the env-secret class only the line start (S12).
 # Fix: the PR of #392.
 [[bug]]
 issue = 392

@@ -30,7 +30,7 @@ func startEnv(t *testing.T) (environ []string, stateDir, socket string) {
 		"HERDR_PLUGIN_STATE_DIR=" + stateDir, "HERDR_PLUGIN_ID=brain"}, stateDir, socket
 }
 
-// fakeStart returns start deps with the real D7 lock check. Its spawn takes the lock as
+// fakeStart returns start deps with the real brained lock check. Its spawn takes the lock as
 // brained does and counts the starts; its openSetup counts the popups.
 func fakeStart(t *testing.T, environ []string, stateDir string) (d startDeps, spawns, popups *int) {
 	t.Helper()

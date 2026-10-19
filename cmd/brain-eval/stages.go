@@ -21,7 +21,7 @@ import (
 
 // agentStep is the prefix of a setup step that prompts a fresh CLI in place of the shell:
 // "agent claude: <prompt>" or "agent codex: <prompt>". A transfer case saves a fact with one
-// CLI this way and asks it with the other (§12.1 transfer).
+// CLI this way and asks it with the other.
 const agentStep = "agent "
 
 // parseAgentStep returns the harness and prompt of an agent step; ok is false for a shell
@@ -78,9 +78,8 @@ func (r *Runner) runAgentStep(ctx context.Context, h Herdr, shell herdr.Pane, di
 }
 
 // hookProbe calls `brain hook` of harness p.Harness in the shell pane with test start input
-// and the herdr state of mode c.Hook, and returns what it printed as the reply (§12.1
-// exclusion). The hook reads its herdr variables from the pane; the step changes only the
-// one that the mode needs.
+// and the herdr state of mode c.Hook, and returns what it printed as the reply. The hook
+// reads its herdr variables from the pane; the step changes only the one that the mode needs.
 func (r *Runner) hookProbe(ctx context.Context, h Herdr, shell herdr.Pane, dir string, c Case, p Probe, b bindings.Binding, marker string, i int, opened *[]string) (Reply, error) {
 	pane, set, err := r.hookState(ctx, h, shell, dir, c, opened)
 	if err != nil {
@@ -111,7 +110,7 @@ func (r *Runner) hookProbe(ctx context.Context, h Herdr, shell herdr.Pane, dir s
 		return Reply{}, err
 	}
 	rep := Reply{Harness: p.Harness, Pane: pane, Screen: string(data), Text: strings.TrimSpace(string(data)), Status: Delivered}
-	// The profile's output_none, for example agy's "{}", is how the hook prints nothing (§8.3).
+	// The profile's output_none, for example agy's "{}", is how the hook prints nothing.
 	if rep.Text == "" || rep.Text == prof.OutputNone {
 		rep.Status, rep.Why = NotDelivered, "the hook printed nothing"
 	}
@@ -200,7 +199,7 @@ func hookLabel(c Case, markers map[string]string, text string) (Label, string) {
 }
 
 // record is what a usefulness probe changed in the scratch folder dir: `git status
-// --porcelain`, for your review of the case (§12.1 usefulness).
+// --porcelain`, for your review of the case.
 func (r *Runner) record(ctx context.Context, dir string) string {
 	ctx, cancel := context.WithTimeout(ctx, r.Timeouts.Step)
 	defer cancel()
@@ -219,7 +218,7 @@ func (r *Runner) record(ctx context.Context, dir string) string {
 // leak reports where the test store of b still holds one of forgotten, the answers that a
 // forget case removed: a file of the out folder, or a text value of a table. The store keeps
 // no raw page check: SQLite can keep a removed value in a free page until a vacuum. It
-// returns "" when the text is nowhere (§12.1 forget, S19).
+// returns "" when the text is nowhere (S19).
 func (r *Runner) leak(ctx context.Context, b bindings.Binding, forgotten []string) (string, error) {
 	var where []string
 	err := filepath.WalkDir(filepath.Join(b.Store, outDir), func(path string, d fs.DirEntry, err error) error {

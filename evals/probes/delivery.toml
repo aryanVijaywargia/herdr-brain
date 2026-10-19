@@ -1,5 +1,5 @@
-# Delivery probes (HLD §12.1 "Stages", E10-S3). A run of this stage is the conformance test
-# of each CLI (§8.5): it writes conformance.json.
+# Delivery probes (E10-S3). A run of this stage is the conformance test of each CLI: it writes
+# conformance.json.
 #
 # setup: shell steps, run in order in the case's shell pane in a fresh scratch git folder. A
 # step "agent <claude|codex>: <prompt>" prompts a fresh CLI in its own pane instead.
