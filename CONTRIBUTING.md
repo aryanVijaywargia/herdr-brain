@@ -20,6 +20,8 @@ herdr plugin unlink brain
 |---|---|
 | `herdr-plugin.toml` | Plugin manifest: build step, actions, panes and events |
 | `cmd/brain/` | The one `brain` binary |
+| `cmd/brain-eval/` | The eval runner: it runs the cases in `evals/` against a test herdr session. `build.sh` does not build it. A herdr version joins the tested list only after it passes these evals. |
+| `evals/` | The eval cases (probes) and prompts that `brain-eval` runs |
 | `internal/paths/` | Binary path and data home for every entry point |
 | `internal/` | The other packages, for example `store` (SQLite), `output` (the compiler), `hook`, `cli` and `herdr` |
 | `adapters/` | The adapter profiles of Claude Code, Codex and agy |
