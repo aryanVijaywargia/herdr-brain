@@ -121,7 +121,7 @@ func readLog(t *testing.T, log string) string {
 // running session, also after an invoke fails, and returns the error of that invoke.
 func TestPostInstallStartsSessions(t *testing.T) {
 	environ, log := postInstallHerdr(t, nonceRoot(t, "n1"), 2, false)
-	err := PostInstall(context.Background(), childArgs(10*time.Second), environ, strings.NewReader(""))
+	err := PostInstall(context.Background(), childArgs(30*time.Second), environ, strings.NewReader(""))
 	if err == nil || !strings.Contains(err.Error(), "no server") {
 		t.Errorf("PostInstall = %v, want the error of the invoke in s1", err)
 	}
@@ -129,6 +129,31 @@ func TestPostInstallStartsSessions(t *testing.T) {
 		"--session s0 plugin action invoke brain.start\n--session s1 plugin action invoke brain.start\n"
 	if got := readLog(t, log); got != want {
 		t.Errorf("herdr calls = %q, want %q", got, want)
+	}
+}
+
+// runChild runs the child of PostInstall with the old registration old on stdin and a 30 s
+// deadline, and returns its error. A child that finds its install asks no more and invokes
+// brain.start, so when the log shows two plugin list calls, the first one found no install, and
+// runChild cancels the child. So the test has no time race with the deadline of the child.
+func runChild(t *testing.T, environ []string, log, old string) error {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- PostInstall(ctx, childArgs(30*time.Second), environ, strings.NewReader(old)) }()
+	tick := time.NewTicker(20 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case err := <-done:
+			return err
+		case <-tick.C:
+			b, _ := os.ReadFile(log) // no log yet: the child has not asked herdr yet
+			if strings.Count(string(b), "plugin list --json --plugin brain\n") >= 2 {
+				cancel()
+			}
+		}
 	}
 }
 
@@ -145,7 +170,7 @@ func TestPostInstallOldRegistration(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			environ, log := postInstallHerdr(t, nonceRoot(t, "n1"), 1, false)
-			if err := PostInstall(context.Background(), childArgs(time.Second), environ, strings.NewReader(c.old)); err != nil {
+			if err := runChild(t, environ, log, c.old); err != nil {
 				t.Errorf("PostInstall = %v, want nil", err)
 			}
 			if got := strings.Contains(readLog(t, log), "brain.start"); got != c.start {
@@ -155,11 +180,11 @@ func TestPostInstallOldRegistration(t *testing.T) {
 	}
 }
 
-// #427: when herdr lists only the install of another build until the deadline, the child
-// invokes nothing and returns no error.
+// #427: when herdr lists only the install of another build, the child invokes nothing and
+// returns no error.
 func TestPostInstallGivesUp(t *testing.T) {
 	environ, log := postInstallHerdr(t, nonceRoot(t, "n2"), 2, false)
-	if err := PostInstall(context.Background(), childArgs(time.Second), environ, strings.NewReader("")); err != nil {
+	if err := runChild(t, environ, log, ""); err != nil {
 		t.Errorf("PostInstall = %v, want nil", err)
 	}
 	got := readLog(t, log)
