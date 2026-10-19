@@ -133,7 +133,7 @@ var releaseSkill = store.Skill{Name: "release", Description: "Release a new vers
 	Example: "Release v1.2.0.", Steps: "1. Run go test ./...\n2. Update the changelog.\n3. Tag and push."}
 
 // A known skill claim: the new evidence attaches to the claim, and the duplicate proposal
-// drops (§7.3). Brain makes no patch by itself.
+// drops. Brain makes no patch by itself.
 func TestSkillKnownClaim(t *testing.T) {
 	f := newFixture(t)
 	f.skillItem()
@@ -224,7 +224,7 @@ func TestSkillSecretName(t *testing.T) {
 	}
 }
 
-// A patch that removes a safety step warns, though the new text has no permission word (§7.4).
+// A patch that removes a safety step warns, though the new text has no permission word.
 func TestSkillPatchRemovesSafety(t *testing.T) {
 	f := newFixture(t)
 	item := f.skillItem()

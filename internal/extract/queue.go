@@ -14,17 +14,17 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// Caps are the limits of extraction (§7.3 caps). The config sets them (ReadConfig); a Pass
-// with the zero value uses DefaultCaps.
+// Caps are the limits of extraction. The config sets them (ReadConfig); a Pass with the zero
+// value uses DefaultCaps.
 type Caps struct {
 	Calls      int // extractor calls in one day
 	Proposals  int // new proposals in one day
 	InputBytes int // the excerpt bytes of one call
 }
 
-// DefaultCaps are the §7.3 defaults: 40 calls and 15 new proposals a day (owner decision
-// 2026-10-08, #319). [NEW] 32 KiB of excerpts for each call: the prompt is one argument of the
-// CLI, and it stays far under the argument limit of macOS and Linux (1 MiB and more).
+// DefaultCaps are the defaults: 40 calls and 15 new proposals a day (#319). [NEW] 32 KiB of
+// excerpts for each call: the prompt is one argument of the CLI, and it stays far under the
+// argument limit of macOS and Linux (1 MiB and more).
 func DefaultCaps() Caps { return Caps{Calls: 40, Proposals: 15, InputBytes: 32 << 10} }
 
 // day is the window of the daily caps. [NEW] the 24 hours before now: it needs no time zone.
@@ -100,7 +100,7 @@ func (d Day) Paused() string {
 	return fmt.Sprintf("learning paused: %s; room comes back at %s", full, d.Room.Local().Format("15:04"))
 }
 
-// order puts jobs in round robin order across workspace keys (§7.3 queue): the first job of
+// order puts jobs in round robin order across workspace keys: the first job of
 // each key, then the second of each key, and so on. The jobs of a key come oldest first. The
 // key whose last call (from last, which covers the whole store) is oldest comes first, a key
 // with no call before all, so under the call cap each key gets its turn over the passes, also
@@ -133,7 +133,7 @@ func order(jobs []job, last map[string]time.Time) []job {
 	return out
 }
 
-// fit cuts run so that the excerpts of its refs rs fit in the input cap (§7.3): the cut part
+// fit cuts run so that the excerpts of its refs rs fit in the input cap: the cut part
 // goes into a later batch, after the watermark moves. The cut never splits a signal of sigs
 // that starts in run: all its observations stay on one side, so the later batch still sees
 // the whole signal. A run that no such cut makes fit stays whole, so one long signal does not
@@ -170,7 +170,7 @@ func split(cut, first int64, sigs []signal.Signal) int64 {
 	return cut
 }
 
-// Waiting is the extraction work of one workspace key that waits in the queue (§7.3).
+// Waiting is the extraction work of one workspace key that waits in the queue.
 type Waiting struct {
 	WorkspaceKey string
 	Batches      int
@@ -201,7 +201,7 @@ func (p Pass) Waiting(ctx context.Context, tx *sql.Tx) ([]Waiting, error) {
 			jobs = append(jobs, j)
 		}
 	}
-	// The scan batches of the binding wait in their scope, the global pool under the key "" (§6.8).
+	// The scan batches of the binding wait in their scope, the global pool under the key "".
 	_, scan, _, err := p.scanJobs(ctx, tx)
 	if err != nil {
 		return nil, err
@@ -248,7 +248,7 @@ const noTry = "no try left: it waits for new evidence of its session"
 
 // why returns why the next pass makes no call for batch j, or "": the switches and the CLI of
 // allowed, a failure of its last call that still waits for its retry or has no try left, a call
-// that runs, or the caps (S15, §7.3). failed is the failed batch, while it waits for its retry;
+// that runs, or the caps (S15). failed is the failed batch, while it waits for its retry;
 // the zero Batch for none. Its reason is what the official CLI reported.
 func (p Pass) why(ctx context.Context, tx *sql.Tx, j job, d Day) (why string, failed store.Batch, err error) {
 	s, err := store.Extractor(ctx, tx)
@@ -286,7 +286,7 @@ func (p Pass) why(ctx context.Context, tx *sql.Tx, j job, d Day) (why string, fa
 	return d.Full(), failed, nil
 }
 
-// roundRobin orders xs as order orders the extraction jobs (§7.3 queue): the first of each
+// roundRobin orders xs as order orders the extraction jobs: the first of each
 // workspace key (key), then the second, and so on; the key whose last extractor call is oldest
 // first. So under the daily proposal cap each workspace gets its turn.
 func roundRobin[T any](xs []T, key func(T) string, last map[string]time.Time) []T {

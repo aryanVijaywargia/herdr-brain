@@ -19,8 +19,8 @@ import (
 // and an active request means a crash stopped it.
 const changeStale = callTimeout + time.Minute
 
-// change is the change request of a job (§7.4 "ask for a change", S56): the request, its
-// original proposal, the candidate of that proposal and the current revision of its item.
+// change is the change request of a job (S56): the request, its original proposal, the candidate of
+// that proposal and the current revision of its item.
 type change struct {
 	req      store.ChangeRequest
 	attempt  int // the model call count of the attempt that runs; its commit must match
@@ -30,7 +30,7 @@ type change struct {
 	kind     store.Kind // the kind of the item: the draft of a skill is a skill (E16-S4)
 }
 
-// requests returns the change requests to draft again now, as jobs of the queue (§7.3). A
+// requests returns the change requests to draft again now, as jobs of the queue. A
 // request waits while extraction or learning is off for its scope, and after a failed or
 // invalid call until its retry (tryAgain). A request with no try left gets no call: it stays
 // failed, and its proposal is back in review (ChangeSpent, #359). A request of another herdr
@@ -198,7 +198,7 @@ func giveBack(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) error {
 }
 
 // comebackRequest is the request text of a change request of an item revision [NEW]: Brain
-// asks, as you do in review (§5.4).
+// asks, as you do in review.
 const comebackRequest = "This lesson came back in two sessions that got it. Propose a better wording, or a stronger " +
 	"place, for example a skill instead of a fact. Keep its meaning."
 
@@ -209,7 +209,7 @@ const skillRequest = "A failure that this skill covers came back in two sessions
 	"of its steps that stops the failure. Keep its name and its purpose."
 
 // itemJob returns the job of change request r of an item revision: two comebacks on that
-// revision (§5.4), for a skill in two sessions (E20-S5). Its base is that revision, and its
+// revision, for a skill in two sessions (E20-S5). Its base is that revision, and its
 // input is the text of the revision and the allowed comeback excerpts. A request that you queued again on its draft (store.AskItemChange)
 // redrafts that draft with your text. It returns why r is no longer current instead, or "": the item
 // moved to another revision or is no longer active, or its claim is rejected or forgotten in its
@@ -247,7 +247,7 @@ func (p Pass) itemJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) (j
 	}
 	pr := store.Proposal{ItemID: &it.ID, Text: cur.Text, Scope: it.Scope, Target: tg, ChangeRequest: &text}
 	if r.NewProposalID != nil {
-		// You asked for a change of the last draft (§7.4): redraft it with your text.
+		// You asked for a change of the last draft: redraft it with your text.
 		if pr, err = store.ProposalByID(ctx, tx, *r.NewProposalID); err != nil {
 			return job{}, "", err
 		}
@@ -273,12 +273,12 @@ func (p Pass) changeOf(ctx context.Context, tx *sql.Tx, ch change, es []store.Ex
 	return j, "", err
 }
 
-// allowedEvidence returns the evidence es of candidate cand that a change request may send, as
-// refs in the scope of cand: the observations that are still in the store, that no tombstone
-// names, whose pane and workspace have learning on (§6.7 exclusion), and whose workspace has
-// extraction on (§7.3): the evidence of a global candidate comes from workspaces. The newest
-// come first until the input cap, then they go in id order. off reports evidence that a
-// learning or extraction switch holds back: the request waits for it, as a batch does.
+// allowedEvidence returns the evidence es of candidate cand that a change request may send, as refs
+// in the scope of cand: the observations that are still in the store, that no tombstone names,
+// whose pane and workspace have learning on, and whose workspace has extraction on: the evidence of
+// a global candidate comes from workspaces. The newest come first until the input cap, then they go
+// in id order. off reports evidence that a learning or extraction switch holds back: the request
+// waits for it, as a batch does.
 func (p Pass) allowedEvidence(ctx context.Context, tx *sql.Tx, cand store.Candidate, es []store.Excerpt) (refs []ref, off bool, err error) {
 	size := 0
 	for _, e := range es {
@@ -326,8 +326,7 @@ func (p Pass) changeAllowed(ctx context.Context, tx *sql.Tx, j job) (bool, error
 }
 
 // scopeAllowed reports whether a call for the scope of workspace key ("" for global) may run:
-// extraction is on for it, a CLI is chosen, and learning is on for the store and the workspace
-// (§7.3).
+// extraction is on for it, a CLI is chosen, and learning is on for the store and the workspace.
 func (p Pass) scopeAllowed(ctx context.Context, tx *sql.Tx, key string) (bool, error) {
 	if on, err := store.ExtractionOn(ctx, tx, key); err != nil || !on {
 		return false, err
@@ -432,7 +431,7 @@ func (p Pass) runChange(ctx context.Context, j job) error {
 // call back and uses no try (#377). Else it checks that the request is still current, that
 // the claim is not rejected or forgotten, and that its input did not change; then it makes the
 // new draft once, through store.ProposeCandidate. It moves no watermark, adds no support count,
-// and the duplicate drop of a batch does not apply (§7.3).
+// and the duplicate drop of a batch does not apply.
 func (p Pass) commitChange(ctx context.Context, j job, claims []Claim, callErr error) error {
 	return p.Store.Write(ctx, func(tx *sql.Tx) error {
 		now := p.Now()
@@ -505,8 +504,8 @@ func redraftKind(k store.Kind) string {
 // the same candidate, item and base revision. [NEW] it keeps the scope and the target of the
 // original proposal: you change them in review. The item does not change. The draft of an
 // item revision has no candidate: it is a proposal of the item, as an edit in review is. The
-// draft of an active skill is a patch: its diff holds only the changed lines (§9.2). The diff
-// holds the removed lines too, so a patch that removes a safety rule warns (§7.4).
+// draft of an active skill is a patch: its diff holds only the changed lines. The diff
+// holds the removed lines too, so a patch that removes a safety rule warns.
 func (p Pass) redraft(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Time) (int64, error) {
 	ch := j.change
 	c = redactClaim(c)

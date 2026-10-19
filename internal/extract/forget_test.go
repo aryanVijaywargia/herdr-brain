@@ -49,7 +49,7 @@ func (f *fixture) textIn(text string) []string {
 	return found
 }
 
-// forget erases item as brain forget does in the store (§6.7), and checks that ItemTextLeft
+// forget erases item as brain forget does in the store, and checks that ItemTextLeft
 // finds nothing and that no store column holds text.
 func (f *fixture) forget(item int64, text string) {
 	f.t.Helper()

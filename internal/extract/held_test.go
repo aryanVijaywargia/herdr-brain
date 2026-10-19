@@ -175,7 +175,7 @@ func (f *fixture) rejectedRewording() (store.Candidate, Link) {
 }
 
 // AC #365 with the run 5 shape of proposals 7 and 8: the request in other words reaches its
-// gate, but the rejection holds it: no proposal while the link waits for review (§7.2: an
+// gate, but the rejection holds it: no proposal while the link waits for review (an
 // unclear match goes to review, never to a silent merge). A merge keeps the rejection: the
 // evidence counts with the rejected claim, as new evidence since the rejection, and no proposal
 // comes. Keep apart frees the claim: its candidate at its gate gets the proposal of its newest

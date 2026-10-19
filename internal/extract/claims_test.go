@@ -42,7 +42,7 @@ func logReply(situation string, sameAs bool) func(context.Context, string) ([]by
 }
 
 // A correction in a claude session and a codex session with the C1 and C2 keys of the M2 eval
-// run reaches one candidate with count 2, so the gate of 2 makes a proposal (#279, §7.2). The
+// run reaches one candidate with count 2, so the gate of 2 makes a proposal (#279). The
 // C2 claim keeps its own id and a proposed link, and its evidence is marked as merged.
 func TestSameLessonAddsUpAcrossSessions(t *testing.T) {
 	f := newFixture(t)
@@ -107,7 +107,7 @@ func TestNormalKeySameClaim(t *testing.T) {
 	}
 }
 
-// A same_as to a claim of another kind stays a proposed link and merges nothing (§7.2).
+// A same_as to a claim of another kind stays a proposed link and merges nothing.
 func TestSameAsOtherKindIsNotMerged(t *testing.T) {
 	f := newFixture(t)
 	f.cli.reply = logReply(c1Situation, false)

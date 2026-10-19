@@ -13,7 +13,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// scanned stores a session of agent id that the history scan imported (§6.8), in workspace key
+// scanned stores a session of agent id that the history scan imported, in workspace key
 // ws ("" for the global pool): one segment with no pane, the texts as records of source
 // transcript with sender unconfirmed, and its extraction watermark at its end. Each text is a
 // turn of its own. It returns the finding observations of the texts.
@@ -160,7 +160,7 @@ const (
 )
 
 // AC: the findings of one scope go to the extractor in finding order, up to the input byte cap,
-// with the §7.3 input of that scope: the workspace and approved global context, or the global
+// with the extractor input of that scope: the workspace and approved global context, or the global
 // context alone. Each batch is a fixed run of findings that moves the scope progress at its
 // commit. A second pass adds nothing, and the scan is done when every batch is committed.
 func TestScanBatches(t *testing.T) {
@@ -484,7 +484,7 @@ func TestScanCapsOtherBinding(t *testing.T) {
 	}
 }
 
-// AC (S95, D12): a scan batch keeps only items, skills and tools. A claim of any other kind, as
+// AC (S95): a scan batch keeps only items, skills and tools. A claim of any other kind, as
 // an automation, is dropped and counted in the brained log line with no text; it makes no
 // response invalid. The prompt says that a repeat that fits a hook becomes an item or a tool.
 func TestScanKinds(t *testing.T) {
@@ -572,7 +572,7 @@ func TestScanGlobalPool(t *testing.T) {
 	}
 }
 
-// AC (§6.8): the exact tool path treats scanned workspace sessions as live ones: an exact chain in
+// AC: the exact tool path treats scanned workspace sessions as live ones: an exact chain in
 // 3 scanned sessions gets a tool draft with no model call.
 func TestScanExactTool(t *testing.T) {
 	f := newFixture(t)
@@ -596,7 +596,7 @@ func TestScanExactTool(t *testing.T) {
 	}
 }
 
-// AC (S93, S75, §7.3): with the extractor choice none, no call is made and the scan batches wait;
+// AC (S93, S75): with the extractor choice none, no call is made and the scan batches wait;
 // with extraction off for a workspace, its scope makes 0 calls while the global pool goes on.
 func TestScanSwitches(t *testing.T) {
 	f := newFixture(t)
@@ -650,9 +650,8 @@ func TestScanLessonNoPane(t *testing.T) {
 	}
 }
 
-// AC #413 (§6.8 "Global pool", owner decision 2026-10-14, S5 gap HS-G10): the help text of a
-// global pool batch says where its sessions come from, that a rule of one project is dropped,
-// and that only a global claim that is no skill or tool comes back.
+// AC #413: the help text of a global pool batch says where its sessions come from, that a rule
+// of one project is dropped, and that only a global claim that is no skill or tool comes back.
 func TestGlobalHelpText(t *testing.T) {
 	for _, want := range []string{
 		"project folders that have no herdr workspace",

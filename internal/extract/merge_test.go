@@ -12,7 +12,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// AC output (§9.5): checkMerge drops a group that fails its own check, says why with no text,
+// AC output: checkMerge drops a group that fails its own check, says why with no text,
 // and keeps the other groups. A result that does not match the schema is invalid.
 func TestCheckMerge(t *testing.T) {
 	items := []store.MergeItem{{ID: 1, Text: "use pnpm in this repo"}, {ID: 2, Text: "install with pnpm here"},
@@ -97,7 +97,7 @@ func mergeFixture(t *testing.T) (*fixture, []int64) {
 	return f, ids
 }
 
-// AC proposal and caps (§9.5, §7.3): the merge call has the merge schema and counts as one
+// AC proposal and caps: the merge call has the merge schema and counts as one
 // call; its proposal counts as one proposal. A call that the CLI refuses at a usage limit does
 // not count (#377), and stores no hash, so the next pass calls again.
 func TestMergeCaps(t *testing.T) {
@@ -159,9 +159,9 @@ func pendingMerges(t *testing.T, f *fixture) []store.Proposal {
 	return ps
 }
 
-// AC input and proposal (§9.5): the prompt marks the items as untrusted data; the proposal has
+// AC input and proposal: the prompt marks the items as untrusted data; the proposal has
 // the permission warning when the new text has permission words. A forget of any input item
-// during the call discards the whole result (§7.3, §6.7). A second pass that starts during the
+// during the call discards the whole result. A second pass that starts during the
 // call of the first, as a pass of another herdr session, makes no call. The items go in until
 // the input byte cap, and a part with fewer than 2 items that may merge makes no call.
 func TestMergeCall(t *testing.T) {

@@ -42,7 +42,7 @@ func telling(ctx context.Context, tx *sql.Tx, cl store.Claim) (c Claim, at time.
 	return c, at, true, nil
 }
 
-// Link is a same_as link that waits for review (#358, §7.2): the claim of the open candidate
+// Link is a same_as link that waits for review (#358): the claim of the open candidate
 // Candidate means the same as claim Other, the extractor says, and Brain did not merge their
 // evidence. Text and OtherText are the texts of the two claims. Permission says that Brain held
 // the link back as a permission or a safety rule (permissionPair); else the match is unclear.
@@ -117,7 +117,7 @@ type Merged struct {
 	Candidates, Superseded []int64
 }
 
-// MergeLink merges the same_as link that waits for review of candidate id (#358, §7.2): you say
+// MergeLink merges the same_as link that waits for review of candidate id (#358): you say
 // that its claim means the same as the claim of the link. The link is confirmed
 // (store.ConfirmLink): the key gets that claim id from now on. The evidence of each candidate of
 // the claim whose link waits (store.LinkWaits) moves to the candidate of the other claim in the
@@ -196,7 +196,7 @@ func mergeable(ctx context.Context, tx *sql.Tx, cand store.Candidate, into strin
 
 // stuck returns why a merge of candidate from into claim into would move none of its evidence,
 // or "" when it moves some: no evidence of from can count for the candidate that would get it
-// (mergeTarget), as the agent's own commands cannot count for a rule (§6.5, #361). The review
+// (mergeTarget), as the agent's own commands cannot count for a rule (#361). The review
 // then offers no merge, and MergeLink refuses it.
 func stuck(ctx context.Context, tx *sql.Tx, from store.Candidate, into string) (string, error) {
 	to, _, err := mergeTarget(ctx, tx, from, into)

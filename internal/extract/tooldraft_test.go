@@ -504,7 +504,7 @@ func TestDraftName(t *testing.T) {
 }
 
 // A forget stops the exact repeat: the tombstone of a source stops its chain, though the claim
-// key text is gone (§6.7).
+// key text is gone.
 func TestExactRepeatForgotten(t *testing.T) {
 	f := newFixture(t)
 	f.cli.reply = noClaims

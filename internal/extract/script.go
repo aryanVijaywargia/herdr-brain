@@ -11,8 +11,8 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// minScript is the fewest commands of a chain that gets a script proposal [NEW]: §10.4 says a
-// long command chain, and one command is no chain.
+// minScript is the fewest commands of a chain that gets a script proposal [NEW]: a script is
+// for a long command chain, and one command is no chain.
 const minScript = 2
 
 // scriptText is the script of chain cmds, an exact repeat that exactDraft accepted [NEW form]:
@@ -35,13 +35,12 @@ func scriptText(cmds []store.CommandRecord) string {
 	return b.String()
 }
 
-// proposeScript makes the script proposal with text of candidate id (§10.4 suggestions): a
-// proposal with no item, as §11 has no script kind, with the script text and its diff from no
-// file. Brain offers it beside the pending tool draft of the same chain, and you pick one
-// [NEW]. It makes nothing when the candidate had a script proposal, or when you approved one of
-// its proposals, as then you picked already; nor when the candidate has no pending tool draft,
-// so a forget of the draft item erases the script too (§6.7); nor when you rejected its claim in
-// its scope (E12-S3).
+// proposeScript makes the script proposal with text of candidate id: a proposal with no item,
+// as the data model has no script kind, with the script text and its diff from no file. Brain
+// offers it beside the pending tool draft of the same chain, and you pick one [NEW]. It makes
+// nothing when the candidate had a script proposal, or when you approved one of its proposals,
+// as then you picked already; nor when the candidate has no pending tool draft, so a forget of
+// the draft item erases the script too; nor when you rejected its claim in its scope (E12-S3).
 func proposeScript(ctx context.Context, tx *sql.Tx, id int64, text string, now time.Time) error {
 	offered, err := store.ScriptOffered(ctx, tx, id)
 	if err != nil || offered {

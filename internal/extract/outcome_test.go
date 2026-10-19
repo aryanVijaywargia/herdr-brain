@@ -274,7 +274,7 @@ func TestComebacksOnTwoRevisions(t *testing.T) {
 }
 
 // brain forget --session deletes the outcomes of the session, and an item forget the outcomes
-// of the item (§6.7).
+// of the item.
 func TestForgetOutcomes(t *testing.T) {
 	f := newFixture(t)
 	item := f.revisedItem(2)

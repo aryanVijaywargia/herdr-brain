@@ -10,8 +10,8 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// ReadConfig returns the queue gates (§7.2 "you can change them in the config") and the caps
-// (§7.3 "(defaults)") of the Brain config file at path (paths.ConfigFile), for example:
+// ReadConfig returns the queue gates and the caps of the Brain config file at path
+// (paths.ConfigFile), for example:
 //
 //	[gates]
 //	correction = 3

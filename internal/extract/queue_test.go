@@ -95,7 +95,7 @@ func TestQueueFairAndBounded(t *testing.T) {
 		}); err != nil {
 			t.Errorf("a write during the call: %v", err)
 		}
-		// The hook's receipt write stays inside the hook cap of 300 ms (§8.3, hook.hookCap)
+		// The hook's receipt write stays inside the hook cap of 300 ms (hook.hookCap)
 		// while the queue runs (S42).
 		if d := time.Since(start); d > 300*time.Millisecond {
 			t.Errorf("a hook write during the call took %v, want at most the hook cap 300ms", d)
@@ -291,7 +291,7 @@ func TestRetryAfterWorkedCall(t *testing.T) {
 }
 
 // run4Line is the command of batch 15 of M2 eval run 4 (#347): one shell line, so no tool runs it
-// as one argv list (§10.1 "argv, not shell").
+// as one argv list.
 const run4Line = "./scripts/reset-db.sh && npm test 2>&1 | tail -40; git status --short"
 
 // splitTool answers a prompt with run4Line as the extractor did in run 4: one tool claim whose
@@ -485,7 +485,7 @@ func TestProposalCap(t *testing.T) {
 	if f.cli.calls() != 1 || f.calls("ws-B") != 0 {
 		t.Errorf("calls = %d, calls of ws-B = %d, want 1 and 0", f.cli.calls(), f.calls("ws-B"))
 	}
-	// AC #282: a rejected proposal still counts toward the daily proposal cap (§7.3).
+	// AC #282: a rejected proposal still counts toward the daily proposal cap.
 	f.write(func(ctx context.Context, tx *sql.Tx) error {
 		return store.DecideProposal(ctx, tx, 1, store.ProposalRejected, store.SurfaceCLI, f.now)
 	})

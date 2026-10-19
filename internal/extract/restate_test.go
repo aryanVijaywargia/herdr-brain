@@ -138,7 +138,7 @@ func TestRememberClaimsInPrompt(t *testing.T) {
 // remember (item 2), and 20 minutes later the extractor restates it as a correction, with
 // same_as to the claim of item 2. The evidence has no place: no candidate and no proposal in 2
 // sessions, over the gate of 2, and the claim stays known. The link stays for review, so a
-// correction in a session that got item 2 is an uncertain comeback (§5.4).
+// correction in a session that got item 2 is an uncertain comeback.
 func TestRestatedRememberItem(t *testing.T) {
 	f := newFixture(t)
 	a := "ws-A"
@@ -258,7 +258,7 @@ func TestRestatedCommandChain(t *testing.T) {
 	}
 }
 
-// AC 2 (#312): a same_as link to a rejected claim keeps the rejection (§7.2), as before: the
+// AC 2 (#312): a same_as link to a rejected claim keeps the rejection, as before: the
 // rejection stays, and the rejected claim gets no evidence. The new claim keeps its own
 // candidate. A link to an open candidate merges as before (TestSameAsIsProposed).
 func TestSameAsRejectedClaim(t *testing.T) {
@@ -283,7 +283,7 @@ func TestSameAsRejectedClaim(t *testing.T) {
 	}
 }
 
-// A restatement of a forgotten claim adds nothing (§6.7): no evidence, no candidate, no
+// A restatement of a forgotten claim adds nothing: no evidence, no candidate, no
 // proposal, as for new evidence of the same claim id (#312).
 func TestRestatedForgottenClaim(t *testing.T) {
 	f := newFixture(t)
@@ -304,7 +304,7 @@ func TestRestatedForgottenClaim(t *testing.T) {
 }
 
 // A same_as link to the claim of a brain remember item that is a permission or a safety rule
-// holds nothing (§7.2): the item text counts as its key, so the restatement keeps its own
+// holds nothing: the item text counts as its key, so the restatement keeps its own
 // candidate and its proposal goes to review, for an approved item and for a draft (#312 review).
 func TestRestatedRememberedPermissionRule(t *testing.T) {
 	const rule = "Never run commands outside the sandbox"

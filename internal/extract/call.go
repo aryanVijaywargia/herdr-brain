@@ -20,8 +20,8 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// callTimeout is the time limit of one extractor call (§7.3 lets E13-S2 set one). [NEW] 5
-// minutes: the E13-S1 calls took well under a minute.
+// callTimeout is the time limit of one extractor call (E13-S2 sets one). [NEW] 5 minutes: the
+// E13-S1 calls took well under a minute.
 const callTimeout = 5 * time.Minute
 
 // Command is one command that a Runner runs: argv in folder Dir, with environment Env and no
@@ -84,7 +84,7 @@ func (t *tail) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// ErrInvalid says that the extractor answered, but not with a valid batch result (§7.3).
+// ErrInvalid says that the extractor answered, but not with a valid batch result.
 var ErrInvalid = errors.New("invalid extractor response")
 
 // ErrLimit says that the extractor CLI refused the call at a usage or rate limit of its plan
@@ -294,7 +294,7 @@ func refusal(err error) store.Refusal {
 
 // call runs the extractor CLI of s with prompt and the JSON output schema schema, outside any
 // transaction, in a new scratch folder, and returns the result object that schema describes:
-// claimSchema for a batch or a change request, mergeSchema for the merge pass (§9.5). An error
+// claimSchema for a batch or a change request, mergeSchema for the merge pass. An error
 // that wraps ErrInvalid is an invalid response; any other error is a failure.
 func call(ctx context.Context, r Runner, s store.ExtractorSetting, schema, prompt string) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -368,7 +368,7 @@ var codexDisabled = []string{"hooks", "plugins", "apps", "shell_tool", "unified_
 	"image_generation", "view_image", "browser_use", "computer_use", "tool_suggest", "skill_search"}
 
 // codexArgv is the E13-S1 argv of codex exec, with each enabled MCP server of servers off.
-// Codex keeps its code-mode exec, wait and request_user_input_async (§7.3).
+// Codex keeps its code-mode exec, wait and request_user_input_async.
 func codexArgv(model string, servers []string, prompt string) []string {
 	argv := []string{"codex", "exec"}
 	if model != "" {

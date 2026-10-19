@@ -14,8 +14,8 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// claimSchema is the JSON output schema of the extractor for a batch or a change request: the claim fields of §7.3, strict
-// (M0 test E13-S1), the skill fields of a claim of kind skill (E16-S4):
+// claimSchema is the JSON output schema of the extractor for a batch or a change request: the
+// claim fields, strict (the E13-S1 test), the skill fields of a claim of kind skill (E16-S4):
 // name, description, required_tools, example and steps [NEW fields], and the contract fields of
 // a claim of kind tool (E17-S6, the E17-S3 tool.toml fields): name, description, commands,
 // inputs, timeout_s, effects and read_only [NEW fields; Brain sets the cwd]. They are null for
@@ -43,10 +43,10 @@ const claimSchema = `{"type":"object","additionalProperties":false,"required":["
 	`"timeout_s":{"type":["integer","null"]},"effects":{"type":["string","null"]},` +
 	`"read_only":{"type":["boolean","null"]},"covered_by":{"type":["string","null"]}}}}}}`
 
-// kindSkill is the claim kind of a skill draft (§8.2, E16-S4).
+// kindSkill is the claim kind of a skill draft (E16-S4).
 const kindSkill = "skill"
 
-// kindLesson is the claim kind of an explicit lesson in plain words (§7.1, #253).
+// kindLesson is the claim kind of an explicit lesson in plain words (#253).
 const kindLesson = "lesson"
 
 // skillName is the form of the name of a skill draft: at most 40 lower-case letters, digits and
@@ -62,7 +62,7 @@ type Claim struct {
 	Refs              []ref  // the evidence, each once
 	SameAs            string // a claim id of the input, or ""
 	ConflictsWith     string // a claim id of the input, or ""; the proposal stores its active items
-	TouchesPermission bool   // the model flag or the Brain keyword check (§7.3)
+	TouchesPermission bool   // the model flag or the Brain keyword check
 	ExpectedBenefit   string
 	Skill             *store.Skill // the skill of a claim of kind skill; nil for any other kind
 	Tool              string       // the tool text of a claim of kind tool; "" for any other kind
@@ -98,7 +98,7 @@ type rawClaim struct {
 }
 
 // scope returns j with the claims, the active skills and the brief items of its input: only
-// the workspace key of the batch and global (§7.3). Nothing of another workspace key reaches
+// the workspace key of the batch and global. Nothing of another workspace key reaches
 // the input.
 func scope(ctx context.Context, tx *sql.Tx, j job) (job, error) {
 	key := j.batch.WorkspaceKey
@@ -122,7 +122,7 @@ func scope(ctx context.Context, tx *sql.Tx, j job) (job, error) {
 	return j, nil
 }
 
-// input is the extractor prompt of batch j (§7.3): the current brief items, the claim keys of
+// input is the extractor prompt of batch j: the current brief items, the claim keys of
 // its scope by claim id, and the filtered signal excerpts with their sender marks and ref
 // ids, marked as untrusted data.
 func input(j job) string {
@@ -141,7 +141,7 @@ func input(j job) string {
 
 // oneTimeHelp tells the extractor that a question and a request for one change now give no rule
 // (#365). No local rule tells them from a lesson: "How many times do I have to tell you to use
-// pnpm?" is a correction, and the lesson words stay wide on purpose (§7.1, #253), so the
+// pnpm?" is a correction, and the lesson words stay wide on purpose (#253), so the
 // extractor drops them. Brain's own checks hold a request that a tool runs (toolHolds) and a
 // rejected request in other words (linkRejected).
 const oneTimeHelp = "A question that asks for an answer gives no claim, also when the user asks it again in another " +
@@ -155,18 +155,18 @@ const coverHelp = "A known claim with a skill name is an active skill. When a co
 	"steps of that skill, set covered_by to its [cl_…] id. Else set covered_by to null.\n"
 
 // claimHelp tells the extractor to give the claim key in a general form, so the same lesson in
-// another session gets the same key or a same_as link (#279, §7.2).
+// another session gets the same key or a same_as link (#279).
 const claimHelp = "Write the situation as a general case that comes back in later sessions, with no session details: " +
 	"no task names, version numbers, dates or ids. Keep a project name only when the rule is about that project. " +
 	"When a known claim means the same, set same_as to its id.\n"
 
 // lessonHelp tells the extractor how to confirm an explicit lesson in plain words or drop a
-// false positive (§7.1, #253).
+// false positive (#253).
 const lessonHelp = "When the user gives a lesson for later in plain words (remember this, from now on, always, never, " +
 	"going forward, in this project), use kind lesson. Text with such a word that gives no lesson for later, such as " +
 	"\"never mind\" or \"I always forget the flag\", is not a lesson: give it another kind, or no claim.\n"
 
-// revertHelp tells the extractor what a git line is (#283, §7.1): git shows no sender and no
+// revertHelp tells the extractor what a git line is (#283): git shows no sender and no
 // reason, so the line alone is weak evidence.
 const revertHelp = "A line that starts with \"git\" is a revert that git shows: someone undid a change in the repo, " +
 	"often the agent's change. Use it as a correction with the user's text that says why. A revert alone gives no " +
@@ -174,7 +174,7 @@ const revertHelp = "A line that starts with \"git\" is a revert that git shows: 
 
 // skillHelp tells the extractor when to return a skill draft (E16-S4). The extractor sees one
 // session, so it cannot see a procedure that comes again: Brain's procedure gate counts the
-// repeats (#313, §7.2).
+// repeats (#313).
 const skillHelp = "Brain counts the repeats across sessions; you see one session. For a procedure with several steps " +
 	"that a future agent should follow, such as how to release, use kind skill, also when the user tells it once " +
 	"here. A short instruction that fits in one line, such as one chained command, is not a skill. " + skillFields
@@ -230,7 +230,7 @@ func body(head string, j job, middle string) string {
 // tagSafe returns s with no end tag of tag in it, so s cannot close its part of the input.
 func tagSafe(s, tag string) string { return strings.ReplaceAll(s, "</"+tag+">", "</ "+tag+">") }
 
-// senderMark is the sender mark of an excerpt (§6.5): captured text is unconfirmed.
+// senderMark is the sender mark of an excerpt: captured text is unconfirmed.
 func senderMark(s store.Sender) string {
 	switch s {
 	case store.SenderYou:
@@ -244,14 +244,14 @@ func senderMark(s store.Sender) string {
 }
 
 // check checks the result out of the extractor against the schema and the refs of batch j,
-// outside the model (§7.3), and returns its claims. A result that does not match the schema,
+// outside the model, and returns its claims. A result that does not match the schema,
 // in any claim too, is invalid: the error wraps ErrInvalid. A claim that fails its own check is
 // dropped and the other claims stay (#310): for example no evidence, an evidence ref that is not
 // in the input or not in the scope of the batch, or a same_as or conflicts_with that names no
 // claim of the input. The second result says which claims were dropped and why, with no claim
 // text. A result with claims that are all dropped is invalid, so the batch waits for its retry
 // (#263). A scan batch drops a claim of any other kind than claimKinds, as an automation, and a
-// claim that its scope does not keep (scanDrop) (§6.8, S90, S95): those claims are valid, so they
+// claim that its scope does not keep (scanDrop) (S90, S95): those claims are valid, so they
 // count in the second result but make no result invalid.
 func check(out json.RawMessage, j job) ([]Claim, []string, error) {
 	var res struct {
@@ -268,8 +268,8 @@ func check(out json.RawMessage, j job) ([]Claim, []string, error) {
 	if res.Claims == nil {
 		return nil, nil, fmt.Errorf("result has no claims field: %w", ErrInvalid)
 	}
-	// otherKind reports whether scan batch j drops claim r for its kind: D12 stays open, so the
-	// scan proposes no hook, allow rule or automation (§6.8 "Kinds").
+	// otherKind reports whether scan batch j drops claim r for its kind: hook and allow-rule
+	// suggestions stay open, so the scan proposes no hook, allow rule or automation.
 	otherKind := func(r rawClaim) bool { return j.batch.Scan() && r.Kind != nil && !slices.Contains(claimKinds, *r.Kind) }
 	for i, r := range *res.Claims {
 		if otherKind(r) {
@@ -350,7 +350,7 @@ func checkClaim(r rawClaim, j job) (Claim, error) {
 		// A skill draft is a workspace skill (S8): you change the scope in review.
 		c.Skill, c.Scope = &sk, store.ScopeWorkspace
 	}
-	// Brain sets the permission flag with its own keyword check too, outside the model (§7.3).
+	// Brain sets the permission flag with its own keyword check too, outside the model.
 	c.TouchesPermission = *r.TouchesPermission || brainFlag(c)
 	for _, id := range *r.EvidenceRefs {
 		i := slices.IndexFunc(j.refs, func(r ref) bool { return r.id == id })
@@ -382,7 +382,7 @@ func checkClaim(r rawClaim, j job) (Claim, error) {
 	return c, nil
 }
 
-// brainFlag is Brain's own permission check of claim c, outside the model (§7.3 Output): the
+// brainFlag is Brain's own permission check of claim c, outside the model: the
 // keyword check of its situation, its rule and the text of its skill.
 func brainFlag(c Claim) bool {
 	words := c.Situation + " " + c.Rule

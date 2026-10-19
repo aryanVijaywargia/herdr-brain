@@ -76,7 +76,7 @@ func (f *fixture) rejected(key, rule string) {
 }
 
 // The input of a batch in workspace A holds the claim keys, brief items and excerpts of A and
-// global, and nothing of workspace B (§7.3).
+// global, and nothing of workspace B.
 func TestInputScope(t *testing.T) {
 	f := newFixture(t)
 	f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {
@@ -225,7 +225,7 @@ func TestCheckKnownClaims(t *testing.T) {
 var knownPnpm = regexp.MustCompile(`\[(cl_[0-9a-f]+)\] situation: installing packages; rule: (use pnpm|always allow pnpm)`)
 
 // A known claim by the same claim id attaches its new evidence to its candidate first, then
-// makes no second proposal (§7.3).
+// makes no second proposal.
 func TestKnownClaim(t *testing.T) {
 	f := newFixture(t)
 	f.session("z", true, line{"ws-A", pnpm, t0})
@@ -244,7 +244,7 @@ func TestKnownClaim(t *testing.T) {
 	}
 }
 
-// A same_as reply keeps a proposed link and both claim ids (§5.4, §7.2, S23). A link to an
+// A same_as reply keeps a proposed link and both claim ids (S23). A link to an
 // open claim of the same kind in the same scope merges: the evidence goes to the known
 // candidate, marked with the new claim id, so the merge can be undone (#279). A link of two
 // permission rules merges nothing: the evidence goes to the candidate of the new claim, and
@@ -331,7 +331,7 @@ func TestModelTextFiltered(t *testing.T) {
 }
 
 // A forget of a brief item of the input during the call discards the whole result; the next
-// pass extracts again (§6.7, §7.3).
+// pass extracts again.
 func TestForgetOfInputItem(t *testing.T) {
 	f := newFixture(t)
 	a := "ws-A"

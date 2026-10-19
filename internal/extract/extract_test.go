@@ -348,7 +348,7 @@ func TestForgetDuringExtraction(t *testing.T) {
 }
 
 // A tombstone with the capture identity of an observation stops that evidence: a forget erases
-// the claim key, so the same text gets a new claim id (§6.7).
+// the claim key, so the same text gets a new claim id.
 func TestTombstoneStopsEvidence(t *testing.T) {
 	f := newFixture(t)
 	f.write(func(ctx context.Context, tx *sql.Tx) error {

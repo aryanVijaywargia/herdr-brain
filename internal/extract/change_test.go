@@ -113,7 +113,7 @@ func conflictOf(rule, claim string) func(context.Context, string) ([]byte, error
 }
 
 // The proposal stores the fingerprints of its prompt evidence for E14, each once, and no
-// excerpt text (§7.4, E14-S1).
+// excerpt text (E14-S1).
 func TestTriggerPrompts(t *testing.T) {
 	f := newFixture(t)
 	p := f.proposed()
@@ -329,7 +329,7 @@ func TestChangeRequestInvalid(t *testing.T) {
 }
 
 // A global proposal has evidence from a workspace. With extraction off there, its change
-// request sends nothing and waits; with extraction on again, it is drafted (§7.3).
+// request sends nothing and waits; with extraction on again, it is drafted.
 func TestChangeRequestWorkspaceOff(t *testing.T) {
 	f := newFixture(t)
 	f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {

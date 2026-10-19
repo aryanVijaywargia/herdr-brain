@@ -99,7 +99,7 @@ func (f *fixture) hooked(harness, id string, start time.Time, recs ...tr) (int64
 
 // The limit texts of the M2 eval run 6 (2026-10-10, codex 0.160.1, claude 2.1.296): the codex
 // error lines under a prompt, which capture keeps in the prompt read, and the claude limit line
-// and dialog [run6 screens §A, §B].
+// and dialog.
 const (
 	codexLine429 = "■ exceeded retry limit, last status: 429 Too Many Requests"
 	codexLine503 = "■ unexpected status 503 Service Unavailable: All managed Codex accounts are temporarily " +
