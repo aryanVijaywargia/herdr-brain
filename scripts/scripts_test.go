@@ -509,14 +509,17 @@ func TestGitAutoMaintenanceOff(t *testing.T) {
 
 // fakeHerdr is a herdr that appends each command line to $HERDR_DIR/log. plugin list prints
 // $HERDR_DIR/list.json, or no plugin when that file is missing, and does not answer while
-// $HERDR_DIR/hang exists. It writes the pid of the process that asks to $HERDR_DIR/asker.
+// $HERDR_DIR/hang exists. It writes the pid of the process that asks to $HERDR_DIR/asker, before
+// the log line and with a rename, so a test that sees the call never reads a part of the file.
 // session list has four sessions: default and work run, old is
 // stopped, and herdr cannot reach gone.
 const fakeHerdr = `#!/bin/sh
+if [ "$*" = "plugin list --json --plugin brain" ]; then
+	echo "$PPID" > "$HERDR_DIR/asker.$$" && mv "$HERDR_DIR/asker.$$" "$HERDR_DIR/asker"
+fi
 echo "$*" >> "$HERDR_DIR/log"
 case "$*" in
 "plugin list --json --plugin brain")
-	echo "$PPID" > "$HERDR_DIR/asker"
 	[ -e "$HERDR_DIR/hang" ] && exec /bin/sleep 60
 	if [ -f "$HERDR_DIR/list.json" ]; then /bin/cat "$HERDR_DIR/list.json"
 	else echo '{"id":"cli:plugin","result":{"plugins":[],"type":"plugin_list"}}'; fi ;;
