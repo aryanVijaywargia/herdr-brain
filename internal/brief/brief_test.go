@@ -78,7 +78,7 @@ func TestGolden(t *testing.T) {
 			workspaceSkills: []Skill{{Name: "deploy", Description: "Deploy the site.", Path: "/s/skills/7/r1/SKILL.md"}},
 		},
 		{
-			// AC E16-S6 (S72): a disputed item and a disputed skill stay in the brief, with the mark.
+			// AC E16-S6: a disputed item and a disputed skill stay in the brief, with the mark.
 			name:   "disputed",
 			global: []Item{npm},
 			workspace: []Item{
@@ -150,7 +150,7 @@ func fill(t *testing.T, used, limit int) []Item {
 	var items []Item
 	for id := int64(1); used < limit; id++ {
 		overhead := len("- [" + strconv.FormatInt(id, 10) + "] \n")
-		n := min(100, limit-used-overhead) // [NEW] test item length
+		n := min(100, limit-used-overhead) // test item length
 		if n < 1 {
 			t.Fatalf("fill: %d bytes left, too few for item %d", limit-used, id)
 		}

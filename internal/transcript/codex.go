@@ -12,8 +12,8 @@ import (
 // a shell command too.
 var codexShell = map[string]bool{"shell": true, "shell_command": true, "exec_command": true, "container.exec": true}
 
-// codexExit is a known exit line of Codex shell output [NEW; the exact line in the installed
-// version is not checked yet]: "Exit code: N" of the shell tools and "Process exited with
+// codexExit is a known exit line of Codex shell output (the exact line in the installed
+// version is not checked yet): "Exit code: N" of the shell tools and "Process exited with
 // code N" of exec_command. Codex saves no exit event, so this line is the only exit status.
 var codexExit = regexp.MustCompile(`(?m)^(?:Exit code: |Process exited with code )(-?\d+)\r?$`)
 
@@ -232,8 +232,8 @@ func (c *codex) call(id string, cmd Command) {
 }
 
 // output reads the output of a shell call. The exit status comes only from a known exit line;
-// only the output of a failed command is kept (S88). An output that is not a string has no
-// exit line.
+// only the output of a failed command is kept. An output that is not a string has no exit
+// line.
 func (c *codex) output(it codexItem, t Text) {
 	r, ok := c.pending[it.CallID]
 	if !ok {
@@ -262,7 +262,7 @@ func (c *codex) output(it codexItem, t Text) {
 
 // event reads an event_msg. Only token_count is read: the turn takes the growth of
 // total_tokens, so a repeated line adds nothing. A token_count with no info carries no
-// usage; an info with no total is an unknown shape, not a total of 0 (S91).
+// usage; an info with no total is an unknown shape, not a total of 0.
 func (c *codex) event(payload json.RawMessage) error {
 	var e codexEvent
 	if err := json.Unmarshal(payload, &e); err != nil {

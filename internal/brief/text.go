@@ -13,7 +13,7 @@ import (
 const endMarks = ".!?"
 
 // conditionWords start a situation that reads as a condition already, so ClaimText adds no
-// "When" before it [NEW].
+// "When" before it.
 var conditionWords = []string{"when", "whenever", "if", "before", "after", "while", "during", "once"}
 
 // ClaimText is the item text of a claim key (#284): "When <situation>: <rule>", or the rule

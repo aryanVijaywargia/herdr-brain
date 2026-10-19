@@ -40,7 +40,7 @@ type Turn struct {
 	Commands []Command
 	Reply    Text // the last assistant text of the turn; zero when the turn has none
 	// Tokens is the token count of the turn. TokensKnown is false when no usage field of the
-	// turn was found: the count is "unknown", never 0 (S91).
+	// turn was found: the count is "unknown", never 0.
 	Tokens      int64
 	TokensKnown bool
 }
@@ -129,7 +129,7 @@ type ref struct{ turn, cmd int }
 
 // lines calls fn with each whole line of the first limit bytes of the file at path and the
 // byte offset of the line. A last line with no newline is not yet whole: a session that still
-// runs or a cut at the limit leaves it, so it is skipped [NEW].
+// runs or a cut at the limit leaves it, so it is skipped.
 func lines(path string, limit int64, fn func(line []byte, offset int64) error) error {
 	f, err := os.Open(path)
 	if err != nil {

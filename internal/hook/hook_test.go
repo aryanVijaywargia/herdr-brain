@@ -32,7 +32,7 @@ import (
 
 var testNow = time.Date(2026, 9, 28, 10, 30, 15, 123_000_000, time.UTC)
 
-// testTimeout is the busy timeout of the test stores. [NEW]
+// testTimeout is the busy timeout of the test stores.
 const testTimeout = 5 * time.Second
 
 const input = `{"session_id":"sess-1","cwd":"/tmp/x"}`
@@ -133,7 +133,7 @@ func newFixture(t *testing.T) *fixture {
 		panes: map[string]map[string]herdr.Pane{
 			f.mainSock: {
 				"w14:p1": pane("w14:p1", "w14"),
-				// w14:p2 moved to w20; herdr answers its old id with the new one (S49).
+				// w14:p2 moved to w20; herdr answers its old id with the new one.
 				"w14:p2": pane("w20:p2", "w20"),
 				"w15:p1": pane("w15:p1", "w15"),
 				"w16:p1": pane("w16:p1", "w16"),
@@ -364,7 +364,7 @@ func TestRun(t *testing.T) {
 				ItemRevisions: []store.RevisionRef{{Item: 1, Revision: 1}, {Item: 2, Revision: 1}}},
 		},
 		{
-			// S79: B's w14 is another workspace than A's w14.
+			// B's w14 is another workspace than A's w14.
 			name: "S79 other session same workspace id",
 			env:  func(f *fixture) []string { return environ(f.workSock, "work", "w14:p1", "w14") },
 			want: []string{mainGlobal},
@@ -600,7 +600,7 @@ func TestForgetDuringRead(t *testing.T) {
 		ItemRevisions: []store.RevisionRef{{Item: 1, Revision: 1}, {Item: 2, Revision: 1}}}, got, f.gen)
 }
 
-// TestOutsideHerdr: the hook reads no file and asks no herdr outside herdr (S61). The
+// TestOutsideHerdr: the hook reads no file and asks no herdr outside herdr. The
 // bindings path is a folder, so a read of it would fail.
 func TestOutsideHerdr(t *testing.T) {
 	for _, env := range [][]string{{"HOME=/home/me"}, {"HERDR_ENV=0", "HERDR_PANE_ID=w14:p1"}} {
@@ -619,7 +619,7 @@ func TestOutsideHerdr(t *testing.T) {
 }
 
 // TestStartCondition: hook input that fails the profile's start condition prints nothing and
-// asks no herdr; input of an unknown shape prints nothing and writes the retest marker (S14).
+// asks no herdr; input of an unknown shape prints nothing and writes the retest marker.
 func TestStartCondition(t *testing.T) {
 	p, err := adapter.LoadFS(fstest.MapFS{"agy.toml": {Data: []byte(`kind = "agy"
 install_target = "~/x"
@@ -663,8 +663,8 @@ tested_version = "1"
 	}
 }
 
-// TestPartialBuild (S65): while a build stops between two files, the hook prints one whole
-// generation or nothing.
+// TestPartialBuild: while a build stops between two files, the hook prints one whole generation
+// or nothing.
 func TestPartialBuild(t *testing.T) {
 	f := newFixture(t)
 	out := filepath.Join(f.mainStore, outDir)
@@ -726,7 +726,7 @@ func TestProfileArg(t *testing.T) {
 	}
 }
 
-// capSlack is how far past the cap a capped Run may return on a slow test machine. [NEW]
+// capSlack is how far past the cap a capped Run may return on a slow test machine.
 const capSlack = 200 * time.Millisecond
 
 // blockedWriter stalls every write until release closes; then it fails the write.
@@ -741,7 +741,7 @@ func (w *blockedWriter) Write([]byte) (int, error) {
 	return 0, errors.New("stalled output")
 }
 
-// TestCap (S50, E7-S4): stdin held open, a stalled lookup and a stalled output each end Run
+// TestCap (E7-S4): stdin held open, a stalled lookup and a stalled output each end Run
 // by the cap. The stalled step goes on after Run returns, as it would until the process
 // exits: it prints nothing late and writes no receipt.
 func TestCap(t *testing.T) {
@@ -804,7 +804,7 @@ func TestCap(t *testing.T) {
 	}
 }
 
-// TestReceiptFailsAfterPrint (S50): the brief is printed, and the failed receipt write leaves
+// TestReceiptFailsAfterPrint: the brief is printed, and the failed receipt write leaves
 // no receipt, so status shows the delivery as unknown, not withheld.
 func TestReceiptFailsAfterPrint(t *testing.T) {
 	f := newFixture(t)
@@ -868,7 +868,7 @@ func TestBudget(t *testing.T) {
 	}
 }
 
-// timingRuns is the number of hook runs that TestTiming times. [NEW]
+// timingRuns is the number of hook runs that TestTiming times.
 const timingRuns = 200
 
 // timingTarget is the hook time target.
@@ -876,7 +876,6 @@ const timingTarget = 100 * time.Millisecond
 
 // timingRounds is the number of rounds of timingRuns runs that TestTiming times before it
 // fails: a busy machine can give one noisy round, a slow hook misses the target in every round.
-// [NEW]
 const timingRounds = 2
 
 // roundTimes is the result of one TestTiming round: the p50 and p99 of the hook runs, and the
@@ -905,7 +904,7 @@ func underTarget(round func(n int) roundTimes) (last roundTimes, met, busy bool)
 
 // TestUnderTarget: one noisy round does not fail the timing check, a machine that is busy in
 // every round skips it, and a slow hook fails it, also on a busy machine. The times are made
-// up near those of bug #200. [NEW]
+// up near those of bug #200.
 func TestUnderTarget(t *testing.T) {
 	ms := time.Millisecond
 	quiet, stalled := 2*ms, 150*ms
@@ -943,7 +942,7 @@ func TestUnderTarget(t *testing.T) {
 // probe times the outside work of one hook run without the hook: one start of the fake herdr
 // at bin, as the lookup does, and one page write and fsync in dir, as the store checkpoint at
 // close does. A busy machine or disk makes both slow; the hook code does not change them.
-// The write is one page of 4096 bytes. [NEW]
+// The write is one page of 4096 bytes.
 func probe(t *testing.T, bin, dir string) time.Duration {
 	t.Helper()
 	start := time.Now()
@@ -1085,7 +1084,7 @@ func TestNoneOutput(t *testing.T) {
 	}
 }
 
-// TestNoneOutputCap (S50): the output for "nothing" is under the cap too, so a stalled stdout
+// TestNoneOutputCap: the output for "nothing" is under the cap too, so a stalled stdout
 // ends Run by the cap, also outside herdr and for a call that is not the start.
 func TestNoneOutputCap(t *testing.T) {
 	p, err := adapter.LoadFS(os.DirFS("../adapter/testdata/agylike"), "agylike")

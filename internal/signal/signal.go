@@ -107,7 +107,7 @@ func Find(ins []store.SignalInput) []Signal {
 	return sigs
 }
 
-// correctionMarkers are the words of correction-like text [NEW]: a fixed list, with "dont"
+// correctionMarkers are the words of correction-like text: a fixed list, with "dont"
 // and "do not" for "don't". Non-English markers come later from the E14 labeled set.
 var correctionMarkers = []string{"no", "don't", "dont", "do not", "i said", "again", "instead", "wrong", "stop"}
 
@@ -146,7 +146,7 @@ func lessons(texts []text) []Signal {
 	return sigs
 }
 
-// The limits of a procedure [NEW]: a long instruction has at least minProcedureRunes
+// The limits of a procedure: a long instruction has at least minProcedureRunes
 // characters and minSteps steps, and it is similar to an earlier one when at least
 // procedureSimilarity of the words of the two are shared (Jaccard).
 const (
@@ -173,7 +173,7 @@ func procedures(texts []text) []Signal {
 	return sigs
 }
 
-// promptSimilarity is the least share of words (Jaccard) of two close prompts [NEW]. E14-S1
+// promptSimilarity is the least share of words (Jaccard) of two close prompts. E14-S1
 // sets the prompt fingerprint of the prompt index; this is only the wide rule.
 const promptSimilarity = 0.8
 
@@ -271,11 +271,11 @@ func chain(cmds []store.SignalInput) (Signal, bool) {
 	return s, true
 }
 
-// errorLine matches a line of tool output with an error [NEW]. It is wide on purpose.
+// errorLine matches a line of tool output with an error. It is wide on purpose.
 var errorLine = regexp.MustCompile(`(?i)\b(error|failed|failure|fatal|panic|exception|traceback|denied|not found|` +
 	`no such file|cannot|could not|exit (code|status):? [1-9]\d*)\b`)
 
-// testName matches a line of TAP output that names a test [NEW, #363, M2 eval run 5]: the line
+// testName matches a line of TAP output that names a test (#363, M2 eval run 5): the line
 // of a test that passed ("ok 1 - name") and the name line that node's test runner prints before
 // each test ("# Subtest: name"), after the tool mark of a pane read. A name is no error, also
 // when it holds an error word. A test that fails prints "not ok 1 - name" and its error lines,
@@ -296,8 +296,8 @@ func isBrainText(l string) bool {
 	return m != nil && m[1] != "run" && m[1] != "automation"
 }
 
-// commitLine matches a line that git commit prints when it made a commit [NEW, #375, M2 eval run
-// 6]: the line with the branch, the commit id and the subject ("[main 3f2a1bc] Return a JSON
+// commitLine matches a line that git commit prints when it made a commit (#375, M2 eval run
+// 6): the line with the branch, the commit id and the subject ("[main 3f2a1bc] Return a JSON
 // error"), and the lines of a file that it created, deleted or renamed, after the tool mark. The
 // subject and the file names are text of the commit, not an error. A commit that fails prints
 // none of them, and the error lines of a hook stay errors.
@@ -311,7 +311,7 @@ func isError(l string) bool {
 // digits matches the numbers that change between two runs of the same failure.
 var digits = regexp.MustCompile(`\d+`)
 
-// maxSignature is the longest failure signature in characters [NEW].
+// maxSignature is the longest failure signature in characters.
 const maxSignature = 200
 
 // failures finds errors in tool output, from their first occurrence. The 2-session gate is
@@ -358,8 +358,8 @@ func failures(ins []store.SignalInput) []Signal {
 	return sigs
 }
 
-// approvalLine matches a line of an approval screen [NEW, the recorded blocked reads of
-// Claude and Codex in internal/brained/testdata]: the question, the reason and the command.
+// approvalLine matches a line of an approval screen (the recorded blocked reads of
+// Claude and Codex in internal/brained/testdata): the question, the reason and the command.
 var approvalLine = regexp.MustCompile(`(?i)^\s*(do you want to .*\?|would you like to .*\?|reason: .+|\$ .+)\s*$`)
 
 // blockedApprovals finds approval screens in the reads of a blocked agent. Each screen is a

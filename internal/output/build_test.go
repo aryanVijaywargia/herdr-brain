@@ -20,7 +20,7 @@ import (
 // testNow is in UTC with milliseconds, the precision of the store.
 var testNow = time.Date(2026, 9, 28, 10, 30, 15, 123_000_000, time.UTC)
 
-// testTimeout is the busy timeout of the test stores. [NEW]
+// testTimeout is the busy timeout of the test stores.
 const testTimeout = 5 * time.Second
 
 func openStore(t *testing.T, dir string) *store.Store {
@@ -230,7 +230,7 @@ func TestReadGivesManifestRevisions(t *testing.T) {
 	}
 }
 
-// AC S43, the stale case: a build that a newer commit overtakes stops, and the build of the
+// AC, the stale case: a build that a newer commit overtakes stops, and the build of the
 // newer generation, which waited for the lock, publishes it.
 func TestOlderBuildStops(t *testing.T) {
 	s, out := newStore(t)
@@ -276,13 +276,13 @@ func TestOlderBuildStops(t *testing.T) {
 	}
 }
 
-// AC S43, under load: writers on two store handles commit and build at the same time, while a
+// AC, under load: writers on two store handles commit and build at the same time, while a
 // reader follows the pointer. The pointer never goes back, and at the end the newest
 // generation is current.
 func TestConcurrentBuilds(t *testing.T) {
 	s, out := newStore(t)
 	s2 := openStore(t, filepath.Dir(out))
-	const writers, rounds = 2, 10 // [NEW] enough overlap to hit the lock and stale builds
+	const writers, rounds = 2, 10 // enough overlap to hit the lock and stale builds
 	ids := make([]int64, writers)
 	for i := range writers {
 		ids[i] = addItem(t, s, "k1", "start")
@@ -346,7 +346,7 @@ func follow(out string, done <-chan struct{}) error {
 	}
 }
 
-// AC S65: a build that stops between two files leaves the old generation current and whole,
+// AC: a build that stops between two files leaves the old generation current and whole,
 // and leaves only a staging folder.
 func TestStoppedBuildLeavesOldGeneration(t *testing.T) {
 	s, out := newStore(t)

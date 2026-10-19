@@ -161,7 +161,7 @@ func (c *claude) user(l claudeLine, at time.Time, blocks []claudeBlock) error {
 }
 
 // toolResult reads the result of a shell command: its exit status from the exit line, when it
-// has one. Only the output of a failed command is kept (S88); is_error marks the failure.
+// has one. Only the output of a failed command is kept; is_error marks the failure.
 func (c *claude) toolResult(b claudeBlock, t Text) error {
 	r, ok := c.pending[b.ToolUseID]
 	if !ok {
@@ -254,8 +254,7 @@ func (c *claude) text(l claudeLine, at time.Time, t string) {
 	c.reply(Text{ID: l.UUID, At: at, Text: t})
 }
 
-// blockID is the record id of block i of the record uuid: one record can hold several commands
-// (S89).
+// blockID is the record id of block i of the record uuid: one record can hold several commands.
 func blockID(uuid string, i int) string {
 	return uuid + "#" + strconv.Itoa(i)
 }

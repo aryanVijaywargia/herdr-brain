@@ -170,7 +170,7 @@ func (h Hook) write(ctx context.Context, tx *sql.Tx, r *resolver.Resolved, in ad
 		return brained.Dispatch{}, err
 	}
 	// The match is a local store read, inside the hook cap. After Match, so a pane read of
-	// the same prompt that reserved its suggestion first blocks this one (S57).
+	// the same prompt that reserved its suggestion first blocks this one.
 	d, err := brained.Reserve(ctx, tx, o, prompt, now)
 	if err != nil {
 		return brained.Dispatch{}, err

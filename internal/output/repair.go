@@ -362,9 +362,9 @@ func switchedAt(ctx context.Context, s *store.Store, cur int64) (time.Time, erro
 }
 
 // Conflicts returns the open output conflicts in out, in generation order: each generation
-// folder whose files no longer match its manifest (S66), and the current generation when a
-// skill file that it lists no longer matches (S11). Brain keeps these folders until you
-// resolve the conflict. brain status and brain doctor show them.
+// folder whose files no longer match its manifest, and the current generation when a skill
+// file that it lists no longer matches. Brain keeps these folders until you resolve the
+// conflict. brain status and brain doctor show them.
 func Conflicts(out string) ([]ConflictError, error) {
 	gens, _, err := folders(out)
 	if err != nil {

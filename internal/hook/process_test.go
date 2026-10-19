@@ -24,7 +24,7 @@ const (
 	stall = "exec sleep 5"
 )
 
-// startSlack is the time to start the brain process, which is before the hook clock [NEW].
+// startSlack is the time to start the brain process, which is before the hook clock.
 const startSlack = 300 * time.Millisecond
 
 // processSetup puts the bindings of a new fixture in the data home of a scratch HOME. It
@@ -102,7 +102,7 @@ func fullPipe(t *testing.T) (r, w *os.File) {
 	return r, w
 }
 
-// TestProcessCap (S50, E7-S4): the brain process ends by the cap when stdin stays open,
+// TestProcessCap (E7-S4): the brain process ends by the cap when stdin stays open,
 // herdr does not answer or stdout is full. It exits 0, prints nothing (also after the
 // blockage ends) and writes no receipt. The exit ends the stalled step.
 func TestProcessCap(t *testing.T) {

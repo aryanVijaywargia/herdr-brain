@@ -16,7 +16,7 @@ import (
 )
 
 // ErrMayNotRun means that a tool may not run now: it is not active, its contract is not the
-// one that you approved, or its files on disk are missing or changed (S11, S21).
+// one that you approved, or its files on disk are missing or changed.
 var ErrMayNotRun = errors.New("the tool may not run")
 
 // MayRun says whether tool item id in the store whose out folder is out may run, and returns

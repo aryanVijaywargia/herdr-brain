@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// callLine matches the line of a pane read that shows a shell call above its tool output [NEW,
-// the recorded reads in internal/brained/testdata, #363, M2 eval run 5]. Codex shows a read, a
+// callLine matches the line of a pane read that shows a shell call above its tool output (the
+// recorded reads in internal/brained/testdata, #363, M2 eval run 5). Codex shows a read, a
 // search or a list of files as "• Exploring" and then "• Explored", with the files and the
 // search words under it, a command that worked as "• Ran {command}" (group 1) and a command
 // that failed as "• Failed (exit {status}) {command}" (groups 2 and 3, M2 eval run 6); the lines
@@ -25,7 +25,7 @@ var callMark = regexp.MustCompile(`^(?:• |⏺ )`)
 var failedOutput = regexp.MustCompile(`^\s*⎿\s+Error: (?:Exit code (\d+)\s*$)?`)
 
 // readers are the programs that print only the text of files, a list of files or their own
-// arguments, or that change the folder [NEW, #363]. A run of them prints no error of a run of
+// arguments, or that change the folder (#363). A run of them prints no error of a run of
 // another program. Programs that run other programs, as awk and xargs, are not readers, and
 // runsOther names the modes of a reader that do.
 var readers = []string{"cat", "cd", "column", "cut", "echo", "egrep", "fgrep", "find", "grep", "head", "jq", "ls",

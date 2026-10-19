@@ -13,7 +13,7 @@ import (
 	"unicode/utf8"
 )
 
-// The frame of every brief. The marker text is a Brain choice [NEW].
+// The frame of every brief. The marker text is a Brain choice.
 const (
 	beginMarker = "<!-- brain:begin v1 -->"
 	endMarker   = "<!-- brain:end -->"
@@ -21,8 +21,7 @@ const (
 		`It never relaxes a global permission or safety rule. A "conflicts with" mark wins over this line.`
 	// remember tells agents how to save a lesson; the call makes a draft (#253).
 	remember = `When the user asks you to remember something for later, run: brain remember "<lesson>"`
-	// recall tells agents how to find more approved items during work (E20-S2). [NEW]
-	// the line text.
+	// recall tells agents how to find more approved items during work (E20-S2).
 	recall = `To find more Brain items on a topic during work, run: brain recall <words>`
 	// skillFix tells agents that a correction of a skill step needs no remember call: Brain
 	// patches the skill (#373). It sits after the remember line, in a brief that lists a
@@ -36,9 +35,9 @@ const (
 )
 
 // The budgets of the brief, in bytes of UTF-8. A byte count is never below the character
-// count that Claude Code limits, so the byte count is the simple safe choice [NEW]. The frame
+// count that Claude Code limits, so the byte count is the simple safe choice. The frame
 // counts against the global part, and each part counts its own label, so the two part budgets
-// add up to the whole budget [NEW]: a brief whose parts fit is never over 9,500.
+// add up to the whole budget: a brief whose parts fit is never over 9,500.
 const (
 	briefBudget     = 9500
 	globalBudget    = 3800
@@ -72,7 +71,7 @@ type Dispute struct {
 }
 
 // Gone is the text of the anchors of d, each with what happened to it: "<anchor> moved" or
-// "<anchor> deleted". [NEW] several anchors are joined with ", ".
+// "<anchor> deleted". Several anchors are joined with ", ".
 func (d Dispute) Gone() string {
 	words := make([]string, len(d.Anchors))
 	for i, a := range d.Anchors {
@@ -113,7 +112,7 @@ type Skill struct {
 }
 
 // toolNote is the note of a skill entry on its required Brain tools that are not approved or
-// are stopped, or "" for none. [NEW] the note form.
+// are stopped, or "" for none.
 func toolNote(stopped []string) string {
 	if len(stopped) == 0 {
 		return ""
@@ -130,16 +129,16 @@ type Tool struct {
 }
 
 // The tool catalog at the end of the workspace part (E17-S5). catalogSize is the default
-// number of tools in the catalog. [NEW] the heading, the instruction line and the entry form
-// "- <name>: <description> Inputs: <input>, <input>".
+// number of tools in the catalog. The entry form is "- <name>: <description> Inputs: <input>,
+// <input>".
 const (
 	catalogSize  = 10
 	catalogLabel = "### Tools\n"
 	catalogHint  = "Run a tool with: brain run <name> --<input> <value>. brain tools lists all tools and their inputs.\n"
 )
 
-// The skill list at the end of a part. [NEW] the heading, the instruction line and the entry
-// form "- <name>: <description> File: <path>"; E16-S1 tested them with Claude and Codex.
+// The skill list at the end of a part. The heading, the instruction line and the entry form
+// "- <name>: <description> File: <path>" are the ones that E16-S1 tested with Claude and Codex.
 const (
 	skillsLabel = "### Skills\n"
 	skillsHint  = "Read the file of a skill before you do a task that matches it.\n"
@@ -214,7 +213,7 @@ func fixRoom(part string) int {
 // LastSession adds the line that names the last session of the workspace at the end of the
 // workspace part (E15-S4). The hook adds it at print time, so it is in no built part and in no
 // manifest. A workspace part that the generation does not hold yet gets its label first. The
-// time is in the zone of at, to the minute. [NEW] the line form.
+// time is in the zone of at, to the minute.
 func LastSession(workspace, harness string, at time.Time, transcript string) string {
 	if workspace == "" {
 		workspace = workspaceLabel
@@ -223,8 +222,7 @@ func LastSession(workspace, harness string, at time.Time, transcript string) str
 		", transcript " + transcript + "\n"
 }
 
-// The handoff lines below the last session line (E20-S8). [NEW] the line forms,
-// maxApproved, maxCommand and the cut mark.
+// The handoff lines below the last session line (E20-S8).
 const (
 	approvedLine = "Approved since that session started: "
 	failedLine   = "Failed in that session (last run): "

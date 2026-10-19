@@ -24,8 +24,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
 )
 
-// The names in the out folder and in each generation folder. [NEW] all names except
-// out/gen-<n>/ and out/current.
+// The names in the out folder and in each generation folder.
 const (
 	pointerName   = "current"
 	lockName      = "lock"
@@ -54,12 +53,11 @@ type Manifest struct {
 	// has none.
 	Skills []RevisionFile `json:"skills"`
 	// Tools lists each file of each active tool. A generation built before E17-S3 has none.
-	// [NEW] the field.
 	Tools []RevisionFile `json:"tools"`
 }
 
 // RevisionFile is one skill or tool file that a generation names: its exact path, its hash
-// and its (item id, revision) pair. [NEW] the field form.
+// and its (item id, revision) pair.
 type RevisionFile struct {
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256"`
@@ -127,8 +125,8 @@ func Read(out, key string) (Brief, error) {
 	return b, nil
 }
 
-// folder is the folder of generation gen in the out folder. [NEW] the form, the same as
-// outputs.folder (store.nextGeneration).
+// folder is the folder of generation gen in the out folder, the same as outputs.folder
+// (store.nextGeneration).
 func folder(gen int64) string {
 	return "gen-" + strconv.FormatInt(gen, 10)
 }
@@ -187,8 +185,8 @@ func (k fileKind) path(out string, item, rev int64, name string) string {
 }
 
 // changedFiles returns the skill and tool files that m lists and that are missing or no
-// longer match their hash, in list order: each is a conflict (S11). A listed path that is
-// not a path of its pair counts too: the manifest is damaged.
+// longer match their hash, in list order: each is a conflict. A listed path that is not a
+// path of its pair counts too: the manifest is damaged.
 func changedFiles(out string, m Manifest) ([]string, error) {
 	var changed []string
 	for _, k := range fileKinds {

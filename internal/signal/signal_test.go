@@ -318,7 +318,7 @@ func TestFailure(t *testing.T) {
 	}
 }
 
-// #363 (M2 eval run 5, R5-3): a TAP line of a test that passed, and the name line of a test, name
+// #363 (M2 eval run 5): a TAP line of a test that passed, and the name line of a test, name
 // a test, so they start no failure, also with an error word in the name. The first case is the
 // passing TAP line of proposal 16, under the Codex tool mark; the eval report shows no error word
 // in it, so the other lines of its read are not known. A test that fails still starts a failure:
@@ -381,7 +381,7 @@ func TestApprovalScreen(t *testing.T) {
 	}
 }
 
-// An assistant quote of a correction starts no correction signal (S37), and no signal at all.
+// An assistant quote of a correction starts no correction signal, and no signal at all.
 func TestAssistantQuote(t *testing.T) {
 	sigs := Find([]store.SignalInput{obs(1, 1, assistant, `You said: "No, don't push to main again. Stop."`),
 		obs(2, 1, assistant, `You said: "No, don't push to main again. Stop."`)})

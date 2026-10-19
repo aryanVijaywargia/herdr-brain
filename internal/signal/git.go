@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// maxLog is the number of commits that the revert rule reads [NEW].
+// maxLog is the number of commits that the revert rule reads.
 const maxLog = 1000
 
 // reverts matches the line that git revert writes in the message of a revert commit.

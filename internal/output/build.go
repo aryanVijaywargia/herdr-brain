@@ -20,8 +20,8 @@ import (
 )
 
 // ErrStale means that a commit recorded a newer generation while this build ran. The build
-// stops before the switch, so the pointer never goes back (S43). The build of the newer
-// generation publishes it.
+// stops before the switch, so the pointer never goes back. The build of the newer generation
+// publishes it.
 var ErrStale = errors.New("a newer output generation exists")
 
 // ConflictError means that files of the current generation no longer match its manifest: you
@@ -66,7 +66,7 @@ func (b builder) build(ctx context.Context, s *store.Store, proposalID *int64) (
 
 // lock makes the out folder and takes its build lock.
 func (b builder) lock() (unlock func() error, err error) {
-	// [NEW] 0o700: the data home holds your items, the same as internal/bindings.
+	// 0o700: the data home holds your items, the same as internal/bindings.
 	if err := os.MkdirAll(b.out, 0o700); err != nil {
 		return nil, err
 	}
@@ -170,7 +170,7 @@ func current(out string) (int64, error) {
 // publishFolder writes the skill and tool files of gen first, then the parts and the manifest
 // of gen into out/staging-<gen>/, checks them against the manifest, and renames the folder to
 // out/gen-<gen>/. It returns the generation as read back. A build that stops before the rename
-// leaves only the staging folder, which the next build of gen replaces (S65), and skill and
+// leaves only the staging folder, which the next build of gen replaces, and skill and
 // tool files that no generation lists yet, which the next build uses. src is the manifest of
 // the source generation, the current one: a skill or tool file that it lists is never written
 // over.
@@ -192,7 +192,7 @@ func (b builder) publishFolder(gen int64, parts []part, rfs files, src Manifest,
 			*l.to = append(*l.to, RevisionFile{Path: f.path, SHA256: hash([]byte(f.text)), RevisionRef: f.ref})
 		}
 	}
-	// [NEW] the staging folder form (issue #30).
+	// The staging folder form (issue #30).
 	staging := filepath.Join(b.out, stagingPrefix+strconv.FormatInt(gen, 10))
 	if err := os.RemoveAll(staging); err != nil {
 		return generation{}, err
@@ -229,7 +229,7 @@ func (b builder) publishFolder(gen int64, parts []part, rfs files, src Manifest,
 // writeFileOf makes the file of skill or tool revision f hold its text. A file that matches is
 // used as it is. A file that is missing, or that does not match, is written with a temp file
 // and a rename. When the current generation cur lists the file (listed), a mismatch is your
-// edit since the source check: it stays, as a conflict (S11).
+// edit since the source check: it stays, as a conflict.
 func (b builder) writeFileOf(f revFile, listed bool, cur int64) error {
 	data, err := os.ReadFile(f.path)
 	switch {

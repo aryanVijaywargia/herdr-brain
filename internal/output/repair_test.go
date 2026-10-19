@@ -110,7 +110,7 @@ func TestRepairBuildsWhenBehind(t *testing.T) {
 	}
 }
 
-// AC S44: a hand edit during repair is kept and reported.
+// AC: a hand edit during repair is kept and reported.
 func TestRepairKeepsHandEdit(t *testing.T) {
 	s, out := newStore(t)
 	id := addItem(t, s, "", "one")
@@ -241,7 +241,7 @@ var damage = []struct {
 	}},
 }
 
-// Astra finding 1: a damaged retired generation is a conflict, and cleanup keeps it.
+// A damaged retired generation is a conflict, and cleanup keeps it.
 func TestCleanupKeepsDamagedGeneration(t *testing.T) {
 	for _, c := range damage {
 		t.Run(c.name, func(t *testing.T) {
@@ -269,8 +269,7 @@ func TestCleanupKeepsDamagedGeneration(t *testing.T) {
 	}
 }
 
-// Astra finding 2: cleanup counts the reader grace period from the switch, not from the start
-// of a slow build.
+// Cleanup counts the reader grace period from the switch, not from the start of a slow build.
 func TestSlowBuildKeepsOldGeneration(t *testing.T) {
 	s, out := newStore(t)
 	id := addItem(t, s, "", "one")
@@ -294,7 +293,7 @@ func TestSlowBuildKeepsOldGeneration(t *testing.T) {
 	}
 }
 
-// AC S66: a current file that does not match its manifest is a conflict.
+// AC: a current file that does not match its manifest is a conflict.
 func TestConflictsCurrentGeneration(t *testing.T) {
 	cases := append(slices.Clone(damage), []struct {
 		name, file string
@@ -329,7 +328,7 @@ func TestConflictsCurrentGeneration(t *testing.T) {
 	}
 }
 
-// AC S77: with a conflict open, forget stays pending.
+// AC: with a conflict open, forget stays pending.
 func TestForgetPendingWithConflict(t *testing.T) {
 	s, out := newStore(t)
 	id := addItem(t, s, "", "secret plan")
@@ -603,7 +602,7 @@ func TestConfirmNoConflict(t *testing.T) {
 	checkPointer(t, out, newest(t, s))
 }
 
-// AC S77: a conflict folder that holds a forgotten item keeps forget pending; after Confirm,
+// AC: a conflict folder that holds a forgotten item keeps forget pending; after Confirm,
 // no folder holds the item.
 func TestConfirmEndsPendingForget(t *testing.T) {
 	s, out := newStore(t)
