@@ -28,7 +28,7 @@ If a check fails:
 - Wrong OS: stop and tell the user that Brain runs on macOS and Linux only.
 - herdr is missing or older than 0.9.1: tell the user to install or update herdr. Brain setup stops on an older herdr.
 - No `claude` and no `codex`: Brain installs, but no session gets items. Tell the user.
-- No Go 1.23 or later: install the release tag in step 2 with `--ref v0.1.0`. It uses the release binary. Any other ref needs Go.
+- No Go 1.23 or later: install the release tag in step 2 with `--ref v0.1.1`. It uses the release binary. Any other ref needs Go.
 
 ## 2. Install the plugin
 
@@ -209,7 +209,7 @@ Ask the user before you answer that question. For Codex, each new entry needs tr
 The newest version depends on the install:
 
 - No `--ref`, or a linked checkout: the newest commit of the default branch.
-- A release tag, such as `--ref v0.1.0`: the newest release tag. It needs no Go.
+- A release tag, such as `--ref v0.1.1`: the newest release tag. It needs no Go.
 - Any other `--ref`: none. `brain update` changes nothing and prints the command to leave the ref. Run it after the user agrees. The default branch needs Go.
 
 ## Uninstall

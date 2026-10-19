@@ -66,7 +66,7 @@ The second is whether Brain may read your past Claude Code and Codex sessions on
 Setup also offers a `~/.local/bin/brain` link, so you can type `brain` in any shell. If `~/.local/bin` isn't on your `PATH`, setup prints the full path to use.
 
 > [!TIP]
-> No Go? Install the release tag with `herdr plugin install aryanVijaywargia/herdr-brain --ref v0.1.0`. Brain then uses the prebuilt binary of the release and checks its checksum.
+> No Go? Install the release tag with `herdr plugin install aryanVijaywargia/herdr-brain --ref v0.1.1`. Brain then uses the prebuilt binary of the release and checks its checksum.
 
 ## Try it
 
@@ -119,7 +119,7 @@ brain update           # install it, then check the setup
 What `brain update` follows depends on how you installed Brain:
 
 - **No `--ref`:** the newest commit of `main`.
-- **A release tag, such as `--ref v0.1.0`:** the newest release tag. You keep the prebuilt binary, so you still don't need Go.
+- **A release tag, such as `--ref v0.1.1`:** the newest release tag. You keep the prebuilt binary, so you still don't need Go.
 - **Any other `--ref`, such as a branch or a commit:** nothing. Brain stays on that ref, and `brain update` prints the command to leave it.
 - **A `herdr plugin link` checkout:** the newest commit of `main`. Brain pulls and builds it, but only on `main` with no local changes.
 
