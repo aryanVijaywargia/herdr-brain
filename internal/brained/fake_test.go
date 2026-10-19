@@ -208,11 +208,15 @@ func (f *fakeHerdr) answer(conn net.Conn) {
 		_ = conn.Close()
 		return
 	}
+	// A subscription is in f.subs before its answer: brained sends its next subscribe only after
+	// the answer, so f.subs keeps the order of brained's subscriptions.
+	if req.Method == "events.subscribe" {
+		f.subs <- &fakeSub{subs: req.Params.Subscriptions, conn: conn}
+	}
 	if _, err := io.WriteString(conn, `{"id":"brain","result":`+reply+"}\n"); err != nil {
 		return
 	}
 	if req.Method == "events.subscribe" {
-		f.subs <- &fakeSub{subs: req.Params.Subscriptions, conn: conn}
 		return
 	}
 	_ = conn.Close()
