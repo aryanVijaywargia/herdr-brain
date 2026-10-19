@@ -42,7 +42,7 @@ func mergeItem(t *testing.T, tx *sql.Tx, key, claim string, kind Kind, state Sta
 	return id
 }
 
-// AC input (§9.5): MergeItems gives the active plain items of one part, and leaves out skills,
+// AC input: MergeItems gives the active plain items of one part, and leaves out skills,
 // tools, automations, items of another part, items that are not active, and items with a
 // waiting proposal, in a waiting merge proposal, or with an exception link or a conflict mark
 // at either end.
@@ -103,9 +103,9 @@ func TestMergeItems(t *testing.T) {
 	})
 }
 
-// AC approve (§9.5): LinkMerged links each retired claim to the kept claim, so a later key of
-// a retired item gets a claim that the kept item holds, also when the kept claim has a confirmed
-// link of its own. UnlinkMerged puts the links back.
+// AC approve: LinkMerged links each retired claim to the kept claim, so a later key of a retired
+// item gets a claim that the kept item holds, also when the kept claim has a confirmed link of
+// its own. UnlinkMerged puts the links back.
 func TestLinkMerged(t *testing.T) {
 	s := mergeStore(t)
 	ctx := context.Background()
@@ -152,8 +152,8 @@ func TestLinkMerged(t *testing.T) {
 	})
 }
 
-// AC reject (§9.5): a rejected merge stays with the part of its kept item at the proposal, also
-// when a link later moves the item to another workspace (§9.4).
+// AC reject: a rejected merge stays with the part of its kept item at the proposal, also
+// when a link later moves the item to another workspace.
 func TestRejectedMergesPart(t *testing.T) {
 	s := mergeStore(t)
 	ctx := context.Background()

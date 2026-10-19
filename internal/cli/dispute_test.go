@@ -87,7 +87,7 @@ func (f *fixture) pendingDispute(t *testing.T) store.Proposal {
 
 const loaderText = "The config loader is in config/load.go; run make test after a change."
 
-// AC S9 and S72: approval anchors the file that the item names. A rename of the file makes the
+// AC: approval anchors the file that the item names. A rename of the file makes the
 // item disputed: the queue shows the anchor diff, the brief shows the item with the mark, and
 // reject is refused. After keep, the mark is gone, the item is active, and the anchor of the
 // renamed path is gone.
@@ -291,7 +291,7 @@ func TestNoAnchors(t *testing.T) {
 
 // An edit proposal made before the stale check, approved while the item is disputed, ends the
 // dispute: the dispute is superseded in the same write, the queue is empty, the mark is gone,
-// and the new text gets fresh anchors (Sol finding 3).
+// and the new text gets fresh anchors.
 func TestDisputeOverlap(t *testing.T) {
 	f := newFixture(t)
 	root, git := f.gitRepo(t, "config/load.go")

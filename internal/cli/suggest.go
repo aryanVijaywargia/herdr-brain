@@ -18,13 +18,13 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// notificationTitle is the title of the notification of a suggestion (§5.5).
+// notificationTitle is the title of the notification of a suggestion.
 const notificationTitle = "Brain has 1 suggestion"
 
 // errSkip: a check before the suggestion failed. The suggestion shows nothing (E14-S3).
 var errSkip = errors.New("suggestion skipped")
 
-// Suggest runs `brain suggest` with args after "suggest" (E14-S3, §5.5): the detached process
+// Suggest runs `brain suggest` with args after "suggest" (E14-S3): the detached process
 // of one reserved suggestion. The hook or brained starts it with ids only. It resolves its pane
 // again, checks each id and the state of the proposal, shows a herdr notification and opens
 // the review pane beside the agent without focus. Any doubt skips, with no UI: the suggestion
@@ -82,10 +82,9 @@ func (sg suggester) run(ctx context.Context, d brained.Dispatch) (err error) {
 }
 
 // lockSuggestions takes the suggestion lock of the store in folder dir and returns its unlock.
-// [NEW] the lock file <store>/suggest.lock; the herdr deadlines bound how long a holder keeps
-// it.
+// The lock file is <store>/suggest.lock; the herdr deadlines bound how long a holder keeps it.
 func lockSuggestions(dir string) (func() error, error) {
-	f, err := os.OpenFile(filepath.Join(dir, "suggest.lock"), os.O_CREATE|os.O_RDWR, 0o600) // [NEW] 0o600, as the store
+	f, err := os.OpenFile(filepath.Join(dir, "suggest.lock"), os.O_CREATE|os.O_RDWR, 0o600) // 0o600, as the store
 	if err != nil {
 		return nil, err
 	}
@@ -299,8 +298,8 @@ func (sg suggester) checkPanes(ctx context.Context, cl caller, rows []store.Revi
 	})
 }
 
-// liveSuggestions reads the live_suggestions switch of the config file at path: "on" or "off"
-// (§5.5). A missing file, or a file with no switch, is on: the default of §5.5.
+// liveSuggestions reads the live_suggestions switch of the config file at path: "on" or "off".
+// A missing file, or a file with no switch, is on: the default.
 func liveSuggestions(path string) (bool, error) {
 	var cfg struct {
 		LiveSuggestions *string `toml:"live_suggestions"`

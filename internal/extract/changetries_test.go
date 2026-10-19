@@ -194,9 +194,9 @@ func TestSpentChangeRequestDecided(t *testing.T) {
 	}
 }
 
-// Sol review of #360 (AC #359): a request that a Brain before the try limit called to the end
-// still has a changed proposal. The next pass gives that proposal back to review, with no call,
-// and the request stays failed: also for the redraft of an item draft.
+// Review of #360 (AC #359): a request that a Brain before the try limit called to the end still
+// has a changed proposal. The next pass gives that proposal back to review, with no call, and
+// the request stays failed: also for the redraft of an item draft.
 func TestSpentRequestBeforeLimit(t *testing.T) {
 	for name, tc := range map[string]struct {
 		status store.ChangeStatus

@@ -68,7 +68,7 @@ func ParseDispatch(args []string) (Dispatch, error) {
 }
 
 // Reserve reserves the suggestion of stored observation o when it is a new prompt whose full
-// text full matches a ready proposal (§5.5, store.ReserveSuggestion). A replay that does not
+// text full matches a ready proposal (store.ReserveSuggestion). A replay that does not
 // count is no new prompt. It returns the Dispatch of the reservation, without its Store, which
 // the caller sets; its Suggestion is 0 when there is none. The caller runs it in the
 // transaction that stored o, after Match, and starts the dispatch after the commit.
@@ -84,7 +84,7 @@ func Reserve(ctx context.Context, tx *sql.Tx, o store.Observation, full string, 
 		Occurrence: s.ObservationID, Generation: s.Generation, Proposal: s.ProposalID}, nil
 }
 
-// Start starts `brain suggest` for d with environ, detached, and does not wait for it (§5.5).
+// Start starts `brain suggest` for d with environ, detached, and does not wait for it.
 // A shell starts it in the background and exits at once, so the caller waits only for the
 // shell: the hook keeps its cap, and brained keeps no child to reap. The new process has its
 // own session, so the end of the agent's terminal does not stop it.
@@ -114,7 +114,7 @@ func detach(ctx context.Context, environ, args []string) error {
 // so it resolves the pane as a call from the pane would (E2-S3).
 func paneEnv(environ []string, b bindings.Binding, paneID, workspaceID string) []string {
 	env := slices.DeleteFunc(slices.Clone(environ), func(kv string) bool {
-		// The herdr variables that name the pane of a call (§4.2).
+		// The herdr variables that name the pane of a call.
 		switch k, _, _ := strings.Cut(kv, "="); k {
 		case "HERDR_ENV", "HERDR_SESSION", "HERDR_SOCKET_PATH", "HERDR_PANE_ID", "HERDR_WORKSPACE_ID":
 			return true

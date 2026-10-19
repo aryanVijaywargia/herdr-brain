@@ -14,9 +14,9 @@ import (
 
 const repairUsage = `usage: brain repair [--confirm]`
 
-// Repair runs `brain repair` with args after "repair" (E6-S4). It runs the output repair
-// (§7.5 step 6) and lists the open output conflicts under the same lock, and keeps their
-// folders. With --confirm it deletes each conflict folder and builds again (§7.5 step 5, D5).
+// Repair runs `brain repair` with args after "repair" (E6-S4). It runs the output repair and lists
+// the open output conflicts under the same lock, and keeps their folders. With --confirm it deletes
+// each conflict folder and builds again.
 func Repair(ctx context.Context, e Env, args []string) (err error) {
 	fs := flag.NewFlagSet("repair", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -67,7 +67,7 @@ func printConflicts(w io.Writer, cs []output.ConflictError, format, end string) 
 	return err
 }
 
-// printSkillFiles names each skill or tool file of cs that you confirmed (§7.5 step 5). Repair
+// printSkillFiles names each skill or tool file of cs that you confirmed. Repair
 // wrote it again when the generation still lists its revision; else cleanup removes it with
 // its item.
 func printSkillFiles(w io.Writer, cs []output.ConflictError) error {

@@ -51,7 +51,7 @@ func TestScanSummary(t *testing.T) {
 			InRepeats: store.TurnTokens{Tokens: 900, Known: 1},
 			Repeats:   []store.Repeat{{}},
 		}, "History scan, read done: 1 session read (1 Claude), 900 tokens recorded. 1 repeat, in turns that used 900 tokens."},
-		// S91: turns with no usage show apart, and with no known turn the tokens are unknown,
+		// Turns with no usage show apart, and with no known turn the tokens are unknown,
 		// never 0.
 		"some unknown": {store.ScanReport{
 			Scan:      store.Scan{Status: store.ScanExtracting, Counts: map[string]store.ScanCounts{"claude": {Found: 2, Read: 2}}},
@@ -113,7 +113,7 @@ func TestTokensRecorded(t *testing.T) {
 	}{
 		{store.TurnTokens{Tokens: 48_200, Known: 2, Unknown: 2}, "48,200 tokens recorded; 2 turns with no usage"},
 		{store.TurnTokens{Tokens: 48_200, Known: 1}, "48,200 tokens recorded"},
-		{store.TurnTokens{Unknown: 1}, "tokens: unknown"}, // S91: never 0
+		{store.TurnTokens{Unknown: 1}, "tokens: unknown"}, // never 0
 		{store.TurnTokens{Known: 1}, "0 tokens recorded"}, // a usage field that says 0
 		{store.TurnTokens{Tokens: 1_234_567, Known: 9}, "1.2 M tokens recorded"},
 		{store.TurnTokens{Tokens: 999, Known: 1}, "999 tokens recorded"},
@@ -137,7 +137,7 @@ func TestScanNotification(t *testing.T) {
 		{r, false, `Brain read 64 past sessions. Top repeat: "use pnpm, not npm 1", 2 sessions, 48,200 tokens. ` +
 			`Proposals wait for an extractor choice: brain setup --extractor`},
 		{scanFixture(0), true, `Brain read 64 past sessions. No repeats found.`},
-		// S91: the top repeat with turns with no usage, and with no known turn.
+		// The top repeat with turns with no usage, and with no known turn.
 		{unknownTop(store.TurnTokens{Tokens: 48_200, Known: 1, Unknown: 2}), true,
 			`Brain read 64 past sessions. Top repeat: "use pnpm, not npm 1", 2 sessions, 48,200 tokens; 2 turns with no usage. See brain review.`},
 		{unknownTop(store.TurnTokens{Unknown: 2}), true,

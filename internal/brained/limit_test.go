@@ -8,7 +8,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// #379 (M2 eval run 6, R6-5, claude 2.1.296): the claude usage limit line under a prompt and
+// #379 (M2 eval run 6, claude 2.1.296): the claude usage limit line under a prompt and
 // the limit dialog are screen text: capture stores neither as user text nor as tool output, and
 // the prompt stays one counted user text. The dialog's "Stop" makes no correction signal.
 func TestCaptureLimitScreen(t *testing.T) {

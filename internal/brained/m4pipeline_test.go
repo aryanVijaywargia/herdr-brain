@@ -200,12 +200,12 @@ func (p pipeline) learned(t *testing.T) store.Proposal {
 	return ps[0]
 }
 
-// M4 exit (E17-S12), §10.4 "M4 must prove that one learned automation runs", in one test
-// with the fake herdr and the fake extractor: the recorded learned case of E17-S10 gives one
-// scoped proposal. Before the approval, a stop of the agent claims nothing and runs nothing.
-// After the approval, one stop event through brained claims one run, and the launch process
-// (the code of `brain automation launch`) runs the tool once. A duplicate of the event does
-// not run it again. The Brain-origin run triggers nothing and teaches nothing (S51 "no chain").
+// M4 exit (E17-S12): one learned automation runs, in one test with the fake herdr and the
+// fake extractor. The recorded learned case of E17-S10 gives one scoped proposal. Before the
+// approval, a stop of the agent claims nothing and runs nothing. After the approval, one stop
+// event through brained claims one run, and the launch process (the code of
+// `brain automation launch`) runs the tool once. A duplicate of the event does
+// not run it again. The Brain-origin run triggers nothing and teaches nothing.
 // A rejection stops a new proposal in that scope.
 func TestM4LearnedAutomation(t *testing.T) {
 	t.Run("approve", func(t *testing.T) {

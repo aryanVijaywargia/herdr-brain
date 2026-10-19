@@ -24,14 +24,14 @@ const recallUsage = `usage: brain recall <words>`
 // (E20-S2 AC, #344).
 const maxRecall = 10
 
-// Recall runs `brain recall` with args after "recall" (E20-S2, §8.6). It prints the items, the
+// Recall runs `brain recall` with args after "recall" (E20-S2). It prints the items, the
 // skills and the tools that the brief of the calling pane can deliver and whose text matches the
 // words, best match first, as the brief shows them. It records the revisions that it printed on
-// the receipt of the pane's agent session, so outcomes count them as delivered (§5.4).
+// the receipt of the pane's agent session, so outcomes count them as delivered.
 func Recall(ctx context.Context, e Env, args []string) (err error) {
 	words := recallWords(strings.Join(args, " "))
 	if len(words) == 0 {
-		// One line, as every refusal of recall (§1.2).
+		// One line, as every refusal of recall.
 		return fmt.Errorf("want words to match; %s", recallUsage)
 	}
 	c, err := e.Open(ctx)
@@ -41,7 +41,7 @@ func Recall(ctx context.Context, e Env, args []string) (err error) {
 	defer func() { err = errors.Join(err, c.Close()) }()
 	return c.Store.Write(ctx, func(tx *sql.Tx) error {
 		// The pane can move to another workspace while the write waits for the store lock, so
-		// check it again under the lock, before the read (§5.1).
+		// check it again under the lock, before the read.
 		if err := e.recheck(ctx, c); err != nil {
 			return err
 		}
@@ -114,14 +114,14 @@ func recallItems(ctx context.Context, tx *sql.Tx, c *Call, words []string) ([]re
 }
 
 // itemsLabel is the heading of a run of items that comes after a run of skills or tools in a
-// recall: without it, the items would read as part of that list. [NEW] the heading.
+// recall: without it, the items would read as part of that list.
 const itemsLabel = "### Items\n"
 
 // printRecall prints ms, the recall result of query, and then records it in tx: a failed print
 // rolls the record back, so a revision that the agent did not get never counts.
 func printRecall(ctx context.Context, tx *sql.Tx, e Env, c *Call, ms []recallMatch, query string) error {
 	if len(ms) == 0 {
-		// [NEW] the no-match form.
+		// The no-match form.
 		_, err := fmt.Fprintf(e.Stdout, "no Brain item matches %q\n", query)
 		return err
 	}
@@ -129,7 +129,7 @@ func printRecall(ctx context.Context, tx *sql.Tx, e Env, c *Call, ms []recallMat
 	if err != nil {
 		return err
 	}
-	// [NEW] the output form: one heading line, then the results as the brief shows them.
+	// The output form: one heading line, then the results as the brief shows them.
 	if _, err := fmt.Fprintf(e.Stdout, "Brain items for %q, best match first:\n%s", query, text); err != nil {
 		return err
 	}
@@ -137,8 +137,7 @@ func printRecall(ctx context.Context, tx *sql.Tx, e Env, c *Call, ms []recallMat
 	if err != nil || recorded {
 		return err
 	}
-	// No receipt ties the pane's agent session, so no outcome could count the recall. [NEW]
-	// the warning form.
+	// No receipt ties the pane's agent session, so no outcome could count the recall.
 	_, err = fmt.Fprintln(e.Stderr, "brain: warning: no Brain receipt for the agent session of this pane; this recall is not recorded")
 	return err
 }
@@ -188,7 +187,7 @@ func recallText(ms []recallMatch) (string, error) {
 }
 
 // briefKey is the workspace key whose part the brief of the calling pane delivers, or "" for
-// the global part only: an unmapped workspace, or one whose root check failed (§8.3 step 4).
+// the global part only: an unmapped workspace, or one whose root check failed.
 func briefKey(c *Call) (string, error) {
 	m, err := c.Workspace.Lookup(c.WorkspaceID)
 	if err != nil {
@@ -216,7 +215,7 @@ func recordRecall(ctx context.Context, tx *sql.Tx, c *Call, ms []recallMatch, no
 }
 
 // bestMatches returns the results of ms that match words, the best match first, at most
-// maxRecall of items, skills and tools together. [NEW] the match rule: a result scores one point
+// maxRecall of items, skills and tools together. The match rule: a result scores one point
 // for each word that starts a word of its text, case aside; more points first, then the lower
 // item id. A result with no point does not match.
 func bestMatches(ms []recallMatch, words []string) []recallMatch {

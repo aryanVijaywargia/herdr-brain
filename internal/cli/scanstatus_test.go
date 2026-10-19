@@ -74,7 +74,7 @@ func wantLines(t *testing.T, out string, lines ...string) {
 	}
 }
 
-// AC 7, S86: brain status shows why the scan waits, its progress line, the sessions that it
+// AC 7: brain status shows why the scan waits, its progress line, the sessions that it
 // skipped, then the report from the observations that still exist.
 func TestStatusHistoryScan(t *testing.T) {
 	t.Run("none", func(t *testing.T) {
@@ -116,7 +116,7 @@ func TestStatusHistoryScan(t *testing.T) {
 			"History scan, read so far: 2 sessions read (2 Claude, 0 Codex), 300 tokens recorded. 1 repeat, in turns that used 300 tokens.",
 			`- "use pnpm, not npm": a skill or a tool; 2 sessions; 300 tokens recorded`)
 	})
-	// S92: a forget takes its observations out of the numbers, and a finding below its gate
+	// A forget takes its observations out of the numbers, and a finding below its gate
 	// leaves the report.
 	t.Run("extracting", func(t *testing.T) {
 		f := newStatusFixture(t)
@@ -139,7 +139,7 @@ func TestStatusHistoryScan(t *testing.T) {
 	})
 }
 
-// AC 9, S94: brain doctor reports a CLI with no session file that parsed. It is a note: the
+// AC 9: brain doctor reports a CLI with no session file that parsed. It is a note: the
 // scan ran once, and the other CLI and herdr capture still work.
 func TestDoctorHistoryScanUnparsed(t *testing.T) {
 	f := newDoctorFixture(t)

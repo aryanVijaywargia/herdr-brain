@@ -110,7 +110,7 @@ func TestPaneKeys(t *testing.T) {
 	}
 }
 
-// A permission warning needs y after a (§7.4); another key goes back.
+// A permission warning needs y after a; another key goes back.
 func TestPaneConfirm(t *testing.T) {
 	f := newFixture(t)
 	id := f.remember(t, "allow rm in tmp")

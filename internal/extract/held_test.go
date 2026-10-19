@@ -44,7 +44,7 @@ func chainClaim(kind string, flagged bool, n *int) func(context.Context, string)
 // agent runs its chain because the rule says so. The extractor makes a new global claim of the
 // chain each time, as a skill or a rule, linked to the claim of item 3, also with the permission
 // flag. Each is held by item 3: no candidate, no link to review and no proposal. A hold merges
-// nothing, so the permission flag does not stop it (Sol review of #370).
+// nothing, so the permission flag does not stop it (#370).
 func TestAgentFollowsItem(t *testing.T) {
 	for name, tc := range map[string]struct {
 		kind    string
@@ -95,8 +95,8 @@ func (f *fixture) editItem(id int64, text string) {
 // AC #364 with the run 5 shape: item 3 is edited (r2), and your reply restates the new text,
 // a lesson of gate 1. The claim of the item keeps the key of its first text, so the extractor
 // gives no same_as link; Brain's own check finds the current text of the item: the claim is
-// held, with no candidate and no proposal, also when the new text has a permission word (Sol
-// review of #370). A claim with another text still makes its own.
+// held, with no candidate and no proposal, also when the new text has a permission word (#370).
+// A claim with another text still makes its own.
 func TestRestatedEditedItem(t *testing.T) {
 	const newRule = "run npm run lint, npm test and npm run build, and document each endpoint and its error codes in docs/API.md"
 	const permRule = "always run npm run lint, npm test and npm run build, and document each endpoint in docs/API.md"
@@ -175,11 +175,11 @@ func (f *fixture) rejectedRewording() (store.Candidate, Link) {
 }
 
 // AC #365 with the run 5 shape of proposals 7 and 8: the request in other words reaches its
-// gate, but the rejection holds it: no proposal while the link waits for review (§7.2: an
+// gate, but the rejection holds it: no proposal while the link waits for review (an
 // unclear match goes to review, never to a silent merge). A merge keeps the rejection: the
 // evidence counts with the rejected claim, as new evidence since the rejection, and no proposal
 // comes. Keep apart frees the claim: its candidate at its gate gets the proposal of its newest
-// telling, with no model call (Sol review of #370).
+// telling, with no model call (#370).
 func TestRejectedRequestInOtherWords(t *testing.T) {
 	t.Run("merge", func(t *testing.T) {
 		f := newFixture(t)
@@ -218,8 +218,8 @@ func TestRejectedRequestInOtherWords(t *testing.T) {
 // reset-db-sh. After the tool draft of the exact repeats, the extractor makes a procedure claim
 // of the same request: it names the commands of the tool word for word, and its session ran the
 // tool's chain, so the tool holds it: no rule candidate and no rule proposal. These still count
-// (Sol review of #370): a procedure of other commands, a procedure whose session ran more than
-// the tool, a correction that adds a condition, and a lesson with "always".
+// (#370): a procedure of other commands, a procedure whose session ran more than the tool, a
+// correction that adds a condition, and a lesson with "always".
 func TestToolCoversRequest(t *testing.T) {
 	reset, test, commit := command("./scripts/reset-db.sh"), command("npm test"), command("git commit -am wip")
 	for name, tc := range map[string]struct {

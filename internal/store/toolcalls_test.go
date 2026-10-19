@@ -96,7 +96,7 @@ func TestToolCalls(t *testing.T) {
 	})
 }
 
-// RanCalls counts only the ran calls since the time it gets (§13 M4 review prompt).
+// RanCalls counts only the ran calls since the time it gets.
 func TestRanCalls(t *testing.T) {
 	s, add := toolStore(t)
 	a, err := add(nil, StateActive, toolText("a"))

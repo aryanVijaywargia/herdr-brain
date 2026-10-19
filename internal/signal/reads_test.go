@@ -113,7 +113,7 @@ const (
 		"here: decide in the review pane or in a shell pane; nothing was written"
 )
 
-// #375 AC 1 to 3 (M2 eval run 6, R6-1): a read chain whose only failure is a search with no
+// #375 AC 1 to 3 (M2 eval run 6): a read chain whose only failure is a search with no
 // match, a git commit that worked with "error" in its message, and rg lines of a docs file give
 // no failure signal. A real failure still does: a test run or a read that fails, a search error,
 // and the error line of a commit hook.
@@ -155,7 +155,7 @@ func TestFailureNoMatch(t *testing.T) {
 	})
 }
 
-// #376 AC 1 and 2 (M2 eval run 6, R6-2): the output of brain commands in an agent pane, the
+// #376 AC 1 and 2 (M2 eval run 6): the output of brain commands in an agent pane, the
 // recall items and status lines of candidate 488, and the #371 refusal give no failure signal:
 // in the pane under their call, as a Brain line with no call above it, and as a hook command
 // record that failed. brain run runs a tool of the project, so its failure still gives one.

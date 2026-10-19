@@ -15,7 +15,7 @@ import (
 )
 
 // The profile list is the embedded set by default, and any profile set in name order: the
-// entry points take it, so a new CLI needs only its profile file (E16-S10, S60).
+// entry points take it, so a new CLI needs only its profile file (E16-S10).
 func TestKinds(t *testing.T) {
 	names, err := fs.Glob(adapters.Profiles, "*.toml")
 	if err != nil {
@@ -106,7 +106,7 @@ func TestLoadProfileListErrors(t *testing.T) {
 }
 
 // StartInput gives input of the profile's own shape that Parse reads back, with the start
-// condition met: the eval runner's exclusion hook probes use it (§12.1).
+// condition met: the eval runner's exclusion hook probes use it.
 func TestStartInput(t *testing.T) {
 	fake, err := LoadFS(fstest.MapFS{"fake.toml": {Data: readFile(t, "fake/fake.toml")}}, "fake")
 	if err != nil {
@@ -138,11 +138,11 @@ func testStartInput(t *testing.T, p *Profile) {
 	}
 }
 
-// TestProfileCases (S60): each embedded profile has golden hook cases in
+// TestProfileCases: each embedded profile has golden hook cases in
 // testdata/profiles/<kind>/, so a new profile adds its tests as data, with no Go change.
 // <case>.json is a hook start input, and <case>.golden holds the exact bytes that the hook prints
 // for it with testdata/brief.txt: the brief in the output form, or output_none when the input is
-// not a start or has an unknown shape (§8.3 step 2). The optional noise.txt holds screen lines
+// not a start or has an unknown shape. The optional noise.txt holds screen lines
 // that the profile drops, and keep.txt lines that it keeps.
 func TestProfileCases(t *testing.T) {
 	brief := string(readFile(t, "brief.txt"))

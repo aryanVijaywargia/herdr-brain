@@ -16,8 +16,7 @@ import (
 )
 
 // Launch is what the `brain automation launch` process of one claimed run gets: ids only. It
-// resolves the pane of the run again from its environment before it runs anything (§10.4
-// step 3).
+// resolves the pane of the run again from its environment before it runs anything.
 type Launch struct {
 	Run     int64  // the automation_runs row
 	Binding string // the herdr session of the binding
@@ -58,16 +57,15 @@ func StartLaunch(ctx context.Context, environ []string, l Launch) error {
 	return nil
 }
 
-// eventKey is the event key of a stop that joined agent state a (§10.4 step 1, M0 E17-S1
-// method P). state_change_seq starts again at a herdr server restart, and herdr resumes the
-// same agent session in the same pane, so the key holds terminal_id, which changes then. [NEW]
-// the text form.
+// eventKey is the event key of a stop that joined agent state a (method P of the E17-S1
+// test). state_change_seq starts again at a herdr server restart, and herdr resumes the
+// same agent session in the same pane, so the key holds terminal_id, which changes then.
 func eventKey(a herdr.Agent) string {
 	return fmt.Sprintf("%s|%s|%s|%d", a.PaneID, a.TerminalID, a.Session, a.Seq)
 }
 
 // baselineAgent sets the joined status of pane id from agent.get. After a start, a reconnect
-// or a new stream of brained, the current state is a baseline, not a stop (§10.4 step 1). A
+// or a new stream of brained, the current state is a baseline, not a stop. A
 // failed read leaves no status, so the next stop does not count.
 func (l *loop) baselineAgent(ctx context.Context, id string, p *pane) {
 	p.joined = ""
@@ -84,12 +82,11 @@ func (l *loop) baselineAgent(ctx context.Context, id string, p *pane) {
 	p.joined = a.Status
 }
 
-// automate handles status event ev of pane id for the automations (§10.4 step 1, M0 E17-S1
-// method P). It calls agent.get at once. The event joins only when agent.get gives the event
+// automate handles status event ev of pane id for the automations (method P of the E17-S1
+// test). It calls agent.get at once. The event joins only when agent.get gives the event
 // status; an event that does not join changes nothing. A stop is a joined idle or done after a
 // joined working, with a herdr agent session id: the source agent is the binding, the harness
-// and that id (§6.2). A user stop (Esc) gives the same change as a normal end, so it runs too
-// (owner, 2026-10-05).
+// and that id. A user stop (Esc) gives the same change as a normal end, so it runs too.
 func (l *loop) automate(ctx context.Context, id string, p *pane, ev herdr.Event) {
 	if !p.auto || l.gate == nil {
 		return
@@ -120,7 +117,7 @@ func (l *loop) automate(ctx context.Context, id string, p *pane, ev herdr.Event)
 }
 
 // claim claims a run of each automation of the workspace of stop a whose CLI and folder are
-// the ones of the agent (§10.4 step 2), and starts the launch process of each new claim. The
+// the ones of the agent, and starts the launch process of each new claim. The
 // claim checks the binding in its transaction: a paused, removed or undone binding, or one
 // whose tool may not run, claims nothing. A second claim of the event key inserts nothing.
 func (l *loop) claim(ctx context.Context, g Gate, a herdr.Agent) (err error) {

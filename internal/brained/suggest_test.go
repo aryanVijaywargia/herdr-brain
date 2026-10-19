@@ -16,7 +16,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// s40Prompt is the prompt of the claude-s40 reads: the second read repeats it (S40).
+// s40Prompt is the prompt of the claude-s40 reads: the second read repeats it.
 const s40Prompt = "Reply with only the word ready."
 
 // started is one start of a suggestion process by Capture.
@@ -182,7 +182,7 @@ func TestCaptureSuggestion(t *testing.T) {
 	}
 }
 
-// S57: a hook record and a pane read of the same prompt show one suggestion, in either order.
+// A hook record and a pane read of the same prompt show one suggestion, in either order.
 func TestSuggestionOnce(t *testing.T) {
 	t.Run("hook first", func(t *testing.T) {
 		k := newSuggestHarness(t)
@@ -209,10 +209,10 @@ func TestSuggestionOnce(t *testing.T) {
 // AC: a hook dispatch and a capture dispatch of one occurrence at the same time give one
 // suggestion: the store serializes the two writes, and each reserves after the enrichment.
 func TestSuggestionConcurrent(t *testing.T) {
-	for i := range 5 { // [NEW] 5 rounds: the order of the two writes is up to the scheduler
+	for i := range 5 { // 5 rounds: the order of the two writes is up to the scheduler
 		k := newSuggestHarness(t)
 		step := k.change(t)
-		at := k.clock.Add(500 * time.Millisecond) // [NEW] the hook record comes between two reads
+		at := k.clock.Add(500 * time.Millisecond) // the hook record comes between two reads
 		begin := make(chan struct{})
 		var wg sync.WaitGroup
 		var hook Dispatch

@@ -15,7 +15,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/fingerprint"
 )
 
-// promptSet is evals/prompts.toml, the labeled prompt set (HLD §12.1, S71).
+// promptSet is evals/prompts.toml, the labeled prompt set.
 type promptSet struct {
 	Proposal []setProposal `toml:"proposal"`
 	Prompt   []setCase     `toml:"prompt"`
@@ -45,7 +45,7 @@ const (
 	partTune, partHeldOut = "tune", "held-out"
 )
 
-// setKinds are the kinds of the [[prompt]] cases (§12.1).
+// setKinds are the kinds of the [[prompt]] cases.
 var setKinds = []string{"repeat", "language", "unicode", "everyday", "negation", "arguments", "repo", "unrelated"}
 
 func (c setCase) workspace() string {
@@ -125,7 +125,7 @@ func (l *labeledStore) want(t *testing.T, label string) []int64 {
 	return []int64{id}
 }
 
-// The set has every kind of case of §12.1 in both parts, a negation and an arguments case for
+// The set has every kind of case (setKinds) in both parts, a negation and an arguments case for
 // each proposal, and labels that name a fixture proposal.
 func TestPromptSetCoverage(t *testing.T) {
 	set := loadPromptSet(t)
@@ -176,7 +176,7 @@ func TestPromptSetCoverage(t *testing.T) {
 	}
 }
 
-// AC (S71): each prompt of the set gives its labeled result through MatchPrompt, the exact
+// AC: each prompt of the set gives its labeled result through MatchPrompt, the exact
 // match path of the hook and brained, with 0 model calls. AC: close match is off, so each
 // near repeat gives no match.
 func TestPromptSet(t *testing.T) {
@@ -208,7 +208,7 @@ func TestPromptSet(t *testing.T) {
 	})
 }
 
-// closeRule is a close-match rule that Brain tried (E14-S2) [NEW]: no source gives one. score
+// closeRule is a close-match rule that Brain tried (E14-S2): no source gives one. score
 // is the similarity of two prompts, from 0 to 1.
 type closeRule struct {
 	name  string
@@ -226,7 +226,7 @@ func fold(s string) string {
 	return strings.Join(strings.Fields(strings.ToLower(norm.NFKC.String(s))), " ")
 }
 
-// trigramDice is the Dice score of the sets of runs of three characters [NEW] of a and b,
+// trigramDice is the Dice score of the sets of runs of three characters of a and b,
 // after fold. A text of fewer than three characters is its own run.
 func trigramDice(a, b string) float64 {
 	trigrams := func(s string) map[string]bool {
@@ -295,7 +295,7 @@ func closeMatch(ctx context.Context, tx *sql.Tx, entries []PromptEntry, r closeR
 }
 
 // passes says whether rule r at threshold passes part of set: every case of the part, a
-// [[prompt]] or a near repeat, gives its label (§12.1).
+// [[prompt]] or a near repeat, gives its label.
 func (l *labeledStore) passes(t *testing.T, set promptSet, part string, r closeRule, threshold float64) bool {
 	t.Helper()
 	ctx := context.Background()
@@ -324,7 +324,7 @@ func (l *labeledStore) passes(t *testing.T, set promptSet, part string, r closeR
 }
 
 // tune returns the lowest threshold of 0.50, 0.51 … 1.00 at which rule r passes the tune
-// part [NEW], and false when none passes.
+// part, and false when none passes.
 func (l *labeledStore) tune(t *testing.T, set promptSet, r closeRule) (float64, bool) {
 	t.Helper()
 	for i := 50; i <= 100; i++ {
@@ -336,7 +336,7 @@ func (l *labeledStore) tune(t *testing.T, set promptSet, r closeRule) (float64, 
 }
 
 // AC: a close-match threshold comes from the tune part, the lowest that passes it, and is
-// checked on the held-out part (§12.1). Close match may turn on only with a rule that passes
+// checked on the held-out part. Close match may turn on only with a rule that passes
 // both. No rule that Brain tried passes: a threshold that keeps negation and other arguments
 // out also misses near repeats. So Brain has no close matcher and no switch, and MatchPrompt
 // stays exact. A rule that passes fails this test: build its matcher then, behind a store

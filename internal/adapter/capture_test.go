@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// The Claude Code 2.1.284 payloads of the E11-S1 test (M0 test E11-S1),
-// with the fields that Brain does not read cut out.
+// The Claude Code 2.1.284 payloads of the E11-S1 test, with the fields that Brain does not
+// read cut out.
 const (
 	claudePrompt = `{"session_id":"88ce9f75-8b96-40bb-8ff5-7f9fd3aa5071","cwd":"/private/tmp/e11s1/agent",
 		"hook_event_name":"UserPromptSubmit","prompt":"Reply with exactly 120 lines of plain text and nothing else."}`
@@ -41,7 +41,7 @@ func TestParseRecord(t *testing.T) {
 			CWD: "/private/tmp/e11s1/agent/sub", Command: "ls nosuchfile-zq", ExitStatus: &one}},
 		{"stop", EventStop, claudeStop, Record{SessionID: "88ce9f75-8b96-40bb-8ff5-7f9fd3aa5071",
 			CWD: "/private/tmp/e11s1/agent", Text: "ROW 1 qv-5178\nROW 2 qv-5178"}},
-		// A Codex reply can be null (M0 test E11-S1).
+		// A Codex reply can be null (E11-S1 test).
 		{"null reply", EventStop, `{"session_id":"s","last_assistant_message":null}`, Record{SessionID: "s"}},
 		// An error of another shape gives no exit status.
 		{"other error", EventTool, `{"session_id":"s","tool_input":{"command":"ls"},"error":"Interrupted"}`,

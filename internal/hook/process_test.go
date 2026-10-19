@@ -24,7 +24,7 @@ const (
 	stall = "exec sleep 5"
 )
 
-// startSlack is the time to start the brain process, which is before the hook clock [NEW].
+// startSlack is the time to start the brain process, which is before the hook clock.
 const startSlack = 300 * time.Millisecond
 
 // processSetup puts the bindings of a new fixture in the data home of a scratch HOME. It
@@ -102,8 +102,8 @@ func fullPipe(t *testing.T) (r, w *os.File) {
 	return r, w
 }
 
-// TestProcessCap (S50, E7-S4 FINDINGS): the brain process ends by the cap when stdin stays
-// open, herdr does not answer or stdout is full. It exits 0, prints nothing (also after the
+// TestProcessCap (E7-S4): the brain process ends by the cap when stdin stays open,
+// herdr does not answer or stdout is full. It exits 0, prints nothing (also after the
 // blockage ends) and writes no receipt. The exit ends the stalled step.
 func TestProcessCap(t *testing.T) {
 	if testing.Short() {
@@ -173,7 +173,7 @@ func TestProcessCap(t *testing.T) {
 
 // TestProcessTiming times the brain hook from process start to exit: the Go runtime start,
 // the hook as TestTiming times it and the exit. It logs p50 and p99; run it with -v to see
-// them. The target is < 100 ms (§8.3). The lookup is a fake herdr script, not the herdr CLI.
+// them. The target is < 100 ms. The lookup is a fake herdr script, not the herdr CLI.
 func TestProcessTiming(t *testing.T) {
 	if testing.Short() {
 		t.Skip("timing runs")
@@ -214,7 +214,7 @@ func TestProcessTiming(t *testing.T) {
 		timingRuns, emitted, receipts, runtime.GOOS, runtime.GOARCH, rank(times, 50), rank(times, 99), times[len(times)-1])
 }
 
-// rank is the nearest-rank percentile p of the sorted times, as in the E7-S4 FINDINGS.
+// rank is the nearest-rank percentile p of the sorted times, as in the E7-S4 test.
 func rank(times []time.Duration, p int) time.Duration {
 	return times[(p*len(times)+99)/100-1]
 }

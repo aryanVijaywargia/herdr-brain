@@ -9,11 +9,11 @@ import (
 	"strings"
 )
 
-// Skill is the reviewed content of a skill item (§8.2): the header of its SKILL.md and the
-// steps. The text of a skill revision is the whole file, so the file that the compiler writes
-// is the text that you approved.
+// Skill is the reviewed content of a skill item: the header of its SKILL.md and the steps.
+// The text of a skill revision is the whole file, so the file that the compiler writes is the
+// text that you approved.
 //
-// [NEW] the text form (E16-S1 tested it):
+// The text form (E16-S1 tested it):
 //
 //	---
 //	name: <name>
@@ -35,7 +35,7 @@ type Skill struct {
 }
 
 // skillName is the form of a skill name: lower-case letters and digits, joined by hyphens.
-// [NEW] the form; it keeps the "<name>: <description>" entry of the brief clear.
+// The form keeps the "<name>: <description>" entry of the brief clear.
 var skillName = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // The header keys of a skill text, and whether each must be there.
@@ -85,11 +85,11 @@ func ParseSkill(text string) (Skill, error) {
 	return sk, nil
 }
 
-// ErrSkillName means that another active skill in the same scope has the name already (§8.2).
+// ErrSkillName means that another active skill in the same scope has the name already.
 var ErrSkillName = errors.New("another active skill in this scope has this name")
 
 // ActiveSkills reads the current revision of each delivered skill item, in item id order: the
-// active skills and the disputed ones (§9.1).
+// active skills and the disputed ones.
 func ActiveSkills(ctx context.Context, tx *sql.Tx) ([]ItemRevision, error) {
 	return activeOfKind(ctx, tx, KindSkill)
 }
@@ -159,7 +159,7 @@ func activeOfKind(ctx context.Context, tx *sql.Tx, kind Kind) ([]ItemRevision, e
 
 // CheckSkill checks the current revision of item, when it is an active skill: its text must
 // be a skill text, and no other active skill in the same scope (one workspace key, or global)
-// may have its name (§8.2). WriteRevision calls it after each revision write, in the same
+// may have its name. WriteRevision calls it after each revision write, in the same
 // transaction, so approval, restore, undo, promotion (E16-S8) and link (E16-S9) all check the
 // state that the transaction commits. A clash wraps ErrSkillName. Any other item passes.
 func CheckSkill(ctx context.Context, tx *sql.Tx, item int64) error {
@@ -227,10 +227,10 @@ func (sk Skill) Text() string {
 	return b.String()
 }
 
-// SkillDiff is the diff of a skill patch (§9.2): only the changed lines of next against old,
-// each "- " for a removed line and "+ " for an added line. [NEW] the form: each run of changed
-// lines starts with "@@ line <n>", n the line of old where it starts. The lines that stay are
-// not in it. The diff of a new skill ("" for old) adds all its lines.
+// SkillDiff is the diff of a skill patch: only the changed lines of next against old,
+// each "- " for a removed line and "+ " for an added line. Each run of changed lines starts
+// with "@@ line <n>", n the line of old where it starts. The lines that stay are not in it.
+// The diff of a new skill ("" for old) adds all its lines.
 func SkillDiff(old, next string) string {
 	a, b := diffLines(old), diffLines(next)
 	// lcs[i][j] is the length of the longest common subsequence of a[i:] and b[j:].

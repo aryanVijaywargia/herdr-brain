@@ -1,5 +1,5 @@
-# Skill choice (HLD §12.1 "Skill choice", E16-S5). The fixture skills and prompts come from the
-# E16-S1 spike (M0 test "E16-S1: skill files from the brief").
+# Skill choice (E16-S5). The fixture skills and prompts come from the E16-S1 test (skill files
+# from the brief).
 #
 # [[skill]]: a fixture skill. Its example is its one example prompt; its steps hold
 # {{marker}}, a fresh opaque marker in each case. The runner seeds all fixture skills of this
@@ -7,7 +7,7 @@
 # - the example of a skill must read that skill and use its marker;
 # - the examples of the other skills and each [[negative]] prompt must not use its marker.
 # Each prompt also runs as a control, with no skill in the brief: no marker may appear.
-# A prompt gets one result for each skill. The pass rule [NEW]: every result passes.
+# A prompt gets one result for each skill. The pass rule: every result passes.
 #
 # pg-migration and sqlite-migration are the near pair: their descriptions differ in one part.
 

@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// RunResult is the result of an automation run (§10.4, §11).
+// RunResult is the result of an automation run.
 type RunResult string
 
 // The run results. A run starts as RunUnknown, so a crash at any point leaves it.
@@ -20,7 +20,7 @@ const (
 	RunUnknown   RunResult = "unknown"
 )
 
-// AutomationRun is one automation_runs row: one claimed stop event of an automation (§11).
+// AutomationRun is one automation_runs row: one claimed stop event of an automation.
 type AutomationRun struct {
 	ID           int64
 	AutomationID int64
@@ -45,8 +45,8 @@ func (r AutomationRun) Active() bool {
 // ErrRunNotActive means that a run has no launch mark, or has ended.
 var ErrRunNotActive = errors.New("the run is not active")
 
-// ClaimRun inserts the claim of run r (§10.4 step 2) and returns its id, or 0 when the event
-// key of the automation has a row already: a duplicate event claims nothing.
+// ClaimRun inserts the claim of run r and returns its id, or 0 when the event key of the
+// automation has a row already: a duplicate event claims nothing.
 func ClaimRun(ctx context.Context, tx *sql.Tx, r AutomationRun) (int64, error) {
 	var id int64
 	err := tx.QueryRowContext(ctx, `INSERT INTO automation_runs (automation_id, event_key, pane_id, workspace_id,
@@ -61,8 +61,8 @@ func ClaimRun(ctx context.Context, tx *sql.Tx, r AutomationRun) (int64, error) {
 	return id, nil
 }
 
-// StartRun writes the launch mark of run id with the process pid that runs the tool (§10.4
-// step 5). The automation's last result is unknown from now until the run ends.
+// StartRun writes the launch mark of run id with the process pid that runs the tool.
+// The automation's last result is unknown from now until the run ends.
 func StartRun(ctx context.Context, tx *sql.Tx, id int64, pid int, now time.Time) error {
 	r, err := AutomationRunByID(ctx, tx, id)
 	if err != nil {
@@ -81,7 +81,7 @@ func StartRun(ctx context.Context, tx *sql.Tx, id int64, pid int, now time.Time)
 // FinishRun writes result and its cause to run id when the run has not ended, and the result
 // to its automation as the last result when the run has a launch mark. It reports whether it
 // wrote: a cancel that came first keeps cancelled. The cause names a program of the tool, so a
-// run that ends after forget of its tool or its automation keeps no cause (§6.7).
+// run that ends after forget of its tool or its automation keeps no cause.
 func FinishRun(ctx context.Context, tx *sql.Tx, id int64, result RunResult, cause string, now time.Time) (bool, error) {
 	r, err := AutomationRunByID(ctx, tx, id)
 	if err != nil || !r.Finished.IsZero() {
@@ -99,8 +99,8 @@ func FinishRun(ctx context.Context, tx *sql.Tx, id int64, result RunResult, caus
 	return true, setLastRun(ctx, tx, r.AutomationID, id, result, now)
 }
 
-// CancelRun records cancelled for active run id and returns the run (§10.4 "Cancel"). It
-// fails with ErrRunNotActive when the run has no launch mark or has ended.
+// CancelRun records cancelled for active run id and returns the run. It fails with
+// ErrRunNotActive when the run has no launch mark or has ended.
 func CancelRun(ctx context.Context, tx *sql.Tx, id int64, now time.Time) (AutomationRun, error) {
 	r, err := AutomationRunByID(ctx, tx, id)
 	if err != nil {

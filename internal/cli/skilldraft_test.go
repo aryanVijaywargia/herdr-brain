@@ -34,7 +34,7 @@ func (c *skillCLI) Run(_ context.Context, cmd extract.Command) ([]byte, error) {
 			"steps": "1. Run go test ./...\n2. Update the changelog.\n3. Tag and push."}}}})
 }
 
-// releaseLines are one release procedure in three wordings (S8).
+// releaseLines are one release procedure in three wordings.
 var releaseLines = []string{
 	"to release: 1. run the tests with go test ./... 2. update the changelog for the new version 3. tag the release with git tag and push the tag to origin",
 	"release checklist, 1. run all the tests with go test ./... first 2. update the changelog entry for this version 3. tag the release with git tag and push it",
@@ -66,7 +66,7 @@ func (f *fixture) releaseSession(t *testing.T, ws string) {
 	})
 }
 
-// AC S8: a release procedure explained 3 times in "shop" gives one workspace skill draft. The
+// AC: a release procedure explained 3 times in "shop" gives one workspace skill draft. The
 // review shows the whole file. After approval the "shop" brief lists it; "blog" does not.
 func TestSkillDraftS8(t *testing.T) {
 	f := newFixture(t)
@@ -153,7 +153,7 @@ func (f *fixture) releaseSessions(t *testing.T, ws string, n int, cli extract.Ru
 	}
 }
 
-// AC 2 (#313, S8): the release of the M2 eval rerun, one telling in each of four sessions, codex
+// AC 2 (#313): the release of the M2 eval rerun, one telling in each of four sessions, codex
 // and claude in turn, gives one workspace skill draft, not a preference. The review shows the
 // whole file. After approval the "shop" brief lists the skill with the path of its file (the
 // input of the #165 kept-skill check); "blog" does not.

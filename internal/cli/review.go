@@ -55,7 +55,7 @@ type review struct {
 	approve, reject, later bool
 	keep                   bool    // keep a disputed item (E16-S6)
 	edit                   *string // the new text; nil for none
-	change                 *string // your change request (S56); nil for none
+	change                 *string // your change request; nil for none
 	conflict               string  // replace, exception or keep-both: what approve does with a conflict
 	reason                 *string // your reason for a reject; nil for none
 	scope                  store.Scope
@@ -75,7 +75,7 @@ type review struct {
 	conflictsWith          int64 // the global item that item conflicts with
 }
 
-// Review runs `brain review` with args after "review" (§7.4, E4-S3).
+// Review runs `brain review` with args after "review" (E4-S3).
 func Review(ctx context.Context, e Env, args []string) error {
 	return runReview(ctx, e, store.SurfaceCLI, args)
 }
@@ -109,7 +109,7 @@ func runReview(ctx context.Context, e Env, surface store.Surface, args []string)
 	case r.exceptionTo != 0 || r.conflictsWith != 0:
 		return cl.link(ctx, r)
 	case r.item != 0 && r.scope != "":
-		// The review action "change scope" of an active item (§9.3).
+		// The review action "change scope" of an active item.
 		return cl.promote(ctx, r.item)
 	case r.item != 0:
 		return cl.proposeChange(ctx, r)
@@ -167,7 +167,7 @@ func (cl caller) runQueueAction(ctx context.Context, r review) error {
 
 // decides reports whether r approves or rejects: a proposal, a disputed item, a same_as link, a
 // rejection or a retired item. Only you decide them: a call from a pane with a live agent does
-// not (§18, #371). An edit of an item (--item), --change, --later and --tool make or keep drafts.
+// not (#371). An edit of an item (--item), --change, --later and --tool make or keep drafts.
 func (r review) decides() bool {
 	return r.approve || r.reject || r.keep || r.retire && r.item == 0 || r.merge != 0 || r.apart != 0 ||
 		r.reopen != 0 || r.reset != 0 || r.restore != 0
@@ -306,7 +306,7 @@ func (r review) check() error {
 	return nil
 }
 
-// gates returns the gates of the config file, as the extractor reads them (§7.2, #282). A
+// gates returns the gates of the config file, as the extractor reads them (#282). A
 // config that does not read gives the default gates with a warning, so the lists still show.
 func (cl caller) gates() store.Gates {
 	g, _, err := extract.ReadConfig(cl.Config)
@@ -321,7 +321,7 @@ func (cl caller) gates() store.Gates {
 
 // list prints the pending proposals that the caller sees, after the exception links and the
 // same_as links that wait for review (#358). A proposal of a candidate below its gate waits in
-// brain review --all only (§7.2). The history scan report comes first while its work waits
+// brain review --all only. The history scan report comes first while its work waits
 // (scanTop).
 func (cl caller) list(ctx context.Context) error {
 	gates := cl.gates()
@@ -379,9 +379,9 @@ func (cl caller) list(ctx context.Context) error {
 	return err
 }
 
-// scanTop is the history scan report at the top of brain review (§6.8 "Efficiency report"): its
-// summary line and its finding lines, while a scan batch waits (the scan is extracting) or a
-// scan proposal waits, then an empty line. "" when neither waits.
+// scanTop is the history scan report at the top of brain review: its summary line and its finding
+// lines, while a scan batch waits (the scan is extracting) or a scan proposal waits, then an empty
+// line. "" when neither waits.
 func scanTop(ctx context.Context, tx *sql.Tx, gates store.Gates) (string, error) {
 	r, ok, err := scanReport(ctx, tx, gates)
 	if err != nil || !ok {
@@ -425,7 +425,7 @@ func (cl caller) notes(ctx context.Context, tx *sql.Tx, p store.Proposal) (strin
 	return scan + match, err
 }
 
-// scanLine is the line of show for a scan proposal p (§6.8 "Proposals"): the numbers of its
+// scanLine is the line of show for a scan proposal p: the numbers of its
 // whole finding, not of the proposal alone. "" for any other proposal.
 func scanLine(ctx context.Context, tx *sql.Tx, gates store.Gates, p store.Proposal) (string, error) {
 	if p.CandidateID == nil {
@@ -520,10 +520,10 @@ func warningMark(p store.Proposal) string {
 
 func warns(p store.Proposal) bool { return p.PermissionWarning || permissionWords.MatchString(p.Text) }
 
-// excerptsShown is the most excerpts that a proposal shows (§7.4: 1-3).
+// excerptsShown is the most excerpts that a proposal shows (1-3).
 const excerptsShown = 3
 
-// show prints one proposal with the §7.4 fields. What you decide on comes first: the text, the
+// show prints one proposal with the review fields. What you decide on comes first: the text, the
 // scope and the effect (the target and the expected benefit); then the diff, the items it
 // conflicts with, and 1-3 source excerpts with sender, session, workspace and local date. The
 // claim id and the revision it creates show with detail only (#254). The excerpts come from the
@@ -660,7 +660,7 @@ func reasonWords(r store.SuggestionReason) string {
 	return "unknown"
 }
 
-// showHead writes the first lines of p in show, what you decide on (§7.4): the status and what
+// showHead writes the first lines of p in show, what you decide on: the status and what
 // p does, the kind, the text, the scope and the effect, the target and the expected benefit. A
 // text of many lines (a skill, a tool, an automation, a script) comes after the scope and the
 // effect, so that a short pane shows them too (#254). binding holds the lines of an automation;
@@ -700,7 +700,7 @@ func what(p store.Proposal, it store.Item) string {
 	return fmt.Sprintf("changes item %d", it.ID)
 }
 
-// mergeWhat says what merge proposal p does (§9.5): "merges items 12, 15 and 19 into item 12".
+// mergeWhat says what merge proposal p does: "merges items 12, 15 and 19 into item 12".
 func mergeWhat(p store.Proposal) string {
 	ids := make([]string, len(p.Merge))
 	for i, r := range p.Merge {
@@ -710,9 +710,9 @@ func mergeWhat(p store.Proposal) string {
 	return fmt.Sprintf("merges items %s and %s into item %d", strings.Join(ids[:last], ", "), ids[last], *p.ItemID)
 }
 
-// savesLine is the line of show with the characters that merge proposal p saves in its part
-// (§9.5): the old texts of its items at their base revisions together, less the new text; ""
-// for a proposal of another kind. Characters are bytes, as the brief budgets count them (§8.1).
+// savesLine is the line of show with the characters that merge proposal p saves in its part:
+// the old texts of its items at their base revisions together, less the new text; ""
+// for a proposal of another kind. Characters are bytes, as the brief budgets count them.
 func savesLine(ctx context.Context, tx *sql.Tx, p store.Proposal) (string, error) {
 	if len(p.Merge) == 0 {
 		return "", nil
@@ -777,8 +777,8 @@ const toolLine = "kind:     tool\n"
 // automationLine is the line of an automation proposal in show.
 const automationLine = "kind:     automation\n"
 
-// bindingLines are the lines of the binding of automation proposal p of item it in show
-// (§10.4): the exact tool with its contract, the trigger and the folder, what your approval
+// bindingLines are the lines of the binding of automation proposal p of item it in show:
+// the exact tool with its contract, the trigger and the folder, what your approval
 // permits, and what undo cannot do. A binding that the approval refuses shows why.
 func (cl caller) bindingLines(ctx context.Context, tx *sql.Tx, p store.Proposal, it store.Item) (string, error) {
 	if it.Kind != store.KindAutomation || p.Text == "" {
@@ -814,10 +814,10 @@ func (cl caller) bindingLines(ctx context.Context, tx *sql.Tx, p store.Proposal,
 	return s.String(), nil
 }
 
-// proposalText is the text line of p in show. A skill draft shows the whole file (S8). A
+// proposalText is the text line of p in show. A skill draft shows the whole file. A
 // skill patch shows no text: its diff holds the changed lines, and approve writes the whole
-// new file (§9.2). A tool shows its whole contract text, a change too: your approval covers
-// all of it (§10.1).
+// new file. A tool shows its whole contract text, a change too: your approval covers
+// all of it.
 func proposalText(p store.Proposal, it store.Item) string {
 	switch {
 	case p.Text == "":
@@ -830,7 +830,7 @@ func proposalText(p store.Proposal, it store.Item) string {
 	return fmt.Sprintf("text:     %s\n", brief.Clean(p.Text))
 }
 
-// contractLines are the lines of the contract of tool text in show (§10.1): the command bytes
+// contractLines are the lines of the contract of tool text in show: the command bytes
 // of each step, quoted, the input schema, the cwd, the timeout, the stated effects and the
 // read-only restriction. The scope line shows the scope. A contract that breaks a rule shows
 // why: approve refuses it.
@@ -890,14 +890,14 @@ func source(p store.Proposal, it store.Item, cur store.ItemRevision) string {
 }
 
 // learned reports whether p, a proposal of item it, comes from the learned automation rule
-// (§10.4, E17-S10): an automation proposal of a candidate. brain automation add makes one with
+// (E17-S10): an automation proposal of a candidate. brain automation add makes one with
 // no candidate.
 func learned(p store.Proposal, it store.Item) bool {
 	return p.CandidateID != nil && it.Kind == store.KindAutomation
 }
 
 // exact reports whether p, a proposal of item it, is a tool draft that Brain wrote itself from
-// the recorded commands (§10.1, #345): the exact tool path or "make this a tool". A tool draft
+// the recorded commands (#345): the exact tool path or "make this a tool". A tool draft
 // of the extractor has the benefit of the model.
 func exact(p store.Proposal, it store.Item) bool {
 	return p.CandidateID != nil && it.Kind == store.KindTool && p.ExpectedBenefit == extract.ExactBenefit
@@ -921,7 +921,7 @@ func origin(ctx context.Context, tx *sql.Tx, p store.Proposal, it store.Item, cu
 	return fmt.Sprintf("the comebacks of revision %d in %d %s that got it", r.Revision, n, unit), nil
 }
 
-// gone is the text of the anchors of dispute p, each moved or deleted (§9.1), as the brief mark
+// gone is the text of the anchors of dispute p, each moved or deleted, as the brief mark
 // says it.
 func gone(p store.Proposal) string {
 	return brief.Dispute{Anchors: p.Dispute, Moved: signal.Moved(p.Diff)}.Gone()
@@ -956,7 +956,7 @@ func actions(b *strings.Builder, p store.Proposal, changeable, conflict bool) {
 }
 
 // excerpts are the lines of up to excerptsShown source excerpts of p, the newest first, in a
-// scope that the caller sees [NEW], through the secret filter. changeable reports whether p has
+// scope that the caller sees, through the secret filter. changeable reports whether p has
 // evidence, so it takes a change request.
 func (cl caller) excerpts(ctx context.Context, tx *sql.Tx, p store.Proposal) (lines []string, changeable bool, err error) {
 	es, changeable, err := evidence(ctx, tx, p)
@@ -1024,7 +1024,7 @@ func stopMark(e store.Excerpt) string {
 }
 
 // shown are the first excerptsShown excerpts of es in a scope that the caller sees: its
-// workspace, or the global pool of its binding (§6.8).
+// workspace, or the global pool of its binding.
 func (cl caller) shown(es []store.Excerpt) []store.Excerpt {
 	var shown []store.Excerpt
 	for _, e := range es {
@@ -1039,7 +1039,7 @@ func (cl caller) shown(es []store.Excerpt) []store.Excerpt {
 }
 
 // globalPool reports whether excerpt e comes from a history scan session of the global pool of
-// the caller's binding: a scanned session with no workspace (§6.8 "Global pool").
+// the caller's binding: a scanned session with no workspace.
 func (cl caller) globalPool(e store.Excerpt) bool {
 	return e.WorkspaceKey == "" && e.Source == store.SourceTranscript && e.HerdrSession == cl.Binding.Session
 }
@@ -1127,8 +1127,8 @@ func (cl caller) decide(ctx context.Context, r review) error {
 	return cl.later(ctx, r.id)
 }
 
-// approve makes the proposal's change the next revision of its item, with the edits of r
-// (§7.4). The proposal's base revision must still be the item's current one.
+// approve makes the proposal's change the next revision of its item, with the edits of r.
+// The proposal's base revision must still be the item's current one.
 func (cl caller) approve(ctx context.Context, r review) error {
 	var next store.ItemRevision
 	var retired []store.ItemRevision
@@ -1174,7 +1174,7 @@ func (cl caller) approve(ctx context.Context, r review) error {
 			return err
 		}
 		// The replaced items retire first, so a skill that replaces one with its name passes
-		// the name check of its own write (§8.2).
+		// the name check of its own write.
 		for _, rt := range retired {
 			if _, err := store.WriteRevision(ctx, tx, rt.Revision-1, rt); err != nil {
 				return err
@@ -1184,7 +1184,7 @@ func (cl caller) approve(ctx context.Context, r review) error {
 			return err
 		}
 		// The approval of another proposal of a disputed item ends its dispute: the new
-		// revision gets fresh anchors (§9.1).
+		// revision gets fresh anchors.
 		if it.State == store.StateDisputed && len(p.Dispute) == 0 {
 			if err := store.SupersedeDisputes(ctx, tx, it.ID, cl.Now()); err != nil {
 				return err
@@ -1193,7 +1193,7 @@ func (cl caller) approve(ctx context.Context, r review) error {
 		if err := anchor(ctx, tx, next); err != nil {
 			return err
 		}
-		// A promotion, or the "change scope" of approve (§9.3). The check comes after anchor,
+		// A promotion, or the "change scope" of approve. The check comes after anchor,
 		// which drops the workspace anchors: the budget counts the room of their mark.
 		if cur.Scope == store.ScopeWorkspace && next.Scope == store.ScopeGlobal {
 			return cl.checkPromotion(ctx, tx, it)
@@ -1231,22 +1231,21 @@ func (cl caller) approve(ctx context.Context, r review) error {
 		_, err = fmt.Fprintf(cl.Stdout, "item %d keeps its conflict with %s: the brief asks the agent to ask you\n",
 			next.ItemID, itemList(next.ConflictsWith))
 	}
-	// The build runs even when the message fails: the commit is done (§7.5, as in undo).
+	// The build runs even when the message fails: the commit is done (as in undo).
 	return errors.Join(err, cl.deliver(ctx, &r.id))
 }
 
 // changedError says that item id is at revision cur, no longer at revision base of proposal p:
-// approve writes nothing (§7.4).
+// approve writes nothing.
 func changedError(id, p, cur, base int64) error {
 	return fmt.Errorf("item %d changed after proposal %d was made (the item is at revision %d, the proposal is for revision %d); nothing was written: reject it and make a new one",
 		id, p, cur, base)
 }
 
-// merge returns the revisions that retire the items of merge proposal p other than it, its
-// kept item, and links the claim of each to the claim of it as a confirmed same_as link (§9.5
-// approve). Each item must still be at its base revision. next, the revision of it that approve
-// writes, is pinned when an item of the merge is pinned. A merge stays in its part, and has no
-// conflict to resolve.
+// merge returns the revisions that retire the items of merge proposal p other than it, its kept
+// item, and links the claim of each to the claim of it as a confirmed same_as link. Each item must
+// still be at its base revision. next, the revision of it that approve writes, is pinned when an
+// item of the merge is pinned. A merge stays in its part, and has no conflict to resolve.
 func (cl caller) merge(ctx context.Context, tx *sql.Tx, r review, p store.Proposal, it store.Item, next *store.ItemRevision) ([]store.ItemRevision, error) {
 	switch {
 	case r.scope != "":
@@ -1283,7 +1282,7 @@ func (cl caller) approved(r review, p store.Proposal, it store.Item, cur store.I
 		if r.edit != nil || r.scope != "" || r.pin {
 			return store.ItemRevision{}, fmt.Errorf("proposal %d retires item %d: approve it as it is, or reject it", p.ID, it.ID)
 		}
-		// A retired revision keeps its text, so that restore can bring it back (§9.2).
+		// A retired revision keeps its text, so that restore can bring it back.
 		next.State = store.StateRetired
 		return next, confirmed(r, p, cur, next)
 	}
@@ -1297,7 +1296,7 @@ func (cl caller) approved(r review, p store.Proposal, it store.Item, cur store.I
 	}
 	switch scope {
 	case store.ScopeGlobal:
-		// An exception link is for a workspace item only (§7.4); undo of the promotion brings it back.
+		// An exception link is for a workspace item only; undo of the promotion brings it back.
 		next.Scope, next.WorkspaceKey, next.ExceptionToItem, next.ExceptionToRevision = store.ScopeGlobal, nil, nil, nil
 	case store.ScopeWorkspace:
 		// The new target is the caller's own workspace, so it passes the scope check.
@@ -1310,7 +1309,7 @@ func (cl caller) approved(r review, p store.Proposal, it store.Item, cur store.I
 }
 
 // skillError asks for a new name when the store refused a write because another active skill
-// or tool in the scope has the name (§8.2, §10.1). The transaction wrote nothing.
+// or tool in the scope has the name. The transaction wrote nothing.
 func skillError(err error) error {
 	switch {
 	case errors.Is(err, store.ErrSkillName):
@@ -1324,7 +1323,7 @@ func skillError(err error) error {
 }
 
 // checkBinding refuses next, the revision that makes automation it active, when its binding
-// breaks a rule of §10.4 (store.CheckBinding): your approval covers this exact binding only.
+// breaks a binding rule (store.CheckBinding): your approval covers this exact binding only.
 func (cl caller) checkBinding(ctx context.Context, tx *sql.Tx, it store.Item, next store.ItemRevision) error {
 	if it.Kind != store.KindAutomation || next.State != store.StateActive {
 		return nil
@@ -1343,7 +1342,7 @@ func (cl caller) checkBinding(ctx context.Context, tx *sql.Tx, it store.Item, ne
 var errConfirm = errors.New("may change a permission, an allow rule or a safety rule")
 
 // confirmed checks that you gave --confirm when approving p may change a permission, an allow
-// rule or a safety rule (§7.4). The revision's text counts too, as an --edit can add a keyword
+// rule or a safety rule. The revision's text counts too, as an --edit can add a keyword
 // or remove the read-only restriction of the tool at revision cur.
 func confirmed(r review, p store.Proposal, cur, next store.ItemRevision) error {
 	warn := p.PermissionWarning || permissionWords.MatchString(next.Text) || tool.DropsRestriction(cur.Text, next.Text)
@@ -1355,7 +1354,7 @@ func confirmed(r review, p store.Proposal, cur, next store.ItemRevision) error {
 }
 
 // reject marks the proposal rejected. The item does not change. The claim of the proposal's
-// candidate stays rejected in the scope of the candidate, with reason (§7.2), so the other
+// candidate stays rejected in the scope of the candidate, with reason, so the other
 // pending proposals of the candidate are rejected too: none of them can make the claim active.
 func (cl caller) reject(ctx context.Context, id int64, reason string) error {
 	var c *store.Candidate
@@ -1440,11 +1439,10 @@ func scopeKey(scope store.Scope, key string) *string {
 	return &key
 }
 
-// later leaves the proposal pending: it only mutes it for this review (§7.4, §11 proposals).
-// The shown suggestion of the proposal in the calling pane, the review pane or its agent, gets
-// result later, which mutes the proposal for the rest of the capture session of that
-// suggestion (§5.5). It holds the suggestion lock, so a suggestion that opens now is either
-// registered before it or not shown yet.
+// later leaves the proposal pending: it only mutes it for this review. The shown suggestion of the
+// proposal in the calling pane, the review pane or its agent, gets result later, which mutes the
+// proposal for the rest of the capture session of that suggestion. It holds the suggestion lock, so
+// a suggestion that opens now is either registered before it or not shown yet.
 func (cl caller) later(ctx context.Context, id int64) error {
 	unlock, err := lockSuggestions(cl.Binding.Store)
 	if err != nil {
@@ -1463,7 +1461,7 @@ func (cl caller) later(ctx context.Context, id int64) error {
 	return err
 }
 
-// listRetired prints the retired items that the caller sees (§9.2).
+// listRetired prints the retired items that the caller sees.
 func (cl caller) listRetired(ctx context.Context) error {
 	var lines []string
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
@@ -1494,8 +1492,8 @@ func (cl caller) listRetired(ctx context.Context) error {
 	return err
 }
 
-// listCandidates prints the candidates that the caller sees, the ones below their gate too
-// (§7.2). It changes nothing: a candidate becomes an item only through a proposal that you
+// listCandidates prints the candidates that the caller sees, the ones below their gate too.
+// It changes nothing: a candidate becomes an item only through a proposal that you
 // approve.
 func (cl caller) listCandidates(ctx context.Context) error {
 	gates := cl.gates()
@@ -1541,7 +1539,7 @@ func (cl caller) listCandidates(ctx context.Context) error {
 }
 
 // candidateProposals are the lines of the pending proposals of candidate id that the caller
-// sees. You can approve one below the gate: a rare, costly lesson after one occurrence (§7.2).
+// sees. You can approve one below the gate: a rare, costly lesson after one occurrence.
 // Approve is the E4 approve, with its revision check, permission warning and scope check.
 func (cl caller) candidateProposals(ctx context.Context, tx *sql.Tx, id int64) ([]string, error) {
 	ids, err := store.PendingCandidateProposalIDs(ctx, tx, id)
@@ -1562,7 +1560,7 @@ func (cl caller) candidateProposals(ctx context.Context, tx *sql.Tx, id int64) (
 	return lines, nil
 }
 
-// makeToolHint is the line of the review action "make this a tool" (§10.1) for candidate c with
+// makeToolHint is the line of the review action "make this a tool" for candidate c with
 // n pending proposals that the caller sees: only for an open command candidate with commands in
 // its evidence, so not for the learned automation case (E17-S10), whose evidence is stops.
 func makeToolHint(ctx context.Context, tx *sql.Tx, c store.Candidate, n int) ([]string, error) {
@@ -1611,8 +1609,8 @@ func claimText(ctx context.Context, tx *sql.Tx, id string) (string, error) {
 	return oneLine(brief.ClaimText(claim.Key.Situation, claim.Key.Rule)), nil
 }
 
-// listRejections prints the rejections that the caller sees, with the new evidence since each
-// (§7.2). Brain never reopens one by itself.
+// listRejections prints the rejections that the caller sees, with the new evidence since each.
+// Brain never reopens one by itself.
 func (cl caller) listRejections(ctx context.Context) error {
 	var lines []string
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
@@ -1650,7 +1648,6 @@ func (cl caller) listRejections(ctx context.Context) error {
 }
 
 // endRejection reopens rejection id, or resets it: it then counts its new evidence from now.
-// [NEW] the actions --reopen and --reset (§7.2 "you reopen or reset it").
 func (cl caller) endRejection(ctx context.Context, id int64, reopen bool) error {
 	var r store.Rejection
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) (err error) {
@@ -1690,7 +1687,7 @@ func gateLabel(g store.Gates, c store.Candidate) string {
 	return fmt.Sprintf("below gate (%d of %d %s)", g.Support(c), g[c.Kind].Min, unit)
 }
 
-// restore makes a retired item active again with a new revision (§9.2).
+// restore makes a retired item active again with a new revision.
 func (cl caller) restore(ctx context.Context, id int64) error {
 	var rev int64
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) (err error) {
@@ -1737,12 +1734,12 @@ func (cl caller) proposeChange(ctx context.Context, r review) error {
 			return fmt.Errorf("item %d is %s; --edit and --retire change an active item", it.ID, it.State)
 		}
 		base := it.CurrentRevision
-		// [NEW] a proposal with no text retires its item; its diff removes the text.
+		// A proposal with no text retires its item; its diff removes the text.
 		p := store.Proposal{ItemID: &it.ID, BaseRevision: &base, Scope: cur.Scope, Target: cl.target(cur.Scope),
 			Diff: "- " + cur.Text, Status: store.ProposalPending, Created: cl.Now()}
 		switch {
 		case r.edit != nil && it.Kind == store.KindSkill:
-			// A skill patch: its diff holds only the changed lines (§9.2). Approve writes the
+			// A skill patch: its diff holds only the changed lines. Approve writes the
 			// whole text, so a text that is not a skill would only wait in the queue.
 			if _, err := store.ParseSkill(*r.edit); err != nil {
 				return fmt.Errorf("item %d is a skill: %w; nothing was written", it.ID, err)
@@ -1750,7 +1747,7 @@ func (cl caller) proposeChange(ctx context.Context, r review) error {
 			p.Text, p.Diff = *r.edit, store.SkillDiff(cur.Text, *r.edit)
 		case r.edit != nil && it.Kind == store.KindTool:
 			// A tool change: approve writes the whole contract, so a contract that breaks a
-			// rule would only wait in the queue (§10.1).
+			// rule would only wait in the queue.
 			if _, err := tool.Parse(*r.edit); err != nil {
 				return fmt.Errorf("item %d is a tool: %w; nothing was written", it.ID, err)
 			}
@@ -1759,7 +1756,7 @@ func (cl caller) proposeChange(ctx context.Context, r review) error {
 			p.Text, p.Diff = *r.edit, p.Diff+"\n+ "+*r.edit
 		}
 		// The diff holds the old text too: a retire or an edit that removes a safety rule
-		// changes it (§7.4).
+		// changes it.
 		p.PermissionWarning = permissionWords.MatchString(p.Diff) || tool.DropsRestriction(cur.Text, p.Text)
 		pid, err = store.InsertProposal(ctx, tx, p)
 		return err
@@ -1771,7 +1768,7 @@ func (cl caller) proposeChange(ctx context.Context, r review) error {
 	return err
 }
 
-// The approve choices for a proposal that conflicts with an item (§7.4) [NEW flags].
+// The approve choices for a proposal that conflicts with an item.
 const (
 	conflictReplace   = "replace"   // retire the conflicting items
 	conflictException = "exception" // link the new workspace item as an exception to the global item
@@ -1779,7 +1776,7 @@ const (
 )
 
 // resolve applies your choice r.conflict for the conflicts of p to next, the revision that
-// approve writes, and returns the revisions that retire the replaced items (§7.4). Only the
+// approve writes, and returns the revisions that retire the replaced items. Only the
 // active conflicting items that the caller sees count. Keep both, and an approve with no
 // choice, write the conflicts on next: the brief shows them as "(conflicts with <id>; ask the
 // user)" (E6). Replace retires them, as an approved retire does, with --confirm for a
@@ -1846,9 +1843,9 @@ func itemList(ids []int64) string {
 	return "items " + strings.Join(s, ", ")
 }
 
-// askChange records your change request text on pending proposal id and queues it (S56): the
+// askChange records your change request text on pending proposal id and queues it: the
 // proposal becomes changed and is not published, and the extractor drafts a new proposal in
-// the background. runReview filtered the text for secrets. [NEW] only an extractor proposal,
+// the background. runReview filtered the text for secrets. Only an extractor proposal,
 // one with a candidate, takes a change request: its draft needs the evidence of the candidate.
 // The draft of an item revision takes one too: its request of that revision is queued again
 // (E15-S1).

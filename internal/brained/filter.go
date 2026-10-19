@@ -9,43 +9,43 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// block is injected text between a start and an end marker (§6.3).
+// block is injected text between a start and an end marker.
 type block struct{ start, end string }
 
 var (
 	// brainBlock is a Brain block or Brain hook output: it carries the brief markers
 	// (internal/brief).
 	brainBlock = block{"brain:begin", "brain:end"}
-	// injected is the text that Brain or the CLI injected. Capture drops it before storage
-	// (§6.3). A block with no end line in the read runs to the end of the read.
+	// injected is the text that Brain or the CLI injected. Capture drops it before storage. A
+	// block with no end line in the read runs to the end of the read.
 	injected = []block{brainBlock, {"<environment_context>", "</environment_context>"},
 		{"<skills_instructions>", "</skills_instructions>"}}
 	// compaction lists text that starts a compaction summary. Capture drops that line and the
-	// rest of the read, and the read is the new base: capture starts again from the new screen
-	// (§6.3). [NEW, not recorded] Claude Code: the first words of its summary and its screen
-	// line; Codex: its screen line.
+	// rest of the read, and the read is the new base: capture starts again from the new screen.
+	// (not recorded) Claude Code: the first words of its summary and its screen line;
+	// Codex: its screen line.
 	compaction = []string{"This session is being continued from a previous conversation", "Conversation compacted",
 		"Context compacted"}
 )
 
-// mark is a line start that gives the sender of a block of lines (§6.5).
+// mark is a line start that gives the sender of a block of lines.
 type mark struct {
 	prefix string
 	sender store.Sender
 }
 
-// marks lists the sender marks of each harness [NEW, the recorded reads in testdata]: the
+// marks lists the sender marks of each harness (the recorded reads in testdata): the
 // prompt, the reply and the tool output. A line at column 0 starts a block: its mark gives the
 // sender, and with no mark the sender is not confirmed. A line that starts with a space
 // continues the block above it, unless it starts with a mark. The prompt mark gives no owner
-// mark: a script or another agent can submit text too (§6.3).
+// mark: a script or another agent can submit text too.
 var marks = map[string][]mark{
 	"claude": {{"❯ ", store.SenderUnconfirmed}, {"⏺ ", store.SenderAssistant}, {"  ⎿", store.SenderTool}},
 	"codex":  {{"› ", store.SenderUnconfirmed}, {"• ", store.SenderAssistant}, {"  └", store.SenderTool}},
 }
 
 // inMarks lists the harnesses that draw each prompt that you send with the prompt mark, and
-// each other line of a prompt with an indent [NEW, #338, M2 eval run 3]. A line at column 0
+// each other line of a prompt with an indent (#338, M2 eval run 3). A line at column 0
 // with no mark there is no prompt: it is the rest of a line that the terminal wrapped, or text
 // that the CLI did not indent, as a line of tool output whose └ is above the read. So it
 // continues the block above it, as an indented line does. The head of a read holds no prompt
@@ -91,7 +91,7 @@ func senders(harness string, lines []string) []store.Sender {
 
 // head returns the number of lines at the start of a read of harness that continue a block
 // whose first line is above the read: lines with no sender mark that start with a space, or
-// any line with no mark for a harness of inMarks. Their sender is not known (§6.5): a diff line
+// any line with no mark for a harness of inMarks. Their sender is not known: a diff line
 // or the rest of a reply, not only user text (#281, #338).
 func head(harness string, lines []string) int {
 	for i, l := range lines {
@@ -135,7 +135,7 @@ type part struct {
 // runs over the whole read from it, so a block that opened in old text or in an earlier read
 // still drops its lines. parts returns the block that r ends in. Pane text has no reliable
 // tags: a marker can be lost, and other text can copy it. So the filters lower noise; they do
-// not prove clean text (§6.3, S41).
+// not prove clean text.
 func parts(r read, idx []int, open *block) ([]part, *block) {
 	added := make(map[int]bool, len(idx))
 	for _, i := range idx {
@@ -203,12 +203,12 @@ func compacted(l string) bool {
 	return false
 }
 
-// redact is the secret filter of §6.7 for the lines of one read of harness. It runs on the
+// redact is the secret filter for the lines of one read of harness. It runs on the
 // whole read, before the split into parts, so a secret over two senders still matches. It
 // puts the mark [secret] in place of each hit, and a line that only the rest of a hit fills
-// becomes "". A secret never refuses the whole read: there is no user to edit and retry
-// [NEW]. The search sees each sender mark as spaces, so a secret line after a mark, as
-// "› TOKEN=x", matches as it does at the line start.
+// becomes "". A secret never refuses the whole read: there is no user to edit and retry.
+// The search sees each sender mark as spaces, so a secret line after a mark, as "› TOKEN=x",
+// matches as it does at the line start.
 func redact(harness string, lines []string) []string {
 	text := strings.Join(lines, "\n")
 	hits := secret.Find(unmarked(harness, text))
@@ -233,7 +233,7 @@ func redact(harness string, lines []string) []string {
 	return strings.Split(b.String(), "\n")
 }
 
-// filter cuts an excerpt to excerptLimit characters and says whether it cut (§6.7).
+// filter cuts an excerpt to excerptLimit characters and says whether it cut.
 func filter(text string) (string, bool) {
 	rs := []rune(text)
 	if len(rs) <= excerptLimit {

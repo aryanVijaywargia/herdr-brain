@@ -8,19 +8,19 @@ import (
 	"strings"
 )
 
-// codexShell lists the Codex function tools that run a shell command [TX]. A local_shell_call
-// is a shell command too.
+// codexShell lists the Codex function tools that run a shell command. A local_shell_call is
+// a shell command too.
 var codexShell = map[string]bool{"shell": true, "shell_command": true, "exec_command": true, "container.exec": true}
 
-// codexExit is a known exit line of Codex shell output [NEW, TX, §17 item 34: the exact line in
-// the installed version is open]: "Exit code: N" of the shell tools and "Process exited with
+// codexExit is a known exit line of Codex shell output (the exact line in the installed
+// version is not checked yet): "Exit code: N" of the shell tools and "Process exited with
 // code N" of exec_command. Codex saves no exit event, so this line is the only exit status.
 var codexExit = regexp.MustCompile(`(?m)^(?:Exit code: |Process exited with code )(-?\d+)\r?$`)
 
-// codexInteractive lists the sources of sessions that you ran (§6.6).
+// codexInteractive lists the sources of sessions that you ran.
 var codexInteractive = map[string]bool{"cli": true, "vscode": true}
 
-// codexLine is one line of a Codex session file (§17 item 34).
+// codexLine is one line of a Codex session file.
 type codexLine struct {
 	Timestamp string          `json:"timestamp"`
 	Type      string          `json:"type"`
@@ -70,8 +70,8 @@ type codex struct {
 	pending map[string]ref // the shell call ids that wait for their output
 }
 
-// ReadCodex reads the Codex session file at path up to limit bytes (§6.8). The first line is
-// the session_meta (§17 item 32).
+// ReadCodex reads the Codex session file at path up to limit bytes. The first line is the
+// session_meta.
 func ReadCodex(path string, limit int64) (Session, error) {
 	c := codex{pending: map[string]ref{}}
 	if err := lines(path, limit, c.line); err != nil {
@@ -104,7 +104,7 @@ func (c *codex) line(raw []byte, off int64) error {
 		c.at(at, "")
 		err = c.event(l.Payload)
 	case "turn_context", "compacted", "world_state", "token_usage_record":
-		// A turn context holds no record of the turn; a compaction summary is dropped (§6.8).
+		// A turn context holds no record of the turn; a compaction summary is dropped.
 		// world_state and token_usage_record (codex-cli 0.160.1, #407) hold no prompt, reply or
 		// command: the tokens come from the event_msg token_count.
 		c.at(at, "")
@@ -137,7 +137,7 @@ func (c *codex) sessionMeta(payload json.RawMessage) error {
 }
 
 // item reads a response_item. The prompt comes only from a user message here, never from the
-// event_msg copy (§6.8). Other item types, as reasoning, hold no prompt, command or reply: Codex
+// event_msg copy. Other item types, as reasoning, hold no prompt, command or reply: Codex
 // adds item types over time, so only an item with no type is an unknown shape.
 func (c *codex) item(payload json.RawMessage, t Text) error {
 	var it codexItem
@@ -232,8 +232,8 @@ func (c *codex) call(id string, cmd Command) {
 }
 
 // output reads the output of a shell call. The exit status comes only from a known exit line;
-// only the output of a failed command is kept (§17 item 34, S88). An output that is not a
-// string has no exit line.
+// only the output of a failed command is kept. An output that is not a string has no exit
+// line.
 func (c *codex) output(it codexItem, t Text) {
 	r, ok := c.pending[it.CallID]
 	if !ok {
@@ -261,8 +261,8 @@ func (c *codex) output(it codexItem, t Text) {
 }
 
 // event reads an event_msg. Only token_count is read: the turn takes the growth of
-// total_tokens, so a repeated line adds nothing (§6.8). A token_count with no info carries no
-// usage; an info with no total is an unknown shape, not a total of 0 (S91).
+// total_tokens, so a repeated line adds nothing. A token_count with no info carries no
+// usage; an info with no total is an unknown shape, not a total of 0.
 func (c *codex) event(payload json.RawMessage) error {
 	var e codexEvent
 	if err := json.Unmarshal(payload, &e); err != nil {

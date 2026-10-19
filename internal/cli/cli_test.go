@@ -13,7 +13,7 @@ import (
 )
 
 // TestOpenChecksAgents: a command in a pane checks the (pane, agent session id) records of
-// earlier hook runs there against the agent that herdr shows now (§8.3 limit, §17 item 29).
+// earlier hook runs there against the agent that herdr shows now.
 func TestOpenChecksAgents(t *testing.T) {
 	pending, unknown := string(resolver.AgentPending), string(resolver.AgentUnknown)
 	tests := []struct {

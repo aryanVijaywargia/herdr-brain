@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// SuggestionResult is what became of a suggestion (§11, §12).
+// SuggestionResult is what became of a suggestion.
 type SuggestionResult string
 
 // The suggestion results. A suggestion has none while it waits for you.
@@ -17,15 +17,15 @@ const (
 	SuggestionRejected SuggestionResult = "rejected"
 	SuggestionChanged  SuggestionResult = "changed"
 	SuggestionLater    SuggestionResult = "later"
-	// SuggestionExpired: the suggestion was not shown, as a check before the pane failed. [NEW]
+	// SuggestionExpired: the suggestion was not shown, as a check before the pane failed.
 	SuggestionExpired SuggestionResult = "expired"
 )
 
-// SuggestionReason is why a suggestion matched (E20-S9, §5.5): a kind word, no prompt text.
+// SuggestionReason is why a suggestion matched (E20-S9): a kind word, no prompt text.
 // A row of an older Brain has none.
 type SuggestionReason string
 
-// The suggestion reasons. Close prompt matches stay off (§5.5, §12.1), so none has a score.
+// The suggestion reasons. Close prompt matches stay off, so none has a score.
 const (
 	// ReasonExactPrompt: the prompt hash matched a trigger prompt of the proposal.
 	ReasonExactPrompt SuggestionReason = "exact_prompt"
@@ -33,7 +33,7 @@ const (
 	ReasonLesson SuggestionReason = "lesson"
 )
 
-// Suggestion is one row of suggestions (E14-S3, §5.5, §11). It holds ids only, no text.
+// Suggestion is one row of suggestions (E14-S3). It holds ids only, no text.
 type Suggestion struct {
 	ID            int64
 	ObservationID int64 // the prompt occurrence: the reservation key
@@ -52,18 +52,18 @@ type Suggestion struct {
 }
 
 // ReserveSuggestion reserves the suggestion of prompt occurrence obs, a stored prompt
-// observation with prompt fingerprint hash, when hash matches a ready proposal (§5.5). The
-// session, its capture generation, the binding, the workspace key and the agent pane come from
-// the segment of obs. It returns the new row, or a Suggestion with ID 0 when there is nothing
-// to suggest:
+// observation with prompt fingerprint hash, when hash matches a ready proposal. The session,
+// its capture generation, the binding, the workspace key and the agent pane come from the
+// segment of obs. It returns the new row, or a Suggestion with ID 0 when there is nothing to
+// suggest:
 //   - the occurrence has a suggestion already: a hook record and a pane read of one prompt are
-//     one occurrence, linked by enrichment (S57);
+//     one occurrence, linked by enrichment;
 //   - extraction is off in the workspace of obs;
 //   - no ready proposal matches, or each one that matches is muted with "later" in the session.
 //
 // The caller runs it in the transaction that stored obs, after the learning and capture
 // generation checks and after the enrichment match, so the two paths of one occurrence reserve
-// one suggestion. Of several matches, the oldest proposal wins [NEW].
+// one suggestion. Of several matches, the oldest proposal wins.
 func ReserveSuggestion(ctx context.Context, tx *sql.Tx, obs int64, hash string, now time.Time) (Suggestion, error) {
 	s, taken, err := newSuggestion(ctx, tx, obs, now)
 	if err != nil || taken {
@@ -94,12 +94,12 @@ func ReserveSuggestion(ctx context.Context, tx *sql.Tx, obs int64, hash string, 
 }
 
 // ReserveLessonSuggestion reserves the suggestion of a new proposal of a plain-words lesson
-// (#253, §7.2): the review pane of proposal opens beside the agent pane of obs, the
-// observation where you said the lesson. The ids come from the segment of obs, as for
-// ReserveSuggestion; the prompt hash is the one of the prompt index row of obs, or "" when obs
-// has none. It returns a Suggestion with ID 0 when the occurrence has a suggestion already, or
-// "later" muted the proposal in the session. The caller runs it in the transaction that makes
-// the proposal.
+// (#253): the review pane of proposal opens beside the agent pane of obs, the observation
+// where you said the lesson. The ids come from the segment of obs, as for ReserveSuggestion;
+// the prompt hash is the one of the prompt index row of obs, or "" when obs has none. It
+// returns a Suggestion with ID 0 when the occurrence has a suggestion already, or "later"
+// muted the proposal in the session. The caller runs it in the transaction that makes the
+// proposal.
 func ReserveLessonSuggestion(ctx context.Context, tx *sql.Tx, obs, proposal int64, now time.Time) (Suggestion, error) {
 	s, taken, err := newSuggestion(ctx, tx, obs, now)
 	if err != nil || taken {
@@ -121,7 +121,7 @@ func ReserveLessonSuggestion(ctx context.Context, tx *sql.Tx, obs, proposal int6
 
 // newSuggestion returns the unsaved suggestion of occurrence obs with the ids of its segment,
 // and whether the occurrence has a suggestion already: a hook record and a pane read of one
-// prompt are one occurrence, linked by enrichment (S57).
+// prompt are one occurrence, linked by enrichment.
 func newSuggestion(ctx context.Context, tx *sql.Tx, obs int64, now time.Time) (Suggestion, bool, error) {
 	s := Suggestion{ObservationID: obs, Reserved: now}
 	var taken bool
@@ -148,7 +148,7 @@ func insertSuggestion(ctx context.Context, tx *sql.Tx, s Suggestion) (Suggestion
 }
 
 // SuggestionMuted reports whether you chose "later" for a suggestion of proposal in capture
-// session session: the proposal is muted for the rest of that session (§5.5).
+// session session: the proposal is muted for the rest of that session.
 func SuggestionMuted(ctx context.Context, tx *sql.Tx, session, proposal int64) (bool, error) {
 	var muted bool
 	err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM suggestions
@@ -226,7 +226,7 @@ func ExpireSuggestion(ctx context.Context, tx *sql.Tx, id int64) error {
 }
 
 // DecideSuggestions gives result to the shown suggestions of proposal that wait for you: your
-// decision on the proposal decides them (§12 counts).
+// decision on the proposal decides them.
 func DecideSuggestions(ctx context.Context, tx *sql.Tx, proposal int64, result SuggestionResult) error {
 	_, err := tx.ExecContext(ctx, `UPDATE suggestions SET result = ?
 		WHERE proposal_id = ? AND result IS NULL AND shown_at IS NOT NULL`, result, proposal)
@@ -249,7 +249,7 @@ func SessionByID(ctx context.Context, tx *sql.Tx, id int64) (Session, error) {
 }
 
 // SessionInPane reports whether capture session session has an open segment in pane paneID:
-// the pane still holds the session (§6.2).
+// the pane still holds the session.
 func SessionInPane(ctx context.Context, tx *sql.Tx, session int64, paneID string) (bool, error) {
 	var in bool
 	err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM segments
@@ -262,7 +262,7 @@ func SessionInPane(ctx context.Context, tx *sql.Tx, session int64, paneID string
 
 // LaterSuggestions gives result later to the shown suggestions of proposal that wait for you
 // and that pane paneID of herdr session herdrSession shows or is the agent of: "later" mutes
-// the proposal in the session of that suggestion only (§5.5).
+// the proposal in the session of that suggestion only.
 func LaterSuggestions(ctx context.Context, tx *sql.Tx, proposal int64, herdrSession, paneID string) error {
 	_, err := tx.ExecContext(ctx, `UPDATE suggestions SET result = ? WHERE proposal_id = ? AND result IS NULL
 		AND shown_at IS NOT NULL AND herdr_session = ? AND (review_pane_id = ?4 OR agent_pane_id = ?4)`,

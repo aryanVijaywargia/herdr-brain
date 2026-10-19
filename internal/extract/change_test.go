@@ -113,7 +113,7 @@ func conflictOf(rule, claim string) func(context.Context, string) ([]byte, error
 }
 
 // The proposal stores the fingerprints of its prompt evidence for E14, each once, and no
-// excerpt text (§7.4, E14-S1).
+// excerpt text (E14-S1).
 func TestTriggerPrompts(t *testing.T) {
 	f := newFixture(t)
 	p := f.proposed()
@@ -151,7 +151,7 @@ func TestTriggerPromptsFullText(t *testing.T) {
 }
 
 // conflicts_with names a claim; the proposal stores the active items of that claim in its
-// scope. A claim with no active item gives no conflict [NEW].
+// scope. A claim with no active item gives no conflict.
 func TestConflictsWith(t *testing.T) {
 	f := newFixture(t)
 	claim, item := f.claimItem("installing packages", "use npm")
@@ -178,7 +178,7 @@ func TestConflictsWith(t *testing.T) {
 }
 
 // AC: a change asked after the session ended, with no new observation, gives one draft to
-// review. A retry after the commit gives no second draft. Nothing becomes active (S56).
+// review. A retry after the commit gives no second draft. Nothing becomes active.
 func TestChangeRequestDraft(t *testing.T) {
 	f := newFixture(t)
 	p := f.proposed()
@@ -329,7 +329,7 @@ func TestChangeRequestInvalid(t *testing.T) {
 }
 
 // A global proposal has evidence from a workspace. With extraction off there, its change
-// request sends nothing and waits; with extraction on again, it is drafted (§7.3).
+// request sends nothing and waits; with extraction on again, it is drafted.
 func TestChangeRequestWorkspaceOff(t *testing.T) {
 	f := newFixture(t)
 	f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {

@@ -201,7 +201,7 @@ func TestWriteRefuses(t *testing.T) {
 	}
 }
 
-// §8.3: the bindings file stays outside every store, the main store too.
+// The bindings file stays outside every store, the main store too.
 func TestWriteRefusesStoreThatHoldsBindings(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "data", "bindings.json")
@@ -283,7 +283,7 @@ func TestWriteRefusesCaseAliasOfMissingStore(t *testing.T) {
 	}
 }
 
-// §8.3: when a bound session disappears from herdr, its binding stays in the file.
+// When a bound session disappears from herdr, its binding stays in the file.
 func TestBindingOfGoneSessionStays(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bindings.json")

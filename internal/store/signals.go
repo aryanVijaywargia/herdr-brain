@@ -5,7 +5,7 @@ import (
 	"database/sql"
 )
 
-// SignalInput is one observation as the signal rules read it (§7.1): the observation, its
+// SignalInput is one observation as the signal rules read it: the observation, its
 // session and workspace, and its command record when it has one.
 type SignalInput struct {
 	Observation
@@ -46,7 +46,7 @@ func SignalInputs(ctx context.Context, tx *sql.Tx) ([]SignalInput, error) {
 }
 
 // RootedWorkspaces returns the live workspaces of binding herdrSession that have a root
-// folder, by key. The revert rule reads git there (#283, §7.1).
+// folder, by key. The revert rule reads git there (#283).
 func RootedWorkspaces(ctx context.Context, tx *sql.Tx, herdrSession string) ([]Workspace, error) {
 	return query(ctx, tx, `SELECT key, herdr_session, herdr_workspace_id, label, root_folder, status, last_seen
 		FROM workspaces WHERE herdr_session = ? AND root_folder IS NOT NULL AND status = ? ORDER BY key`,

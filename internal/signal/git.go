@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// maxLog is the number of commits that the revert rule reads [NEW].
+// maxLog is the number of commits that the revert rule reads.
 const maxLog = 1000
 
 // reverts matches the line that git revert writes in the message of a revert commit.
@@ -31,10 +31,10 @@ type RevertCommit struct {
 	Paths    []string // the files that the commit changes, in log order
 }
 
-// Reverts finds the reverts in the git log of the workspace root root (§7.1): a revert commit,
-// or a commit that puts a file back to an earlier content. The log does not say which commits
-// an agent made, so the rule is wide: every commit counts. It runs only read-only git
-// commands: rev-parse and log. A root outside git, or a repo with no commit, has no reverts.
+// Reverts finds the reverts in the git log of the workspace root root: a revert commit, or a
+// commit that puts a file back to an earlier content. The log does not say which commits an
+// agent made, so the rule is wide: every commit counts. It runs only read-only git commands:
+// rev-parse and log. A root outside git, or a repo with no commit, has no reverts.
 func Reverts(ctx context.Context, root string) ([]RevertCommit, error) {
 	if _, err := git(ctx, root, "rev-parse", "-q", "--verify", "HEAD"); err != nil {
 		if errors.As(err, new(*exec.ExitError)) {
@@ -91,11 +91,11 @@ func paths(raw string) []string {
 type Changes map[string]string
 
 // WorkChanges returns the changes under the workspace root root now, and the paths of before,
-// the changes of an earlier call, whose content is back to their HEAD content of that call
-// (§7.1 "a file that an agent changed goes back"): `git checkout -- <file>`, `git restore` or
-// `git stash` with no commit. A commit of the change is not a revert: the file then holds the
-// changed content. Untracked files do not count. It runs only read-only git commands, as
-// FindAnchors. A root that is "", or outside git, has no changes.
+// the changes of an earlier call, whose content is back to their HEAD content of that call:
+// `git checkout -- <file>`, `git restore` or `git stash` with no commit. A commit of the
+// change is not a revert: the file then holds the changed content. Untracked files do not
+// count. It runs only read-only git commands, as FindAnchors. A root that is "", or outside
+// git, has no changes.
 func WorkChanges(ctx context.Context, root string, before Changes) (now Changes, back []string, err error) {
 	if root == "" {
 		return nil, nil, nil

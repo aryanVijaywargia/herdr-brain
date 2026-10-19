@@ -63,9 +63,9 @@ func mustManifest(t *testing.T, out string, gen int64) Manifest {
 	return m
 }
 
-// AC S27 and §8.2: each scope part lists its own skills with the absolute path of the revision
-// file; a second workspace on the same checkout lists none. The manifest lists each file with
-// its path, hash and pair, and the parts name the skill revisions for the receipt.
+// AC: each scope part lists its own skills with the absolute path of the revision file; a
+// second workspace on the same checkout lists none. The manifest lists each file with its
+// path, hash and pair, and the parts name the skill revisions for the receipt.
 func TestSkillList(t *testing.T) {
 	s, out := newStore(t)
 	addWorkspace(t, s, "k2")
@@ -178,8 +178,8 @@ func TestSkillStoppedAndStaleBuild(t *testing.T) {
 	}
 }
 
-// AC §5.5: a session that got revision 1 can still read its file after revision 2; its brief
-// named revision 1. Cleanup keeps every revision file of an active skill.
+// A session that got revision 1 can still read its file after revision 2; its brief named
+// revision 1. Cleanup keeps every revision file of an active skill.
 func TestSkillOldRevisionStays(t *testing.T) {
 	s, out := newStore(t)
 	id := addSkill(t, s, "k1", skillText("deploy", "r1"))
@@ -198,8 +198,8 @@ func TestSkillOldRevisionStays(t *testing.T) {
 	}
 }
 
-// AC S11: a hand-edited listed skill file stays and is a conflict; the hook still reads the
-// brief (§8.3 step 5); Confirm writes the file again.
+// AC: a hand-edited listed skill file stays and is a conflict; the hook still reads the
+// brief; Confirm writes the file again.
 func TestSkillHandEdit(t *testing.T) {
 	s, out := newStore(t)
 	id := addSkill(t, s, "k1", skillText("deploy", "r1"))
@@ -233,8 +233,8 @@ func TestSkillHandEdit(t *testing.T) {
 	}
 }
 
-// AC §7.5 step 8: the files of a retired skill go when no current generation lists them and
-// the pointer moved more than one hook cap ago; Holds counts them until then.
+// The files of a retired skill go when no current generation lists them and the pointer
+// moved more than one hook cap ago; Holds counts them until then.
 func TestSkillRetireCleanup(t *testing.T) {
 	s, out := newStore(t)
 	id := addSkill(t, s, "k1", skillText("deploy", "r1"))
@@ -281,7 +281,7 @@ func TestSkillConflictKeepsFiles(t *testing.T) {
 }
 
 // Review fix: a hand edit of a listed skill file after the first source check of a build
-// stays, as a conflict; the build does not write over it (S11).
+// stays, as a conflict; the build does not write over it.
 func TestSkillEditDuringBuild(t *testing.T) {
 	s, out := newStore(t)
 	id := addSkill(t, s, "k1", skillText("deploy", "r1"))
@@ -322,7 +322,7 @@ func TestSkillConfirmOldRevision(t *testing.T) {
 	}
 }
 
-// AC E16-S6 (S72): a disputed skill and a disputed item stay delivered with the mark: the
+// AC E16-S6: a disputed skill and a disputed item stay delivered with the mark: the
 // skill keeps its entry in the skill list, its file and its manifest pair. A dispute writes no
 // revision, and the build that follows it marks them.
 func TestDisputedSkill(t *testing.T) {

@@ -78,7 +78,7 @@ func TestGolden(t *testing.T) {
 			workspaceSkills: []Skill{{Name: "deploy", Description: "Deploy the site.", Path: "/s/skills/7/r1/SKILL.md"}},
 		},
 		{
-			// AC E16-S6 (S72): a disputed item and a disputed skill stay in the brief, with the mark.
+			// AC E16-S6: a disputed item and a disputed skill stay in the brief, with the mark.
 			name:   "disputed",
 			global: []Item{npm},
 			workspace: []Item{
@@ -150,7 +150,7 @@ func fill(t *testing.T, used, limit int) []Item {
 	var items []Item
 	for id := int64(1); used < limit; id++ {
 		overhead := len("- [" + strconv.FormatInt(id, 10) + "] \n")
-		n := min(100, limit-used-overhead) // [NEW] test item length
+		n := min(100, limit-used-overhead) // test item length
 		if n < 1 {
 			t.Fatalf("fill: %d bytes left, too few for item %d", limit-used, id)
 		}
@@ -198,8 +198,8 @@ func TestItemLines(t *testing.T) {
 	}
 }
 
-// AC E16-S3: the skill list counts in the part budget (§8.1). A part whose items fit exactly
-// is over its budget with one skill more.
+// AC E16-S3: the skill list counts in the part budget. A part whose items fit exactly is
+// over its budget with one skill more.
 func TestSkillBudget(t *testing.T) {
 	sk := Skill{Name: "deploy", Description: "Deploy the site.", Path: "/s/skills/7/r1/SKILL.md"}
 	list := len(skillsLabel + skillsHint + "- deploy: Deploy the site. File: /s/skills/7/r1/SKILL.md\n")
@@ -219,9 +219,9 @@ func TestSkillBudget(t *testing.T) {
 	}
 }
 
-// TestDisputeBudget checks that the budget keeps room for the dispute mark of every anchor
-// (§9.1): a full part with anchors still fits after a dispute marks an item, with the same
-// size, and an anchored item with no room for its mark is over the budget at once.
+// TestDisputeBudget checks that the budget keeps room for the dispute mark of every anchor:
+// a full part with anchors still fits after a dispute marks an item, with the same size,
+// and an anchored item with no room for its mark is over the budget at once.
 func TestDisputeBudget(t *testing.T) {
 	anchors := []string{"a.go", "b.go"}
 	room := len(" (disputed: a.go deleted, b.go deleted on 2026-10-03)")
@@ -288,7 +288,7 @@ func TestSizes(t *testing.T) {
 }
 
 // AC #253: every brief has the remember line once, right after the precedence line, also a
-// brief with no items, and its characters count in the global part budget (§8.1).
+// brief with no items, and its characters count in the global part budget.
 func TestRememberLine(t *testing.T) {
 	const line = `When the user asks you to remember something for later, run: brain remember "<lesson>"` + "\n"
 	g, err := Global([]Item{{ID: 1, Text: "use pnpm"}})
@@ -380,7 +380,7 @@ func TestSkillFixLine(t *testing.T) {
 }
 
 // AC E20-S2 #266: every brief has one recall line after the remember line, also a brief with
-// no items, and its characters count in the global part budget (§8.6).
+// no items, and its characters count in the global part budget.
 func TestRecallLine(t *testing.T) {
 	const line = "To find more Brain items on a topic during work, run: brain recall <words>\n"
 	g, err := Global([]Item{{ID: 1, Text: "use pnpm"}})
@@ -456,9 +456,9 @@ func twelveTools() []Tool {
 	return ts
 }
 
-// AC E17-S5: the catalog counts in the part budget (§8.1), and so does the room for the note
-// on each required Brain tool of a skill: a part that fits keeps its size when the tool
-// stops, and a part with no room for the note is over the budget at once.
+// AC E17-S5: the catalog counts in the part budget, and so does the room for the note on
+// each required Brain tool of a skill: a part that fits keeps its size when the tool stops,
+// and a part with no room for the note is over the budget at once.
 func TestCatalogBudget(t *testing.T) {
 	tools := twelveTools()
 	var catalog strings.Builder
@@ -483,9 +483,9 @@ func TestCatalogBudget(t *testing.T) {
 }
 
 // AC #273 1 and 2: the handoff lines go below the last session line: the approved items in the
-// "[id]" form, then the approved skills as "skill <name>" (owner decision 2026-10-08), at most 10
-// together and the count of the rest, then one line for each failed command, on one line and cut
-// to 80 characters. With nothing to say, the part does not change.
+// "[id]" form, then the approved skills as "skill <name>", at most 10 together and the count of
+// the rest, then one line for each failed command, on one line and cut to 80 characters. With
+// nothing to say, the part does not change.
 func TestHandoff(t *testing.T) {
 	part, err := Workspace([]Item{{ID: 12, Text: "use make"}})
 	if err != nil {

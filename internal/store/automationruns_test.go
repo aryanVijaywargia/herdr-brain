@@ -43,7 +43,7 @@ func readRun(t *testing.T, s *Store, id int64) AutomationRun {
 	return r
 }
 
-// AC S51: a duplicate event claims nothing. A claim starts as unknown with no launch mark.
+// AC: a duplicate event claims nothing. A claim starts as unknown with no launch mark.
 func TestClaimRun(t *testing.T) {
 	s, a := runStore(t)
 	first := claim(t, s, a, "w1:p1|term_1|s1|6")
@@ -53,7 +53,7 @@ func TestClaimRun(t *testing.T) {
 	if got := claim(t, s, a, "w1:p1|term_1|s1|6"); got != 0 {
 		t.Errorf("ClaimRun(duplicate) = %d, want 0", got)
 	}
-	// The same seq after a herdr server restart has a new terminal id: a new stop (M0 E17-S1).
+	// The same seq after a herdr server restart has a new terminal id: a new stop (E17-S1 test).
 	if got := claim(t, s, a, "w1:p1|term_2|s1|6"); got == 0 || got == first {
 		t.Errorf("ClaimRun(new terminal id) = %d, want a new claim", got)
 	}
@@ -103,7 +103,7 @@ func TestClaimRunRace(t *testing.T) {
 }
 
 // The launch mark, the end and a cancel: an end writes once, so a cancel that comes first
-// stays; the automation keeps the last result. AC S62: a run with a launch mark and no end
+// stays; the automation keeps the last result. AC: a run with a launch mark and no end
 // stays unknown.
 func TestRunEnd(t *testing.T) {
 	s, a := runStore(t)
@@ -195,7 +195,7 @@ func TestAutomationIn(t *testing.T) {
 }
 
 // A failed run keeps its cause; a cancel keeps none (#352). The cause names a program of the
-// tool contract, so forget of the tool or of the automation clears it (§6.7).
+// tool contract, so forget of the tool or of the automation clears it.
 func TestRunCause(t *testing.T) {
 	ctx := context.Background()
 	at := time.Date(2026, 10, 9, 10, 0, 0, 0, time.UTC)

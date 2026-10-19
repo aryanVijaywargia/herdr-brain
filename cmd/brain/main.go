@@ -40,12 +40,12 @@ commands:
   forget    <item> | --session <id>: remove the text of an item, or the capture evidence of a session
   repair    [--confirm]: repair the output and list its conflicts; --confirm deletes them
   pane      review --proposal <id> | recall: the review pane of one proposal, or the recall popup (herdr runs them)
-  event     workspace-closed: herdr's workspace.closed event (D4); marks the workspace closed
+  event     workspace-closed: herdr's workspace.closed event; marks the workspace closed
   learn     on|off [--workspace <id> | --pane <id>]: record the learning switch; delivery stays on
   extract   on|off [--workspace <id>]: record the extraction switch; capture and rules keep running
   uninstall [--apply] [--data]: list what uninstall removes; --apply removes it, --data the stores too
   hook      --profile <name> --event start|prompt|tool|stop: the agent hooks (start prints the brief or nothing)
-  brained   the herdr listener of one herdr session (herdr starts it; D7)
+  brained   the herdr listener of one herdr session (herdr starts it)
   start     start brained for this herdr session, and open setup when it has no binding (the start action)
   update    [--check | --records]: update the Brain plugin to the newest commit of its repo, add the missing
             hook record entries (one question), then run brain doctor --fix; --check only compares;
@@ -100,7 +100,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if args[0] == "hook" {
-		// The hook never fails a session start: on any error it prints nothing and exits 0 (§8.3).
+		// The hook never fails a session start: on any error it prints nothing and exits 0.
 		_ = hook.Main(args[1:], os.Environ(), stdin, stdout)
 		return 0
 	}

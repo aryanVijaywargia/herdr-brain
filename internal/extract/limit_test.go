@@ -93,11 +93,11 @@ func (f *fixture) day() Day {
 	return d
 }
 
-// AC #377 (M2 eval run 6, R6-3): while the extractor CLI is at a usage or rate limit, each batch
-// call fails and is tried again each retryAfter, but none of those calls counts toward the daily
-// call cap, and none uses a try of the batch: after a long outage the batch is not lost, and
-// brain status names the limit. When the CLI is back, the batch commits with one counted call.
-// A failure for another reason still counts and uses a try: the CLI ran the model, so the call
+// AC #377 (M2 eval run 6): while the extractor CLI is at a usage or rate limit, each batch call
+// fails and is tried again each retryAfter, but none of those calls counts toward the daily call
+// cap, and none uses a try of the batch: after a long outage the batch is not lost, and brain
+// status names the limit. When the CLI is back, the batch commits with one counted call. A
+// failure for another reason still counts and uses a try: the CLI ran the model, so the call
 // cost tokens.
 func TestLimitUsesNoCall(t *testing.T) {
 	for _, c := range []struct {
@@ -244,9 +244,9 @@ func limitWhen(word string, reply func(context.Context, string) ([]byte, error))
 	}
 }
 
-// AC #377 (Sol review): a failed batch and a failed change request whose last try, the one after
-// maxTries that a working call unlocks, the CLI refuses at its limit keep that try: it comes
-// again retryAfter later, with no other call that works, and then commits.
+// AC #377: a failed batch and a failed change request whose last try, the one after maxTries
+// that a working call unlocks, the CLI refuses at its limit keep that try: it comes again
+// retryAfter later, with no other call that works, and then commits.
 func TestLimitAtLastTry(t *testing.T) {
 	t.Run("batch", func(t *testing.T) {
 		f := newFixture(t)

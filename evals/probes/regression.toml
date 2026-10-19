@@ -1,7 +1,7 @@
-# Regression cases (HLD §12.1, E20-S1 #265): each bug that real use found gets its own case,
-# named with its issue number (bug-<issue>), so one fix cannot hide another failure and a bug
-# cannot come back in silence. The bugs come from the M2 real-use test, the M2 eval run
-# (2026-10-07), its rerun (2026-10-08) and the reviews of their fixes.
+# Regression cases (E20-S1 #265): each bug that real use found gets its own case, named with its
+# issue number (bug-<issue>), so one fix cannot hide another failure and a bug cannot come back
+# in silence. The bugs come from the M2 real-use test, the M2 eval run (2026-10-07), its rerun
+# (2026-10-08) and the reviews of their fixes.
 #
 # A case runs the Go tests that hold the fixture of its bug: the made screens, hook inputs,
 # fake herdr replies and stores that the fix added. brain-eval runs them with go test in the
@@ -167,7 +167,7 @@ tests = [
 ]
 
 # Rejected proposals keep using the daily proposal cap, and a full cap stops all extraction.
-# The fix makes the gates and caps a config (HLD §7.2); rejected proposals still count.
+# The fix makes the gates and caps a config; rejected proposals still count.
 # Fix: PR #292.
 [[bug]]
 issue = 282
@@ -230,7 +230,7 @@ tests = [
 issue = 296
 tests = ["cmd/brain-eval:TestLastSessionLine"]
 
-# M2 eval rerun (2026-10-08, N1): one claim with no evidence makes the whole extractor batch
+# M2 eval rerun (2026-10-08): one claim with no evidence makes the whole extractor batch
 # invalid. Fix: PR #321.
 [[bug]]
 issue = 310
@@ -242,13 +242,13 @@ tests = [
   "internal/extract:TestChangeRequestInvalid",
 ]
 
-# M2 eval rerun (2026-10-08, N2): a pane read after the hook stop hides the stop, so the learned
+# M2 eval rerun (2026-10-08): a pane read after the hook stop hides the stop, so the learned
 # automation never sees it. Fix: PR #320.
 [[bug]]
 issue = 311
 tests = ["internal/store:TestStopCallsPaneRead"]
 
-# M2 eval rerun (2026-10-08, N3): a reworded claim of an approved or remembered item makes a
+# M2 eval rerun (2026-10-08): a reworded claim of an approved or remembered item makes a
 # duplicate proposal. Fix: PR #325.
 [[bug]]
 issue = 312
@@ -266,7 +266,7 @@ tests = [
   "internal/store:TestClaimText",
 ]
 
-# M2 eval rerun (2026-10-08, N4): a procedure told in several sessions becomes a one-line rule,
+# M2 eval rerun (2026-10-08): a procedure told in several sessions becomes a one-line rule,
 # never a skill; a reworded telling after a skill draft makes a second skill. Fix: PR #332.
 [[bug]]
 issue = 313
@@ -282,7 +282,7 @@ tests = [
   "internal/cli:TestSkillDraftAcrossSessions",
 ]
 
-# M2 eval rerun (2026-10-08, N5): the first telling of a procedure or a repeated prompt is never
+# M2 eval rerun (2026-10-08): the first telling of a procedure or a repeated prompt is never
 # evidence, so the gate of 3 needs 4 tellings. Fix: PR #329.
 [[bug]]
 issue = 314
@@ -293,7 +293,7 @@ tests = [
   "internal/extract:TestPlaceholderTool",
 ]
 
-# M2 eval rerun (2026-10-08, N6): brain update adds no hook record entry, status and doctor do
+# M2 eval rerun (2026-10-08): brain update adds no hook record entry, status and doctor do
 # not say that hook records are off, and doctor passes with untrusted codex record entries.
 # Fix: PR #324.
 [[bug]]
@@ -313,7 +313,7 @@ tests = [
   "internal/harness:TestCodexTrustEdited",
 ]
 
-# M2 eval rerun (2026-10-08, N7): more CLI screen text is stored as user text: the claude
+# M2 eval rerun (2026-10-08): more CLI screen text is stored as user text: the claude
 # placeholder and footer, the MCP warning, fold lines, the shell line, the codex hooks dialog and
 # the lines of a stopped turn. Fix: PR #323.
 [[bug]]
@@ -338,7 +338,7 @@ tests = [
   "internal/brained:TestCaptureCLINoise",
 ]
 
-# M2 eval rerun (2026-10-08, N8): brain commands in a shell pane make empty agent sessions: herdr
+# M2 eval rerun (2026-10-08): brain commands in a shell pane make empty agent sessions: herdr
 # detects their CLI version probe as an agent. Fix: PR #326.
 [[bug]]
 issue = 317
@@ -349,7 +349,7 @@ tests = [
   "internal/herdr:TestSocketProcessesShape",
 ]
 
-# M2 eval rerun (2026-10-08, N9): brain update --help is an error, and the regression stage
+# M2 eval rerun (2026-10-08): brain update --help is an error, and the regression stage
 # prints no summary line. Fix: PR #324.
 [[bug]]
 issue = 318
@@ -360,7 +360,7 @@ tests = [
   "cmd/brain-eval:TestRunRegressionNoGo",
 ]
 
-# brain forget leaves the key text of a claim linked by same_as (Sol review of PR #325).
+# brain forget leaves the key text of a claim linked by same_as (review of PR #325).
 # Fix: PR #328.
 [[bug]]
 issue = 327
@@ -389,7 +389,7 @@ tests = [
   "internal/extract:TestRunsTool",
 ]
 
-# M2 eval run 3 (2026-10-09, N7): more CLI screen text is stored as user text: the codex exit
+# M2 eval run 3 (2026-10-09): more CLI screen text is stored as user text: the codex exit
 # text at a later session start, the claude start placeholder, tool output and a reply line at
 # column 0, the claude fold line with a memory part and a cut copy of a sent prompt. Fix: PR #343.
 [[bug]]
@@ -449,7 +449,7 @@ tests = [
   "internal/cli:TestMakeToolAction",
 ]
 
-# M2 eval run 4 (2026-10-09, R4-1): a batch whose answer the per-claim check made invalid is
+# M2 eval run 4 (2026-10-09): a batch whose answer the per-claim check made invalid is
 # called again at every later pass, with no end, and uses the call cap. Fix: PR #357.
 [[bug]]
 issue = 347
@@ -459,7 +459,7 @@ tests = [
   "internal/extract:TestSpentBatchNewEvidence",
 ]
 
-# M2 eval run 4 (2026-10-09, R4-2): the extractor flags the release procedure as a permission
+# M2 eval run 4 (2026-10-09): the extractor flags the release procedure as a permission
 # claim, so the same_as link of the third telling waits for a review that no surface shows, and
 # the skill needs 5 tellings. Fix: PR #357.
 [[bug]]
@@ -468,7 +468,7 @@ tests = [
   "internal/extract:TestPermissionFlaggedProcedure",
 ]
 
-# M2 eval run 4 (2026-10-09, R4-3): a repaint of a sent prompt still counts as a new telling: a
+# M2 eval run 4 (2026-10-09): a repaint of a sent prompt still counts as a new telling: a
 # codex cut copy with a line of the next block under it, a cut copy and a full repaint after a
 # failed read at the send, and the quoted codex question with the answer at a later read.
 # Fix: PR #354.
@@ -485,7 +485,7 @@ tests = [
   "internal/brained:TestCapturePromptCut",
 ]
 
-# M2 eval run 4 (2026-10-09, R4-4): the learned automation misses a stop call when herdr stores
+# M2 eval run 4 (2026-10-09): the learned automation misses a stop call when herdr stores
 # the pane read of the run's working status a few ms before the call row. Fix: PR #356.
 [[bug]]
 issue = 350
@@ -495,7 +495,7 @@ tests = [
   "internal/store:TestStopCalls",
 ]
 
-# M2 eval run 4 (2026-10-09, R4-5): `brain status` in a pipe in a shell pane still makes empty
+# M2 eval run 4 (2026-10-09): `brain status` in a pipe in a shell pane still makes empty
 # claude sessions: grep runs with Brain's CLI. Fix: PR #354.
 [[bug]]
 issue = 351
@@ -506,7 +506,7 @@ tests = [
   "internal/brained:TestEventsRealAgentKept",
 ]
 
-# M2 eval run 4 (2026-10-09, R4-6): a failed automation run gives no cause: the run record and
+# M2 eval run 4 (2026-10-09): a failed automation run gives no cause: the run record and
 # the status line name the failed step and its exit code. Fix: PR #356.
 [[bug]]
 issue = 352
@@ -516,7 +516,7 @@ tests = [
   "internal/store:TestRunCause",
 ]
 
-# M2 eval run 4 (2026-10-09, R4-7): codex tool output lines and a reply line under a prompt line,
+# M2 eval run 4 (2026-10-09): codex tool output lines and a reply line under a prompt line,
 # with the head of their block above the screen, are stored as user text. Fix: PR #354.
 [[bug]]
 issue = 353
@@ -542,7 +542,7 @@ tests = [
   "internal/cli:TestLinksPopup",
 ]
 
-# M2 eval run 5 (2026-10-09, R5-1): a same_as merge between candidates of different kinds moves
+# M2 eval run 5 (2026-10-09): a same_as merge between candidates of different kinds moves
 # no evidence but says that it does: the tellings of the release linked to a claim of the
 # agent's own release commands (a command chain), so the skill needed 6 tellings. Your text now
 # turns that candidate into a procedure (the agent's commands stay linked, uncounted), and a
@@ -558,7 +558,7 @@ tests = [
   "internal/cli:TestLinksPopupStuck",
 ]
 
-# M2 eval run 5 (2026-10-09, R5-2): a new candidate gets the id of the newest one that a merge
+# M2 eval run 5 (2026-10-09): a new candidate gets the id of the newest one that a merge
 # deleted, so an old proposal and the review name an unrelated candidate. Migration 34 gives
 # candidates AUTOINCREMENT ids. Fix: the PR of #361.
 [[bug]]
@@ -567,7 +567,7 @@ tests = [
   "internal/store:TestCandidateIDMigration",
 ]
 
-# M2 eval run 5 (2026-10-09, R5-3): README lines that the agent printed and a passing TAP test
+# M2 eval run 5 (2026-10-09): README lines that the agent printed and a passing TAP test
 # line made a failure proposal. Pane text of files that a command of readers printed, and a TAP
 # test name, give no failure; a failed command and an error of a run still do. Fix: the PR of
 # #363.
@@ -581,7 +581,7 @@ tests = [
   "internal/signal:TestFailureTestName",
 ]
 
-# M2 eval run 5 (2026-10-09, R5-5): after an item edit, a restatement of its new text makes a
+# M2 eval run 5 (2026-10-09): after an item edit, a restatement of its new text makes a
 # copy proposal: the claim of the item keeps its first key, so the extractor gives no same_as
 # link. Brain's own check finds the current text of the item. Fix: the PR of #361.
 [[bug]]
@@ -590,7 +590,7 @@ tests = [
   "internal/extract:TestRestatedEditedItem",
 ]
 
-# M2 eval run 5 (2026-10-09, R5-6): one-time requests become rules: a question asked twice, a
+# M2 eval run 5 (2026-10-09): one-time requests become rules: a question asked twice, a
 # request that a tool runs, the same request in other words after its rejection (its link waited,
 # and the rejection did not hold it), and a request with the lesson word "always". Fix: the PR
 # of #361.
@@ -603,7 +603,7 @@ tests = [
   "internal/extract:TestPromptOneTimeRule",
 ]
 
-# M2 eval run 5 (2026-10-09, R5-7): the agents run item 1's chain because the rule says so, and
+# M2 eval run 5 (2026-10-09): the agents run item 1's chain because the rule says so, and
 # each session makes a new claim of it that waits for review as a link to item 1's claim. A
 # claim of the agent's own commands that links to an active item is held by it. Fix: the PR of
 # #361.
@@ -613,14 +613,14 @@ tests = [
   "internal/extract:TestAgentFollowsItem",
 ]
 
-# M2 eval run 5 (2026-10-09, R5-8): brain status showed the time of a failed automation run in
+# M2 eval run 5 (2026-10-09): brain status showed the time of a failed automation run in
 # UTC with no zone mark. Status and brain automation list show local time, as review does.
 # Fix: the PR of #367.
 [[bug]]
 issue = 367
 tests = ["internal/cli:TestRunLocalTime"]
 
-# M2 eval run 5 (2026-10-09, R5-9): the end of a claude spinner tip under a sent prompt was
+# M2 eval run 5 (2026-10-09): the end of a claude spinner tip under a sent prompt was
 # stored as part of the prompt. Fix: the PR of #368.
 [[bug]]
 issue = 368
@@ -630,14 +630,14 @@ tests = [
   "internal/brained:TestCaptureTipUnderPrompt",
 ]
 
-# M2 eval run 5 (2026-10-09, R5-4): a claude turn approved its own draft with
+# M2 eval run 5 (2026-10-09): a claude turn approved its own draft with
 # `brain review 18 --approve`, 3 s after it made it. brain review does not approve or reject from
 # a pane with a live agent; the agent's drafts wait for you. Fix: the PR of #371.
 [[bug]]
 issue = 371
 tests = ["internal/cli:TestAgentPaneDecides"]
 
-# M2 eval run 6 (2026-10-10, R6-1): README lines that cat printed in a read chain where rg found
+# M2 eval run 6 (2026-10-10): README lines that cat printed in a read chain where rg found
 # no AGENTS.md (codex: "Failed (exit 1)") made false failure proposal 5; a git commit message
 # with "error" and rg lines of docs made failure candidates. A search with no match, a commit
 # line and text of files that readers printed give no failure; a real failure still does. Fix:
@@ -649,7 +649,7 @@ tests = [
   "internal/signal:TestFailureNoMatch",
 ]
 
-# M2 eval run 6 (2026-10-10, R6-2): the output of `brain recall endpoint && brain status` in a
+# M2 eval run 6 (2026-10-10): the output of `brain recall endpoint && brain status` in a
 # codex pane and the #371 refusal made a global failure candidate. The output of brain commands
 # and Brain's refusal lines give no failure; brain run, which runs a project tool, still does.
 # Fix: the PR of #376.
@@ -660,7 +660,7 @@ tests = [
   "internal/signal:TestFailureBrainOutput",
 ]
 
-# M2 eval run 6 (2026-10-10, R6-3): while codex was at its usage limit (429, then 503), each
+# M2 eval run 6 (2026-10-10): while codex was at its usage limit (429, then 503), each
 # extractor call failed and still used the daily call cap, and sessions with only limit answers
 # made batches: 10 calls gave 1 useful batch. A call that the CLI refuses at a usage or rate limit
 # uses no call of the cap and no try, and a session with no agent work makes no call. Fix: the
@@ -677,14 +677,14 @@ tests = [
   "internal/extract:TestUnrun",
 ]
 
-# M2 eval run 6 (2026-10-10, R6-4): `brain remember` of the current text of item 1, after
+# M2 eval run 6 (2026-10-10): `brain remember` of the current text of item 1, after
 # `brain review --item 1 --edit`, made a new-item draft that the user rejected. Brain makes no
 # draft for the text of an active item in the same scope and names the item. Fix: the PR of #378.
 [[bug]]
 issue = 378
 tests = ["internal/cli:TestRememberItemText"]
 
-# M2 eval run 6 (2026-10-10, R6-5): the claude weekly limit line was stored as tool output and
+# M2 eval run 6 (2026-10-10): the claude weekly limit line was stored as tool output and
 # the limit dialog as user text, and the session used an extractor call. Fix: the PR of #377.
 [[bug]]
 issue = 379
@@ -695,7 +695,7 @@ tests = [
   "internal/extract:TestNoWorkNoCall",
 ]
 
-# M2 eval run 6 (2026-10-10, R6-6): `brain status | grep -E "last 24h|links to review|failed
+# M2 eval run 6 (2026-10-10): `brain status | grep -E "last 24h|links to review|failed
 # batches"` in a shell pane made an empty claude session again: brain status, the leader of the
 # line, had exited at the baseline, and the #351 rule saw grep as a possible agent. Fix: the PR
 # of #380.
@@ -706,7 +706,7 @@ tests = [
   "internal/brained:TestEventsRealAgentKept",
 ]
 
-# M2 eval run 6 (2026-10-10, R6-7): tasks that the user sent again after codex answered only 429
+# M2 eval run 6 (2026-10-10): tasks that the user sent again after codex answered only 429
 # and 503 became 2 correction proposals. A task that the agent did not run starts no signal, so
 # the task sent again is one telling; a real correction still counts. Fix: the PR of #377.
 [[bug]]
@@ -730,11 +730,11 @@ tests = [
   "internal/brained:TestCaptureCodexLimitScreen",
 ]
 
-# M2 eval run 7 (2026-10-11, R7-1): `brain review --item 14 --exception-to 11` linked a
+# M2 eval run 7 (2026-10-11): `brain review --item 14 --exception-to 11` linked a
 # workspace item as an exception to global item 11 ("Never add a new npm dependency without
 # asking the user first."), whose claim has the permission flag but whose text has no
 # permission word. The review refuses a link that relaxes a known global permission or safety
-# rule (§7.4): the claim flag counts too. Fix: the PR of #388.
+# rule: the claim flag counts too. Fix: the PR of #388.
 [[bug]]
 issue = 388
 tests = [
@@ -742,7 +742,7 @@ tests = [
   "internal/cli:TestExceptionRefused",
 ]
 
-# M2 eval run 7 (2026-10-11, R7-2): a forgotten `brain remember` item came back at count 3 with
+# M2 eval run 7 (2026-10-11): a forgotten `brain remember` item came back at count 3 with
 # the evidence of the extractor claim that had a same_as link to its claim: the tombstone had no
 # source keys, and the linked claim kept its key and its candidate. Fix: the PR of #389.
 [[bug]]
@@ -754,9 +754,9 @@ tests = [
   "internal/store:TestEraseItemLinkedClaim",
 ]
 
-# M2 eval run 7 (2026-10-11, R7-5): a made-up key `sk-test-` + 40 letters was stored in clear,
+# M2 eval run 7 (2026-10-11): a made-up key `sk-test-` + 40 letters was stored in clear,
 # also inside a quoted command `"API_KEY=sk-test-…"`. The openai-api-key class took only
-# sk-proj-, sk-svcacct- and sk-admin-, and the env-secret class only the line start (§6.7, S12).
+# sk-proj-, sk-svcacct- and sk-admin-, and the env-secret class only the line start.
 # Fix: the PR of #392.
 [[bug]]
 issue = 392

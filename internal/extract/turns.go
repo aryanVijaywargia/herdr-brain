@@ -12,9 +12,9 @@ import (
 const promptEvent = "prompt"
 
 // agentError matches a line of agent reply or tool output that is only an error of the CLI
-// [NEW, M2 eval run 6, 2026-10-10]: claude "You've hit your weekly limit · resets ..." and an
-// "API Error: ..." line, and codex "exceeded retry limit, last status: 429 Too Many Requests"
-// and "unexpected status 503 Service Unavailable: ...". The sender marks come off first.
+// (M2 eval run 6, 2026-10-10): claude "You've hit your weekly limit · resets ..." and an "API
+// Error: ..." line, and codex "exceeded retry limit, last status: 429 Too Many Requests" and
+// "unexpected status 503 Service Unavailable: ...". The sender marks come off first.
 var agentError = regexp.MustCompile(`^(?:You(?:'|’)ve hit your .*limit.*|Claude (?:AI )?usage limit reached.*|` +
 	`API Error\b.*|exceeded retry limit, last status: \d+.*|unexpected status \d{3}\b.*)$`)
 

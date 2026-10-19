@@ -69,7 +69,7 @@ func (f *fixture) mustMayRun(t *testing.T, id int64) store.Tool {
 }
 
 // The review shows the whole contract: the command bytes, the input schema, the scope, the
-// cwd, the timeout, the stated effects and the restriction (§10.1). Approve writes the tool
+// cwd, the timeout, the stated effects and the restriction. Approve writes the tool
 // files, and the tool may run.
 func TestReviewShowsToolContract(t *testing.T) {
 	f := newFixture(t)
@@ -121,7 +121,7 @@ func TestToolPermissionWarning(t *testing.T) {
 	f.mustReview(t, fmt.Sprint(p), "--approve", "--confirm")
 }
 
-// AC S21: a change to the command, the schema, the cwd, the timeout, the effects or the
+// AC: a change to the command, the schema, the cwd, the timeout, the effects or the
 // restriction does not run until you approve it: while the change waits, the tool keeps the
 // contract hash that you approved. After the approval it runs with the new hash only.
 func TestToolChangeNeedsApproval(t *testing.T) {
@@ -146,7 +146,7 @@ func TestToolChangeNeedsApproval(t *testing.T) {
 			}
 			approve := []string{fmt.Sprint(pid), "--approve"}
 			if name == "restriction" {
-				// The end of the read-only restriction changes a safety rule (§7.4).
+				// The end of the read-only restriction changes a safety rule.
 				if out := f.mustReview(t, fmt.Sprint(pid)); !strings.Contains(out, "warning:  this may change a permission") {
 					t.Errorf("Review(%d) = %q, want the permission warning", pid, out)
 				}
@@ -202,7 +202,7 @@ func TestApproveToolNameClash(t *testing.T) {
 	f.mustReview(t, fmt.Sprint(second), "--approve", "--edit", toolText("deploy-docs"))
 }
 
-// AC S11: a hand-edited tool.toml is a conflict: status shows it, the tool does not run, and
+// AC: a hand-edited tool.toml is a conflict: status shows it, the tool does not run, and
 // brain repair --confirm writes it again.
 func TestToolConflictRepair(t *testing.T) {
 	f := newStatusFixture(t)
@@ -229,7 +229,7 @@ func TestToolConflictRepair(t *testing.T) {
 }
 
 // Forget of a tool with two revisions clears its contract and removes all its files, and
-// reports done (§7.5 step 8).
+// reports done.
 func TestForgetTool(t *testing.T) {
 	f := newFixture(t)
 	id := f.approvedTool(t, toolText("test-package"))
@@ -372,7 +372,7 @@ func TestToolsArchive(t *testing.T) {
 }
 
 // brain status shows the ran calls of the last 4 weeks and the active tools with none, for the
-// M4 review prompt "Tools get no calls in 4 weeks" (§13). Refused calls and older calls do
+// M4 review prompt "Tools get no calls in 4 weeks". Refused calls and older calls do
 // not count.
 func TestStatusToolCalls(t *testing.T) {
 	f := newStatusFixture(t)
@@ -387,7 +387,7 @@ func TestStatusToolCalls(t *testing.T) {
 		t.Errorf("Status() =\n%s\nwant 2 ran calls and idle with none", out)
 	}
 
-	// The calls of a tool that is no longer active still count (Sol review, PR #233).
+	// The calls of a tool that is no longer active still count (PR #233).
 	for _, id := range []int64{used, idle} {
 		f.retireTool(t, id)
 	}

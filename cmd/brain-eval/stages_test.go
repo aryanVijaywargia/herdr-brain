@@ -26,9 +26,9 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
 )
 
-// AC 1: each §12.1 stage has a probe for Claude and one for Codex, and each exclusion mode has
+// AC 1: each eval stage has a probe for Claude and one for Codex, and each exclusion mode has
 // one for each of them. Every other CLI with a profile has a delivery probe: only that stage
-// sets its state to verified (§8.5, E16-S12).
+// sets its state to verified (E16-S12).
 func TestStageProbes(t *testing.T) {
 	cases, err := loadProbes("../../evals/probes")
 	if err != nil {
@@ -305,7 +305,7 @@ func TestConformanceUnrequested(t *testing.T) {
 
 // AC 2 and 3 through the runner and the E8-S4 check: with the same hashes, a pass is verified;
 // a later fail, incomplete reply or interrupted run is not; a pass after it is verified again.
-// A new CLI version after a pass stays verified, with a warning only (D13).
+// A new CLI version after a pass stays verified, with a warning only.
 func TestConformanceSequence(t *testing.T) {
 	e := newEnv(t)
 	e.fake.answer = knows
@@ -543,7 +543,7 @@ func TestUsefulnessRecord(t *testing.T) {
 }
 
 // A forget case whose forgotten answer is still in the output files is STALE, also when the
-// reply passes (§12.1 forget).
+// reply passes.
 func TestForgetLeak(t *testing.T) {
 	e := newEnv(t)
 	e.fake.answer = knows
@@ -658,7 +658,7 @@ func TestWriteReport(t *testing.T) {
 	}
 }
 
-// #277: herdr saves a new case workspace about 5 s after it creates it (HLD §11). The runner
+// #277: herdr saves a new case workspace about 5 s after it creates it. The runner
 // maps the case workspace before the setup steps, also when herdr saves it late, so a
 // workspace `brain remember` can run and the hook receipt is emitted, not unmapped. A case
 // workspace that herdr does not save in time stops the run before its setup steps.

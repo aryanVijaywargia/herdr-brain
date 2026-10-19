@@ -10,8 +10,8 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// AC #282: the gates and caps of the config file. A missing file or key keeps the HLD
-// defaults; an unknown key or a value below 1 is an error.
+// AC #282: the gates and caps of the config file. A missing file or key keeps the defaults;
+// an unknown key or a value below 1 is an error.
 func TestReadConfig(t *testing.T) {
 	gates := func(kind store.CandidateKind, n int) store.Gates {
 		g := store.DefaultGates()

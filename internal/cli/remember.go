@@ -27,12 +27,12 @@ type remember struct {
 	kind      store.Kind
 }
 
-// Remember runs `brain remember` with args after "remember" (§5.1, E4-S2). It drafts one item
+// Remember runs `brain remember` with args after "remember" (E4-S2). It drafts one item
 // and one pending proposal, and prints the proposal id. The draft goes live only when you
-// approve it in review; an agent's call takes the same path and never approves (S52).
+// approve it in review; an agent's call takes the same path and never approves.
 func Remember(ctx context.Context, e Env, args []string) (err error) {
 	// The filter runs on the raw arguments before the parser and the store: a hit writes
-	// nothing, and no parse error can print a secret in a flag value (§6.7, E4-S1).
+	// nothing, and no parse error can print a secret in a flag value (E4-S1).
 	if err := secret.Check(strings.Join(args, " ")); err != nil {
 		return err
 	}
@@ -62,8 +62,8 @@ func Remember(ctx context.Context, e Env, args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	// The review pane opens beside the caller, an agent too (S52). When it cannot open, the
-	// draft waits in `brain review`, and one line says why (S53).
+	// The review pane opens beside the caller, an agent too. When it cannot open, the
+	// draft waits in `brain review`, and one line says why.
 	pane, err := openReviewPane(ctx, e, c, id, func(*sql.Tx, string) error { return nil })
 	if err != nil {
 		_, err = fmt.Fprintf(e.Stdout, "proposal %d: %s draft, waiting for your review (brain review); the review pane did not open: %s\n",
@@ -80,7 +80,7 @@ func parseRemember(args []string) (remember, error) {
 	fs.SetOutput(io.Discard)
 	fs.BoolVar(&r.global, "global", false, "")
 	fs.StringVar(&r.workspace, "workspace", "", "")
-	kind := fs.String("kind", string(store.KindFact), "") // [NEW] the default kind
+	kind := fs.String("kind", string(store.KindFact), "")
 	// The text can come before the flags too, as in `brain remember "use pnpm" --global`.
 	var texts []string
 	for {
@@ -101,11 +101,11 @@ func parseRemember(args []string) (remember, error) {
 		return remember{}, errors.New("the text is empty")
 	case r.global && r.workspace != "":
 		return remember{}, errors.New("--global and --workspace exclude each other")
-	// The kinds that remember can draft (§3.1, §11).
+	// The kinds that remember can draft.
 	case !slices.Contains([]store.Kind{store.KindFact, store.KindPreference, store.KindDecision, store.KindHandoff}, r.kind):
 		return remember{}, fmt.Errorf("unknown kind %q\n%s", *kind, rememberUsage)
 	case r.global && r.kind == store.KindHandoff:
-		// A task handoff belongs to one workspace (§11 "Task handoff").
+		// A task handoff belongs to one workspace.
 		return remember{}, errors.New("a handoff is a workspace item; drop --global")
 	}
 	r.text = texts[0]
@@ -122,7 +122,7 @@ type draft struct {
 }
 
 // draft picks the scope of r for call c: global with --global, else the workspace of the
-// calling pane. --workspace only confirms that workspace; it never selects another (§5.1).
+// calling pane. --workspace only confirms that workspace; it never selects another.
 func (r remember) draft(c *Call) (draft, error) {
 	d := draft{text: r.text, kind: r.kind, scope: store.ScopeGlobal, target: "global"}
 	if r.global {
@@ -178,14 +178,14 @@ func saveDraft(ctx context.Context, s *store.Store, d draft, now time.Time) (int
 			return err
 		}
 		base := int64(1)
-		// [NEW] the target names the brief part, and the diff of a new item is its text with "+ ".
+		// The target names the brief part, and the diff of a new item is its text with "+ ".
 		pid, err = store.InsertProposal(ctx, tx, store.Proposal{ItemID: &item, BaseRevision: &base,
 			Text: d.text, Scope: d.scope, Target: d.target, Diff: "+ " + d.text,
 			PermissionWarning: permissionWords.MatchString(d.text), Status: store.ProposalPending, Created: now})
 		if err != nil {
 			return err
 		}
-		// The author stays brain until you approve (§5.1 "sender = unconfirmed").
+		// The author stays brain until you approve.
 		return store.InsertItemRevision(ctx, tx, store.ItemRevision{ItemID: item, Revision: 1, Text: d.text,
 			Scope: d.scope, WorkspaceKey: d.workspaceKey, State: store.StateDraft, Author: store.AuthorBrain,
 			Origin: store.OriginRemember, ProposalID: &pid, Created: now})
@@ -193,8 +193,8 @@ func saveDraft(ctx context.Context, s *store.Store, d draft, now time.Time) (int
 	return pid, err
 }
 
-// newClaimID returns a new opaque claim id with no text in it (§7.2). [NEW] 8 random bytes, in
-// hex with a "cl_" prefix, as the workspace keys.
+// newClaimID returns a new opaque claim id with no text in it: 8 random bytes, in hex with a
+// "cl_" prefix, as the workspace keys.
 func newClaimID() (string, error) {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {

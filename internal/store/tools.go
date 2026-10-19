@@ -10,7 +10,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
 )
 
-// Tool is the tools row of a tool item (§11): the contract of its current revision, the one
+// Tool is the tools row of a tool item: the contract of its current revision, the one
 // hash of that contract, and the hash that you approved.
 type Tool struct {
 	ID           int64
@@ -38,11 +38,11 @@ func (t Tool) Ready() bool {
 	return t.State == StateActive && t.ApprovedHash != nil && *t.ApprovedHash == t.ContractHash
 }
 
-// ErrToolName means that another active tool in the same scope has the name already (§10.1).
+// ErrToolName means that another active tool in the same scope has the name already.
 var ErrToolName = errors.New("another active tool in this scope has this name")
 
 // ActiveTools reads the current revision of each active or disputed tool item, in item id
-// order. All their revision files stay (§7.5 step 8).
+// order. All their revision files stay.
 func ActiveTools(ctx context.Context, tx *sql.Tx) ([]ItemRevision, error) {
 	return activeOfKind(ctx, tx, KindTool)
 }
@@ -79,8 +79,8 @@ func ToolTexts(ctx context.Context, tx *sql.Tx, workspaceKey string) ([]ToolText
 	return ts, nil
 }
 
-// syncTool writes the tools row of item, when it is a tool, from its current revision (§11).
-// A contract that breaks a §10.1 rule refuses the write (tool.Parse), and so does an active
+// syncTool writes the tools row of item, when it is a tool, from its current revision.
+// A contract that breaks a tool form rule refuses the write (tool.Parse), and so does an active
 // tool whose name another active tool of its scope has (ErrToolName). Each revision write that
 // makes a tool active is your decision (approve, restore, undo, promotion, link), so it
 // approves the contract hash of that revision. Any other state clears the approval, and the
@@ -91,7 +91,7 @@ func syncTool(ctx context.Context, tx *sql.Tx, item int64) error {
 		return err
 	}
 	if it.State == StateRetired {
-		// A retired revision needs no contract: forget writes one with no text (§6.7).
+		// A retired revision needs no contract: forget writes one with no text.
 		_, err := tx.ExecContext(ctx, `UPDATE tools SET approved_hash = NULL, approved = NULL WHERE id = ?`, item)
 		if err != nil {
 			return fmt.Errorf("retire tool %d: %w", item, err)
@@ -159,7 +159,7 @@ func ToolByID(ctx context.Context, tx *sql.Tx, id int64) (Tool, error) {
 }
 
 // Tools reads every tools row, in approval order, then item id order; a tool with no approval
-// comes last (E17-S5). [NEW] the order: by approval time, so the catalog stays stable.
+// comes last (E17-S5). The order by approval time keeps the catalog stable.
 func Tools(ctx context.Context, tx *sql.Tx) ([]Tool, error) {
 	ts, err := query(ctx, tx, `SELECT `+toolColumns+` ORDER BY t.approved IS NULL, t.approved, t.id`,
 		func(rows *sql.Rows) (Tool, error) { return scanTool(rows) })
@@ -173,7 +173,7 @@ func Tools(ctx context.Context, tx *sql.Tx) ([]Tool, error) {
 // that workspace first, else a global tool ("" finds only a global one). Of the tools with the
 // name in one scope, the approved one comes first, then the newest. A retired tool is not
 // found. It returns sql.ErrNoRows when there is none; a tool of another workspace is never
-// found (§10.1). [NEW] the order.
+// found.
 func ToolByName(ctx context.Context, tx *sql.Tx, name, workspaceKey string) (Tool, error) {
 	var id int64
 	err := tx.QueryRowContext(ctx, `SELECT t.id FROM tools t JOIN items i ON i.id = t.id

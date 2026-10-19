@@ -19,7 +19,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/transcript"
 )
 
-// The history scan tests use hand-made session files in a scratch home (HLD §17 items 32-34);
+// The history scan tests use hand-made session files in a scratch home;
 // no line comes from a real session. They use no real home, no model and no real herdr.
 
 // scanClaim is the claim time of the test scans.
@@ -246,7 +246,7 @@ func xTokens(n int, total int64) string {
 		"info": obj{"total_token_usage": obj{"total_tokens": total}}}})
 }
 
-// AC 5, S88, S89: the scan imports each session as hook records would give it: the prompts
+// AC 5: the scan imports each session as hook records would give it: the prompts
 // (sender unconfirmed), each shell command with its command record and the failure excerpt of a
 // failed one, and the last assistant text of each turn (sender assistant). It drops what the CLI
 // or Brain injected, side chains, compaction summaries, AGENTS.md text, file text that the
@@ -316,7 +316,7 @@ func TestScanImport(t *testing.T) {
 		"codex:x1@" + offsetOf(t, f, 6): `stop assistant false "make test fails."`,
 	}
 	diffMaps(t, got, want)
-	// One record with two shell commands gives two command records (S89); a long command is cut
+	// One record with two shell commands gives two command records; a long command is cut
 	// at 4 KB; a failed command keeps its exit status.
 	var argv []string
 	for _, c := range cmds {
@@ -373,7 +373,7 @@ func TestScanImport(t *testing.T) {
 }
 
 // offsetOf returns the byte offset of line i of the Codex file of session x1, the record id of
-// that line (§6.8).
+// that line.
 func offsetOf(t *testing.T, f *scanFix, i int) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(f.home, ".codex", "sessions", "2026", "10", "12", "rollout-x1.jsonl"))
@@ -453,7 +453,7 @@ func TestScanFiles(t *testing.T) {
 	}
 }
 
-// AC 3, AC 4, S90, S94: the scan skips and counts, by reason, a codex exec session, a fork, a
+// AC 3, AC 4: the scan skips and counts, by reason, a codex exec session, a fork, a
 // sub-agent session, a file with an unknown line, the compressed files, a session that capture
 // knows, a shared checkout and a workspace with learning off. A session in one workspace goes to
 // it, with the binding of that workspace's herdr session; one in no workspace goes to the global
@@ -515,8 +515,8 @@ func TestScanSkipsAndScope(t *testing.T) {
 	})
 }
 
-// Owner decision 2026-10-13, S5 gap HS-G1: a Claude session with the entrypoint sdk-cli
-// (claude -p, the Agent SDK) is not interactive and the scan skips it; one with cli is read.
+// A Claude session with the entrypoint sdk-cli (claude -p, the Agent SDK) is not interactive
+// and the scan skips it; one with cli is read.
 func TestScanClaudeEntrypoint(t *testing.T) {
 	f := newScanFix(t, bindings.KindMain)
 	f.claude("sdk", time.Hour, cUser("sdk-u", "/nowhere", 1, "a prompt", obj{"entrypoint": "sdk-cli"}))
@@ -530,7 +530,7 @@ func TestScanClaudeEntrypoint(t *testing.T) {
 	}
 }
 
-// AC 1, S89: a stop between two files and a file that grew after the first read: the row in
+// AC 1: a stop between two files and a file that grew after the first read: the row in
 // reading of the binding goes back to the start at the next run, with its first claim time.
 // The sessions that the scan imported are read again and add nothing, and each occurrence and
 // turn counts once. A session that the store knows from capture or hook records is skipped.
@@ -600,7 +600,7 @@ func grow(t *testing.T, p string, lines ...string) {
 	}
 }
 
-// AC 6, S91: a finding with 4 occurrences in 3 sessions, a turn with no usage field, and two
+// AC 6: a finding with 4 occurrences in 3 sessions, a turn with no usage field, and two
 // signals in the same turn. The finding shows 3 sessions and the tokens of its distinct turns
 // once each, with the turn with no usage apart; the repeats together count each turn once. A
 // correction marker with no repeat stays below its gate. The row keeps ids only.
@@ -643,10 +643,9 @@ func TestScanFindings(t *testing.T) {
 	}
 }
 
-// Owner decision 2026-10-13, S5 gap HS-G2: a repeated prompt needs at least 3 words. A
-// 2-word prompt in 3 sessions is no finding; a 3-word prompt in 2 sessions is one. The match
-// uses word sets, so "run tests" joins "run run tests": each prompt counts with its own words,
-// in either order.
+// A repeated prompt needs at least 3 words. A 2-word prompt in 3 sessions is no finding; a
+// 3-word prompt in 2 sessions is one. The match uses word sets, so "run tests" joins "run run
+// tests": each prompt counts with its own words, in either order.
 func TestScanPromptWords(t *testing.T) {
 	for name, c := range map[string]struct {
 		prompts [][]string // the prompts of each session, newest session first
@@ -683,7 +682,7 @@ func TestScanPromptWords(t *testing.T) {
 	}
 }
 
-// AC 5, S92: a session that brain forget --session removed stays out: its capture identities
+// AC 5: a session that brain forget --session removed stays out: its capture identities
 // are in the forget tombstones, so a second read stores nothing for it. A forget takes its
 // occurrences out of the report, and a finding below its gate leaves it.
 func TestScanForget(t *testing.T) {
@@ -718,7 +717,7 @@ func TestScanForget(t *testing.T) {
 	}
 }
 
-// AC 10, S87: a store with learning off waits, and a test binding never scans. With nothing to
+// AC 10: a store with learning off waits, and a test binding never scans. With nothing to
 // claim, the row waits for setup.
 func TestScanWaits(t *testing.T) {
 	f := newScanFix(t, bindings.KindMain)
@@ -743,7 +742,7 @@ func TestScanWaits(t *testing.T) {
 	}
 }
 
-// AC 1, AC 8, S86: the brained of the main store claims the row at its tick and runs the scan
+// AC 1, AC 8: the brained of the main store claims the row at its tick and runs the scan
 // beside the loop: events still reach the handler while a slow reader reads. The read ends
 // with one notification, opens no pane and makes no model call.
 func TestScanInBackground(t *testing.T) {
@@ -799,7 +798,7 @@ func TestScanInBackground(t *testing.T) {
 }
 
 // noPaneNoCall fails unless the scan showed one notification, asked herdr for no pane and made
-// no extractor batch, so no model call (S86).
+// no extractor batch, so no model call.
 func (f *scanFix) noPaneNoCall(t *testing.T, h *harness) {
 	t.Helper()
 	if len(f.notes) != 1 {
@@ -825,10 +824,10 @@ func (f *scanFix) noPaneNoCall(t *testing.T, h *harness) {
 	})
 }
 
-// AC 6: the kind of each finding (§6.8 "Repeats"): a repeated text with a correction marker is a
-// correction, a repeated lesson in plain words is one lesson, other repeated text is a repeated
-// prompt, a lesson counts from its first telling, a procedure joins the procedures that it is
-// like, and a command chain and a failure join by their signature. A procedure below its gate
+// AC 6: the kind of each finding: a repeated text with a correction marker is a correction, a
+// repeated lesson in plain words is one lesson, other repeated text is a repeated prompt, a
+// lesson counts from its first telling, a procedure joins the procedures that it is like, and
+// a command chain and a failure join by their signature. A procedure below its gate
 // and a chain in fewer than 3 sessions are no findings.
 func TestScanKinds(t *testing.T) {
 	f := newScanFix(t, bindings.KindMain)
@@ -865,7 +864,7 @@ func TestScanKinds(t *testing.T) {
 	}
 }
 
-// S94: when no Codex file parses, the scan reads no Codex session, and Claude continues.
+// When no Codex file parses, the scan reads no Codex session, and Claude continues.
 func TestScanNoCodexParses(t *testing.T) {
 	f := newScanFix(t, bindings.KindMain)
 	f.codex("x1", time.Hour, xMeta("x1", "/nowhere", "cli", nil), jsonLine(obj{"timestamp": at(1), "type": "weird"}))
@@ -881,7 +880,7 @@ func TestScanNoCodexParses(t *testing.T) {
 	}
 }
 
-// Sol fix: learning off for the store during the read stops the read; the row stays reading,
+// Learning off for the store during the read stops the read; the row stays reading,
 // with no session skipped for it, and the read starts again when learning is on (AC 10).
 func TestScanPausesWhenLearningOff(t *testing.T) {
 	f := newScanFix(t, bindings.KindMain)
@@ -909,7 +908,7 @@ func TestScanPausesWhenLearningOff(t *testing.T) {
 	}
 }
 
-// Sol fix: a failed refresh of the workspace map stops the scan before it reads, so no session
+// A failed refresh of the workspace map stops the scan before it reads, so no session
 // goes to a scope from an old map (AC 4). A workspace that appears during the read applies.
 func TestScanWorkspaceMap(t *testing.T) {
 	f := newScanFix(t, bindings.KindMain)
@@ -967,9 +966,9 @@ func TestScanWorkspaceMapDeadline(t *testing.T) {
 	}
 }
 
-// Sol fix: an imported session whose file changed after the claim time is out of the restart's
+// An imported session whose file changed after the claim time is out of the restart's
 // pick, and its records still count in the findings; live records of a scanned session take the
-// live path and are no finding input (AC 6, S89). The end of brained stops the read between two
+// live path and are no finding input (AC 6). The end of brained stops the read between two
 // files.
 func TestScanRestartKeepsImported(t *testing.T) {
 	f := newScanFix(t, bindings.KindMain)
@@ -1019,8 +1018,8 @@ func TestScanRestartKeepsImported(t *testing.T) {
 	}
 }
 
-// Sol fix: a Claude file that repeats a prompt record gives one turn, and the usage of each
-// assistant message counts once in it (§6.4).
+// A Claude file that repeats a prompt record gives one turn, and the usage of each
+// assistant message counts once in it.
 func TestScanRepeatedRecord(t *testing.T) {
 	f := newScanFix(t, bindings.KindMain)
 	u := cUser("u1", "/nowhere", 1, "a prompt")
@@ -1031,7 +1030,7 @@ func TestScanRepeatedRecord(t *testing.T) {
 	}
 }
 
-// Sol fix: the done mark of the scan belongs to the binding: a binding that changes (here a
+// The done mark of the scan belongs to the binding: a binding that changes (here a
 // test binding that becomes main) gets a scan run again.
 func TestScanDoneFollowsBinding(t *testing.T) {
 	h := newHarness(t, bindings.KindTest)

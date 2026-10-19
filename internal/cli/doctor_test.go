@@ -203,7 +203,7 @@ func TestDoctorClean(t *testing.T) {
 	}
 }
 
-// AC: an untested herdr version is no failure (S54); a herdr that is too old fails with the fix.
+// AC: an untested herdr version is no failure; a herdr that is too old fails with the fix.
 func TestDoctorHerdr(t *testing.T) {
 	f := newDoctorFixture(t)
 	f.herdr.version, f.herdr.untested = "0.9.4", true
@@ -369,7 +369,7 @@ func TestDoctorOtherCodexHome(t *testing.T) {
 	}
 }
 
-// AC §17 item 30: a live agent of a configured kind with no receipt after its first prompt:
+// AC: a live agent of a configured kind with no receipt after its first prompt:
 // hook not trusted or not firing.
 func TestDoctorNoReceipt(t *testing.T) {
 	f := newDoctorFixture(t)
@@ -377,7 +377,7 @@ func TestDoctorNoReceipt(t *testing.T) {
 	f.failed(t, "", "claude: hook not trusted or not firing: 1 live agent(s) with no Brain receipt (w14:p1); fix: start a new session")
 }
 
-// AC 2 #251 (Sol review of PR #262): Codex runs the hook at the first prompt, and herdr shows
+// AC 2 #251 (review of PR #262): Codex runs the hook at the first prompt, and herdr shows
 // the Codex session id only after that prompt (#257). So a Codex agent with an id and no
 // receipt that started after the install is a failed check; one with no id is not counted.
 func TestDoctorCodexNoReceipt(t *testing.T) {
@@ -386,14 +386,14 @@ func TestDoctorCodexNoReceipt(t *testing.T) {
 	f.failed(t, "", "codex: hook not trusted or not firing: 2 live agent(s) with no Brain receipt (w14:p1, w14:p2)")
 }
 
-// AC S66: an output conflict fails with brain repair --confirm.
+// AC: an output conflict fails with brain repair --confirm.
 func TestDoctorConflict(t *testing.T) {
 	f := newDoctorFixture(t)
 	f.handEdit(t, f.rows(t).newest)
 	f.failed(t, "", "output conflict: 1 output generation(s) changed outside Brain", "fix: brain repair --confirm")
 }
 
-// AC S84: an unbound session gets the explanation and the setup command, exits 1, and doctor
+// AC: an unbound session gets the explanation and the setup command, exits 1, and doctor
 // reads no store and writes nothing.
 func TestDoctorUnbound(t *testing.T) {
 	f := newDoctorFixture(t)

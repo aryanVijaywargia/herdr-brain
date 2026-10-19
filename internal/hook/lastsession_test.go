@@ -144,7 +144,7 @@ func TestNoLastSessionLine(t *testing.T) {
 		}}, env: paneA14, silent: true},
 		{name: "resume of the only earlier session", prep: []func(*testing.T, *fixture){claudeA14}, env: paneA14,
 			input: startInput("claude-1", "/t/claude-1.jsonl")},
-		// S79: B's w14 is another workspace than A's w14.
+		// B's w14 is another workspace than A's w14.
 		{name: "session of another workspace", prep: []func(*testing.T, *fixture){claudeA14},
 			env: func(f *fixture) []string { return environ(f.workSock, "work", "w14:p1", "w14") }},
 		{name: "earlier start with no transcript path", prep: []func(*testing.T, *fixture){func(t *testing.T, f *fixture) {

@@ -113,7 +113,7 @@ func TestReadHandoff(t *testing.T) {
 			{7, 2, nil, 10 * time.Minute, false, ""}, //
 			{8, 1, nil, 10 * time.Minute, true, ""},  // a newer revision than the brief holds
 			{8, 2, nil, -2 * time.Minute, true, ""},  //
-			// Skills show by name, in name order (owner decision 2026-10-08).
+			// Skills show by name, in name order.
 			{9, 1, nil, 10 * time.Minute, true, "go-test"},
 			{10, 1, &ka, 10 * time.Minute, true, "check-lint"},
 			{11, 1, nil, -time.Minute, true, "old-skill"}, // before the start
@@ -196,7 +196,7 @@ func TestReadHandoff(t *testing.T) {
 	}
 }
 
-// AC #273 1 (Sol review of PR #307): the start of a session is its oldest receipt in the
+// AC #273 1 (review of PR #307): the start of a session is its oldest receipt in the
 // workspace, also when that receipt has no transcript path; a receipt of the same agent session
 // in another workspace, or of another session, does not count.
 func TestSessionStart(t *testing.T) {

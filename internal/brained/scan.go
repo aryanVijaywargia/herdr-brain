@@ -24,22 +24,21 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
 )
 
-// The history scan at setup (§6.8, D16): brained reads your past Claude and Codex sessions
-// once, imports their records as hook records would give them, and finds the repeats with the
-// signal rules. It calls no model: the scan batches of the findings go through the extractor
-// pass later.
+// The history scan at setup: brained reads your past Claude and Codex sessions once, imports
+// their records as hook records would give them, and finds the repeats with the signal rules.
+// It calls no model: the scan batches of the findings go through the extractor pass later.
 
 const (
 	// scanFiles and scanWindow pick the files: the newest 300 that changed in the 30 days before
-	// the claim time, Claude and Codex together. [NEW] 300 and 30 days (§6.8).
+	// the claim time, Claude and Codex together. 300 and 30 days.
 	scanFiles  = 300
 	scanWindow = 30 * 24 * time.Hour
-	// argvLimit is the longest stored command in bytes (§6.7, §11: ≤ 4 KB), as for a hook record.
+	// argvLimit is the longest stored command in bytes, as for a hook record.
 	argvLimit = 4096
-	// scanTitle is the title of the notification at the end of the read. [NEW]
+	// scanTitle is the title of the notification at the end of the read.
 	scanTitle = "Brain history scan"
-	// promptWords is the least count of words of a repeated prompt in the scan (owner decision
-	// 2026-10-13, S5 gap HS-G2): "continue" and "go on" are no repeat.
+	// promptWords is the least count of words of a repeated prompt in the scan: "continue" and
+	// "go on" are no repeat.
 	promptWords = 3
 )
 
@@ -52,7 +51,7 @@ type ScanText func(r store.ScanReport, extractor bool) string
 // world, so tests can change them.
 type historyScan struct {
 	environ []string // the brained environment: the CLI homes and herdr
-	config  string   // the config file: the gates (§7.2)
+	config  string   // the config file: the gates
 	text    ScanText
 	list    func(claudeHome, codexHome string) (transcript.Listing, error)
 	read    func(f transcript.File, limit int64) (transcript.Session, error)
@@ -86,11 +85,11 @@ func readFile(f transcript.File, limit int64) (transcript.Session, error) {
 	return transcript.ReadClaude(f.Path, limit)
 }
 
-// run claims the scan of the store of g and reads it, at a tick (§6.8 "Where it runs"). Only a
-// main binding scans: a test binding never does (S87). With learning off for the store, the row
+// run claims the scan of the store of g and reads it, at a tick. Only a
+// main binding scans: a test binding never does. With learning off for the store, the row
 // waits. done says that this brained has nothing more to scan: the read ended, or the row is
 // not one that it can claim. err alone leaves done false, so a later tick reads again from the
-// start; a known capture identity adds nothing then (§6.4).
+// start; a known capture identity adds nothing then.
 func (s *historyScan) run(ctx context.Context, g Gate) (done bool, err error) {
 	if g.Binding.Kind != bindings.KindMain {
 		return true, nil
@@ -126,7 +125,7 @@ type scanRun struct {
 }
 
 // errPaused says that learning went off for the whole store during the read: the scan waits,
-// and the row stays reading for a read from the start when learning is on again (§6.8).
+// and the row stays reading for a read from the start when learning is on again.
 var errPaused = errors.New("learning is off for the store")
 
 // skip counts one session of harness that the scan did not read, with reason.
@@ -196,7 +195,7 @@ func (s *historyScan) scan(ctx context.Context, g Gate, st *store.Store, sc stor
 }
 
 // files returns the files of the scan with claim time claimed, newest first, and the count of
-// compressed Codex files (§6.8 "Which sessions"). A restart picks again with the same claim
+// compressed Codex files. A restart picks again with the same claim
 // time.
 func (s *historyScan) files(claimed time.Time) ([]transcript.File, int, error) {
 	claude, codex, err := cliHomes(s.environ)
@@ -215,7 +214,7 @@ func (s *historyScan) files(claimed time.Time) ([]transcript.File, int, error) {
 }
 
 // cliHomes returns the Claude home (CLAUDE_CONFIG_DIR, else ~/.claude) and the Codex home
-// (CODEX_HOME, else ~/.codex) of environ (§6.8).
+// (CODEX_HOME, else ~/.codex) of environ.
 func cliHomes(environ []string) (claude, codex string, err error) {
 	claude, codex = lookup(environ, "CLAUDE_CONFIG_DIR"), lookup(environ, "CODEX_HOME")
 	if claude != "" && codex != "" {
@@ -230,7 +229,7 @@ func cliHomes(environ []string) (claude, codex string, err error) {
 
 // file reads session file f up to its size now and imports its session in one transaction
 // with the new counts. A file with an unknown shape is skipped and counted: the reader fails
-// closed (§6.6).
+// closed.
 func (s *historyScan) file(ctx context.Context, g Gate, st *store.Store, sc store.Scan, f transcript.File, r *scanRun) error {
 	info, err := os.Stat(f.Path)
 	if err != nil {
@@ -262,7 +261,7 @@ func (s *historyScan) file(ctx context.Context, g Gate, st *store.Store, sc stor
 	})
 }
 
-// add imports session ses of harness in tx, or returns why the scan skips it (§6.8): not
+// add imports session ses of harness in tx, or returns why the scan skips it: not
 // interactive, a fork, known from capture or hook records, a shared checkout, or learning off
 // for its workspace. It reads the workspaces in tx, so a change during a slow read applies.
 func (s *historyScan) add(ctx context.Context, tx *sql.Tx, g Gate, sc store.Scan, harness string,
@@ -306,15 +305,15 @@ func (s *historyScan) add(ctx context.Context, tx *sql.Tx, g Gate, sc store.Scan
 	if imp.last == 0 {
 		return "", nil
 	}
-	// The watermark at the end of the session: the normal pass makes no batch of it (§6.8).
+	// The watermark at the end of the session: the normal pass makes no batch of it.
 	return "", store.MoveWatermark(ctx, tx, store.Batch{SessionID: session, WorkspaceKey: key,
 		LastObservation: imp.last, LastCapture: imp.lastIdentity})
 }
 
-// scope returns the workspace key and the binding of a session with cwd (§6.8 "Scope of a
-// session"): the one live workspace whose project folder holds cwd, with the binding of its
-// herdr session; the global pool ("") with binding runner when none does. ok is false for a
-// cwd in two or more workspaces, a shared checkout.
+// scope returns the workspace key and the binding of a session with cwd: the one live
+// workspace whose project folder holds cwd, with the binding of its herdr session; the global
+// pool ("") with binding runner when none does. ok is false for a cwd in two or more
+// workspaces, a shared checkout.
 func scope(cwd string, wss []store.Workspace, runner string) (key, binding string, ok bool) {
 	if canon, err := filepath.EvalSymlinks(cwd); err == nil {
 		cwd = canon
@@ -376,11 +375,10 @@ func (imp *importer) turns(ctx context.Context, ts []transcript.Turn) ([]store.S
 	return turns, nil
 }
 
-// turn stores the records of turn t (§6.8 "What Brain takes"): the prompt, each shell command
-// with its command record and the failure excerpt of a failed one, and the last assistant
-// text. It returns the turn id: the id of its first stored observation, 0 when none is stored.
-// A session stores its records in file order, so each later observation of the turn has a
-// higher id (turnsOf).
+// turn stores the records of turn t: the prompt, each shell command with its command record
+// and the failure excerpt of a failed one, and the last assistant text. It returns the turn
+// id: the id of its first stored observation, 0 when none is stored. A session stores its
+// records in file order, so each later observation of the turn has a higher id (turnsOf).
 func (imp *importer) turn(ctx context.Context, t transcript.Turn) (int64, error) {
 	var ids []int64
 	add := func(id int64, err error) error {
@@ -398,7 +396,7 @@ func (imp *importer) turn(ctx context.Context, t transcript.Turn) (int64, error)
 		}
 		if c.Failure != nil {
 			// The exit status of the command record holds the failure when the file has one: the
-			// output is detail of the same occurrence, not a second one (§6.4).
+			// output is detail of the same occurrence, not a second one.
 			if err := add(imp.text(ctx, *c.Failure, adapter.EventTool, store.SenderTool, c.Exit == nil)); err != nil {
 				return 0, err
 			}
@@ -416,7 +414,7 @@ func (imp *importer) turn(ctx context.Context, t transcript.Turn) (int64, error)
 }
 
 // observation stores o, or finds it when a first read stored it. It returns its id, and
-// whether this call stored it; the id is 0 when forget removed it (§6.7): its identity is in
+// whether this call stored it; the id is 0 when forget removed it: its identity is in
 // the forget tombstones, so it stays out.
 func (imp *importer) observation(ctx context.Context, o store.Observation) (int64, bool, error) {
 	if o.At.IsZero() {
@@ -439,7 +437,7 @@ func (imp *importer) observation(ctx context.Context, o store.Observation) (int6
 }
 
 // base is the observation of record rec of the session: its capture identity is (harness,
-// record id) (§6.8).
+// record id).
 func (imp *importer) base(rec transcript.Text, event string, sender store.Sender) store.Observation {
 	return store.Observation{CaptureIdentity: imp.harness + ":" + rec.ID, Source: store.SourceTranscript,
 		SegmentID: imp.segment, Event: event, Status: store.ObservationComplete, Sender: sender, Counts: true, At: rec.At}
@@ -460,7 +458,7 @@ func (imp *importer) text(ctx context.Context, rec transcript.Text, event string
 	return id, IndexPrompt(ctx, imp.tx, o, HookPrompt(imp.harness, rec.Text))
 }
 
-// command stores shell command c as a tool observation with its command record (§6.7): a
+// command stores shell command c as a tool observation with its command record: a
 // command in which the secret filter finds a secret is not stored, and the record says only
 // that it had one.
 func (imp *importer) command(ctx context.Context, c transcript.Command) (int64, error) {
@@ -490,7 +488,7 @@ func cutBytes(s string, n int) string {
 }
 
 // end stores the findings of the read and moves scan sc to extracting, in one transaction, and
-// returns the text of the notification (§6.8): the scan proposals wait for the extractor pass,
+// returns the text of the notification: the scan proposals wait for the extractor pass,
 // and no review pane opens.
 func (s *historyScan) end(ctx context.Context, st *store.Store, sc store.Scan, gates store.Gates) (string, error) {
 	var body string
@@ -544,10 +542,9 @@ func turnsOf(ins []store.SignalInput, turns map[int64]*int64) map[int64]int64 {
 	return of
 }
 
-// findings returns the findings of the scanned observations ins (§6.8 "Repeats with no model
-// call"): the signal rules run over the observations of each scope apart, and a finding stays
-// only when it reaches the scan gate of its kind. The list is most tokens first, and the id of
-// a finding is its place in it.
+// findings returns the findings of the scanned observations ins: the signal rules run over the
+// observations of each scope apart, and a finding stays only when it reaches the scan gate of
+// its kind. The list is most tokens first, and the id of a finding is its place in it.
 func findings(ins []store.SignalInput, turns map[int64]*int64, gates store.Gates) []store.Finding {
 	turnOf := turnsOf(ins, turns)
 	byScope := map[string][]store.SignalInput{}
@@ -602,13 +599,13 @@ type group struct {
 }
 
 // groups runs the signal rules over ins, the observations of one scope in time order, and
-// joins the signals of one repeat (§7.1, §6.8):
+// joins the signals of one repeat:
 //   - a lesson in plain words is a repeat of its own (gate 1);
 //   - a failure and a command chain join by their key;
 //   - text that repeats earlier text joins its earlier text. The correction rule and the
 //     repeated-prompt rule find the same repeats there, so a repeat is a correction when one of
 //     its texts holds a correction marker, a lesson when one gives a lesson in plain words, else
-//     a repeated prompt [NEW] with at least promptWords words. A correction marker with no
+//     a repeated prompt with at least promptWords words. A correction marker with no
 //     repeat stays one occurrence, below its gate;
 //   - a procedure joins the earlier procedures that it is like. A procedure whose texts are all
 //     in one text repeat is that repeat, and a lesson in a text repeat is part of it.

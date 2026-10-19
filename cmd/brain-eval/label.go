@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Label is the answer label of one reply (HLD §12.1).
+// Label is the answer label of one reply.
 type Label string
 
 // The answer labels.
@@ -30,7 +30,7 @@ type Check struct {
 var negations = []string{"not", "no", "never", "don't", "dont", "doesn't", "isn't", "aren't",
 	"won't", "without", "avoid", "instead", "than"}
 
-// refusals are the phrases that say the agent does not know. [NEW] list.
+// refusals are the phrases that say the agent does not know.
 var refusals = []string{"i don't know", "i do not know", "not sure", "no information",
 	"don't have", "do not have", "can't find", "cannot find", "couldn't find", "could not find", "not aware", "no record", "cannot determine",
 	"can't determine", "can't tell", "cannot tell", "unknown"}
@@ -41,9 +41,9 @@ var word = regexp.MustCompile(`[\p{L}\p{N}'-]+`)
 // sentenceEnd ends a sentence: ".", "!" or "?" before a space, or a line break.
 var sentenceEnd = regexp.MustCompile(`[.!?]\s|\n`)
 
-// label decides the answer label of reply from the rules of §12.1, and names the rule. The
-// rules look only for the exact answers of the probe, so anything that they cannot decide is
-// UNSURE (S73): both an expected and a stale answer, a negation, a refusal with a claim.
+// label decides the answer label of reply from its rules, and names the rule. The rules look
+// only for the exact answers of the probe, so anything that they cannot decide is UNSURE:
+// both an expected and a stale answer, a negation, a refusal with a claim.
 func label(reply string, c Check) (Label, string) {
 	text := normalize(reply)
 	refused := refusal(text)
@@ -62,7 +62,7 @@ func label(reply string, c Check) (Label, string) {
 	case c.Decline:
 		return Unsure, "no refusal and no known claim"
 	case expect && stale:
-		return Unsure, "both the expected and a stale answer (S73)"
+		return Unsure, "both the expected and a stale answer"
 	case expect:
 		return Pass, "the expected answer"
 	case stale:

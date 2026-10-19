@@ -14,7 +14,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// mergeSchema is the JSON output schema of a merge call (§9.5): groups of items that say the
+// mergeSchema is the JSON output schema of a merge call: groups of items that say the
 // same thing, each with its item ids, the id of the item that stays, the merged text and the
 // reason. Strict, as claimSchema.
 const mergeSchema = `{"type":"object","additionalProperties":false,"required":["groups"],"properties":{"groups":{"type":"array",` +
@@ -22,10 +22,10 @@ const mergeSchema = `{"type":"object","additionalProperties":false,"required":["
 	`"properties":{"item_ids":{"type":"array","items":{"type":"integer"}},"keep":{"type":"integer"},` +
 	`"text":{"type":"string"},"reason":{"type":"string"}}}}}}`
 
-// mergeLines is the most lines of a merged text: the limit of one brief entry (§8.1).
+// mergeLines is the most lines of a merged text: the limit of one brief entry.
 const mergeLines = 3
 
-// MergePart is one brief part of the current output generation for the merge pass (§9.5): its
+// MergePart is one brief part of the current output generation for the merge pass: its
 // workspace key, "" for the global part, and the hash of its file in the manifest.
 type MergePart struct {
 	Key, SHA256 string
@@ -39,12 +39,12 @@ type group struct {
 	text, reason string
 }
 
-// Merge runs the merge pass of part (§9.5): one extractor call with the items of the part that
+// Merge runs the merge pass of part: one extractor call with the items of the part that
 // may merge, outside any transaction, and one transaction that stores each group of the result
 // as a merge proposal on its kept item. It makes no call when the part did not change since its
 // last pass, a merge proposal of the part waits, extraction or learning is off for it, no
 // extractor CLI is chosen, a daily cap is full, or fewer than 2 items may merge. The items go in
-// id order until the input byte cap (§7.3). The transaction before the call stores the hash of
+// id order until the input byte cap. The transaction before the call stores the hash of
 // the part, so a pass of another herdr session that shares the store does not call for it too.
 // The call counts under the daily call cap, as a batch call does; a call that the CLI refuses at
 // a usage or rate limit does not (#377). A failed or invalid call puts the last hash back, so
@@ -103,7 +103,7 @@ func (p Pass) Merge(ctx context.Context, part MergePart) error {
 }
 
 // mergeItems returns the items of the part of workspace key that a merge call may get, or none
-// when the pass of the part makes no call now (§9.5 trigger).
+// when the pass of the part makes no call now.
 func (p Pass) mergeItems(ctx context.Context, tx *sql.Tx, key string) ([]store.MergeItem, error) {
 	if waits, err := store.MergeWaits(ctx, tx, key); err != nil || waits {
 		return nil, err
@@ -118,7 +118,7 @@ func (p Pass) mergeItems(ctx context.Context, tx *sql.Tx, key string) ([]store.M
 }
 
 // fitMerge returns the first items whose texts fit in limit bytes together: the input byte cap
-// of a call (§7.3).
+// of a call.
 func fitMerge(items []store.MergeItem, limit int) []store.MergeItem {
 	size := 0
 	for i, it := range items {
@@ -130,7 +130,7 @@ func fitMerge(items []store.MergeItem, limit int) []store.MergeItem {
 }
 
 // mergeInput is the extractor prompt of a merge call: the items of a part, marked as untrusted
-// data. [NEW] the prompt text.
+// data.
 func mergeInput(items []store.MergeItem) string {
 	var b strings.Builder
 	b.WriteString("You find approved brief items that say the same thing, so that Brain can merge them into one item. " +
@@ -155,7 +155,7 @@ type rawGroup struct {
 	Reason  *string  `json:"reason"`
 }
 
-// checkMerge checks the result out of a merge call of items outside the model (§9.5 output),
+// checkMerge checks the result out of a merge call of items outside the model,
 // and returns its groups. A result that does not match mergeSchema is invalid: the error wraps
 // ErrInvalid. A group that fails its own check is dropped, and the other groups stay: fewer
 // than 2 ids, an id that is not in items or is also in another group, a keep that is not in
@@ -233,7 +233,7 @@ func groupError(g rawGroup, byID map[int64]store.MergeItem, seen map[int64]int, 
 // commitMerge is the one transaction of a merge call of part with items: it stores each group
 // of groups as a merge proposal (mergeProposal). It stores nothing when extraction or learning
 // turned off during the call, or when a forget touched an item of the input: the model saw its
-// text, so the whole result goes, as for a batch (§7.3). A group with an item that changed
+// text, so the whole result goes, as for a batch. A group with an item that changed
 // during the call, or may merge no more, is dropped.
 func (p Pass) commitMerge(ctx context.Context, part MergePart, items []store.MergeItem, groups []group) error {
 	return p.Store.Write(ctx, func(tx *sql.Tx) error {
@@ -263,7 +263,7 @@ func (p Pass) commitMerge(ctx context.Context, part MergePart, items []store.Mer
 }
 
 // forgotten reports whether a forget touched an item of items after they were read: forget
-// blanks the text of every revision of the item (§6.7).
+// blanks the text of every revision of the item.
 func forgotten(ctx context.Context, tx *sql.Tx, items []store.MergeItem) (bool, error) {
 	for _, it := range items {
 		r, err := store.ItemRevisionByKey(ctx, tx, it.ID, it.Revision)
@@ -297,7 +297,7 @@ func partTarget(ctx context.Context, tx *sql.Tx, key string) (string, error) {
 }
 
 // mergeProposal is the merge proposal of group g of items, in the part of workspace key with
-// target (§9.5 proposal): a proposal of the kept item with its base revision and the merged
+// target: a proposal of the kept item with its base revision and the merged
 // text, and the merge list of the base revision of each item of the group. Its diff holds each
 // old text with its id, then the new text. It has the permission warning when the claim of an
 // item touches a permission or a safety rule, or the new text has permission words.

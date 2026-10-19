@@ -14,8 +14,8 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
 )
 
-// revFile is one file of a skill or tool revision (§8.2, §10.1): its absolute path, its text
-// and its (item id, revision) pair.
+// revFile is one file of a skill or tool revision: its absolute path, its text and its
+// (item id, revision) pair.
 type revFile struct {
 	path string
 	text string
@@ -80,8 +80,8 @@ func read(ctx context.Context, tx *sql.Tx) (st state, err error) {
 // renders the parts of that generation: the global part and one part for each workspace. So
 // the text and the revisions in the manifest come from the same read. Each active skill goes
 // into the skill list of its scope part, with the path of its revision file in the skills
-// folder of the out folder out, and into fs (§8.2). Each file of each active tool goes into fs
-// too (§10.1). gen is 0 when no commit recorded a generation yet.
+// folder of the out folder out, and into fs. Each file of each active tool goes into fs too.
+// gen is 0 when no commit recorded a generation yet.
 func render(ctx context.Context, s *store.Store, out string) (gen int64, parts []part, fs files, err error) {
 	var st state
 	err = s.Write(ctx, func(tx *sql.Tx) (err error) {
@@ -113,9 +113,9 @@ func toolFiles(revs []store.ItemRevision, dir string) []revFile {
 }
 
 // CheckGlobal renders the global part from the store state in tx, with the skill files in
-// the out folder out, and returns a *brief.BudgetError when it is over its budget (§8.1). A
+// the out folder out, and returns a *brief.BudgetError when it is over its budget. A
 // promotion runs it after its write, in the same transaction, so a full global part refuses
-// the promotion and nothing is written (§9.3).
+// the promotion and nothing is written.
 func CheckGlobal(ctx context.Context, tx *sql.Tx, out string) error {
 	st, err := read(ctx, tx)
 	if err != nil {
@@ -128,7 +128,7 @@ func CheckGlobal(ctx context.Context, tx *sql.Tx, out string) error {
 
 // render renders the parts of st, with the skill files in the skills folder dir. A tool is
 // not a brief item: its text is its contract, and the catalog of each workspace part lists it
-// (§10.1, E17-S5). An automation is not one either: its text is its binding (§10.4).
+// (E17-S5). An automation is not one either: its text is its binding.
 func (st state) render(dir string) (parts []part, files []revFile, err error) {
 	global, byKey, revision := st.items()
 	globalSkills, skillsByKey, files, err := splitSkills(st.skills, st.m, st.rows, dir)
@@ -177,7 +177,7 @@ func (st state) items() (global []brief.Item, byKey map[string][]brief.Item, rev
 	return global, byKey, revision
 }
 
-// Recallable is what the brief of a pane can deliver, as brain recall searches it (§8.6): the
+// Recallable is what the brief of a pane can deliver, as brain recall searches it: the
 // items, the skills and the tools, with the same selection and the same marks as the built
 // parts. Revision maps each of them to the revision that it shows.
 type Recallable struct {
@@ -199,12 +199,12 @@ type RecallTool struct {
 	Tool brief.Tool
 }
 
-// Recall reads, in tx, what the brief of a pane of workspace key delivers (§8.6, E20-S2, #344):
-// the global items and skills, and those of key when key is not ""; and the ready tools that the
+// Recall reads, in tx, what the brief of a pane of workspace key delivers (E20-S2, #344): the
+// global items and skills, and those of key when key is not ""; and the ready tools that the
 // pane sees, global and of key, in approval order. A pane of an unmapped or withheld workspace
-// passes "": its brief has the global part only (§8.3 step 4). Each skill has the path of its
-// revision file in the skills folder of the out folder out, as the built parts have it. An
-// automation is not in it: an agent does not call one.
+// passes "": its brief has the global part only. Each skill has the path of its revision file in
+// the skills folder of the out folder out, as the built parts have it. An automation is not in
+// it: an agent does not call one.
 func Recall(ctx context.Context, tx *sql.Tx, out, key string) (Recallable, error) {
 	st, err := read(ctx, tx)
 	if err != nil {
@@ -247,7 +247,7 @@ func sees(t store.Tool, key string) bool {
 }
 
 // catalog lists the ready tools that the panes of workspace key see, in approval order, with
-// the names of their inputs in name order (§10.1). brief.WorkspaceCatalog keeps the first 10.
+// the names of their inputs in name order. brief.WorkspaceCatalog keeps the first 10.
 func (rs toolRows) catalog(key string) ([]brief.Tool, error) {
 	_, ts, err := rs.ready(key)
 	return ts, err
@@ -271,11 +271,11 @@ func (rs toolRows) ready(key string) (ids []int64, ts []brief.Tool, err error) {
 
 // required finds the Brain tools among the required tools of a skill (a list joined by
 // commas, or "none") that a pane of workspace key sees, and of them the ones that brain run
-// refuses: not approved, or stopped (§8.2). Each name resolves as brain run finds it
+// refuses: not approved, or stopped. Each name resolves as brain run finds it
 // (store.ToolByName): a tool of the workspace first, then a global one; the approved one, then
 // the newest. A retired tool is not found, so a name with only retired tools is not approved.
 // A name that no tools row has is not a Brain tool, such as gh. The build does not read the
-// tool files: a hand-edited tool file stops the build itself (§7.5 step 5).
+// tool files: a hand-edited tool file stops the build itself.
 func (rs toolRows) required(list, key string) (brain, stopped []string) {
 	for _, name := range strings.Split(list, ",") {
 		name = strings.TrimSpace(name)
@@ -347,7 +347,7 @@ func splitSkills(skills []store.ItemRevision, m marks, rows toolRows, dir string
 // split sorts the active items into the global items and the items of each workspace. One
 // global part serves every workspace, so a conflict between a global item and a workspace
 // item shows on the workspace item only: in the global part it would show in every workspace.
-// A disputed item gets its mark (§9.1).
+// A disputed item gets its mark.
 func split(revs []store.ItemRevision, m marks) (global []brief.Item, byKey map[string][]brief.Item) {
 	scope := make(map[int64]store.Scope, len(revs))
 	for _, r := range revs {
@@ -384,8 +384,8 @@ func split(revs []store.ItemRevision, m marks) (global []brief.Item, byKey map[s
 	return global, byKey
 }
 
-// marks holds what the brief needs for the dispute marks (§9.1): the dispute of each disputed
-// item and the anchor paths of each anchored item, by item id.
+// marks holds what the brief needs for the dispute marks: the dispute of each disputed item
+// and the anchor paths of each anchored item, by item id.
 type marks struct {
 	disputes map[int64]store.Disputed
 	anchors  map[int64][]string
@@ -398,7 +398,7 @@ func (m marks) dispute(id int64) brief.Dispute {
 }
 
 // renderPart renders one part with fn and lists the item revisions in it, the skill revisions
-// too: the receipt names the skill text that the session got (§8.2).
+// too: the receipt names the skill text that the session got.
 func renderPart(name string, items []brief.Item, revision map[int64]int64, skills []skillEntry,
 	fn func([]brief.Item, ...brief.Skill) (string, error)) (part, error) {
 	entries := make([]brief.Skill, len(skills))

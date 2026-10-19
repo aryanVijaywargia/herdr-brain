@@ -13,7 +13,7 @@ import (
 
 const extractUsage = `usage: brain extract on|off [--workspace <workspace id>]`
 
-// Extract runs `brain extract` with args after "extract" (E13-S4, §7.3 D9). It records the
+// Extract runs `brain extract` with args after "extract" (E13-S4). It records the
 // extraction switch of the whole store, or of one workspace by its Brain key. It is apart from
 // brain learn: with extraction off, capture and the signal rules keep running, and Brain makes
 // no extractor call there.

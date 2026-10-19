@@ -14,11 +14,11 @@ import (
 
 const archiveUsage = `usage: brain archive [--all | --keep]`
 
-// Archive runs `brain archive` with args after "archive" (E16-S7, §9.2). With no flag it
+// Archive runs `brain archive` with args after "archive" (E16-S7). With no flag it
 // lists the archive candidates that the caller sees (E4): the global ones and those of its
 // workspace. --all retires all of them in one action; --keep keeps all of them and starts a
 // new 90-day period. Archive never deletes: brain review --restore brings an item back. The
-// items of a closed workspace are in no pane's view, so you act on them after a link (§9.4).
+// items of a closed workspace are in no pane's view, so you act on them after a link.
 func Archive(ctx context.Context, e Env, args []string) (err error) {
 	fs := flag.NewFlagSet("archive", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -47,7 +47,7 @@ func Archive(ctx context.Context, e Env, args []string) (err error) {
 
 // archiveCandidates reads the archive candidates that the caller sees, the oldest first. The
 // closed state comes from the same transaction, so a workspace that closed after the caller's
-// key was read shows nothing (§9.4).
+// key was read shows nothing.
 func (cl caller) archiveCandidates(ctx context.Context, tx *sql.Tx) ([]store.ArchiveCandidate, error) {
 	cs, err := store.ArchiveCandidates(ctx, tx, cl.Now().Add(-store.ArchiveAge))
 	if err != nil {
@@ -131,7 +131,7 @@ func (cl caller) archive(ctx context.Context, retire bool) error {
 }
 
 // retireItem retires item id, a live item (active or disputed), with a new revision that keeps its text, so that
-// restore can bring it back (§9.2).
+// restore can bring it back.
 func (cl caller) retireItem(ctx context.Context, tx *sql.Tx, id int64) error {
 	it, cur, err := cl.item(ctx, tx, id)
 	if err != nil {

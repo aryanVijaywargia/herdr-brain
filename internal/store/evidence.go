@@ -8,7 +8,7 @@ import (
 
 // Around returns the stored observations of the segment of observation id that come up to n
 // before it and up to n after it, in capture order (E20-S4, the evidence view). The text of a
-// segment never joins another segment (§6.2 step 7), so the neighbours stay in it. It reads the
+// segment never joins another segment, so the neighbours stay in it. It reads the
 // store only: no transcript.
 func Around(ctx context.Context, tx *sql.Tx, id int64, n int) (before, after []Observation, err error) {
 	const near = `SELECT o.id, o.capture_identity, o.source, o.segment_id, o.event, o.excerpt, o.truncated, o.status,

@@ -15,14 +15,14 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// The git anchors of the stale check (E16-S6, §9.1). Like the revert rule, they run only
-// read-only git commands: rev-parse, ls-files, diff, log and hash-object without -w, which
-// writes no object. An anchor holds the blob of a tracked file as it is in the work tree now [NEW]: a
-// saved edit, a git mv or a deletion counts before a commit.
+// The git anchors of the stale check (E16-S6). Like the revert rule, they run only read-only git
+// commands: rev-parse, ls-files, diff, log and hash-object without -w, which writes no object. An
+// anchor holds the blob of a tracked file as it is in the work tree now: a saved edit, a git
+// mv or a deletion counts before a commit.
 
 // wordStart and wordEnd hold the characters that a path in a text can stand between: quotes,
 // brackets and sentence marks. A path can start with a dot (.gitignore), not end with one.
-// [NEW] the path match rule: a word of the text, without these characters at its ends, a line
+// The path match rule: a word of the text, without these characters at its ends, a line
 // suffix (":12" or ":12:3") and a leading "./", that names a file which git tracks under the
 // workspace root, relative to that root.
 const (
@@ -33,12 +33,12 @@ const (
 // lineSuffix is the line and column suffix of a path, as in "a.go:12:3".
 var lineSuffix = regexp.MustCompile(`(:[0-9]+)+$`)
 
-// shortBlob is the length of a blob hash in a dispute diff [NEW], as git's short hashes.
+// shortBlob is the length of a blob hash in a dispute diff, as git's short hashes.
 const shortBlob = 7
 
 // FindAnchors returns an anchor for each path in text that git tracks under the workspace
-// root root (§9.1), each path once, in text order. A root that is "", or
-// outside git, or a repo with no commit, gives no anchor and no error.
+// root root, each path once, in text order. A root that is "", or outside git, or a repo
+// with no commit, gives no anchor and no error.
 func FindAnchors(ctx context.Context, root, text string) ([]store.Anchor, error) {
 	if root == "" {
 		return nil, nil
@@ -82,7 +82,7 @@ func pathWords(text string) []string {
 }
 
 // AnchorChange is one anchor that no longer matches git: its path holds another blob, or the
-// path is gone: git no longer tracks it, or the file is deleted (§9.1).
+// path is gone: git no longer tracks it, or the file is deleted.
 type AnchorChange struct {
 	Anchor store.Anchor
 	// Blob is the blob of the path now; "" when the path is gone.
@@ -213,7 +213,7 @@ func holder(tree map[string]string, blob string) string {
 }
 
 // AnchorDiff is the anchor diff of a dispute, as the review queue shows it: for each change,
-// the old anchor and the new one. [NEW] the form.
+// the old anchor and the new one.
 func AnchorDiff(changes []AnchorChange) string {
 	lines := make([]string, 0, 2*len(changes))
 	for _, c := range changes {

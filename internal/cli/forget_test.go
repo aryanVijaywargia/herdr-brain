@@ -20,7 +20,7 @@ import (
 )
 
 // clock returns a clock that moves one minute on each read, so the cleanup of a later call
-// finds every old generation past the hook time cap (§7.5 step 8).
+// finds every old generation past the hook time cap.
 func clock() func() time.Time {
 	t := testNow
 	return func() time.Time {
@@ -57,7 +57,7 @@ func (f *fixture) approved(t *testing.T, text string) int64 {
 }
 
 // scan returns every store field (table.column) and every file in the out folder that holds
-// marker: all columns of all tables, not only the listed text fields (S47).
+// marker: all columns of all tables, not only the listed text fields.
 func (f *fixture) scan(t *testing.T, marker string) []string {
 	t.Helper()
 	ctx := context.Background()
@@ -122,7 +122,7 @@ func (f *fixture) forgetPending(t *testing.T) bool {
 	return pending
 }
 
-// AC S47 (item part): a unique marker in two revisions, a proposal and the applied edits of
+// AC (item part): a unique marker in two revisions, a proposal and the applied edits of
 // two builds. After forget and its rebuild, no store field and no output file holds it; the
 // item keeps its ids and a tombstone, and forget reports done.
 func TestForgetScan(t *testing.T) {
@@ -226,7 +226,7 @@ func TestForgetBuildLogsNoOldBytes(t *testing.T) {
 	})
 }
 
-// AC S77: a hand edit blocks the compile, so forget reports pending, names the conflict, and
+// AC: a hand edit blocks the compile, so forget reports pending, names the conflict, and
 // the hook withholds the brief.
 func TestForgetPendingOnHandEdit(t *testing.T) {
 	f := newFixture(t)
@@ -549,7 +549,7 @@ func TestForgetSession(t *testing.T) {
 	})
 }
 
-// AC S68 (index part): brain forget --session lists the proposals that used the prompt index
+// AC (index part): brain forget --session lists the proposals that used the prompt index
 // rows of the session while the rows still exist, then deletes their text and hashes. The
 // proposal stays.
 func TestForgetSessionPromptIndex(t *testing.T) {
@@ -688,7 +688,7 @@ func sessionLinks(t *testing.T, f *fixture, id int64) int {
 	return n
 }
 
-// AC #412 (§6.8): the list line of a history scan session, which has no pane, says no pane.
+// AC #412: the list line of a history scan session, which has no pane, says no pane.
 func TestForgetScanSession(t *testing.T) {
 	f := newFixture(t)
 	sessions := scanRow(t, f.store, store.ScanExtracting, map[string]store.ScanCounts{})

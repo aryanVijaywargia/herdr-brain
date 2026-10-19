@@ -1,6 +1,6 @@
-// Package extract runs the extractor of the learning pipeline (HLD §7.3): it forms the batches
-// of the finished sessions, calls the extractor CLI outside any transaction, and commits each
-// result with the new watermark in one transaction (G3).
+// Package extract runs the extractor of the learning pipeline: it forms the batches of the
+// finished sessions, calls the extractor CLI outside any transaction, and commits each result
+// with the new watermark in one transaction.
 package extract
 
 import (
@@ -21,16 +21,15 @@ import (
 )
 
 const (
-	// idle is how long a session with work stays quiet before it is finished (§7.3).
+	// idle is how long a session with work stays quiet before it is finished.
 	idle = 10 * time.Minute
 	// retryAfter is the wait before a failed or invalid batch is tried again, unless a later
-	// call works first (#263). [NEW] 1 hour: the evidence waits, and brain status shows the
-	// failure.
+	// call works first (#263). 1 hour: the evidence waits, and brain status shows the failure.
 	retryAfter = time.Hour
 	// maxTries is the calls of an invalid batch (#347) or change request (#359); a failed one
-	// gets one more (noTryLeft). [NEW] 3: a valid answer can come at a retry, as the model
-	// answers anew each time, but the same input that gave an invalid answer 3 times gives it
-	// again, and each call uses the cap.
+	// gets one more (noTryLeft). 3: a valid answer can come at a retry, as the model answers
+	// anew each time, but the same input that gave an invalid answer 3 times gives it again,
+	// and each call uses the cap.
 	maxTries = 3
 )
 
@@ -39,11 +38,11 @@ type Pass struct {
 	Store        *store.Store
 	Runner       Runner
 	HerdrSession string // the binding: the pass reads only its sessions
-	DefaultOn    bool   // learning with no store setting: false for a test store (§12.1)
+	DefaultOn    bool   // learning with no store setting: false for a test store
 	Now          func() time.Time
 	Gates        store.Gates // nil for store.DefaultGates
 	Caps         Caps        // the zero value for DefaultCaps
-	// Suggest starts the review pane of a new lesson proposal after its commit (#253, §7.2);
+	// Suggest starts the review pane of a new lesson proposal after its commit (#253);
 	// nil for none.
 	Suggest func(ctx context.Context, s Suggestion) error
 	// Note gets one line for the brained log about a committed batch that dropped claims: how
@@ -52,7 +51,7 @@ type Pass struct {
 }
 
 // Suggestion is the reserved suggestion of a new lesson proposal (#253): the review pane opens
-// beside the agent pane where you said the lesson, as for a repeated prompt (§5.5).
+// beside the agent pane where you said the lesson, as for a repeated prompt.
 type Suggestion struct {
 	store.Suggestion
 	WorkspaceID string // the herdr workspace of the agent pane
@@ -67,17 +66,17 @@ type ref struct {
 	sender    store.Sender
 	excerpt   string
 	kind      signal.Kind          // the kind of the signal of the observation
-	lesson    bool                 // the observation starts a lesson signal too (§7.1)
+	lesson    bool                 // the observation starts a lesson signal too
 	cmd       *store.CommandRecord // the command record of the observation; nil for none
 	chain     []int64              // the observations of its command chain, in run order; nil for none
 	// earlier are the earlier occurrences of the procedures and repeated prompts that the
 	// observation starts, in the workspace key of the batch (#314). They join its evidence,
-	// but they are not input: the prompt holds a text in its own batch only (§7.3).
+	// but they are not input: the prompt holds a text in its own batch only.
 	earlier []ref
 }
 
 // job is one batch to extract: its stable id and start watermark, and its input. The known
-// claims and the brief items come from the workspace key of the batch and global (§7.3).
+// claims and the brief items come from the workspace key of the batch and global.
 type job struct {
 	batch   store.Batch
 	session store.Session
@@ -93,8 +92,8 @@ type job struct {
 
 // Run runs the pass: it runs the learned automation case, forms the batches of the finished
 // sessions and takes the change requests that wait, and extracts and commits them one after the other in round robin order across workspace keys, so a session has one
-// active batch at a time. The scan batches of the history scan come after them (§6.8). The caps
-// stop the calls; the rest waits for a later pass (§7.3). A failed batch does not stop the
+// active batch at a time. The scan batches of the history scan come after them. The caps
+// stop the calls; the rest waits for a later pass. A failed batch does not stop the
 // others.
 func (p Pass) Run(ctx context.Context) error {
 	var jobs []job
@@ -106,7 +105,7 @@ func (p Pass) Run(ctx context.Context) error {
 		if jobs, err = p.plan(ctx, tx); err != nil {
 			return err
 		}
-		// A change request is its own entry of the queue (§7.4).
+		// A change request is its own entry of the queue.
 		reqs, err := p.requests(ctx, tx)
 		if err != nil {
 			return err
@@ -117,7 +116,7 @@ func (p Pass) Run(ctx context.Context) error {
 			return err
 		}
 		jobs = order(jobs, last)
-		// Live batches go first; scan batches use what is left of the daily caps (§6.8, S93).
+		// Live batches go first; scan batches use what is left of the daily caps.
 		scan, err := p.scanPlan(ctx, tx)
 		jobs = append(jobs, scan...)
 		return err
@@ -139,7 +138,7 @@ func (p Pass) Run(ctx context.Context) error {
 		}
 	}
 	// The exact repeats of command chains need no model call (E17-S6). They run after the
-	// batches, so a skill that the extractor made of the same chain stops a tool draft (§10.3).
+	// batches, so a skill that the extractor made of the same chain stops a tool draft.
 	errs = append(errs, p.Store.Write(ctx, func(tx *sql.Tx) error { return p.exactTools(ctx, tx) }))
 	return errors.Join(errs...)
 }
@@ -156,7 +155,7 @@ func (p Pass) gates() store.Gates {
 // the watermark of the first run of observations with that key: a session that moved from A to
 // B gives a batch for A and one for B. A run with no signal needs no call: plan records an
 // empty batch and moves the watermark. The candidates expire with the wait of the oldest
-// evidence that waits for extraction (§7.2).
+// evidence that waits for extraction.
 func (p Pass) plan(ctx context.Context, tx *sql.Tx) ([]job, error) {
 	now := p.Now()
 	runs, sigs, byID, err := p.finished(ctx, tx, p.HerdrSession)
@@ -363,7 +362,7 @@ func SignInHint(cli store.ExtractorCLI) string {
 }
 
 // allowed reports whether batch j may call the extractor: extraction is on for its workspace
-// key, a CLI is chosen, and learning is on for its session, key and pane (§7.3).
+// key, a CLI is chosen, and learning is on for its session, key and pane.
 func (p Pass) allowed(ctx context.Context, tx *sql.Tx, j job) (bool, error) {
 	key := j.batch.WorkspaceKey
 	if on, err := store.ExtractionOn(ctx, tx, key); err != nil || !on {
@@ -378,7 +377,7 @@ func (p Pass) allowed(ctx context.Context, tx *sql.Tx, j job) (bool, error) {
 
 // refs returns the input of run: the observations in run of each signal that starts in run,
 // by id. An observation outside run is the input of its own batch, so nothing is extracted
-// twice (§7.3); its claim id still joins the evidence of both batches. The earlier occurrence
+// twice; its claim id still joins the evidence of both batches. The earlier occurrence
 // of a procedure or a repeated prompt joins the evidence of its later one (ref.earlier).
 func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.SignalInput) []ref {
 	in := func(id int64) bool {
@@ -386,7 +385,7 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 	}
 	kinds := map[int64]signal.Kind{}
 	// A lesson is a mark beside the kind, so a lesson that is a correction too keeps its
-	// correction kind for the comebacks (§5.4).
+	// correction kind for the comebacks.
 	lessons := map[int64]bool{}
 	earlier := map[int64][]int64{}
 	chains := map[int64][]int64{}
@@ -432,7 +431,7 @@ func refs(run []store.SignalInput, sigs []signal.Signal, byID map[int64]store.Si
 
 // inputText is the text of observation o in the extractor input: its excerpt, or its whole
 // command. The model copies the command of a tool draft whole: the excerpt is cut at 500
-// characters, the command record at 4 KB (§6.7).
+// characters, the command record at 4 KB.
 func inputText(o store.SignalInput) string {
 	if o.Command != nil && !heldBack(*o.Command) {
 		return o.Command.Argv
@@ -515,13 +514,13 @@ func (p Pass) extract(ctx context.Context, j job) error {
 	return p.commit(ctx, j, b.ID, claims, dropped, err)
 }
 
-// commit is the one transaction of batch id (G3, §7.3). A batch that is no longer active adds
-// nothing: a retry of a committed batch, or a batch that a newer one replaced. A failure or an
-// invalid response keeps the watermark; a failure at a usage or rate limit of the CLI takes its
-// call back (#377). Else it checks the settings, the watermark and the
-// input again; a forget that touched the input discards the whole result. Then it writes the
-// evidence links, candidates and proposals, and moves the watermark. The claims that check
-// dropped go to Note once the batch is committed.
+// commit is the one transaction of batch id. A batch that is no longer active adds nothing: a
+// retry of a committed batch, or a batch that a newer one replaced. A failure or an invalid
+// response keeps the watermark; a failure at a usage or rate limit of the CLI takes its call
+// back (#377). Else it checks the settings, the watermark and the input again; a forget that
+// touched the input discards the whole result. Then it writes the evidence links, candidates and
+// proposals, and moves the watermark. The claims that check dropped go to Note once the batch is
+// committed.
 func (p Pass) commit(ctx context.Context, j job, id int64, claims []Claim, dropped []string, callErr error) error {
 	var lessons []Suggestion
 	committed := false
@@ -591,7 +590,7 @@ func (p Pass) commit(ctx context.Context, j job, id int64, claims []Claim, dropp
 
 // stale returns why the result of j must be discarded, or "": extraction or learning went off,
 // the watermark moved, a forget removed an observation of the input, or the claim keys or the
-// brief items of the input changed, as a forget of an item does (§6.7, §7.3).
+// brief items of the input changed, as a forget of an item does.
 func (p Pass) stale(ctx context.Context, tx *sql.Tx, j job) (string, error) {
 	if on, err := p.allowed(ctx, tx, j); err != nil || !on {
 		return "extraction or learning is off", err
@@ -623,7 +622,7 @@ func (p Pass) stale(ctx context.Context, tx *sql.Tx, j job) (string, error) {
 }
 
 // watermark returns the watermark of the session and workspace key of batch b now; for a scan
-// batch, the last committed finding id of its scope (§6.8 "Proposals").
+// batch, the last committed finding id of its scope.
 func watermark(ctx context.Context, tx *sql.Tx, b store.Batch) (int64, error) {
 	if b.Scan() {
 		n, err := store.ScanProgress(ctx, tx, b.ScanID, b.WorkspaceKey)
@@ -632,9 +631,9 @@ func watermark(ctx context.Context, tx *sql.Tx, b store.Batch) (int64, error) {
 	return store.Watermark(ctx, tx, b.SessionID, b.WorkspaceKey)
 }
 
-// advance moves the watermark past batch b in the transaction that commits it (G3); for a scan
-// batch, the progress of its scope to its last finding (§6.8). stale checked the start in the
-// same transaction, so the move cannot miss.
+// advance moves the watermark past batch b in the transaction that commits it; for a scan batch,
+// the progress of its scope to its last finding. stale checked the start in the same
+// transaction, so the move cannot miss.
 func advance(ctx context.Context, tx *sql.Tx, b store.Batch) error {
 	if b.Scan() {
 		_, err := store.MoveScanProgress(ctx, tx, b.ScanID, b.WorkspaceKey, int(b.StartWatermark), b.LastFinding)
@@ -659,10 +658,10 @@ func untombstoned(ctx context.Context, tx *sql.Tx, refs []ref) ([]ref, error) {
 }
 
 // write stores claim c of batch j: its claim id, a proposed same_as link, and each ref as
-// evidence of the candidate of the claim in its scope. A tombstoned claim or ref adds nothing
-// (§6.7): a forget erases the claim key, so the tombstone source keys stop the same evidence.
+// evidence of the candidate of the claim in its scope. A tombstoned claim or ref adds nothing:
+// a forget erases the claim key, so the tombstone source keys stop the same evidence.
 // A known claim (the same claim id) gets the evidence first; propose then drops the duplicate
-// proposal (§7.3). A same_as link to a claim that a proposal or an active item holds gives the
+// proposal. A same_as link to a claim that a proposal or an active item holds gives the
 // evidence to that claim (restate). A same_as link to an open claim of the same kind in the same
 // scope adds the evidence to that claim's candidate (merge). A candidate that reaches its gate
 // gets a proposal, but a claim that an active skill covers goes to that skill: it makes no
@@ -672,7 +671,7 @@ func (p Pass) write(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Ti
 	if c.Refs = kept; err != nil || len(kept) == 0 {
 		return Suggestion{}, err
 	}
-	// No tool from a command that held a secret or was cut (§6.7): the claim adds nothing.
+	// No tool from a command that held a secret or was cut: the claim adds nothing.
 	if c.Tool != "" && slices.ContainsFunc(c.Refs, func(r ref) bool { return r.cmd != nil && heldBack(*r.cmd) }) {
 		return Suggestion{}, nil
 	}
@@ -753,7 +752,7 @@ func recordOutcomes(ctx context.Context, tx *sql.Tx, j job, claim string, c Clai
 }
 
 // link records the claim kind and the permission flag of claim c on its claim id claim, and
-// its same_as link. The model guess alone is not proof (§5.4, §7.2): the link stays proposed,
+// its same_as link. The model guess alone is not proof: the link stays proposed,
 // so an active item of the other claim gets no comeback from it (outcomes). check found
 // c.SameAs in the input.
 func link(ctx context.Context, tx *sql.Tx, claim string, c Claim) error {
@@ -820,7 +819,7 @@ func (p Pass) attach(ctx context.Context, tx *sql.Tx, cand store.Candidate, refs
 
 // attachEarlier adds the earlier occurrences of accepted, the refs that Attach accepted for
 // candidate id of cand, as evidence of it (#314): the first telling of a procedure or a repeated
-// prompt counts too, so three tellings reach the gate of 3 (§7.2). Each joins only when it may
+// prompt counts too, so three tellings reach the gate of 3. Each joins only when it may
 // (joins). Attach makes the other checks of any ref, and adds an occurrence once.
 func (p Pass) attachEarlier(ctx context.Context, tx *sql.Tx, cand store.Candidate, id int64, accepted []ref) error {
 	for _, r := range accepted {
@@ -875,9 +874,9 @@ func checked(ctx context.Context, tx *sql.Tx, cand store.Candidate, refs []ref) 
 
 // linkTarget returns the claim that the proposed same_as link of claim names, for claim c with
 // claim id claim. It returns false for no link, and when either claim is a permission or a
-// safety rule: Brain never merges those without review (§7.2), so the link stays for review.
+// safety rule: Brain never merges those without review, so the link stays for review.
 // The text of a brain remember item counts as the key of its claim (store.ClaimText). For two
-// procedures only Brain's own check counts, not the recorded flags (§7.3 Output, #348): a
+// procedures only Brain's own check counts, not the recorded flags (#348): a
 // procedure is no rule, and a model flag on it marks a step that touches a permission, as the
 // commit and the tag of a release do. That flag stays the warning of the proposal. Brain checks
 // the whole text of c and the key of the other claim: a merge proposes the text of c (propose),
@@ -898,7 +897,7 @@ func linkTarget(ctx context.Context, tx *sql.Tx, claim string, c Claim) (store.C
 }
 
 // permissionPair reports whether the same_as link of claim cl, told as claim c, to claim other
-// joins a permission or a safety rule, so that only you can merge it (§7.2), as linkTarget says.
+// joins a permission or a safety rule, so that only you can merge it, as linkTarget says.
 func permissionPair(ctx context.Context, tx *sql.Tx, cl, other store.Claim, c Claim) (bool, error) {
 	flagged := c.TouchesPermission || cl.TouchesPermission || other.TouchesPermission
 	if mergeKind(c.Kind) == "procedure" && mergeKind(other.Kind) == "procedure" {
@@ -910,7 +909,7 @@ func permissionPair(ctx context.Context, tx *sql.Tx, cl, other store.Claim, c Cl
 
 // heldBy returns the claim that holds claim c with claim id claim in the scope with key, else
 // "": c then restates a lesson that you have, review or rejected already, and makes no candidate
-// and no proposal of its own (§7.3 order for a known claim). These hold it:
+// and no proposal of its own. These hold it:
 //   - proven, the claim of the item of the brief whose current text c gives (restated, #364);
 //   - the claim of the proposed same_as link of c, as linkHolds says (#312, #313, #366);
 //   - an active or pending tool that procedure c asks to run (toolHolds, #365).
@@ -940,7 +939,7 @@ func heldBy(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim, key, 
 //     says so (#366);
 //   - else, when the link may merge (linkTarget), and a pending proposal or an active item holds
 //     that claim in the scope (store.ClaimHeld, #312). A skill or a tool is another thing than
-//     the rule that it restates (§10): a tool keeps its own candidate, and only a skill holds a
+//     the rule that it restates: a tool keeps its own candidate, and only a skill holds a
 //     skill (store.SkillHeld, #313).
 func linkHolds(ctx context.Context, tx *sql.Tx, j job, claim string, c Claim, key string) (string, bool, error) {
 	if ownCommands(c) {
@@ -1064,13 +1063,13 @@ func names(words []string, steps [][]string) bool {
 	return len(steps) > 0
 }
 
-// restate stores the evidence of claim c with claim id claim, which restates claim held
-// (heldBy): no candidate of its own and no proposal (§7.3 order for a known claim). The
-// candidate of held in the scope with key gets the evidence that it accepts, of its own kind,
-// marked as merged (store.Candidate.Via), so the evidence view of its proposal shows it. With
-// no such candidate, as for an item of brain remember, the evidence has no place and is
-// dropped. Either way the corrections that the evidence check accepts count for the active
-// items of held, as an uncertain comeback (§5.4). A forgotten claim held adds nothing (§6.7).
+// restate stores the evidence of claim c with claim id claim, which restates claim held (heldBy):
+// no candidate of its own and no proposal. The candidate of held in the scope with key gets the
+// evidence that it accepts, of its own kind, marked as merged (store.Candidate.Via), so the
+// evidence view of its proposal shows it. With no such candidate, as for an item of brain remember,
+// the evidence has no place and is dropped. Either way the corrections that the evidence check
+// accepts count for the active items of held, as an uncertain comeback. A forgotten claim held adds
+// nothing.
 func (p Pass) restate(ctx context.Context, tx *sql.Tx, j job, claim, held string, c Claim, key string, now time.Time) error {
 	if ts, err := store.TombstonesByClaim(ctx, tx, held); err != nil || len(ts) > 0 {
 		return err
@@ -1093,7 +1092,7 @@ func (p Pass) restate(ctx context.Context, tx *sql.Tx, j job, claim, held string
 }
 
 // mergeInto returns the claim whose candidate gets the evidence of claim c with claim id claim,
-// in the scope with key: the claim of its proposed same_as link, else claim (#279, §7.2). The
+// in the scope with key: the claim of its proposed same_as link, else claim (#279). The
 // link merges only into an open candidate of kind in the same scope, or of tool output alone
 // that kind turns into its kind (overTool, #361), of a claim of the same claim kind with no
 // item there, and only when neither claim is a permission or a safety rule and the claim of c
@@ -1149,7 +1148,7 @@ func corrections(kind store.CandidateKind, refs []ref) []ref {
 // failures returns the new failures of a claim for the skill that covers it (E20-S5): its
 // corrections in accepted, the evidence that Attach accepted for its candidate of kind, and each
 // tool failure in refs, the checked refs of the claim. A correction candidate refuses tool
-// output (§6.5), but a tool failure in the steps of a skill is a failure of the skill.
+// output, but a tool failure in the steps of a skill is a failure of the skill.
 func failures(kind store.CandidateKind, accepted, refs []ref) []ref {
 	fs := corrections(kind, accepted)
 	for _, r := range refs {
@@ -1162,7 +1161,7 @@ func failures(kind store.CandidateKind, accepted, refs []ref) []ref {
 
 // skillOutcomes records an outcome of each new failure in refs for each active item of skill,
 // the claim of the skill that covers them, in the scope of batch j (E20-S5): the skill gets the
-// comeback of the revision that the session got, as an item of the claim does (§5.4). base
+// comeback of the revision that the session got, as an item of the claim does. base
 // holds the session, the failure claim and the time. It reports whether such a skill exists.
 func skillOutcomes(ctx context.Context, tx *sql.Tx, j job, skill string, refs []ref, base store.Outcome) (bool, error) {
 	if skill == "" {
@@ -1188,11 +1187,11 @@ func skillOutcomes(ctx context.Context, tx *sql.Tx, j job, skill string, refs []
 	return true, nil
 }
 
-// outcomes records an outcome of each new correction in refs of claim, for each active item of the claim in the scope of batch j, after the evidence (§5.4, §7.3
-// order for a known claim). An active item of the claim that an unconfirmed same_as link of
-// claim names gets an uncertain outcome instead of a comeback. A second comeback on one
-// revision queues the change request of that revision (outcome). base holds the session, the
-// failure claim and the time.
+// outcomes records an outcome of each new correction in refs of claim, for each active item of
+// the claim in the scope of batch j, after the evidence. An active item of the claim that an
+// unconfirmed same_as link of claim names gets an uncertain outcome instead of a comeback. A
+// second comeback on one revision queues the change request of that revision (outcome). base
+// holds the session, the failure claim and the time.
 func outcomes(ctx context.Context, tx *sql.Tx, j job, claim string, refs []ref, base store.Outcome) error {
 	key := j.batch.WorkspaceKey
 	items, err := store.ActiveClaimItems(ctx, tx, claim, key)
@@ -1271,9 +1270,9 @@ func outcome(ctx context.Context, tx *sql.Tx, o store.Outcome, d store.Delivery,
 }
 
 // outcomeOf is the outcome for item of a session whose last receipt before the observation is
-// d (§5.4): ok is false when no single receipt ties to the session. It returns the revision that
+// d: ok is false when no single receipt ties to the session. It returns the revision that
 // d names, and false when the session got no revision of the item: no outcome. A revision that
-// brain recall returned on d comes first, also on a withheld receipt: recall printed it (§8.6).
+// brain recall returned on d comes first, also on a withheld receipt: recall printed it.
 func outcomeOf(d store.Delivery, ok bool, item int64) (store.OutcomeKind, int64, bool) {
 	for _, r := range d.Recalled {
 		if ok && r.Item == item {
@@ -1295,12 +1294,12 @@ func outcomeOf(d store.Delivery, ok bool, item int64) (store.OutcomeKind, int64,
 }
 
 // candidateKind is the candidate kind of claim c: the kind follows the claim, not the first
-// signal of its evidence (#280, §7.2). A tool is a command chain. A lesson claim with lesson
-// evidence is a lesson, as a lesson needs both the local rule and the extractor (§7.1); any
+// signal of its evidence (#280). A tool is a command chain. A lesson claim with lesson
+// evidence is a lesson, as a lesson needs both the local rule and the extractor; any
 // other lesson and a correction is a correction. A procedure or a skill is a procedure. A
 // preference or a fact is a correction. Only tool output can support a failure or a command
-// chain (§6.5), so a claim with no text of yours keeps that kind of its evidence: a skill of a
-// command chain that needs judgment (§10.3) or a preference from failure output alone.
+// chain, so a claim with no text of yours keeps that kind of its evidence: a skill of a
+// command chain that needs judgment or a preference from failure output alone.
 func candidateKind(c Claim) store.CandidateKind {
 	if c.Tool != "" {
 		return store.CandidateCommandChain
@@ -1330,12 +1329,12 @@ func candidateKind(c Claim) store.CandidateKind {
 }
 
 // propose makes a proposal of candidate id when it reached its gate and its claim has no
-// pending proposal, no item and no rejection in its scope (§7.2, §7.3). The proposal goes
+// pending proposal, no item and no rejection in its scope. The proposal goes
 // through store.ProposeCandidate. Its draft item gets the scope and workspace key of the
-// candidate. It stores the §7.4 fields: the excerpts stay in the evidence links, and the
+// candidate. It stores the review fields: the excerpts stay in the evidence links, and the
 // proposal holds the hashes of its trigger prompts (store.ProposeCandidate) and the items that
 // it conflicts with. A lesson proposal of batch j gets its suggestion, but a scan proposal opens
-// no review pane: no agent pane asked for it (§6.8, S86).
+// no review pane: no agent pane asked for it.
 func (p Pass) propose(ctx context.Context, tx *sql.Tx, j job, id int64, c Claim, now time.Time) (Suggestion, error) {
 	cand, pid, err := p.proposal(ctx, tx, id, c, now)
 	if err != nil || pid == 0 || cand.Kind != store.CandidateLesson || j.batch.Scan() {
@@ -1411,7 +1410,7 @@ func (p Pass) proposal(ctx context.Context, tx *sql.Tx, id int64, c Claim, now t
 
 // linkRejected reports whether the claim of candidate cand has a same_as link that waits for
 // review to a claim that you rejected in its scope: the same request in other words, as the
-// extractor says. The rejection holds it until you decide the link (#365, §7.2): a merge keeps
+// extractor says. The rejection holds it until you decide the link (#365): a merge keeps
 // the rejection, and keep apart frees the claim.
 func linkRejected(ctx context.Context, tx *sql.Tx, cand store.Candidate) (bool, error) {
 	cl, err := store.ClaimByID(ctx, tx, cand.ClaimID)
@@ -1422,7 +1421,7 @@ func linkRejected(ctx context.Context, tx *sql.Tx, cand store.Candidate) (bool, 
 }
 
 // lessonSuggestion reserves the suggestion of proposal pid of lesson candidate cand beside the
-// agent pane of its newest evidence: the lesson of this batch (#253, §7.2). A suggestion that
+// agent pane of its newest evidence: the lesson of this batch (#253). A suggestion that
 // Brain cannot reserve leaves the proposal in brain review, as any proposal.
 func lessonSuggestion(ctx context.Context, tx *sql.Tx, cand store.Candidate, pid int64, now time.Time) (Suggestion, error) {
 	obs, err := store.NewestEvidence(ctx, tx, cand.ID)
@@ -1440,9 +1439,9 @@ func lessonSuggestion(ctx context.Context, tx *sql.Tx, cand store.Candidate, pid
 	return Suggestion{Suggestion: s, WorkspaceID: w.HerdrWorkspaceID}, nil
 }
 
-// itemKind is the item kind of a proposal of claim c. [NEW] a fact claim makes a fact, a skill
-// claim a skill (E16-S4), a tool claim a tool (E17-S6); every other claim kind makes a
-// preference, the kind of a lesson.
+// itemKind is the item kind of a proposal of claim c. A fact claim makes a fact, a skill claim a
+// skill (E16-S4), a tool claim a tool (E17-S6); every other claim kind makes a preference, the
+// kind of a lesson.
 func itemKind(c Claim) store.Kind {
 	switch c.Kind {
 	case "fact":
@@ -1468,8 +1467,8 @@ func claimKey(c Claim) store.ClaimKey {
 func claimText(c Claim) string { return brief.ClaimText(c.Situation, c.Rule) }
 
 // draft is the text and the diff of a new item of claim c: the skill text for a skill (the
-// review shows the whole file, S8), the tool text for a tool (the whole contract, E17-S3), else
-// the claim text.
+// review shows the whole file), the tool text for a tool (the whole contract, E17-S3), else the
+// claim text.
 func draft(c Claim) (text, diff string) {
 	switch {
 	case c.Skill != nil:
@@ -1490,9 +1489,9 @@ func redactClaim(c Claim) Claim {
 }
 
 // conflictItems returns the conflicts of a proposal of claim c for candidate cand: the active
-// items of the claim that c names in conflicts_with, in the scope of cand. [NEW] a claim with
-// no active item gives no conflict: there is nothing in the brief to conflict with. The
-// trigger prompts come from the prompt index (store.ProposeCandidate, E14-S1).
+// items of the claim that c names in conflicts_with, in the scope of cand. A claim with no
+// active item gives no conflict: there is nothing in the brief to conflict with. The trigger
+// prompts come from the prompt index (store.ProposeCandidate, E14-S1).
 func conflictItems(ctx context.Context, tx *sql.Tx, cand store.Candidate, c Claim) ([]int64, error) {
 	if c.ConflictsWith == "" {
 		return nil, nil
@@ -1513,9 +1512,8 @@ func target(ctx context.Context, tx *sql.Tx, c store.Candidate) (string, error) 
 	return fmt.Sprintf("workspace %s (%s)", w.HerdrWorkspaceID, w.Label), nil
 }
 
-// Redact replaces each secret that the secret filter finds in s with "[secret]" [NEW]: model
-// text goes through the filter before Brain stores it, and an excerpt before a proposal shows
-// it (§7.4).
+// Redact replaces each secret that the secret filter finds in s with "[secret]": model text goes
+// through the filter before Brain stores it, and an excerpt before a proposal shows it.
 func Redact(s string) string {
 	var b strings.Builder
 	end := 0
@@ -1532,8 +1530,8 @@ func Redact(s string) string {
 	return b.String()
 }
 
-// normal is the normal form of a claim key text (§7.2) [NEW]: lower case with single spaces and
-// no end punctuation (#279), so "Writing code." and "writing  code" are one key.
+// normal is the normal form of a claim key text: lower case with single spaces and no end
+// punctuation (#279), so "Writing code." and "writing  code" are one key.
 func normal(s string) string {
 	return strings.TrimRight(strings.Join(strings.Fields(strings.ToLower(s)), " "), ".!?;:, ")
 }

@@ -31,7 +31,7 @@ func kindOf(kind, rule string) func(context.Context, string) ([]byte, error) {
 }
 
 // capturedSession stores one ended session of agent id with texts in ws-A, as herdr capture
-// stores them: the sender is unconfirmed (§6.3).
+// stores them: the sender is unconfirmed.
 func (f *fixture) capturedSession(id string, texts ...string) {
 	f.t.Helper()
 	lines := make([]line, len(texts))
@@ -149,8 +149,8 @@ func TestLessonNeedsRuleAndExtractor(t *testing.T) {
 	}
 }
 
-// Sol finding on #261: a correction with a lesson word of an approved lesson keeps its
-// correction mark, so it is a comeback of the item (§5.4).
+// #261: a correction with a lesson word of an approved lesson keeps its correction mark, so it
+// is a comeback of the item.
 func TestLessonCorrectionComeback(t *testing.T) {
 	f := newFixture(t)
 	item := f.revisedItem(1)

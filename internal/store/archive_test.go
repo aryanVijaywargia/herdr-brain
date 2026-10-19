@@ -96,7 +96,7 @@ func TestArchiveCandidatesAge(t *testing.T) {
 	}
 }
 
-// AC (S29): a pinned item with no session for 6 months stays active and is no candidate. An
+// AC: a pinned item with no session for 6 months stays active and is no candidate. An
 // unpin starts its age.
 func TestArchiveCandidatesPinned(t *testing.T) {
 	a := newArchiveStore(t)
@@ -172,7 +172,7 @@ func TestClosedWorkspaces(t *testing.T) {
 	}
 }
 
-// A disputed item is still delivered (§9.1), so it ages like an active one. A candidate of a
+// A disputed item is still delivered, so it ages like an active one. A candidate of a
 // closed workspace says so, and ClosedWorkspaces counts its disputed items.
 func TestArchiveCandidatesDisputedClosed(t *testing.T) {
 	a := newArchiveStore(t)

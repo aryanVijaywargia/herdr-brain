@@ -10,8 +10,8 @@ import (
 // names the claim of the item, by id and link, when that link is its only use: a restatement
 // with no evidence in place (#312) or a merge into the candidate of the item's scope (#279).
 // While the linked claim has an item, or a candidate of its own in another scope, or brought
-// evidence to a candidate in another scope, that use keeps its key (§6.7, §7.2). A candidate of
-// its own in the scope of the item does not keep it (#389).
+// evidence to a candidate in another scope, that use keeps its key. A candidate of its own in
+// the scope of the item does not keep it (#389).
 func TestEraseItemLinkedClaim(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range []struct {

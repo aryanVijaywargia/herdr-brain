@@ -1,5 +1,5 @@
-# Exclusion probes (HLD §12.1 "Stages", E10-S3). Each one calls `brain hook` directly in the
-# case's shell pane with test start input, in one herdr state (hook):
+# Exclusion probes (E10-S3). Each one calls `brain hook` directly in the case's shell pane with
+# test start input, in one herdr state (hook):
 #   no-herdr-env     HERDR_ENV is not set
 #   closed-pane      HERDR_PANE_ID names a pane that the runner opened and closed
 #   no-herdr-answer  herdr answers after the hook's lookup deadline

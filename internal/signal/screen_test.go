@@ -68,8 +68,8 @@ func TestFailureDiffWrap(t *testing.T) {
 }
 
 // toolTexts returns the tool output of lines as observations, ids from 1: each runs from a line
-// with tool mark to the next line at column 0, as capture groups a read (§6.5). Capture never
-// sees a blank line: Screen drops it, so it is skipped here too.
+// with tool mark to the next line at column 0, as capture groups a read. Capture never sees a
+// blank line: Screen drops it, so it is skipped here too.
 func toolTexts(lines []string, mark string) []store.SignalInput {
 	var ins []store.SignalInput
 	var part []string

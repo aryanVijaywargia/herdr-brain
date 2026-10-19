@@ -12,7 +12,7 @@ import (
 )
 
 // Handler gets the steps of the panes that brained follows, one at a time and in order, so
-// the reads of a pane are one at a time (HLD §6.2 step 3). Capture reads the pane in it.
+// the reads of a pane are one at a time. Capture reads the pane in it.
 //
 // A handler must check the learning state in the transaction that writes: it writes only
 // when Gate.Learning gives the same state as the step of its last baseline. Otherwise it
@@ -43,8 +43,8 @@ type Gap string
 // The gaps of a baseline.
 const (
 	GapNone     Gap = ""            // a new pane or a new agent: nothing is missing
-	GapStart    Gap = "start"       // brained started; it missed what came before (S13, S32)
-	GapBehind   Gap = "behind"      // brained dropped events (S39)
+	GapStart    Gap = "start"       // brained started; it missed what came before
+	GapBehind   Gap = "behind"      // brained dropped events
 	GapConnect  Gap = "reconnect"   // the event socket failed; brained connected again
 	GapLearning Gap = "learning on" // learning was off, so the text of that time is not read
 )
@@ -77,7 +77,7 @@ type Learning struct {
 	Changed time.Time // the latest change of a setting that applies; zero when none applies
 }
 
-// Gate is the one learning check of a bound herdr session (E9-S4, HLD §8.3). brained and the
+// Gate is the one learning check of a bound herdr session (E9-S4). brained and the
 // handler call it with the same arguments.
 type Gate struct {
 	Binding bindings.Binding
@@ -90,7 +90,7 @@ func NewGate(b bindings.Binding) Gate {
 }
 
 // Learning returns the learning state of pane paneID in workspace workspaceID, read in tx. A
-// test store has learning off by default (§12.1), as in brain learn. A withheld workspace
+// test store has learning off by default, as in brain learn. A withheld workspace
 // keeps its key, so a switch of that workspace still applies.
 func (g Gate) Learning(ctx context.Context, tx *sql.Tx, paneID, workspaceID string) (Learning, error) {
 	key, err := g.workspaceKey(workspaceID)

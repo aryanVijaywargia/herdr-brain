@@ -11,11 +11,10 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 )
 
-// updateRecords is the hook record step of brain update (owner decision 2026-10-08, #315,
-// §8.5). For each installed CLI whose Brain start entry is in place, it plans the hook record
-// entries that the profile turns on and that are missing, as setup does, and asks once: yes
-// adds them, and any other answer writes nothing. A CLI with no start entry needs brain setup,
-// which adds both, so the step skips it.
+// updateRecords is the hook record step of brain update (#315). For each installed CLI whose
+// Brain start entry is in place, it plans the hook record entries that the profile turns on and
+// that are missing, as setup does, and asks once: yes adds them, and any other answer writes
+// nothing. A CLI with no start entry needs brain setup, which adds both, so the step skips it.
 func updateRecords(d setupDeps, in *bufio.Reader, stdout io.Writer) error {
 	bin, err := paths.BinaryPath()
 	if err != nil {

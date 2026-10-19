@@ -129,7 +129,7 @@ func TestRevertsOutsideGit(t *testing.T) {
 }
 
 // AC #283: a file that an agent changed and that goes back to its committed content with no
-// commit is a revert (the S7 shape: `git checkout -- <file>`). A further edit, a commit of the
+// commit is a revert (the `git checkout -- <file>` shape). A further edit, a commit of the
 // change and an untracked file are not.
 func TestWorkChanges(t *testing.T) {
 	gitEnv(t)
@@ -197,7 +197,7 @@ func writeIn(t *testing.T, dir, name, content string) {
 }
 
 // A modified symlink has the blob of its link text, as git stores it, also when the file that
-// it points at is gone (Sol review of #283).
+// it points at is gone (#283).
 func TestWorkChangesSymlink(t *testing.T) {
 	gitEnv(t)
 	ctx := context.Background()

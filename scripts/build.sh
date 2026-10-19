@@ -112,7 +112,7 @@ base="${BRAIN_RELEASE_BASE_URL:-https://github.com/aryanVijaywargia/herdr-brain/
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-# [NEW] 10 s connect timeout: herdr has no build timeout, so a dead network falls back to Go fast.
+# 10 s connect timeout: herdr has no build timeout, so a dead network falls back to Go fast.
 fetch() { curl -fsSL --connect-timeout 10 -o "$tmp/$1" "$base/$1" 2>/dev/null; }
 fetch checksums.txt || no_asset "cannot download $base/checksums.txt"
 fetch "$asset" || no_asset "cannot download $base/$asset"

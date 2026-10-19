@@ -83,7 +83,7 @@ func (f *fixture) outcomes() []string {
 
 // AC: one test per branch, with receipt and observation fixtures. The item has 3 revisions;
 // the session observes the mistake at t0. The comeback counts against the revision that the
-// last receipt before the observation names, never the current revision (S24).
+// last receipt before the observation names, never the current revision.
 func TestOutcomeBranches(t *testing.T) {
 	rev := func(item, n int64) store.RevisionRef { return store.RevisionRef{Item: item, Revision: n} }
 	for _, c := range []struct {
@@ -274,7 +274,7 @@ func TestComebacksOnTwoRevisions(t *testing.T) {
 }
 
 // brain forget --session deletes the outcomes of the session, and an item forget the outcomes
-// of the item (§6.7).
+// of the item.
 func TestForgetOutcomes(t *testing.T) {
 	f := newFixture(t)
 	item := f.revisedItem(2)

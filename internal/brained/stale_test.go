@@ -137,7 +137,7 @@ func staleRows(t *testing.T, dir string, id int64) (it store.Item, revisions int
 	return it, revisions, ps
 }
 
-// AC S9 and S72 in brained: a renamed file makes its item disputed, with the anchor diff in
+// AC in brained: a renamed file makes its item disputed, with the anchor diff in
 // the queue and the mark in the built brief. Brain does not change the item: no new revision,
 // and the next check adds no second proposal.
 func TestStale(t *testing.T) {
@@ -181,7 +181,7 @@ func TestStale(t *testing.T) {
 	}
 }
 
-// AC S72 (#252): the anchor file of one item is deleted, and the anchor file of another item
+// AC (#252): the anchor file of one item is deleted, and the anchor file of another item
 // gets a normal edit. The first item is disputed with the deleted mark until you decide. The
 // second stays active with no mark and no review task, and its anchor gets the new blob, so
 // the next check finds nothing to do.
@@ -284,7 +284,7 @@ func TestStaleOldEditDispute(t *testing.T) {
 		t.Errorf("brief workspace part = %q, want %q", b.Workspace, want)
 	}
 
-	// The deleted file is back: its dispute waits for your decision (§9.1).
+	// The deleted file is back: its dispute waits for your decision.
 	git(t, root, "checkout", "-q", "HEAD~1", "--", "drop.go")
 	git(t, root, "commit", "-q", "-m", "restore")
 	if err := Stale(ctx, g, "", now); err != nil {
@@ -313,7 +313,7 @@ func TestStaleNoRepo(t *testing.T) {
 	}
 }
 
-// The end of a captured session runs the stale check of its workspace (§9.1). An end with no
+// The end of a captured session runs the stale check of its workspace. An end with no
 // session runs none.
 func TestCaptureEndStale(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
@@ -354,7 +354,7 @@ func writeFile(t *testing.T, path string, v any) {
 	}
 }
 
-// A tick starts the stale check of every workspace of the bound store (§9.1 "once a day"). No
+// A tick starts the stale check of every workspace of the bound store (once a day). No
 // second check starts less than staleEvery after the last start.
 func TestStaleTrigger(t *testing.T) {
 	h := newHarness(t, bindings.KindMain)

@@ -166,7 +166,7 @@ func TestRestartKeepsKey(t *testing.T) {
 		t.Errorf("project = %q, want %q", before.Project, canon(t, repo))
 	}
 
-	// A restart keeps the ids and the last saved identity_cwd [M0]; herdr saves on stop.
+	// A restart keeps the ids and the last saved identity_cwd; herdr saves on stop.
 	save(t, s, map[string]string{"w1": repo})
 	refresh(t, s, w("w1", "brain"))
 	if after := mapped(t, s, "w1"); after.Key != before.Key {
@@ -225,7 +225,7 @@ func TestRootPaneCloseAndRenameKeepKey(t *testing.T) {
 
 // AC: root saved in another project folder: the workspace part is withheld ("withheld:
 // identity"); status offers a remap; a remap gives a new key; the old items are listed for
-// relink, not moved (S83).
+// relink, not moved.
 func TestOtherProjectWithheldAndRemap(t *testing.T) {
 	a, b := gitRepo(t), gitRepo(t)
 	s := newSession(t, "default")
@@ -331,7 +331,7 @@ func TestRefreshUnreadableRootStaysUnmapped(t *testing.T) {
 	}
 }
 
-// AC: w14 in session A and w14 in session B: two keys (S79). Both sessions share the main
+// AC: w14 in session A and w14 in session B: two keys. Both sessions share the main
 // store, so they share one map file.
 func TestSameIDInTwoSessions(t *testing.T) {
 	repo := gitRepo(t)
@@ -346,7 +346,7 @@ func TestSameIDInTwoSessions(t *testing.T) {
 	}
 }
 
-// AC: a new workspace not yet mapped: the hook sees "unmapped" (S48; the hook itself is E7).
+// AC: a new workspace not yet mapped: the hook sees "unmapped" (the hook itself is E7).
 func TestNewWorkspaceUnmapped(t *testing.T) {
 	repo := gitRepo(t)
 	s := newSession(t, "default")
@@ -368,7 +368,7 @@ func TestRecreatedSessionHookFirst(t *testing.T) {
 	refresh(t, s, w("w1", "brain"))
 	old := mapped(t, s, "w1")
 
-	// herdr state deleted and the session recreated: w1 is reused for another folder [M0].
+	// herdr state deleted and the session recreated: w1 is reused for another folder.
 	save(t, s, map[string]string{"w1": other})
 	if m := lookup(t, s, "w1"); m.State != Withheld {
 		t.Fatalf("hook Lookup(w1).State = %q, want %q", m.State, Withheld)

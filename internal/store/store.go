@@ -1,5 +1,5 @@
 // Package store opens the SQLite store, one file brain.db per store folder, and brings it to
-// the latest schema version (HLD §7.5, §11). SQLite is the only source of truth.
+// the latest schema version. SQLite is the only source of truth.
 package store
 
 import (
@@ -98,7 +98,7 @@ func setup(ctx context.Context, db *sql.DB, busyTimeout time.Duration, ms []migr
 	return nil
 }
 
-// walRetry is the pause between two tries to switch a new store to WAL. [NEW]
+// walRetry is the pause between two tries to switch a new store to WAL.
 const walRetry = 5 * time.Millisecond
 
 // setWAL switches the store to WAL mode. SQLite does not always call the busy handler for a

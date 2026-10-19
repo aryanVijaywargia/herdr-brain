@@ -1,7 +1,7 @@
--- The M1 tables (HLD §11, E3-S2). adapters and file_snapshots live in <data home>/install.json
--- (E8), not here. Columns that §11 marks M2 come with a later migration.
+-- The M1 tables (E3-S2). adapters and file_snapshots live in <data home>/install.json
+-- (E8), not here. Columns of M2 come with a later migration.
 --
--- Conventions, all [NEW]:
+-- Conventions:
 -- - STRICT tables, so SQLite refuses a value of the wrong type.
 -- - Times are UTC RFC 3339 text with milliseconds, for example 2026-09-28T10:00:00.000Z.
 -- - Yes/no columns are INTEGER 0 or 1.
@@ -32,10 +32,10 @@ CREATE TABLE items (
 	CHECK ((scope = 'global') = (workspace_key IS NULL))
 ) STRICT;
 
--- M1 has no status values for a proposal in §11. The [NEW] set: pending until you decide,
--- then approved, rejected, or changed (you asked for a change, §7.4). superseded is a proposal
--- that Brain replaced after its base revision went stale (§7.4, S26). "Later" only mutes a
--- proposal for one session (§5.1, §5.5), so it stays pending.
+-- M1 has no status values for a proposal. The set: pending until you decide, then
+-- approved, rejected, or changed (you asked for a change). superseded is a proposal that Brain
+-- replaced after its base revision went stale. "Later" only mutes a proposal for one
+-- session, so it stays pending.
 CREATE TABLE proposals (
 	id                 INTEGER PRIMARY KEY,
 	candidate_id       INTEGER,
@@ -74,12 +74,12 @@ CREATE TABLE item_revisions (
 	created               TEXT NOT NULL,
 	PRIMARY KEY (item_id, revision),
 	CHECK ((scope = 'global') = (workspace_key IS NULL)),
-	-- The exception link is a global item and its revision (§7.4): both or neither.
+	-- The exception link is a global item and its revision: both or neither.
 	CHECK ((exception_to_item IS NULL) = (exception_to_revision IS NULL))
 ) STRICT;
 
 -- manifest_hash and built_at stay NULL from the commit that records a generation until the
--- compiler builds it (§7.5 steps 2-3).
+-- compiler builds it.
 CREATE TABLE outputs (
 	generation           INTEGER PRIMARY KEY CHECK (generation >= 1),
 	folder               TEXT NOT NULL,
@@ -102,7 +102,7 @@ CREATE TABLE applied_edits (
 	rolled_back    TEXT
 ) STRICT;
 
--- item_revisions is a JSON array of {"item": id, "revision": n} objects. [NEW] the form.
+-- item_revisions is a JSON array of {"item": id, "revision": n} objects.
 CREATE TABLE deliveries (
 	id                INTEGER PRIMARY KEY,
 	profile           TEXT NOT NULL,
@@ -118,9 +118,9 @@ CREATE TABLE deliveries (
 	at                TEXT NOT NULL
 ) STRICT;
 
--- id is [NEW]: §11 names no key, and herdr can give a pane id again after a pane closes.
+-- The pane id is no key, because herdr can give a pane id again after a pane closes.
 -- The binding is the herdr session and its continuity identity. herdr 0.9.1 has no
--- persistent session identity (§4.2), so session_identity is NULL there.
+-- persistent session identity, so session_identity is NULL there.
 CREATE TABLE review_panes (
 	id               INTEGER PRIMARY KEY,
 	herdr_session    TEXT NOT NULL,
@@ -132,8 +132,8 @@ CREATE TABLE review_panes (
 	closed           TEXT
 ) STRICT;
 
--- No text (§11): only the claim id, the source keys and the time. A claim can have more than
--- one tombstone, because items in two scopes can share a claim id (§7.2).
+-- No text: only the claim id, the source keys and the time. A claim can have more than
+-- one tombstone, because items in two scopes can share a claim id.
 CREATE TABLE tombstones (
 	claim_id     TEXT NOT NULL,
 	source_keys  TEXT NOT NULL CHECK (json_type(source_keys) = 'array'),

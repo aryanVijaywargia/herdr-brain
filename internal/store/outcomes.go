@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// OutcomeKind says what the receipt of a session says about an item that came back (§5.4).
+// OutcomeKind says what the receipt of a session says about an item that came back.
 type OutcomeKind string
 
 // The outcome kinds.
@@ -18,7 +18,7 @@ const (
 	OutcomeUnknown   OutcomeKind = "delivery_unknown" // no single receipt ties to the session
 )
 
-// Outcome is one row of outcomes: ids only (§11).
+// Outcome is one row of outcomes: ids only.
 type Outcome struct {
 	ItemID        int64
 	Revision      int64 // the revision that the receipt names; 0 for a gap or an unknown delivery

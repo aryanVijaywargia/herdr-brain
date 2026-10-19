@@ -125,7 +125,7 @@ func (l *live) rows(t *testing.T) rows {
 	return r
 }
 
-// wantSenders checks the attribution of each text observation (§6.5): a prompt line has the
+// wantSenders checks the attribution of each text observation: a prompt line has the
 // sender not confirmed, and an agent line is assistant text.
 func wantSenders(t *testing.T, r rows) {
 	t.Helper()
@@ -215,7 +215,7 @@ func wantGaps(t *testing.T, got []string, want ...string) {
 }
 
 // AC 1: herdr loses the status events between two reads. The next read keeps all the new
-// text, once: a status change is only a chance to read (§6.2).
+// text, once: a status change is only a chance to read.
 func TestEventsLost(t *testing.T) {
 	l := newLive(t, map[string]string{"w1:p1": codexRun1})
 	l.screen("w1:p1", "• start of w1:p1", "• one")
@@ -231,7 +231,7 @@ func TestEventsLost(t *testing.T) {
 	}
 }
 
-// AC 1, S39: brained falls behind and drops events. It records a gap, takes a new baseline
+// AC 1: brained falls behind and drops events. It records a gap, takes a new baseline
 // and keeps the text after it. No line is stored twice, and status counts the gap.
 func TestEventsDropped(t *testing.T) {
 	h := newHarness(t, bindings.KindMain)
@@ -377,7 +377,7 @@ func TestPaneSplit(t *testing.T) {
 	}
 }
 
-// AC 2, S36: a pane moves to another workspace during a session, and gets a new id. The read
+// AC 2: a pane moves to another workspace during a session, and gets a new id. The read
 // of the old id records a gap in the old segment. The session goes on in a new segment of the
 // new id, and new text never goes to the old workspace. The close of the old id comes before
 // or after the new id.
@@ -431,7 +431,7 @@ func TestPaneMove(t *testing.T) {
 	}
 }
 
-// AC 2, §6.2 step 9: a pane closes during a session. Its session ends, also when herdr loses
+// AC 2: a pane closes during a session. Its session ends, also when herdr loses
 // pane_closed and ends the pane's status stream: the reconcile finds the pane gone.
 func TestPaneClose(t *testing.T) {
 	for _, lost := range []bool{false, true} {
@@ -526,8 +526,8 @@ func TestEventsRepeatedNoID(t *testing.T) {
 	}
 }
 
-// AC 1, AC 3, §6.4: a repeated agent_detected starts no turn. A prompt that the screen still
-// shows is one occurrence; the same prompt sent again in a new turn is a real repeat (S40).
+// AC 1, AC 3: a repeated agent_detected starts no turn. A prompt that the screen still
+// shows is one occurrence; the same prompt sent again in a new turn is a real repeat.
 func TestEventsRepeatedPrompt(t *testing.T) {
 	l := newLive(t, map[string]string{"w1:p1": codexRun1})
 	l.screen("w1:p1", "• start of w1:p1", "› fix the bug", "• fixing")
@@ -730,7 +730,7 @@ func TestEventsShellPipeLeaderGone(t *testing.T) {
 }
 
 // The foreground processes of a brain command line in shellPane (#351). The native claude
-// binary is named by its version [M0 test E11-S1].
+// binary is named by its version [the E11-S1 test].
 const (
 	// procsPipe: "brain status | grep -i learning" while brain status runs its claude probe.
 	procsPipe = `[{"name":"brain","argv":["/Users/me/.local/bin/brain","status"],"pid":20},` +
@@ -813,14 +813,14 @@ func TestEventsRealAgentKept(t *testing.T) {
 }
 
 // The foreground processes of a real agent in shellPane, with the pid of their group leader
-// (#351). The native claude binary is named by its version [M0 test E11-S1].
+// (#351). The native claude binary is named by its version [the E11-S1 test].
 const (
 	// procsClaude: claude leads its group.
 	procsClaude = `[{"name":"2.1.295","argv":["claude"],"pid":40}]`
 	// procsClaudeTool: claude runs brain recall in its group.
 	procsClaudeTool = `[{"name":"2.1.295","argv":["claude"],"pid":40},{"name":"brain","argv":["brain","recall","tests"],"pid":41}]`
 	// procsNode: the npm codex, a node wrapper that leads the group and the codex binary
-	// [M0 test E11-S1b].
+	// [the E11-S1b test].
 	procsNode = `[{"name":"codex","argv":["/usr/local/lib/node_modules/@openai/codex/bin/codex-aarch64-apple-darwin"],"pid":51},` +
 		`{"name":"node","argv":["node","/usr/local/bin/codex"],"pid":50}]`
 	// procsScript: a shell script that starts claude leads the group.

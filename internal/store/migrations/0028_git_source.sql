@@ -1,4 +1,4 @@
--- The git source (#283, §6.1, §7.1): a revert that git shows is an observation with source
+-- The git source (#283): a revert that git shows is an observation with source
 -- 'git', so the extractor sees it as it sees the other signals. SQLite cannot change a CHECK,
 -- so the migration builds observations again with the same ids. Seven tables point at
 -- observations by name, and a rename would move their references to the old table. So the

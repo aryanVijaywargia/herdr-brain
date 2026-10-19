@@ -127,7 +127,7 @@ func (f *automationFixture) toolCalls(t *testing.T) []store.ToolCall {
 
 // A claimed run resolves its pane, writes its launch mark, runs the bound tool in the pinned
 // folder with the brain run checks as a Brain-origin call, and writes ok. The pane label shows
-// unknown while it runs, and ok clears it. AC S62: Brain never runs a run again.
+// unknown while it runs, and ok clears it. AC: Brain never runs a run again.
 func TestLaunchRun(t *testing.T) {
 	f := newAutomationFixture(t)
 	toolID, id := f.bound(t)
@@ -162,7 +162,7 @@ func TestLaunchRun(t *testing.T) {
 	}
 }
 
-// AC S51: a failure shows in status and on the pane label. The run record and the status line
+// AC: a failure shows in status and on the pane label. The run record and the status line
 // name the failed step and its exit code as brain run prints them, with no output of the tool
 // (#352).
 func TestLaunchFailed(t *testing.T) {
@@ -193,7 +193,7 @@ func TestLaunchFailed(t *testing.T) {
 	}
 }
 
-// #367 (M2 eval run 5, R5-8): brain status showed the claim time of a failed run in UTC with no
+// #367 (M2 eval run 5): brain status showed the claim time of a failed run in UTC with no
 // zone mark ("claimed 2026-10-09 16:51" at 22:21 local), while review shows local times (#254).
 // The run line of status and the last run of brain automation list show local time, in the
 // form of the review pane.
@@ -368,7 +368,7 @@ func TestLaunchCancel(t *testing.T) {
 	}
 }
 
-// AC S62: a crash after the launch mark leaves unknown, status shows it, and there is no
+// AC: a crash after the launch mark leaves unknown, status shows it, and there is no
 // retry: the launch of the run refuses, and the same event claims nothing again.
 func TestLaunchCrash(t *testing.T) {
 	f := newAutomationFixture(t)
@@ -457,7 +457,7 @@ func TestLaunchUnbound(t *testing.T) {
 	}
 }
 
-// AC S51, no chains: a brain run inside the tool of an automation run is Brain-origin too. The
+// AC (no chains): a brain run inside the tool of an automation run is Brain-origin too. The
 // tool gets the origin in its environment, and brain run logs that origin.
 func TestLaunchOrigin(t *testing.T) {
 	f := newAutomationFixture(t)

@@ -10,11 +10,12 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// matchWindow is the time window of the S35 match [NEW]: a pane read can come some minutes
-// after the hook, because brained reads a pane only when its agent status changes.
+// matchWindow is the time window of the match of a hook record and a pane observation: a pane
+// read can come some minutes after the hook, because brained reads a pane only when its agent
+// status changes.
 const matchWindow = 5 * time.Minute
 
-// HookText runs the capture filters of §6.3 and §6.7 on text from a hook payload of harness,
+// HookText runs the capture filters on text from a hook payload of harness,
 // as on pane text: it drops Brain blocks, the CLI scaffolding and a compaction summary, puts
 // [secret] in place of each secret, and cuts the result to the excerpt limit. brain says that
 // the text held a Brain block, so the text after it is Brain-origin.
@@ -42,7 +43,7 @@ func HookText(harness, text string) (excerpt string, truncated, brain bool) {
 }
 
 // Match links observation o of session to its counterpart from the other source, when one
-// matches (§6.4, S35): the same session, a time within matchWindow, the pane sender of the
+// matches: the same session, a time within matchWindow, the pane sender of the
 // hook event, and the same normalized text. The hook record then enriches the pane observation
 // and is not a second occurrence. The nearest counterpart in time wins. o.ID is the stored
 // row; o.Source is herdr or hook.
@@ -84,7 +85,7 @@ func counterpart(ctx context.Context, tx *sql.Tx, harness string, session int64,
 	return 0, nil
 }
 
-// paneSender is the sender that a pane read gives the text of hook observation h [NEW]: the
+// paneSender is the sender that a pane read gives the text of hook observation h: the
 // pane shows a tool call on a line with the assistant mark, as "⏺ Bash(ls)".
 func paneSender(h store.Observation) store.Sender {
 	if h.Event == adapter.EventTool {
@@ -94,7 +95,7 @@ func paneSender(h store.Observation) store.Sender {
 }
 
 // normalized is text without the sender marks of harness and without white space, so a
-// rewrap or a mark does not change it [NEW].
+// rewrap or a mark does not change it.
 func normalized(harness, text string) string {
 	lines := strings.Split(text, "\n")
 	for i, l := range lines {
@@ -108,7 +109,7 @@ func normalized(harness, text string) string {
 	return squash(strings.Join(lines, "\n"))
 }
 
-// sameText reports whether normalized pane text and hook text match [NEW]: the pane text holds
+// sameText reports whether normalized pane text and hook text match: the pane text holds
 // the hook text, as a tool call "Bash(ls)" holds the command, or the pane text is the start
 // of the hook text, because the pane read cuts a long text at the excerpt limit.
 func sameText(pane, hook string) bool {

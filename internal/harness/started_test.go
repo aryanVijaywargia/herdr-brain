@@ -37,7 +37,7 @@ func TestStartedBefore(t *testing.T) {
 		t.Errorf("StartedBefore(install record after the start, no install time) = false, want true")
 	}
 	// The install time of claude wins over a later write of the install record, for example
-	// the install of codex (Sol review of PR #262).
+	// the install of codex (PR #262).
 	if err := MarkInstalled(f.Installed, "claude", earlier); err != nil {
 		t.Fatal(err)
 	}

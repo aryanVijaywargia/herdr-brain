@@ -13,7 +13,7 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 
-// Codex 0.154 wrote the golden values of the M0 test E8-S3 to config.toml
+// Codex 0.154 wrote the golden values of the E8-S3 test to config.toml
 // when the owner trusted these hooks in the TUI. The home path in the commands is now /Users/me,
 // so the want values are those of the same hookHash for the new commands.
 func TestHookHashMatchesCodex(t *testing.T) {

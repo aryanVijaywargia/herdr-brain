@@ -181,7 +181,7 @@ func TestCheckBinding(t *testing.T) {
 }
 
 // StopCalls finds a ran agent call whose newest observation of its session is a hook stop, or
-// an idle or done pane read right after a working one (M0 E17-S1); not a lone idle read, a
+// an idle or done pane read right after a working one (E17-S1 test); not a lone idle read, a
 // denied approval (blocked → idle), a call during work, a refused call or an automation call.
 func TestStopCalls(t *testing.T) {
 	s, tl, _ := bindingStore(t)

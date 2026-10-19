@@ -25,7 +25,7 @@ type installed struct {
 
 // MarkInstalled records in dir that Brain installed the start entry of harness kind at time
 // at: <dir>/<kind>.json. Setup and doctor call it after each start entry they add (#249). A
-// later install of another CLI keeps it. [NEW] the folder and the file.
+// later install of another CLI keeps it.
 func MarkInstalled(dir, kind string, at time.Time) error {
 	data, err := json.Marshal(installed{At: at})
 	if err != nil {
@@ -70,8 +70,7 @@ func installTime(f Files, kind string) (at time.Time, ok bool, err error) {
 // before Brain installed the start entry of kind (#249). A CLI reads its hook file when it
 // starts, so such an agent runs without the Brain hook and has no receipt; that is no hook
 // failure. The signal is the earliest process start against the install time of the entry.
-// [NEW] the signal. ps gives whole seconds, so a start in the second of the install counts as
-// after.
+// ps gives whole seconds, so a start in the second of the install counts as after.
 func StartedBefore(ctx context.Context, f Files, kind string, pids []int) (bool, error) {
 	at, ok, err := installTime(f, kind)
 	if err != nil || !ok || len(pids) == 0 {

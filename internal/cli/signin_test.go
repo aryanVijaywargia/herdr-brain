@@ -37,7 +37,7 @@ var signedIn = map[store.ExtractorCLI]string{
 	store.ExtractorCodex:  `printf '%s\n' '{"claims":[]}' > last.json` + "\n" + `printf '%s\n' '{"type":"turn.completed"}'` + "\n",
 }
 
-// AC #428 end to end (owner decision): a fake claude and a fake codex on PATH print their
+// AC #428 end to end: a fake claude and a fake codex on PATH print their
 // environment and fail with a sign-in error. The call inherits the env of brained: sign-in,
 // proxy and any other variables pass, and HERDR_*, BRAIN_* and the session markers do not. brain
 // status and brain doctor show why the call failed, with the sign-in hint of that CLI, and with
@@ -152,7 +152,7 @@ func (f *doctorFixture) pass(t *testing.T, now time.Time) {
 	}
 }
 
-// AC #428 (Sol round 3): a sign-in refusal of a failed change request alone gives the sign-in
+// AC #428: a sign-in refusal of a failed change request alone gives the sign-in
 // hint in brain status, and brain doctor fails the check with it.
 func TestChangeRequestSignInHint(t *testing.T) {
 	f := newDoctorFixture(t)

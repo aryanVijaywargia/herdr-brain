@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-// regressionStage is the stage of the regression cases (HLD §12.1, E20-S1): each bug that
+// regressionStage is the stage of the regression cases (E20-S1): each bug that
 // real use found gets its own case, named with its issue number, so one fix cannot hide
 // another failure. Its cases come from the [[bug]] entries of a probe file. A case runs the
 // Go tests that hold the fixture of its bug, with no herdr, no CLI and no model, so it has no
@@ -35,7 +35,7 @@ type GoTest struct {
 	Name    string // the test name as `go test -v` prints it, with its subtests: TestScreen/claude-tip
 }
 
-// goTestEntry is the form of one test of a [[bug]]. [NEW] form.
+// goTestEntry is the form of one test of a [[bug]].
 var goTestEntry = regexp.MustCompile(`^([a-z0-9_-]+(?:/[a-z0-9_-]+)*):(Test\w*(?:/[^/\s]+)*)$`)
 
 // bugCases checks the [[bug]] entries of a probe file and returns their regression cases. The

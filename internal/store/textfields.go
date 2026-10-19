@@ -6,38 +6,38 @@ type Field struct {
 }
 
 // ItemTextFields lists every column that can hold item text or text derived from it. Forget
-// removes the text from each of them (§6.7, S47). New derived records join this list before
+// removes the text from each of them. New derived records join this list before
 // they ship: the schema test fails on a TEXT column that is in neither this list nor
 // noItemTextFields.
 func ItemTextFields() []Field {
 	return []Field{
-		{"items", "anchors"}, // The paths that the item text names (§9.1).
+		{"items", "anchors"}, // The paths that the item text names.
 		{"item_revisions", "text"},
 		{"proposals", "text"},
 		{"proposals", "target"},
 		{"proposals", "diff"},
 		{"proposals", "expected_benefit"},
 		{"proposals", "change_request"},
-		{"proposals", "dispute"}, // The anchor paths of a dispute (§9.1).
+		{"proposals", "dispute"}, // The anchor paths of a dispute.
 		{"applied_edits", "content_before"},
 		{"applied_edits", "content_after"},
-		// The claim key text (§7.2): forget removes it from the claim of the item, and the
+		// The claim key text: forget removes it from the claim of the item, and the
 		// claim id stays.
 		{"claims", "situation"},
 		{"claims", "rule"},
 		// The claim of the newest telling of the key, for a merge in review (#358).
 		{"claims", "draft"},
-		// Your reason for a rejection of the claim of the item (§6.7, §7.2).
+		// Your reason for a rejection of the claim of the item.
 		{"rejections", "reason"},
-		// The prompts that led to a proposal of the item or matched it (§6.7, E14-S1). Forget
+		// The prompts that led to a proposal of the item or matched it (E14-S1). Forget
 		// deletes the rows, with their hashes; brain forget --session deletes them by session.
 		{"prompt_index", "text"},
-		// The tool contract and the fields that come from it (§10.1, E17-S3).
+		// The tool contract and the fields that come from it (E17-S3).
 		{"tools", "name"},
 		{"tools", "contract"},
 		{"tools", "cwd"},
 		{"tools", "effects"},
-		// The pinned folder of an automation binding (§10.4, E17-S10).
+		// The pinned folder of an automation binding (E17-S10).
 		{"automations", "folder"},
 		// The cause of a failed automation run names a program of the tool contract (#352).
 		{"automation_runs", "cause"},
@@ -55,7 +55,7 @@ func noItemTextFields() []Field {
 		{"workspaces", "root_folder"},
 		{"workspaces", "status"},
 		{"workspaces", "last_seen"},
-		{"items", "claim_id"}, // The claim id holds no text (§7.2).
+		{"items", "claim_id"}, // The claim id holds no text.
 		{"items", "kind"},
 		{"items", "scope"},
 		{"items", "workspace_key"},
@@ -63,9 +63,9 @@ func noItemTextFields() []Field {
 		{"items", "created"},
 		{"items", "kept_at"}, // The keep time of an archive candidate (E16-S7).
 		{"proposals", "scope"},
-		{"proposals", "trigger_prompts"}, // Prompt hashes (§11).
-		{"proposals", "conflicts_with"},  // Item ids (§11).
-		{"proposals", "merge"},           // Item ids and revisions of a merge (§9.5): no text.
+		{"proposals", "trigger_prompts"}, // Prompt hashes.
+		{"proposals", "conflicts_with"},  // Item ids.
+		{"proposals", "merge"},           // Item ids and revisions of a merge: no text.
 		{"proposals", "status"},
 		{"proposals", "surface"},
 		{"proposals", "created"},
@@ -99,7 +99,7 @@ func noItemTextFields() []Field {
 		{"deliveries", "at"},
 		{"deliveries", "agent_check"},
 		// The path of the CLI's own transcript file, not item text: brain forget --session
-		// clears it (E15-S4, §6.7).
+		// clears it (E15-S4).
 		{"deliveries", "transcript_path"},
 		{"recalls", "item_revisions"},
 		{"recalls", "at"},
@@ -135,30 +135,30 @@ func noItemTextFields() []Field {
 		{"observations", "source"},
 		{"observations", "event"},
 		// Pane text, not item text: forget finds it by session (ForgetSession), never by a
-		// text search (§6.7).
+		// text search.
 		{"observations", "excerpt"},
 		{"observations", "status"},
 		{"observations", "sender"},
 		{"observations", "at"},
 		{"cursors", "source"},
-		{"cursors", "position"}, // A capture identity or a byte offset (§6.4).
+		{"cursors", "position"}, // A capture identity or a byte offset.
 		// A captured command and its folder, not item text: forget finds them by session
 		// (ForgetSession), as the excerpt.
 		{"command_records", "argv"},
 		{"command_records", "cwd"},
-		{"forgotten_captures", "capture_identity"}, // No text (§6.4).
-		{"claims", "id"},                           // The claim id holds no text (§7.2).
+		{"forgotten_captures", "capture_identity"}, // No text.
+		{"claims", "id"},                           // The claim id holds no text.
 		{"claims", "same_as"},
 		{"claims", "same_as_status"},
 		{"claims", "created"},
 		{"claims", "kind"}, // A fixed claim kind of the extractor schema; no model text.
 		{"claims", "drafted"},
-		{"claims_apart", "claim_id"}, // Claim ids: no text (§7.2).
+		{"claims_apart", "claim_id"}, // Claim ids: no text.
 		{"claims_apart", "other_id"},
-		{"merge_passes", "workspace_key"}, // The part and its hash at the last merge pass (§9.5).
+		{"merge_passes", "workspace_key"}, // The part and its hash at the last merge pass.
 		{"merge_passes", "sha256"},
 		{"merge_passes", "at"},
-		{"merge_links", "claim_id"}, // Claim ids and a link state: no text (§9.5).
+		{"merge_links", "claim_id"}, // Claim ids and a link state: no text.
 		{"merge_links", "same_as"},
 		{"merge_links", "same_as_status"},
 		{"candidates", "claim_id"},
@@ -174,7 +174,7 @@ func noItemTextFields() []Field {
 		{"evidence_links", "harness"},
 		{"evidence_links", "sender"},
 		{"evidence_links", "at"},
-		{"evidence_links", "via_claim"}, // A claim id: no text (§7.2).
+		{"evidence_links", "via_claim"}, // A claim id: no text.
 		{"rejections", "claim_id"},
 		{"rejections", "scope"},
 		{"rejections", "workspace_key"},
@@ -217,16 +217,16 @@ func noItemTextFields() []Field {
 		{"suggestions", "shown_at"},
 		{"suggestions", "result"},
 		{"suggestions", "reason"}, // A fixed kind word of Brain; no prompt text (E20-S9).
-		// An outcome holds ids only (E15-S1, §11).
+		// An outcome holds ids only (E15-S1).
 		{"outcomes", "kind"},
 		{"outcomes", "at"},
-		{"outcomes", "claim_id"}, // The claim id of the failure holds no text (§7.2, E20-S5).
+		{"outcomes", "claim_id"}, // The claim id of the failure holds no text (E20-S5).
 		{"tools", "scope"},
 		{"tools", "workspace_key"},
 		{"tools", "contract_hash"},
 		{"tools", "approved_hash"},
 		{"tools", "approved"},
-		// A tool call holds ids, a hash and fixed words only (E17-S4, §11).
+		// A tool call holds ids, a hash and fixed words only (E17-S4).
 		{"tool_calls", "contract_hash"},
 		{"tool_calls", "origin"},
 		{"tool_calls", "result"},
@@ -249,7 +249,7 @@ func noItemTextFields() []Field {
 		{"automation_runs", "finished_at"},
 		{"automation_runs", "result"},
 		// The history scan row holds a herdr session name, fixed words, times, and JSON of
-		// numbers, ids, kinds and scope keys only (§6.8, §11).
+		// numbers, ids, kinds and scope keys only.
 		{"history_scans", "binding"},
 		{"history_scans", "status"},
 		{"history_scans", "requested"},

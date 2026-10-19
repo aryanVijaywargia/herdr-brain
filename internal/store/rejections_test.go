@@ -48,7 +48,7 @@ func (e *evidenceStore) rejections(t *testing.T) []Rejection {
 	return rs
 }
 
-// AC: reject in "shop" does not hide the claim in "blog" (§7.2).
+// AC: reject in "shop" does not hide the claim in "blog".
 func TestRejectionPerScope(t *testing.T) {
 	e := newEvidenceStore(t)
 	claim := e.claim(t, "use pnpm")
@@ -77,7 +77,7 @@ func TestRejectionPerScope(t *testing.T) {
 	}
 }
 
-// AC: new evidence after a rejection counts in the rejection, and creates no proposal (§7.2).
+// AC: new evidence after a rejection counts in the rejection, and creates no proposal.
 func TestRejectionNewEvidence(t *testing.T) {
 	e := newEvidenceStore(t)
 	c := Candidate{ClaimID: e.claim(t, "use pnpm"), Scope: ScopeWorkspace, WorkspaceKey: "shop", Kind: CandidateCorrection}
@@ -105,7 +105,7 @@ func TestRejectionNewEvidence(t *testing.T) {
 }
 
 // A reworded key with a confirmed same_as link has the claim id of the rejected claim, so it
-// stays rejected (§7.2, S23).
+// stays rejected.
 func TestRewordedKeyStaysRejected(t *testing.T) {
 	e := newEvidenceStore(t)
 	old := e.claim(t, "use pnpm")
@@ -163,7 +163,7 @@ func TestReopenAndResetRejection(t *testing.T) {
 	}
 }
 
-// Forget of an item removes your reason from the rejections of its claim in its scope (§6.7).
+// Forget of an item removes your reason from the rejections of its claim in its scope.
 func TestEraseItemRejectionReason(t *testing.T) {
 	ctx := context.Background()
 	e := newEvidenceStore(t)

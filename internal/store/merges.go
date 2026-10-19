@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// MergeItem is one item that the merge pass may merge (§9.5): an active plain item of a brief
+// MergeItem is one item that the merge pass may merge: an active plain item of a brief
 // part, at its current revision.
 type MergeItem struct {
 	ID, Revision int64
@@ -20,7 +20,7 @@ type MergeItem struct {
 }
 
 // MergeItems returns the items of the part of workspace key ("" for the global part) that the
-// merge pass may merge, by id (§9.5 input): the active items that are not a skill, a tool or an
+// merge pass may merge, by id: the active items that are not a skill, a tool or an
 // automation, with no waiting proposal, in no waiting merge proposal, and with no exception
 // link and no conflict mark at either end.
 func MergeItems(ctx context.Context, tx *sql.Tx, key string) ([]MergeItem, error) {
@@ -44,7 +44,7 @@ func MergeItems(ctx context.Context, tx *sql.Tx, key string) ([]MergeItem, error
 
 // mergesOf is the FROM and WHERE part of the merge proposals with status ?2 of the part of
 // workspace key ?1: the part of the base revision of the kept item, so a rejection stays with
-// its part when a link moves the item (§9.4).
+// its part when a link moves the item.
 const mergesOf = `FROM proposals p JOIN item_revisions r ON r.item_id = p.item_id AND r.revision = p.base_revision
 	WHERE p.status = ?2 AND json_array_length(p.merge) > 0 AND COALESCE(r.workspace_key, '') = ?1`
 
@@ -58,7 +58,7 @@ func MergeWaits(ctx context.Context, tx *sql.Tx, key string) (bool, error) {
 }
 
 // RejectedMerges returns the item id set of each rejected merge proposal of the part of
-// workspace key, each set sorted (§9.5 reject).
+// workspace key, each set sorted.
 func RejectedMerges(ctx context.Context, tx *sql.Tx, key string) ([][]int64, error) {
 	return query(ctx, tx, `SELECT p.merge `+mergesOf, func(rows *sql.Rows) ([]int64, error) {
 		var refs []RevisionRef
@@ -109,7 +109,7 @@ func ResetMergeHash(ctx context.Context, tx *sql.Tx, key, sum string, now time.T
 }
 
 // RecordMergeCall records one extractor call of the merge pass of the part of workspace key at
-// now, under the daily call cap (§7.3 caps), and returns its id.
+// now, under the daily call cap, and returns its id.
 func RecordMergeCall(ctx context.Context, tx *sql.Tx, key string, now time.Time) (int64, error) {
 	return insertRow(ctx, tx, "merge call", `INSERT INTO extraction_calls (workspace_key, at) VALUES (?, ?)`, key, timeArg(now))
 }
@@ -124,12 +124,12 @@ func UncountMergeCall(ctx context.Context, tx *sql.Tx, id int64) error {
 }
 
 // LinkMerged links each claim of retired, the claims of the items that the approval of merge
-// proposal proposal retires, to claim kept as a confirmed same_as link (§9.5 approve): a later
-// claim with the key of a retired item gets the claim id of the kept item (ClaimID). As in
-// ConfirmLink, a link points at the claim id that kept has, and the confirmed links that
-// pointed at a retired claim point there too, so a key never needs two hops. The claim of a
-// brain remember item has no row yet: the link adds it, as SameAs does. Each claim keeps its
-// link before the merge in merge_links, for UnlinkMerged.
+// proposal proposal retires, to claim kept as a confirmed same_as link: a later claim with
+// the key of a retired item gets the claim id of the kept item (ClaimID). As in ConfirmLink,
+// a link points at the claim id that kept has, and the confirmed links that pointed at a
+// retired claim point there too, so a key never needs two hops. The claim of a brain
+// remember item has no row yet: the link adds it, as SameAs does. Each claim keeps its link
+// before the merge in merge_links, for UnlinkMerged.
 func LinkMerged(ctx context.Context, tx *sql.Tx, proposal int64, kept string, retired []string) error {
 	for _, id := range append([]string{kept}, retired...) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO claims (id, created) SELECT claim_id, created FROM items
@@ -165,7 +165,7 @@ func LinkMerged(ctx context.Context, tx *sql.Tx, proposal int64, kept string, re
 }
 
 // UnlinkMerged puts back the same_as links that the approval of merge proposal proposal set
-// (LinkMerged), for the undo of the merge (§9.5 undo).
+// (LinkMerged), for the undo of the merge.
 func UnlinkMerged(ctx context.Context, tx *sql.Tx, proposal int64) error {
 	for _, q := range []string{
 		`UPDATE claims SET (same_as, same_as_status) = (SELECT l.same_as, l.same_as_status FROM merge_links l
@@ -180,7 +180,7 @@ func UnlinkMerged(ctx context.Context, tx *sql.Tx, proposal int64) error {
 	return nil
 }
 
-// MergeKept reads the kept items that hold merged text from item, in id order (§6.7): the item
+// MergeKept reads the kept items that hold merged text from item, in id order: the item
 // of each approved merge proposal that retired item, when the merge is not undone and the kept
 // item is not forgotten. Forget of item lists them and keeps them.
 func MergeKept(ctx context.Context, tx *sql.Tx, item int64) ([]Item, error) {

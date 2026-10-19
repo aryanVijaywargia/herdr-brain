@@ -135,7 +135,7 @@ func TestPartSkip(t *testing.T) {
 	}
 }
 
-// AC 3 (Sol review): when go cannot start, each case still gets its fail line, with the error.
+// AC 3: when go cannot start, each case still gets its fail line, with the error.
 func TestRunRegressionNoGo(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	cases := []Case{

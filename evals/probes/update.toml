@@ -1,5 +1,5 @@
-# Update probes (HLD §12.1 "Stages", E10-S3): you approve a change of an item; a fresh session
-# must give the new revision, not the old one.
+# Update probes (E10-S3): you approve a change of an item; a fresh session must give the new
+# revision, not the old one.
 
 [[probe]]
 id = "update-edit"

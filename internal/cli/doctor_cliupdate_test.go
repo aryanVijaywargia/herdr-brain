@@ -139,7 +139,7 @@ func TestDoctorNoReceiptAfterInstall(t *testing.T) {
 	}
 }
 
-// AC 1 (S14): a hook input that the profile cannot parse fails doctor, with a fix that needs
+// AC 1: a hook input that the profile cannot parse fails doctor, with a fix that needs
 // no repo; a marker of an older profile, as after brain update, passes.
 func TestDoctorParseFailure(t *testing.T) {
 	f := newDoctorFixture(t)
@@ -225,7 +225,7 @@ func TestStatusCodexNoSessionID(t *testing.T) {
 	}
 }
 
-// AC 1: a CLI version that cannot be read is a note, not a failed check (D13).
+// AC 1: a CLI version that cannot be read is a note, not a failed check.
 func TestDoctorVersionUnknown(t *testing.T) {
 	f := newDoctorFixture(t)
 	f.cli(t, "claude", "Claude Code")

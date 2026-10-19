@@ -10,8 +10,8 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// ReadConfig returns the queue gates (§7.2 "you can change them in the config") and the caps
-// (§7.3 "(defaults)") of the Brain config file at path (paths.ConfigFile), for example:
+// ReadConfig returns the queue gates and the caps of the Brain config file at path
+// (paths.ConfigFile), for example:
 //
 //	[gates]
 //	correction = 3
@@ -19,10 +19,10 @@ import (
 //	proposals_per_day = 20
 //
 // [gates] takes a minimum for each candidate kind: correction, lesson, failure, procedure,
-// command_chain. [caps] takes calls_per_day, proposals_per_day and input_bytes. [NEW] table and
-// key names, and the example values. A key that is not set keeps its default, and a missing file gives all the
-// defaults: most people never write it. An unknown key in the two tables, or a value below 1,
-// is an error, so a typo does not go unseen.
+// command_chain. [caps] takes calls_per_day, proposals_per_day and input_bytes. A key that is
+// not set keeps its default, and a missing file gives all the defaults: most people never write
+// it. An unknown key in the two tables, or a value below 1, is an error, so a typo does not go
+// unseen.
 func ReadConfig(path string) (store.Gates, Caps, error) {
 	gates, caps := store.DefaultGates(), DefaultCaps()
 	c := struct {

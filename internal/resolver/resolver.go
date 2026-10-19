@@ -1,6 +1,6 @@
-// Package resolver finds the one store of a Brain call from the process environment (HLD
-// §8.3 "Session bindings and the resolver", G1). Every entry point calls it, and there is no
-// --store flag. A call gets one of three results: Resolved, Denied or NoStore.
+// Package resolver finds the one store of a Brain call from the process environment. Every
+// entry point calls it, and there is no --store flag. A call gets one of three results:
+// Resolved, Denied or NoStore.
 package resolver
 
 import (
@@ -35,17 +35,17 @@ type DenyReason string
 const (
 	PaneGone DenyReason = "pane not live" // herdr has no pane HERDR_PANE_ID
 	// NotMember: the pane is not HERDR_PANE_ID in HERDR_WORKSPACE_ID. herdr answers the old id
-	// of a pane that moved to another workspace with its new id and workspace (S49, S63).
+	// of a pane that moved to another workspace with its new id and workspace.
 	NotMember DenyReason = "not a member"
 )
 
 // AgentCheck is the result of the check of a (pane, agent session id) record against the
-// `agent_session` that herdr later shows for that pane (§8.3 limit, §17 item 29).
+// `agent_session` that herdr later shows for that pane.
 type AgentCheck string
 
 // The agent checks.
 const (
-	// AgentPending: recorded, not checked yet. The next call for the pane checks it. [NEW] value.
+	// AgentPending: recorded, not checked yet. The next call for the pane checks it.
 	AgentPending      AgentCheck = "pending"
 	AgentUnknown      AgentCheck = "unknown" // at the next call herdr showed no agent session
 	AgentMatch        AgentCheck = "match"
@@ -154,7 +154,7 @@ func New(path string, open Opener, pane PaneFunc) *Resolver {
 	return &Resolver{bindings: path, open: open, pane: pane}
 }
 
-// env is the part of the process environment that herdr puts in each pane (HLD §4.2).
+// env is the part of the process environment that herdr puts in each pane.
 type env struct {
 	socket, session, paneID, workspaceID string
 }
@@ -267,7 +267,7 @@ func (r *Resolver) denied(b bindings.Binding, e env, agentSession string, reason
 
 // checkAgents checks the pending (pane, agent session id) records of pane p of session
 // against the agent session that herdr shows now, then records agentSession. At hook time
-// herdr does not show the new agent yet, so a record is checked on the next call (§17 item 29).
+// herdr does not show the new agent yet, so a record is checked on the next call.
 // Each record gets one check only: a later call could see another agent in the pane.
 func checkAgents(ctx context.Context, st Store, session string, p herdr.Pane, agentSession string) error {
 	ids, err := st.UncheckedAgentSessions(ctx, session, p.ID)

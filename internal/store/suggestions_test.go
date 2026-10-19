@@ -37,7 +37,7 @@ func (p *promptStore) reserveObs(t *testing.T, o int64, text string) Suggestion 
 }
 
 // E14-S3: a prompt that matches a ready proposal reserves one suggestion, with the ids of its
-// session, segment and binding. The same occurrence never reserves twice (S57), a prompt with
+// session, segment and binding. The same occurrence never reserves twice, a prompt with
 // no match reserves nothing, and each new prompt reserves its own (no rate cap).
 func TestReserveSuggestion(t *testing.T) {
 	p := newPromptStore(t)
@@ -60,7 +60,7 @@ func TestReserveSuggestion(t *testing.T) {
 	}
 }
 
-// S57: a hook record and a pane read of one prompt are one occurrence, linked by enrichment:
+// A hook record and a pane read of one prompt are one occurrence, linked by enrichment:
 // whichever path reserves first, the other reserves nothing.
 func TestReserveSuggestionOneOccurrence(t *testing.T) {
 	for _, hookFirst := range []bool{true, false} {
@@ -87,7 +87,7 @@ func TestReserveSuggestionOneOccurrence(t *testing.T) {
 	}
 }
 
-// "Later" mutes a proposal for the rest of its session only (§5.5); extraction off and a
+// "Later" mutes a proposal for the rest of its session only; extraction off and a
 // rejected proposal stop new suggestions.
 func TestReserveSuggestionRules(t *testing.T) {
 	ctx := context.Background()
@@ -129,7 +129,7 @@ func TestReserveSuggestionRules(t *testing.T) {
 }
 
 // "Later" in one pane mutes the proposal in the session of that pane's suggestion only: a
-// shown suggestion of the same global proposal in another session waits on (§5.5).
+// shown suggestion of the same global proposal in another session waits on.
 func TestLaterSuggestions(t *testing.T) {
 	ctx := context.Background()
 	p := newPromptStore(t)
@@ -165,7 +165,7 @@ func TestLaterSuggestions(t *testing.T) {
 	})
 }
 
-// §6.7: brain forget --session and the item forget delete the suggestions, with their prompt
+// Forget: brain forget --session and the item forget delete the suggestions, with their prompt
 // hashes, as they delete the prompt index rows.
 func TestForgetSuggestions(t *testing.T) {
 	ctx := context.Background()

@@ -54,7 +54,7 @@ func TestLastSession(t *testing.T) {
 		name, key, agent string
 		want             string // the transcript path; "" for none
 	}{
-		// The newer receipts of kb, kc and of an unmapped pane never show in ka (S48). A
+		// The newer receipts of kb, kc and of an unmapped pane never show in ka. A
 		// "withheld: identity" receipt never counts (E15-S5).
 		{"newest other session of the workspace", "ka", "x", "/t/a2"},
 		{"a resumed session skips its own receipts; withheld: inconsistent counts", "ka", "a", "/t/b"},
@@ -89,7 +89,7 @@ func TestLastSession(t *testing.T) {
 		if d.Profile != "claude" || !d.At.Equal(at) {
 			t.Errorf("LastSession(ka) = %s at %v, want claude at %v", d.Profile, d.At, at)
 		}
-		// One indexed query: the hook stays inside its time target (§8.3).
+		// One indexed query: the hook stays inside its time target.
 		var plan strings.Builder
 		rows, err := tx.QueryContext(ctx, `EXPLAIN QUERY PLAN SELECT id, profile, at, transcript_path FROM deliveries
 			WHERE workspace_key = ? AND transcript_path IS NOT NULL AND agent_session_id IS NOT ?

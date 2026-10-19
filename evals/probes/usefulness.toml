@@ -1,6 +1,6 @@
-# Usefulness probes (HLD §12.1 "Stages", E10-S3): a small task from one real mistake of the
-# look-back, an agent that used npm in a pnpm project. The result is a record for your review
-# (which lockfile changed), not a gate. The task needs the network.
+# Usefulness probes (E10-S3): a small task from one real mistake of the look-back, an agent that
+# used npm in a pnpm project. The result is a record for your review (which lockfile changed),
+# not a gate. The task needs the network.
 
 [[probe]]
 id = "usefulness-pnpm"

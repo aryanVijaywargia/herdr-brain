@@ -643,7 +643,7 @@ func waitDone(t *testing.T, done <-chan struct{}) {
 	t.Helper()
 	select {
 	case <-done:
-	case <-time.After(30 * time.Second): // [NEW] far above the 1 s polls of the child
+	case <-time.After(30 * time.Second): // far above the 1 s polls of the child
 		t.Fatal("the build child still runs after 30 s")
 	}
 }
@@ -788,7 +788,7 @@ func TestBuildStartsNoChild(t *testing.T) {
 			}
 			select {
 			case <-buildDetached(t, dir, path, hd, c.env...):
-			case <-time.After(15 * time.Second): // [NEW] above the 5 s deadline of one herdr call
+			case <-time.After(15 * time.Second): // above the 5 s deadline of one herdr call
 				t.Fatal("a child of the build still runs, want none")
 			}
 			if got, polls := calls(t, hd); got != "" || polls != c.polls {
@@ -821,7 +821,7 @@ func stopChild(t *testing.T, dir string, early int) {
 	t.Helper()
 	tick := time.NewTicker(50 * time.Millisecond)
 	defer tick.Stop()
-	end := time.After(30 * time.Second) // [NEW] far above the 1 s polls of the child
+	end := time.After(30 * time.Second) // far above the 1 s polls of the child
 	for {
 		// A child that invokes asks no more: the caller's check of the calls shows it.
 		if rest, polls := calls(t, dir); rest != "" || polls >= early+2 {
@@ -860,7 +860,7 @@ const startCalls = "session list --json\n" +
 // 10 min ahead, or none is a build by hand of an install, so the child invokes nothing.
 func TestBuildSameRoot(t *testing.T) {
 	other := strings.Repeat("0", 40)
-	// at is the install time d from now in Unix milliseconds. [NEW] 15 min, so the few seconds
+	// at is the install time d from now in Unix milliseconds. 15 min, so the few seconds
 	// of a test cannot move an install time across the 10 min window.
 	at := func(d time.Duration) uint64 { return uint64(time.Now().Add(d).UnixMilli()) }
 	metadata := func(s string) string {

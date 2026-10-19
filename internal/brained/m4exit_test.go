@@ -9,7 +9,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// M4 exit S51 (E17-S12), the claim part, on one automation in order: a stop claims one run, a
+// M4 exit (E17-S12), the claim part, on one automation in order: a stop claims one run, a
 // duplicate of it claims nothing, a stop after a pause claims nothing, a stop after the resume
 // claims one run, and a stop after the removal claims nothing. The failure and Brain-origin
 // parts are in the cli tests (TestLaunchFailed, TestLaunchOrigin, TestM4LearnedAutomation).

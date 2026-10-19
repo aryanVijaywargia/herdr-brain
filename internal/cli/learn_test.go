@@ -201,7 +201,7 @@ func TestLearnWorkspaceOffWins(t *testing.T) {
 	}
 }
 
-// AC: a new test store starts with learning off (§12.1); brain learn on there turns it on.
+// AC: a new test store starts with learning off; brain learn on there turns it on.
 func TestLearnNewTestStoreOff(t *testing.T) {
 	f := newFixture(t)
 	test := f.bindLearn(t, "t1", bindings.KindTest)
@@ -235,7 +235,7 @@ func TestLearnErrors(t *testing.T) {
 		{[]string{"off", "--pane", ""}, "--pane is empty"},
 		// A label is not a workspace id, so it never picks another workspace than the id.
 		{[]string{"off", "--workspace", "shop"}, "workspace shop is not mapped"},
-		// herdr answers the old id of a moved pane with its new id (S49).
+		// herdr answers the old id of a moved pane with its new id.
 		{[]string{"off", "--pane", "w14:p2"}, "pane w14:p2 is now pane w20:p2"},
 	} {
 		if _, err := f.learn(t, f.sock, tt.args...); err == nil || !strings.Contains(err.Error(), tt.want) {

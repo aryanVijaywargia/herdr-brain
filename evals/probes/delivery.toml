@@ -1,5 +1,5 @@
-# Delivery probes (HLD §12.1 "Stages", E10-S3). A run of this stage is the conformance test
-# of each CLI (§8.5): it writes conformance.json.
+# Delivery probes (E10-S3). A run of this stage is the conformance test of each CLI: it writes
+# conformance.json.
 #
 # setup: shell steps, run in order in the case's shell pane in a fresh scratch git folder. A
 # step "agent <claude|codex>: <prompt>" prompts a fresh CLI in its own pane instead.
@@ -32,7 +32,7 @@ harnesses = ["claude", "codex"]
 
 # A full-size brief (about 9,400 of 9,500 bytes) with the marker item in its middle. A Codex
 # pass needs this case: a model that gets only a preview of the hook output does not see the
-# marker (E8-S2). The padding items are no rule, only size. [NEW] the padding counts: 417 global
+# marker (E8-S2). The padding items are no rule, only size. The padding counts: 417 global
 # words, and 112 and 570 workspace words around the marker item.
 [[probe]]
 id = "delivery-full-brief"

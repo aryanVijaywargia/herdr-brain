@@ -74,7 +74,7 @@ func TestCaptureCodexPromptCopies(t *testing.T) {
 	}
 }
 
-// #278, S40: a prompt sent again in a new turn is a second occurrence, also when the first
+// #278: a prompt sent again in a new turn is a second occurrence, also when the first
 // copy is gone from the read; a read of the same turn that shows it again is not.
 func TestCapturePromptNewTurn(t *testing.T) {
 	const (
@@ -129,7 +129,7 @@ func TestCaptureClaudePromptCopies(t *testing.T) {
 	}
 }
 
-// #368 (M2 eval run 5, R5-9): the end of a Claude spinner tip under a sent prompt was stored as
+// #368 (M2 eval run 5): the end of a Claude spinner tip under a sent prompt was stored as
 // part of the prompt (observation 2326). The eval report gives the line with no indent, so the
 // screen is made twice: the end of the tip at column 6, which the tip block does not take, and
 // at column 0. Each time the prompt is stored without it, once, and it counts.
@@ -165,7 +165,7 @@ func TestCaptureTipUnderPrompt(t *testing.T) {
 // from session S1 of the M2 eval run) and the folder trust dialog and the diff lines at the top
 // of a Claude screen (session S2) are no user text: they make no user text observation and no
 // signal. The question of the approval dialog is agent text, and it still makes the blocked
-// approval signal (§7.1).
+// approval signal.
 func TestCaptureDialogLines(t *testing.T) {
 	for _, tc := range []struct {
 		harness string

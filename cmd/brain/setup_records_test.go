@@ -21,7 +21,7 @@ func fakeClaude(t *testing.T, home, version string) {
 }
 
 // Setup offers the hook record entries of Claude and Codex after their start entries, with
-// one question (E11-S5, #285). A CLI version newer than tested still gets them (D13, #251).
+// one question (E11-S5, #285). A CLI version newer than tested still gets them (#251).
 func TestSetupHookRecords(t *testing.T) {
 	p, err := adapter.Load("claude")
 	if err != nil {

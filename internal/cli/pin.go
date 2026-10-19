@@ -15,7 +15,7 @@ import (
 const pinUsage = `usage: brain pin [--off] <item>`
 
 // Pin runs `brain pin` with args after "pin" (E4-S3). It pins an active item, or unpins it
-// with --off, in a new revision. A pinned item never ages (§9.2).
+// with --off, in a new revision. A pinned item never ages.
 func Pin(ctx context.Context, e Env, args []string) (err error) {
 	fs := flag.NewFlagSet("pin", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)

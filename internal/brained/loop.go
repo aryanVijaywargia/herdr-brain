@@ -39,8 +39,8 @@ type daemon struct {
 	onBehind     func()                                  // tests only: called after a reader drops an event
 	extract      func(ctx context.Context, g Gate) error // one extraction pass of the store of g; nil for none
 	stale        func(ctx context.Context, g Gate) error // the stale check of every workspace of the store of g; nil for none
-	merge        func(ctx context.Context, g Gate) error // the merge pass of the store of g (§9.5); nil for none
-	// scan claims and runs the history scan of the store of g (§6.8); nil for none. done says
+	merge        func(ctx context.Context, g Gate) error // the merge pass of the store of g; nil for none
+	// scan claims and runs the history scan of the store of g; nil for none. done says
 	// that this brained has nothing more to scan.
 	scan  func(ctx context.Context, g Gate) (done bool, err error)
 	moved func() bool // reports a new brained binary at its path; nil for none
@@ -59,7 +59,7 @@ type pane struct {
 	agent       bool          // herdr detected an agent in the pane
 	learning    Learning      // the state of the pane's last step
 	auto        bool          // the workspace of the pane has an enabled automation
-	joined      string        // the last agent status that joined agent.get; "" for none (§10.4 step 1)
+	joined      string        // the last agent status that joined agent.get; "" for none
 	stream      *herdr.Stream // the status stream; nil while learning is off and auto is false
 }
 
@@ -126,7 +126,7 @@ func (d *daemon) run(ctx context.Context) error {
 			}
 			l.retry(ctx, GapBehind)
 		case <-d.tick:
-			// [NEW] The binary check runs at each tick (checkEvery), so a new binary runs within
+			// The binary check runs at each tick (checkEvery), so a new binary runs within
 			// about 2 s of its install.
 			if d.moved != nil && d.moved() {
 				return errRestart
@@ -169,7 +169,7 @@ func newLoop(d *daemon) *loop {
 		scanned: make(chan scanResult, 1)}
 }
 
-// historyScan starts the history scan of the bound store at a tick (§6.8 "Where it runs"),
+// historyScan starts the history scan of the bound store at a tick,
 // unless it runs, has nothing more for this brained, or failed less than extractEvery ago. It
 // runs beside the loop: reading the files takes time, and the events do not wait for it. The
 // end of ctx stops it.
@@ -194,9 +194,9 @@ func (l *loop) historyScan(ctx context.Context) {
 	}()
 }
 
-// checkStale starts the stale check of every workspace of the bound store (§9.1 "once a
-// day"), unless one runs or the last one started less than staleEvery ago. The first tick
-// with a binding starts one. It runs beside the loop, as the extraction pass.
+// checkStale starts the stale check of every workspace of the bound store (once a day),
+// unless one runs or the last one started less than staleEvery ago. The first tick with a
+// binding starts one. It runs beside the loop, as the extraction pass.
 func (l *loop) checkStale(ctx context.Context) {
 	if l.d.stale == nil || l.gate == nil || l.staling || !l.lastStale.IsZero() && time.Since(l.lastStale) < staleEvery {
 		return
@@ -210,7 +210,7 @@ func (l *loop) checkStale(ctx context.Context) {
 	}()
 }
 
-// mergePass starts the merge pass of the bound store (§9.5 "once a day"), unless one runs or
+// mergePass starts the merge pass of the bound store (once a day), unless one runs or
 // the last one started less than mergeEvery ago. The first tick with a binding starts one. It
 // runs beside the loop, as the stale check; the store keeps the hash of each part at its last
 // pass, so a restart does not pass an unchanged part again.
@@ -227,7 +227,7 @@ func (l *loop) mergePass(ctx context.Context) {
 	}()
 }
 
-// extract starts an extraction pass of the bound store (§7.3), unless one runs or the last
+// extract starts an extraction pass of the bound store, unless one runs or the last
 // one started less than extractEvery ago. The pass runs beside the loop: an extractor call
 // takes seconds or minutes, and the events do not wait for it. The end of ctx stops it.
 func (l *loop) extract(ctx context.Context) {
@@ -423,7 +423,7 @@ func (l *loop) drain(ctx context.Context) error {
 	}
 }
 
-// check stops brained when Brain is unlinked or disabled (D7), and reads the binding of the
+// check stops brained when Brain is unlinked or disabled, and reads the binding of the
 // session. An unbound session gets no gate, so learning is off for all its panes.
 func (l *loop) check(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -478,7 +478,7 @@ func (l *loop) retry(ctx context.Context, gap Gap) {
 }
 
 // reconcile reads the live panes. It ends the panes that are gone and gives each live
-// agent with learning on a baseline with gap (§6.2 step 8). brained does not invent the
+// agent with learning on a baseline with gap. brained does not invent the
 // missed text.
 func (l *loop) reconcile(ctx context.Context, gap Gap) error {
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -508,7 +508,7 @@ func (l *loop) reconcile(ctx context.Context, gap Gap) error {
 		}
 	}
 	// Events may be lost before a reconcile, so the agent state of each pane that keeps its
-	// stream is a new baseline (§10.4 step 1); a new stream gets its baseline in follow.
+	// stream is a new baseline; a new stream gets its baseline in follow.
 	for _, id := range open {
 		l.baselineAgent(ctx, id, l.panes[id])
 	}

@@ -8,17 +8,17 @@ import (
 	"time"
 )
 
-// ChangeSource says what a change request asks to draft again (§7.4 "ask for a change").
+// ChangeSource says what a change request asks to draft again.
 type ChangeSource string
 
 // The change request sources.
 const (
-	ChangeProposal ChangeSource = "proposal" // you asked for a change of a proposal (S56)
+	ChangeProposal ChangeSource = "proposal" // you asked for a change of a proposal
 	ChangeItem     ChangeSource = "item"     // two comebacks on an item revision (E15-S1)
 )
 
 // ChangeStatus is the status of a change request entry of the extraction queue. It follows
-// the batch statuses, with queued before the first call [NEW].
+// the batch statuses, with queued before the first call.
 type ChangeStatus string
 
 // The change request statuses.
@@ -32,9 +32,9 @@ const (
 	ChangeDiscarded ChangeStatus = "discarded" // a forget, a reject or a newer revision made it stale
 )
 
-// ChangeRequest is one change request entry of the extraction queue (§7.3, §7.4). Its key is
-// (Source, SourceID, Revision): for a proposal, the proposal id and the item revision that the
-// proposal is for. The request text of a proposal is proposals.change_request.
+// ChangeRequest is one change request entry of the extraction queue. Its key is (Source,
+// SourceID, Revision): for a proposal, the proposal id and the item revision that the proposal
+// is for. The request text of a proposal is proposals.change_request.
 type ChangeRequest struct {
 	ID            int64
 	Source        ChangeSource
@@ -73,7 +73,7 @@ func scanChange(rows interface{ Scan(...any) error }) (ChangeRequest, error) {
 const openChanges = `('queued', 'active', 'failed', 'invalid')`
 
 // AskChange records your change request text on pending proposal id of candidate cand, sets
-// the proposal to changed, so it is not published, and queues the request (S56). The queue
+// the proposal to changed, so it is not published, and queues the request. The queue
 // key is the proposal id and its base revision. A proposal that its last request gave back
 // with no try left (ReturnChanged) queues that key again, as a new request with new tries
 // (#359). The caller filters text for secrets.
@@ -93,9 +93,9 @@ func AskChange(ctx context.Context, tx *sql.Tx, id int64, cand Candidate, text s
 	return ChangeRequestByID(ctx, tx, cr)
 }
 
-// QueueItemChange queues the change request of revision of item: two comebacks on that
-// revision (§5.4). The queue key is the item id and the revision, so a request is queued once,
-// and a retry adds nothing. Its scope is the scope of the item. The request holds no text.
+// QueueItemChange queues the change request of revision of item: two comebacks on that revision.
+// The queue key is the item id and the revision, so a request is queued once, and a retry adds
+// nothing. Its scope is the scope of the item. The request holds no text.
 func QueueItemChange(ctx context.Context, tx *sql.Tx, item, revision int64, now time.Time) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO change_requests (source, source_id, revision, workspace_key, status,
 		model_calls, reason, created, at) SELECT ?, id, ?, COALESCE(workspace_key, ''), ?, 0, '', ?, ? FROM items WHERE id = ?
@@ -212,9 +212,9 @@ func OpenChangeRequests(ctx context.Context, tx *sql.Tx) ([]ChangeRequest, error
 }
 
 // StartChange makes change request id active, records one extractor call for it under the
-// daily call cap (§7.3 caps), and returns its model call count: the attempt that the commit
-// must match. An active request is started again only when it became active before stale: a
-// crash stopped it. Else it returns sql.ErrNoRows: another pass runs it.
+// daily call cap, and returns its model call count: the attempt that the commit must match. An
+// active request is started again only when it became active before stale: a crash stopped it.
+// Else it returns sql.ErrNoRows: another pass runs it.
 func StartChange(ctx context.Context, tx *sql.Tx, id int64, now, stale time.Time) (int, error) {
 	var key string
 	var calls int
@@ -249,7 +249,7 @@ func EndChange(ctx context.Context, tx *sql.Tx, id int64, status ChangeStatus, r
 
 // discardChanges discards the open change requests of the proposals that where selects by
 // id ?1, and of the items that items selects, and removes the request text of those
-// proposals (§6.7: proposals with change requests, and the extraction queue).
+// proposals.
 func discardChanges(ctx context.Context, tx *sql.Tx, proposals, items string, id int64, now time.Time) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE change_requests SET status = ?2, reason = ?3, refusal = '', at = ?4
 		WHERE status IN `+openChanges+` AND (source = 'proposal' AND source_id IN (`+proposals+`)
@@ -263,8 +263,8 @@ func discardChanges(ctx context.Context, tx *sql.Tx, proposals, items string, id
 	return nil
 }
 
-// Excerpt is one evidence observation of a candidate, as a proposal shows it (§7.4): its
-// excerpt, sender, session, workspace and date. It is read at show time from the evidence
+// Excerpt is one evidence observation of a candidate, as a proposal shows it: its excerpt,
+// sender, session, workspace and date. It is read at show time from the evidence
 // links; a proposal stores no copy of it.
 type Excerpt struct {
 	ObservationID   int64
@@ -300,7 +300,7 @@ func scanExcerpt(rows *sql.Rows) (Excerpt, error) {
 
 // ActiveClaimItems returns the ids of the active items of claim claimID in the scope with key
 // workspaceKey: the global items and the items of that workspace ("" for global items only).
-// A conflicts_with of the extractor names a claim; the proposal stores these ids (§7.4).
+// A conflicts_with of the extractor names a claim; the proposal stores these ids.
 func ActiveClaimItems(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string) ([]int64, error) {
 	return query(ctx, tx, `SELECT id FROM items WHERE claim_id = ? AND state = ?
 		AND (workspace_key IS NULL OR workspace_key = ?) ORDER BY id`,

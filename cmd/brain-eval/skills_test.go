@@ -482,7 +482,7 @@ func TestSkillChoiceUnsure(t *testing.T) {
 }
 
 // A control whose reply has a marker of its seeded run fails the stage: no marker may reach a
-// control (§12.1).
+// control.
 func TestSkillChoiceControlLeak(t *testing.T) {
 	rs, report, _ := skillRun(t, skillFile, func(e *env) {
 		answer, last := e.fake.answer, ""

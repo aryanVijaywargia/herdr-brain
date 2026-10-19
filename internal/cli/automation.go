@@ -20,7 +20,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// [NEW] the subcommands, their flags and their output.
+// The subcommands, their flags and their output.
 const automationUsage = `usage:
   brain automation add <tool> --folder <dir> --cli claude|codex
                              propose to run an approved tool in a folder after each stop of the agent
@@ -31,7 +31,7 @@ const automationUsage = `usage:
   brain automation launch --run <id> --binding <herdr session> --store <folder>
                              run one claimed run (brained starts it)`
 
-// Automation runs `brain automation` with args after "automation" (§10.4, E17-S10).
+// Automation runs `brain automation` with args after "automation" (E17-S10).
 func Automation(ctx context.Context, e Env, args []string) (err error) {
 	if len(args) == 0 {
 		return errors.New(automationUsage)
@@ -120,7 +120,7 @@ func parseAdd(args []string) (addArgs, error) {
 }
 
 // addAutomation proposes a binding of approved tool a.tool in folder a.folder on the stop
-// trigger of CLI a.cli, in the caller's workspace (§10.4). The approval checks refuse it at
+// trigger of CLI a.cli, in the caller's workspace. The approval checks refuse it at
 // once (store.CheckBinding). A binding of the same tool, folder and CLI that is active already
 // gets a proposal to pin the new contract hash of the tool: you approve it again.
 func (cl caller) addAutomation(ctx context.Context, a addArgs) error {
@@ -294,7 +294,7 @@ func (cl caller) automation(ctx context.Context, tx *sql.Tx, id int64) (store.It
 	return it, cur, nil
 }
 
-// setAutomation turns automation id on, or pauses it, in one transaction (§10.4): a paused
+// setAutomation turns automation id on, or pauses it, in one transaction: a paused
 // binding claims nothing, and a claimed run with no launch mark does not start (E17-S11).
 func (cl caller) setAutomation(ctx context.Context, id int64, on bool) error {
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
@@ -314,8 +314,8 @@ func (cl caller) setAutomation(ctx context.Context, id int64, on bool) error {
 	return err
 }
 
-// removeAutomation retires automation id in one transaction, so it starts no run again
-// (§10.4). Effects of runs that happened stay.
+// removeAutomation retires automation id in one transaction, so it starts no run again.
+// Effects of runs that happened stay.
 func (cl caller) removeAutomation(ctx context.Context, id int64) error {
 	var next store.ItemRevision
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {

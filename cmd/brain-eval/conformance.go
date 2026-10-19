@@ -12,7 +12,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// The conformance results other than harness.Pass (§8.5, E10-S3).
+// The conformance results other than harness.Pass (E10-S3).
 const (
 	resultPending      = "pending" // the run has not completed; an interrupted run stays so
 	resultFail         = "fail"
@@ -20,15 +20,15 @@ const (
 )
 
 // fullBriefMin is the smallest brief that counts as full size for the Codex inline check: near
-// the whole brief budget of 9,500 (§8.1). [NEW] 9,000.
+// the whole brief budget of 9,500.
 const fullBriefMin = 9000
 
-// runID is the id of a run that started at t. [NEW] form.
+// runID is the id of a run that started at t.
 func runID(t time.Time) string { return t.UTC().Format("20060102T150405.000Z") }
 
 // startConformance writes a pending record for each harness whose delivery stage the run
-// asks (§8.5 conformance test), before any case runs, and returns those records. A harness
-// that the run skips, or whose delivery stage it does not run, keeps its record.
+// asks, before any case runs, and returns those records. A harness that the run skips, or
+// whose delivery stage it does not run, keeps its record.
 func (r *Runner) startConformance(cases []Case, skip map[string]string, clis map[string]probeCLI, started time.Time) ([]harness.Result, error) {
 	var hs []string
 	for _, c := range cases {
@@ -114,7 +114,7 @@ func conformance(cases []Case, rs []store.EvalResult, h string, limit bool) stri
 }
 
 // briefCheck checks that text is a full-size brief with marker in its middle third. It
-// returns why not, or "". [NEW] the middle third.
+// returns why not, or "".
 func briefCheck(text, marker string) string {
 	i := strings.Index(text, marker)
 	switch {

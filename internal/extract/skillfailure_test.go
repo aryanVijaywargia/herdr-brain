@@ -87,7 +87,7 @@ const patchedSteps = "1. Run go test ./...\n2. Update the changelog before the t
 // AC E20-S5 #270 1: Brain links a repeat failure to the active skill that covers it. The input
 // marks the claim of the skill with its name. A correction that the extractor links to the
 // skill (covered_by) is a comeback of the skill revision that the session got, and its claim
-// makes no proposal: no fact and no second skill. Its evidence still attaches (§7.3 order).
+// makes no proposal: no fact and no second skill. Its evidence still attaches.
 // With no link, the skill gets no outcome.
 func TestSkillFailureLink(t *testing.T) {
 	for _, linked := range []bool{true, false} {
@@ -174,7 +174,7 @@ func TestSkillComebackSessions(t *testing.T) {
 // AC E20-S5 #270 3: the proposal is a new revision of the existing skill, with a diff of the
 // changed lines, through the change-request queue: a pending patch of the skill item on
 // revision 2, with no candidate. It is not a second skill, and the skill does not change until
-// you approve (§5.4). The request asks for a patch of the steps, with the failures as input.
+// you approve. The request asks for a patch of the steps, with the failures as input.
 func TestSkillFailurePatch(t *testing.T) {
 	f := newFixture(t)
 	item := f.skillItem()
@@ -256,7 +256,7 @@ func TestSkillComebackCaps(t *testing.T) {
 		})
 		calls := f.cli.calls()
 		pass := f.pass()
-		pass.Caps = Caps{Calls: 10, Proposals: 1, InputBytes: 32 << 10} // [NEW] test limits: a cap of 1 proposal
+		pass.Caps = Caps{Calls: 10, Proposals: 1, InputBytes: 32 << 10} // test limits: a cap of 1 proposal
 		if err := pass.Run(context.Background()); err != nil {
 			t.Fatal(err)
 		}
@@ -277,7 +277,7 @@ func TestSkillComebackCaps(t *testing.T) {
 		f.skillFailures(item, failed{2, 1}, failed{2, 2})
 		f.cli.reply = skillReply(map[string]any{"steps": patchedSteps})
 		pass := f.pass()
-		pass.Caps = Caps{Calls: 10, Proposals: 5, InputBytes: len(releaseFailures[1]) + 1} // [NEW] test limits: one excerpt
+		pass.Caps = Caps{Calls: 10, Proposals: 5, InputBytes: len(releaseFailures[1]) + 1} // test limits: one excerpt
 		if err := pass.Run(context.Background()); err != nil {
 			t.Fatal(err)
 		}
@@ -289,7 +289,7 @@ func TestSkillComebackCaps(t *testing.T) {
 }
 
 // Review of PR #303: a tool failure reaches the skill, though the correction candidate of its
-// claim refuses tool output (§6.5). The first session corrects the agent; the second shows the
+// claim refuses tool output. The first session corrects the agent; the second shows the
 // same failure as tool output. The two sessions queue one request.
 func TestSkillToolFailure(t *testing.T) {
 	f := newFixture(t)
@@ -341,7 +341,7 @@ func TestSkillDifferentFailures(t *testing.T) {
 }
 
 // A covered_by that names a known claim that is no skill, or a claim that is not in the input,
-// refuses the whole result, as a bad same_as does (§7.3).
+// refuses the whole result, as a bad same_as does.
 func TestSkillCoveredByRefused(t *testing.T) {
 	for _, c := range []struct {
 		name  string

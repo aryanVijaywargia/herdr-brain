@@ -153,7 +153,7 @@ func TestForgetSkill(t *testing.T) {
 	}
 }
 
-// AC: a kept conflict file keeps forget of a skill pending (S11, §7.5 step 8); brain repair
+// AC: a kept conflict file keeps forget of a skill pending; brain repair
 // --confirm then lets forget report done.
 func TestForgetSkillPendingOnConflict(t *testing.T) {
 	f := newFixture(t)
@@ -183,7 +183,7 @@ func TestForgetSkillPendingOnConflict(t *testing.T) {
 	}
 }
 
-// AC S11 (skill part): a hand-edited listed SKILL.md stays, status and brain repair show the
+// AC (skill part): a hand-edited listed SKILL.md stays, status and brain repair show the
 // conflict, and brain repair --confirm writes it again.
 func TestSkillConflictRepair(t *testing.T) {
 	f := newStatusFixture(t)
@@ -218,7 +218,7 @@ func TestSkillConflictRepair(t *testing.T) {
 	}
 }
 
-// AC S61 (skill part), in a test home: after build, approve, retire and forget, Brain wrote no
+// AC (skill part), in a test home: after build, approve, retire and forget, Brain wrote no
 // file into ~/.claude/skills, ~/.codex or the repo; its skill files stay in the store.
 func TestSkillFilesStayInStore(t *testing.T) {
 	home := t.TempDir()
@@ -268,7 +268,7 @@ func (f *fixture) hookStart(t *testing.T, session string) store.Delivery {
 	return d
 }
 
-// AC §5.5, E7-S2: a session that got revision 2 of a skill can still read that file after the
+// AC E7-S2: a session that got revision 2 of a skill can still read that file after the
 // next revision, and its receipt names revision 2; a new session gets and names revision 3.
 func TestSkillReceiptNamesRevision(t *testing.T) {
 	f := newFixture(t)
@@ -288,7 +288,7 @@ func TestSkillReceiptNamesRevision(t *testing.T) {
 	}
 }
 
-// Review fix: undo of a retirement checks the skill name too (§8.2). Retire skill A, approve
+// Review fix: undo of a retirement checks the skill name too. Retire skill A, approve
 // skill B with the same name, then undo A's retirement: undo refuses and writes nothing.
 func TestUndoSkillNameClash(t *testing.T) {
 	f := newFixture(t)

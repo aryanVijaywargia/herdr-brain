@@ -38,7 +38,7 @@ func (f *fixture) blockFiles(t *testing.T) []string {
 	return slices.Compact(files)
 }
 
-// AC S19 (M3 exit, #165): a rename of workspace "shop" keeps its key. Its item and its skill
+// AC (M3 exit, #165): a rename of workspace "shop" keeps its key. Its item and its skill
 // stay linked, a new item lands in the same key, and the block file keeps its name.
 func TestRenameS19(t *testing.T) {
 	f := newFixture(t)
@@ -88,7 +88,7 @@ func TestRenameS19(t *testing.T) {
 	}
 }
 
-// AC S20 (M3 exit, #165): "shop" closed, and a later workspace has the same root folder. A
+// AC (M3 exit, #165): "shop" closed, and a later workspace has the same root folder. A
 // brain call links nothing by itself and asks nothing: the old items keep the closed key, and
 // the new workspace's brief does not hold them. brain status notes the old workspace with the
 // link command. The link itself, on request, is TestWorkspaceLink.
@@ -113,9 +113,8 @@ func TestClosedSameRootS20(t *testing.T) {
 	}
 }
 
-// AC S27 (M3 exit, #165): "shop" (w14) and w15 (the "shop-exp" of §14, "blog" in the fixture)
-// share one checkout. Each has a workspace item and a workspace skill; each brief holds only
-// its own.
+// AC (M3 exit, #165): "shop" (w14) and w15 ("blog" in the fixture) share one checkout. Each has
+// a workspace item and a workspace skill; each brief holds only its own.
 func TestSameCheckoutS27(t *testing.T) {
 	f := newFixture(t)
 	shopItem := f.addActive(t, ptr("ws_a14"), "shop item marker-shop")
@@ -169,7 +168,7 @@ func TestSameCheckoutS27(t *testing.T) {
 	}
 }
 
-// AC S29 (M3 exit, #165): a pinned procedure (a workspace skill) with no relevant session for 6
+// AC (M3 exit, #165): a pinned procedure (a workspace skill) with no relevant session for 6
 // months stays active and is no archive candidate; the same skill unpinned is one.
 func TestPinnedSkillS29(t *testing.T) {
 	f := newFixture(t)
@@ -192,7 +191,7 @@ func TestPinnedSkillS29(t *testing.T) {
 	}
 }
 
-// AC S83, relink part (M3 exit, #165): a remap replaced key ws_a8 with ws_a14. The old items
+// AC, relink part (M3 exit, #165): a remap replaced key ws_a8 with ws_a14. The old items
 // stay in ws_a8: the ws_a14 brief does not hold them, and brain status lists ws_a8 for a
 // relink. The link on request is TestWorkspaceLinkReplaced.
 func TestReplacedNoOldItemsS83(t *testing.T) {

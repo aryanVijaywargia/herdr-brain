@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// PendingProposalIDs reads the ids of the proposals that wait for your decision, in id order
-// (§7.4). The caller reads each one and checks its scope.
+// PendingProposalIDs reads the ids of the proposals that wait for your decision, in id order.
+// The caller reads each one and checks its scope.
 func PendingProposalIDs(ctx context.Context, tx *sql.Tx) ([]int64, error) {
 	return ids(ctx, tx, "pending proposals", `SELECT id FROM proposals WHERE status = ? ORDER BY id`, ProposalPending)
 }

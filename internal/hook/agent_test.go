@@ -25,7 +25,7 @@ type step struct {
 }
 
 // TestAgentCheck: a hook run records (pane, agent session id), and the next run for the pane
-// checks it against the agent that herdr shows then (§8.3 limit, §17 item 29).
+// checks it against the agent that herdr shows then.
 func TestAgentCheck(t *testing.T) {
 	const (
 		pending = resolver.AgentPending

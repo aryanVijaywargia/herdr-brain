@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// CallOrigin says who called a tool (§11 tool_calls).
+// CallOrigin says who called a tool.
 type CallOrigin string
 
 // The call origins.
@@ -17,7 +17,7 @@ const (
 	OriginAutomation CallOrigin = "automation" // the automation runner (E17-S11)
 )
 
-// CallResult is the result of a tool call. Only CallRan is a real call (§10.2).
+// CallResult is the result of a tool call. Only CallRan is a real call.
 type CallResult string
 
 // The call results.
@@ -26,7 +26,7 @@ const (
 	CallRefused CallResult = "refused" // a check failed, so nothing ran
 )
 
-// ToolCall is one row of tool_calls (§11).
+// ToolCall is one row of tool_calls.
 type ToolCall struct {
 	ID     int64
 	ToolID int64
@@ -80,8 +80,8 @@ func ToolCalls(ctx context.Context, tx *sql.Tx) ([]ToolCall, error) {
 		})
 }
 
-// RanCalls counts the ran calls of each tool since since, by tool id (§13 M4 review prompt).
-// A refused call is no real call (§10.2), so it does not count.
+// RanCalls counts the ran calls of each tool since since, by tool id. A refused
+// call is no real call, so it does not count.
 func RanCalls(ctx context.Context, tx *sql.Tx, since time.Time) (map[int64]int, error) {
 	n := make(map[int64]int)
 	err := eachRow(ctx, tx, `SELECT tool_id, count(*) FROM tool_calls WHERE result = ? AND at >= ? GROUP BY tool_id`,

@@ -12,15 +12,15 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// shortCommit is the length of a commit hash in a revert excerpt [NEW], as git's short hashes.
+// shortCommit is the length of a commit hash in a revert excerpt, as git's short hashes.
 const shortCommit = 7
 
-// Reverts is the revert rule of one brained (#283, §7.1): before each extraction pass it
+// Reverts is the revert rule of one brained (#283): before each extraction pass it
 // stores each revert that git shows in a rooted workspace as a git observation, so the
 // extractor sees it as it sees the other signals. It keeps the work-tree changes of the last
-// pass in memory only, as capture keeps the last read of a pane (§6.2 step 4). So the first
+// pass in memory only, as capture keeps the last read of a pane. So the first
 // pass after a start is a baseline, and a revert commit counts only when it is newer than the
-// start (§6.2 step 8): Brain does not invent what it missed.
+// start: Brain does not invent what it missed.
 type Reverts struct {
 	since   time.Time
 	changes map[string]signal.Changes           // by workspace key
@@ -49,10 +49,10 @@ type gitWorkspace struct {
 // folder and a capture segment. A revert commit goes into the newest segment that started
 // before the commit; a file that goes back goes into the segment that was the newest when
 // its change was first seen. Its capture identity holds the commit, or the time of the pass,
-// so a revert counts once (§6.4). A revert that a new revert commit of the pass shows is not a
+// so a revert counts once. A revert that a new revert commit of the pass shows is not a
 // second one. With learning off for the pane of that segment, the revert is dropped for good,
-// and the work-tree changes of the workspace start again from a baseline (§6.7). defaultOn is
-// the learning state with no store setting (§12.1). git runs outside the transactions. A git
+// and the work-tree changes of the workspace start again from a baseline. defaultOn is
+// the learning state with no store setting. git runs outside the transactions. A git
 // failure in one workspace does not stop the others.
 func (r *Reverts) Pass(ctx context.Context, st *store.Store, herdrSession string, defaultOn bool, now time.Time) error {
 	var wss []*gitWorkspace

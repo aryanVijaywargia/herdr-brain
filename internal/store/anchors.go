@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// The queries of the anchors and the stale check (E16-S6, §9.1).
+// The queries of the anchors and the stale check (E16-S6).
 
 // SetAnchors replaces the anchors of item id.
 func SetAnchors(ctx context.Context, tx *sql.Tx, id int64, anchors []Anchor) error {
@@ -37,7 +37,7 @@ func AnchoredItems(ctx context.Context, tx *sql.Tx, key string) ([]Item, error) 
 }
 
 // AnchorPaths reads the anchor paths of each delivered item that has anchors, by item id: the
-// brief keeps room for their dispute mark (§9.1).
+// brief keeps room for their dispute mark.
 func AnchorPaths(ctx context.Context, tx *sql.Tx) (map[int64][]string, error) {
 	type row struct {
 		id      int64
@@ -62,7 +62,7 @@ func AnchorPaths(ctx context.Context, tx *sql.Tx) (map[int64][]string, error) {
 	return m, nil
 }
 
-// Dispute makes item p.ItemID disputed and adds p, its review in the queue (§9.1), when the
+// Dispute makes item p.ItemID disputed and adds p, its review in the queue, when the
 // item is still active at revision *p.BaseRevision. The item keeps its revision and its text:
 // Brain does not change the item itself. It records a new output generation, so the next
 // build marks the item in the brief. It returns the new proposal id, or 0 when the item
@@ -89,7 +89,7 @@ func Dispute(ctx context.Context, tx *sql.Tx, p Proposal) (int64, error) {
 }
 
 // RebaseAnchors stores anchors as the anchors of item id when the item is still active at
-// revision rev: a normal edit of an anchor file gives the check a new baseline (§9.1, #252).
+// revision rev: a normal edit of an anchor file gives the check a new baseline (#252).
 func RebaseAnchors(ctx context.Context, tx *sql.Tx, id, rev int64, anchors []Anchor) error {
 	_, err := tx.ExecContext(ctx, `UPDATE items SET anchors = ? WHERE id = ? AND current_revision = ? AND state = ?`,
 		jsonList[Anchor](anchors), id, rev, StateActive)
@@ -102,7 +102,7 @@ func RebaseAnchors(ctx context.Context, tx *sql.Tx, id, rev int64, anchors []Anc
 // Undispute makes item id active again with anchors when it is still disputed at revision rev,
 // and closes its pending disputes as superseded at now: an older build disputed it for a
 // normal edit of an anchor file, and every anchor path is still there (#252). An item with a
-// pending dispute of a move or a delete stays disputed until you decide (§9.1), also when the
+// pending dispute of a move or a delete stays disputed until you decide, also when the
 // file is back: its anchor diff has a "(moved)" or "(deleted)" line. The item keeps its
 // revision. It records a new output generation, so the next build drops the mark. It reports
 // whether the item changed.
@@ -125,7 +125,7 @@ func Undispute(ctx context.Context, tx *sql.Tx, id, rev int64, anchors []Anchor,
 	return err == nil, err
 }
 
-// Disputed is the mark of one disputed item in the brief (§9.1): the anchor paths of its
+// Disputed is the mark of one disputed item in the brief: the anchor paths of its
 // dispute, the anchor diff of its proposal and the time of the check that found them.
 type Disputed struct {
 	Anchors []string
@@ -160,7 +160,7 @@ func Disputes(ctx context.Context, tx *sql.Tx) (map[int64]Disputed, error) {
 
 // SupersedeDisputes closes the pending dispute proposals of item id with status superseded at
 // now: an approval of another proposal of the item wrote a new revision and fresh anchors, so
-// the dispute no longer has a base. Superseded is not your decision (§7.4), as in forget.
+// the dispute no longer has a base. Superseded is not your decision, as in forget.
 func SupersedeDisputes(ctx context.Context, tx *sql.Tx, id int64, now time.Time) error {
 	_, err := tx.ExecContext(ctx, `UPDATE proposals SET status = ?, decided = ?
 		WHERE item_id = ? AND status = ? AND json_array_length(dispute) > 0`,

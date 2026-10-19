@@ -24,7 +24,7 @@ func (f *fixture) linked(t *testing.T) (global, ws string) {
 	return fmt.Sprint(f.addActive(t, nil, "use npm")), fmt.Sprint(f.addActive(t, ptr("ws_a14"), "use pnpm"))
 }
 
-// AC (S67, linked): the link is on the workspace item's revision, with the global item's
+// AC (linked): the link is on the workspace item's revision, with the global item's
 // revision, and the brief shows the exception mark. A second link does nothing.
 func TestExceptionLink(t *testing.T) {
 	f := newFixture(t)
@@ -47,7 +47,7 @@ func TestExceptionLink(t *testing.T) {
 	}
 }
 
-// AC (S67, not linked): with no link the brief shows both items with no mark, so the
+// AC (not linked): with no link the brief shows both items with no mark, so the
 // precedence line of the brief frame applies (E6 tests the frame).
 func TestNotLinked(t *testing.T) {
 	f := newFixture(t)
@@ -58,7 +58,7 @@ func TestNotLinked(t *testing.T) {
 	}
 }
 
-// AC (S67, refused): a link to a global item with the permission warning writes nothing.
+// AC (refused): a link to a global item with the permission warning writes nothing.
 // A conflict mark stays possible.
 func TestExceptionRefused(t *testing.T) {
 	f := newFixture(t)
@@ -77,7 +77,7 @@ func TestExceptionRefused(t *testing.T) {
 	}
 }
 
-// AC 1 (#388, run 7 R7-1): a global item whose claim has the permission flag refuses an
+// AC 1 (#388, M2 eval run 7): a global item whose claim has the permission flag refuses an
 // exception, also when its text has no permission word; the refusal writes nothing.
 func TestExceptionRefusedFlaggedClaim(t *testing.T) {
 	const rule = "Never add a new npm dependency without asking the user first."

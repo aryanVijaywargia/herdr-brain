@@ -25,14 +25,14 @@ title = "Brain: setup"
 contexts = ["global", "workspace", "pane"]
 command = ["sh", "-c", "exec \"$HERDR_BIN_PATH\" plugin pane open --plugin brain --entrypoint setup"]
 
-# D6 (E5-S3): setup stays a popup; `brain setup` resolves no caller, so it needs no pane id.
+# E5-S3: setup stays a popup; `brain setup` resolves no caller, so it needs no pane id.
 [[panes]]
 id = "setup"
 title = "Brain setup"
 placement = "popup"
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" setup"]
 
-# E19-S3: starts brained for this herdr session when none holds the D7 lock, then opens the
+# E19-S3: starts brained for this herdr session when none holds the brained lock, then opens the
 # setup popup when the session has no binding. herdr runs [[startup]] only after a session
 # restore, so scripts/build.sh invokes this action after `herdr plugin install`.
 # Also: `herdr plugin action invoke brain.start`.
@@ -42,7 +42,7 @@ title = "Brain: start"
 contexts = ["global", "workspace", "pane"]
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" start"]
 
-# E5-S3 (D6): opens the queue of the focused pane's workspace in a split beside that pane.
+# E5-S3: opens the queue of the focused pane's workspace in a split beside that pane.
 # Also: `herdr plugin action invoke brain.review`.
 [[actions]]
 id = "review"
@@ -50,7 +50,7 @@ title = "Brain: review"
 contexts = ["workspace", "pane"]
 command = ["sh", "-c", "exec \"$HERDR_BIN_PATH\" plugin pane open --plugin brain --entrypoint queue"]
 
-# D6: split, not popup. A popup has no HERDR_PANE_ID, so `brain review` cannot resolve the
+# Split, not popup. A popup has no HERDR_PANE_ID, so `brain review` cannot resolve the
 # caller in it. `brain review` prints and exits, and the pane closes on exit, so the pane
 # waits for Enter. The E5-S1 review pane is a separate entry.
 [[panes]]
@@ -78,7 +78,7 @@ title = "Brain: recall"
 contexts = ["workspace", "pane"]
 command = ["sh", "-c", "exec \"$HERDR_BIN_PATH\" plugin pane open --plugin brain --entrypoint recall"]
 
-# A popup has no HERDR_PANE_ID (D6), so `brain pane recall` takes the focused pane and its
+# A popup has no HERDR_PANE_ID, so `brain pane recall` takes the focused pane and its
 # workspace from HERDR_PLUGIN_CONTEXT_JSON, and herdr confirms that pane as for any call.
 [[panes]]
 id = "recall"
@@ -96,7 +96,7 @@ contexts = ["workspace", "pane"]
 command = ["sh", "-c", "exec \"$HERDR_BIN_PATH\" plugin pane open --plugin brain --entrypoint retired"]
 
 # A popup, as the recall popup: `brain pane retired` takes the focused pane and its workspace
-# from HERDR_PLUGIN_CONTEXT_JSON (D6). q closes it.
+# from HERDR_PLUGIN_CONTEXT_JSON. q closes it.
 [[panes]]
 id = "retired"
 title = "Brain retired items"
@@ -113,20 +113,20 @@ contexts = ["workspace", "pane"]
 command = ["sh", "-c", "exec \"$HERDR_BIN_PATH\" plugin pane open --plugin brain --entrypoint links"]
 
 # A popup, as the retired popup: `brain pane links` takes the focused pane and its workspace
-# from HERDR_PLUGIN_CONTEXT_JSON (D6). q closes it.
+# from HERDR_PLUGIN_CONTEXT_JSON. q closes it.
 [[panes]]
 id = "links"
 title = "Brain links to review"
 placement = "popup"
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" pane links"]
 
-# D4 (E2-S6): a close marks the workspace closed, because herdr reuses a closed id after a
+# E2-S6: a close marks the workspace closed, because herdr reuses a closed id after a
 # restart. herdr runs the command once for each event; there is no listener process.
 [[events]]
 on = "workspace.closed"
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" event workspace-closed"]
 
-# D7 (E11-S2): herdr starts brained once for each herdr session, after its socket is ready.
+# E11-S2: herdr starts brained once for each herdr session, after its socket is ready.
 # herdr does not supervise it: brained exits on the end of the event socket, and when Brain
 # is disabled or unlinked. A lock in HERDR_PLUGIN_STATE_DIR keeps one brained per session.
 [[startup]]

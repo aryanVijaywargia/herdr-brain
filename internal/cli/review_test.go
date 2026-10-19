@@ -249,7 +249,7 @@ func TestPermissionWarning(t *testing.T) {
 }
 
 // A change to an active item warns when the old text or the new text has a keyword: a retire
-// or an edit that removes a safety rule changes it (§7.4).
+// or an edit that removes a safety rule changes it.
 func TestChangeWarning(t *testing.T) {
 	cases := []struct {
 		name, text string

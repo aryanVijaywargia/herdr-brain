@@ -282,7 +282,7 @@ func TestUninstallSameRecordFromEachBinding(t *testing.T) {
 	}
 }
 
-// A hook entry that you edited stays, and uninstall says so (§8.1).
+// A hook entry that you edited stays, and uninstall says so.
 func TestUninstallKeepsEditedEntry(t *testing.T) {
 	home := userHome(t)
 	installBrain(t, home)

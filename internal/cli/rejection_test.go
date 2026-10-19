@@ -107,7 +107,7 @@ func (f *fixture) propose(t *testing.T, c store.Candidate, target string) (int64
 	return pid, err
 }
 
-// AC: reject in "shop" does not hide the claim in "blog" (§7.2). New evidence after the
+// AC: reject in "shop" does not hide the claim in "blog". New evidence after the
 // rejection shows in --rejected and creates no proposal.
 func TestReviewRejectClaim(t *testing.T) {
 	f := newFixture(t)
@@ -222,7 +222,7 @@ func TestReviewReopenRejection(t *testing.T) {
 }
 
 // A proposal of a candidate below its gate waits in --all only. You approve it from there with
-// the E4 approve (§7.2).
+// the E4 approve.
 func TestReviewApproveBelowGate(t *testing.T) {
 	f := newFixture(t)
 	c := f.correct(t, f.claim(t), "ws_a14", "a1")

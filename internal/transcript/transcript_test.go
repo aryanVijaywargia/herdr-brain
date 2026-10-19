@@ -52,19 +52,19 @@ func TestReadClaude(t *testing.T) {
 		First: ts("00:00"), Last: ts("05:10"),
 		Turns: []Turn{{
 			Prompt: Text{ID: "u1", At: ts("00:00"), Text: "use pnpm, not npm"},
-			// Two shell calls in one record give two commands with two ids (S89).
+			// Two shell calls in one record give two commands with two ids.
 			Commands: []Command{
 				{ID: "a1#1", At: ts("00:01"), Command: "pnpm test", Exit: exit(1),
 					Failure: &Text{ID: "u2#0", At: ts("00:03"), Text: "Exit code 1\nFAIL test/a.test.js"}},
 				{ID: "a1#2", At: ts("00:01"), Command: "pnpm lint"},
 			},
 			Reply: Text{ID: "a3", At: ts("00:04"), Text: "The tests fail in a.test.js."},
-			// m1 is on two lines and counts once: 10+20+30+5, then m2: 1+2 (S91).
+			// m1 is on two lines and counts once: 10+20+30+5, then m2: 1+2.
 			Tokens: 68, TokensKnown: true,
 		}, {
 			Prompt: Text{ID: "u3", At: ts("05:00"), Text: "fix it"},
 			Reply:  Text{ID: "a4", At: ts("05:10"), Text: "Fixed."},
-			// No usage field: unknown, not 0 (S91).
+			// No usage field: unknown, not 0.
 		}},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -91,11 +91,11 @@ func TestReadCodex(t *testing.T) {
 					Failure: &Text{ID: id(`"Exit code: 2`), At: ts("00:06"),
 						Text: "Exit code: 2\nWall time: 1.2 seconds\nOutput:\nFAIL api_test"}},
 				{ID: id(`"cmd\": \"make lint`), At: ts("00:07"), Command: "make lint", Exit: exit(0)},
-				// No known exit line: the exit status stays unknown (§17 item 34).
+				// No known exit line: the exit status stays unknown.
 				{ID: id(`"local_shell_call"`), At: ts("00:09"), Command: "ls -la"},
 			},
 			Reply: Text{ID: id("make test fails"), At: ts("00:13"), Text: "make test fails in api_test."},
-			// The growth of total_tokens; the repeated line adds nothing (S91).
+			// The growth of total_tokens; the repeated line adds nothing.
 			Tokens: 1000, TokensKnown: true,
 		}, {
 			Prompt: Text{ID: id(`"thanks"`), At: ts("01:00"), Text: "thanks"},
@@ -111,8 +111,8 @@ func TestReadCodex(t *testing.T) {
 	}
 }
 
-// TestDrops checks the filters of §6.8 "What Brain drops": each fixture holds one line of each
-// kind, and only the kept prompt and reply reach a turn (S88).
+// TestDrops checks the filters of the text that Brain drops: each fixture holds one line of
+// each kind, and only the kept prompt and reply reach a turn.
 func TestDrops(t *testing.T) {
 	for _, tc := range []struct {
 		file   string

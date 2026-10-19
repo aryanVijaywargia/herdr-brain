@@ -10,7 +10,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// AC #428 (owner decision): the environment of a call is the environment of brained, with no
+// AC #428: the environment of a call is the environment of brained, with no
 // variable of the denylist: HERDR_*, BRAIN_* and the session markers of Claude Code and codex.
 // Sign-in, provider, proxy and any other variables stay, and LANG stays as it is.
 func TestCleanEnv(t *testing.T) {

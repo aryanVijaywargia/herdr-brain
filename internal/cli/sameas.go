@@ -69,8 +69,7 @@ func (cl caller) linkView(l extract.Link) string {
 }
 
 // linkCandidate checks that the caller sees candidate id of a link. When other is not "", the
-// link must still name claim other: the claim that a pane showed before it waited for your key
-// (go-quality rule 14).
+// link must still name claim other: the claim that a pane showed before it waited for your key.
 func (cl caller) linkCandidate(ctx context.Context, tx *sql.Tx, id int64, other string) error {
 	c, err := store.CandidateByID(ctx, tx, id)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && !cl.sees(scopeKey(c.Scope, c.WorkspaceKey)) {
@@ -165,8 +164,8 @@ const (
 
 // linksPane is the list of the same_as links that wait for review in the review pane, key m,
 // and in the popup of the action brain.links, with no proposal (#358), as brain review lists
-// them: m merges the link at the cursor, and n keeps it apart, each with one confirm. [NEW
-// keys]. A link whose merge would move no evidence offers no m, and m says why (#361).
+// them: m merges the link at the cursor, and n keeps it apart, each with one confirm. A link
+// whose merge would move no evidence offers no m, and m says why (#361).
 type linksPane struct {
 	Env
 	popup  bool // the list is the popup of brain.links

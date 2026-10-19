@@ -177,7 +177,7 @@ func environ(socket, session, paneID, workspaceID string) []string {
 
 func deadline(t *testing.T) context.Context {
 	t.Helper()
-	// [NEW] 5 s: no passing test comes near it; the fake herdr answers at once.
+	// 5 s: no passing test comes near it; the fake herdr answers at once.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
 	return ctx
@@ -539,7 +539,7 @@ func TestResolveStoreOpenError(t *testing.T) {
 }
 
 // A test binding whose store is a dangling link is dropped: its session gets no store, and
-// the default session still resolves (owner decision, 2026-09-28).
+// the default session still resolves.
 func TestDroppedBinding(t *testing.T) {
 	f := newFixture(t)
 	bs, dropped, err := bindings.Read(f.file)

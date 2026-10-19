@@ -13,12 +13,12 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
 )
 
-// automations runs the minimal learned automation case (§10.4, E17-S10): the same approved tool
+// automations runs the minimal learned automation case (E17-S10): the same approved tool
 // runs in its folder after a stop of the agent (store.StopCalls). Each occurrence is evidence of
 // one claim in the workspace of the stop: this tool, this folder and the stop of this CLI. The
-// claim is a command chain candidate, so its gate is 3 sessions (§7.2, E12-S2). At the gate it
+// claim is a command chain candidate, so its gate is 3 sessions (E12-S2). At the gate it
 // gives one automation proposal through the queue checks: learning on, the daily proposal cap
-// in the round robin order of the workspaces (§7.3), no pending proposal, no item and no
+// in the round robin order of the workspaces, no pending proposal, no item and no
 // rejection of the claim in its scope. It makes no model call. It is no general automation
 // detector.
 func (p Pass) automations(ctx context.Context, tx *sql.Tx) error {
@@ -85,7 +85,7 @@ func (p Pass) stopCall(ctx context.Context, tx *sql.Tx, c store.StopCall) (bindi
 	}
 	b := store.Binding{Tool: t.Name, ToolID: t.ID, ContractHash: t.ContractHash, Folder: filepath.Clean(ct.Cwd),
 		CLI: c.Harness, Trigger: trigger}
-	// [NEW] the claim key of the learned case.
+	// The claim key of the learned case.
 	key := store.ClaimKey{Situation: normal(fmt.Sprintf("the %s agent stops working in %s", b.CLI, b.Folder)),
 		Rule: normal("run brain tool " + b.Tool)}
 	claim, err := store.ClaimID(ctx, tx, key, p.Now())

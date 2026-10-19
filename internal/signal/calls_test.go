@@ -23,11 +23,10 @@ func (c countingTransport) RoundTrip(*http.Request) (*http.Response, error) {
 	return nil, http.ErrNotSupported
 }
 
-// The rules make 0 model calls (§7.1: local rules, no LLM). Brain has no model client yet
-// (the extractor is E13), so the test counts every way out that a model call would take: the
-// HTTP requests of the process, and the connections to a proxy that the environment names
-// for the process and for git. It also checks that the rules import no network or
-// harness package.
+// The rules make 0 model calls (local rules, no LLM). Brain has no model client yet (the
+// extractor is E13), so the test counts every way out that a model call would take: the HTTP
+// requests of the process, and the connections to a proxy that the environment names for the
+// process and for git. It also checks that the rules import no network or harness package.
 func TestNoModelCalls(t *testing.T) {
 	gitEnv(t)
 	var requests, conns atomic.Int64

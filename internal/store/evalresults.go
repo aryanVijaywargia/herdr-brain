@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// EvalRun is the results file of the last eval run (HLD §12.1, E10-S2). The eval runner writes
+// EvalRun is the results file of the last eval run (E10-S2). The eval runner writes
 // it in the test store folder; `brain status` reads it. It is not a table: the runner empties
 // the test store before each case, and the file must outlive that reset.
 type EvalRun struct {
@@ -17,7 +17,7 @@ type EvalRun struct {
 	Results  []EvalResult `json:"results"`
 }
 
-// EvalResult is the result of one probe of one case (§12.1 "Each result keeps").
+// EvalResult is the result of one probe of one case.
 type EvalResult struct {
 	Case    string `json:"case"`
 	Stage   string `json:"stage,omitempty"`

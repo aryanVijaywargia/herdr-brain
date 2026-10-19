@@ -196,7 +196,7 @@ func TestStatusNewSetup(t *testing.T) {
 }
 
 // AC: one gap of each kind, the three "unknown" cases, the withheld history apart, an agent
-// kind with no profile (D3), and the review queue. Receipts of a test store and of another
+// kind with no profile, and the review queue. Receipts of a test store and of another
 // herdr session never count for the main binding.
 func TestStatusGaps(t *testing.T) {
 	f := newStatusFixture(t)
@@ -264,16 +264,16 @@ func TestStatusPaneListFails(t *testing.T) {
 	}
 }
 
-// AC S54: an untested herdr version shows the warning.
+// AC: an untested herdr version shows the warning.
 func TestStatusUntestedHerdr(t *testing.T) {
 	f := newStatusFixture(t)
 	f.herdr.version, f.herdr.untested = "0.9.4", true
 	if out := f.mustStatus(t); !strings.Contains(out, "herdr 0.9.4: not tested with Brain yet; Brain keeps working\n") {
-		t.Errorf("status:\n%s\nwant the S54 warning", out)
+		t.Errorf("status:\n%s\nwant the untested herdr warning", out)
 	}
 }
 
-// AC S66: a hand edit of the current generation shows as an output conflict. The repair of
+// AC: a hand edit of the current generation shows as an output conflict. The repair of
 // the call does not build past it, so the brief line shows why the hook withholds it.
 func TestStatusConflict(t *testing.T) {
 	f := newStatusFixture(t)
@@ -281,7 +281,7 @@ func TestStatusConflict(t *testing.T) {
 	f.golden(t, "conflict", f.mustStatus(t))
 }
 
-// AC S77: a forget that a hand edit blocked shows as pending, with no item text.
+// AC: a forget that a hand edit blocked shows as pending, with no item text.
 func TestStatusForgetPending(t *testing.T) {
 	f := newStatusFixture(t)
 	id := f.approved(t, "marker-s77")
@@ -294,7 +294,7 @@ func TestStatusForgetPending(t *testing.T) {
 	}
 }
 
-// AC S83: an entry that a remap replaced, and a closed entry with the root of a current
+// AC: an entry that a remap replaced, and a closed entry with the root of a current
 // entry, wait for a relink. The caller's workspace shows the remap offer.
 func TestStatusRelink(t *testing.T) {
 	f := newStatusFixture(t)
@@ -320,7 +320,7 @@ func TestStatusRelink(t *testing.T) {
 	f.golden(t, "relink", f.mustStatus(t))
 }
 
-// AC S84: an unbound session gets the explanation and the setup command. Status reads no
+// AC: an unbound session gets the explanation and the setup command. Status reads no
 // store and writes nothing.
 func TestStatusUnbound(t *testing.T) {
 	f := newStatusFixture(t)
@@ -443,7 +443,7 @@ func TestStatusEvalLine(t *testing.T) {
 	}
 }
 
-// AC S70: an invalid extractor response keeps the watermark, and status shows the batch.
+// AC: an invalid extractor response keeps the watermark, and status shows the batch.
 func TestStatusFailedBatch(t *testing.T) {
 	f := newStatusFixture(t)
 	s := openStore(t, f.store)
@@ -496,7 +496,7 @@ func capture(ctx context.Context, tx *sql.Tx, k store.SessionKey, paneID, ws str
 	return session, obs, nil
 }
 
-// AC E15-S2: the M2 counts of §12 from a fixture store, with the sessions observed and the
+// AC E15-S2: the M2 counts from a fixture store, with the sessions observed and the
 // capture gaps beside each count: comebacks by item revision with example observations and the
 // uncertain matches apart, correction candidates, proposals and their review, live suggestions,
 // the delivery gaps of observed sessions by adapter, and a backlog that waits for extraction.
@@ -631,7 +631,7 @@ func TestStatusCounts(t *testing.T) {
 // storeTime is the time layout of the store columns.
 const storeTime = "2006-01-02T15:04:05.000Z07:00"
 
-// [NEW] a week starts on Monday 00:00 UTC: a Sunday night and a Monday midnight are in two weeks.
+// A week starts on Monday 00:00 UTC: a Sunday night and a Monday midnight are in two weeks.
 func TestWeekStarts(t *testing.T) {
 	monday := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
 	for _, c := range []struct {

@@ -102,7 +102,7 @@ func TestToolFiles(t *testing.T) {
 }
 
 // A tool file that no generation lists yet is no conflict: a stopped build leaves it, and the
-// next build writes it again (§7.5 step 5).
+// next build writes it again.
 func TestToolUnlistedFile(t *testing.T) {
 	s, out := newStore(t)
 	id := addTool(t, s, toolText("m1"))
@@ -119,7 +119,7 @@ func TestToolUnlistedFile(t *testing.T) {
 	mustMayRun(t, s, out, id)
 }
 
-// AC S11: a hand-edited tool.toml is a conflict, and the tool does not run. It stays until you
+// AC: a hand-edited tool.toml is a conflict, and the tool does not run. It stays until you
 // confirm; then repair writes it again, and the tool runs.
 func TestToolHandEdit(t *testing.T) {
 	s, out := newStore(t)
@@ -151,7 +151,7 @@ func TestToolHandEdit(t *testing.T) {
 	wantMayNotRun(t, s, out, id, "missing")
 }
 
-// AC S21: a contract change that you did not approve stops the tool. A draft revision of the
+// AC: a contract change that you did not approve stops the tool. A draft revision of the
 // tool has no approval, and a tools row whose contract hash is not the approved one, or not
 // the hash of the current revision, does not run. An approved change runs with its new hash.
 func TestToolApproval(t *testing.T) {
@@ -217,9 +217,9 @@ func TestToolApproval(t *testing.T) {
 	}
 }
 
-// §7.5 step 8: all revision files of an active tool stay; the files of a retired tool go when
-// no current generation lists them and the pointer moved more than one hook cap ago. Holds
-// counts them until then, so forget stays pending.
+// All revision files of an active tool stay; the files of a retired tool go when no current
+// generation lists them and the pointer moved more than one hook cap ago. Holds counts them
+// until then, so forget stays pending.
 func TestToolRetireCleanup(t *testing.T) {
 	s, out := newStore(t)
 	id := addTool(t, s, toolText("r1"))
@@ -292,7 +292,7 @@ func TestCatalog(t *testing.T) {
 }
 
 // AC E17-S5: a skill entry says so when a Brain tool that it requires is not approved or is
-// stopped (§8.2). A required tool that is no Brain tool (gh) gets no note.
+// stopped. A required tool that is no Brain tool (gh) gets no note.
 func TestSkillStoppedTool(t *testing.T) {
 	s, out := newStore(t)
 	run := addTool(t, s, namedTool("test-package"))
@@ -303,7 +303,7 @@ func TestSkillStoppedTool(t *testing.T) {
 	if w := mustRead(t, out, "k1").Workspace; !strings.Contains(w, "SKILL.md (Brain tool not approved or stopped: lint)\n") {
 		t.Errorf("workspace part = %q, want the note on lint", w)
 	}
-	// A contract change that you did not approve yet stops test-package (S21).
+	// A contract change that you did not approve yet stops test-package.
 	ctx := context.Background()
 	write(t, s, func(tx *sql.Tx) error {
 		r, err := store.ItemRevisionByKey(ctx, tx, run, 1)
@@ -321,7 +321,7 @@ func TestSkillStoppedTool(t *testing.T) {
 }
 
 // A skill's required tool resolves as brain run finds it: a stopped workspace tool hides an
-// approved global tool of the same name, so the entry has the note (Sol review, PR #233).
+// approved global tool of the same name, so the entry has the note (PR #233).
 func TestSkillRequiredToolPrecedence(t *testing.T) {
 	s, out := newStore(t)
 	addToolIn(t, s, "", store.StateActive, namedTool("lint"))

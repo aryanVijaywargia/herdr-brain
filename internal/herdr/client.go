@@ -1,5 +1,5 @@
 // Package herdr runs the herdr CLI for Brain and parses its JSON replies. It fails closed:
-// a reply with an unknown shape is an error, never a zero value (HLD §4.2).
+// a reply with an unknown shape is an error, never a zero value.
 package herdr
 
 import (
@@ -21,7 +21,7 @@ var ErrPaneNotFound = errors.New("pane not found")
 
 // waitDelay is how long run waits for herdr's output pipes after herdr exits or the
 // deadline kills it. A child of herdr that keeps a pipe open must not hold a Brain call
-// past its deadline. [NEW] 50 ms: well inside the 300 ms hook cap (HLD §8.3).
+// past its deadline. 50 ms: well inside the 300 ms hook cap.
 const waitDelay = 50 * time.Millisecond
 
 // Target is the one herdr session that every call of a Client goes to. The resolver gives
@@ -354,7 +354,7 @@ type PluginPaneSpec struct {
 }
 
 // OpenPluginPane opens a plugin pane with `herdr plugin pane open`. It never takes focus:
-// Brain opens its review pane beside the caller (HLD §4.1).
+// Brain opens its review pane beside the caller.
 func (c *Client) OpenPluginPane(ctx context.Context, s PluginPaneSpec) (PluginPane, error) {
 	args := []string{"plugin", "pane", "open", "--plugin", s.Plugin, "--entrypoint", s.Entrypoint,
 		"--placement", s.Placement, "--target-pane", s.TargetPane, "--no-focus"}
@@ -411,7 +411,7 @@ func (c *Client) ClosePluginPane(ctx context.Context, paneID string) error {
 }
 
 // ShowNotification shows a herdr notification with title and body, from `herdr notification
-// show`. It has no reply and no action (§4.2). herdr answers with shown false, and a reason,
+// show`. It has no reply and no action. herdr answers with shown false, and a reason,
 // when it does not show it, as when no client is attached (E14-S3 live test); that is no
 // error.
 func (c *Client) ShowNotification(ctx context.Context, title, body string) error {

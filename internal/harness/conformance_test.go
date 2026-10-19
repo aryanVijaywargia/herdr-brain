@@ -14,7 +14,7 @@ import (
 // TestWriteConformanceSequences checks the conformance runs of one harness with the same
 // hashes (E10-S3 AC 2 and 3): a pass is verified; a later fail, incomplete reply
 // (inconclusive) or interrupted run (pending) is not; a pass after it is verified again. A new
-// CLI version after a pass stays verified with a warning (D13).
+// CLI version after a pass stays verified with a warning.
 func TestWriteConformanceSequences(t *testing.T) {
 	for _, tc := range []struct{ kind, version string }{
 		{"claude", "2.1.283 (Claude Code)"},

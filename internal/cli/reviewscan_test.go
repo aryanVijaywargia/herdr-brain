@@ -84,8 +84,8 @@ func (f *fixture) extractPass(t *testing.T, cli extract.Runner) {
 	}
 }
 
-// AC (S86): brain review shows the scan report (the S2 text) at its top while a scan batch or a
-// scan proposal waits, and each scan proposal shows the numbers of its finding in one line.
+// AC: brain review shows the scan report at its top while a scan batch or a scan proposal
+// waits, and each scan proposal shows the numbers of its finding in one line.
 func TestReviewScanReport(t *testing.T) {
 	f := newFixture(t)
 	f.setClaude(t)

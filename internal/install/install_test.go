@@ -580,7 +580,7 @@ func TestWouldUninstall(t *testing.T) {
 }
 
 // RemoveRecord keeps a record that still holds an entry, for example one that an install
-// wrote after uninstall removed its entries (Astra E8-S5 review 1).
+// wrote after uninstall removed its entries (E8-S5).
 func TestRemoveRecord(t *testing.T) {
 	in := newInstaller(t)
 	p := profile(t, "claude")
@@ -645,8 +645,7 @@ func TestNamedHookLayout(t *testing.T) {
 	}
 }
 
-// TestNamedHookEdited: a flat Brain handler that you edited stays, and install adds no second
-// one (§8.1).
+// TestNamedHookEdited: a flat Brain handler that you edited stays, and install adds no second one.
 func TestNamedHookEdited(t *testing.T) {
 	p, err := adapter.LoadFS(os.DirFS("../adapter/testdata/agylike"), "agylike")
 	if err != nil {
@@ -666,7 +665,7 @@ func TestNamedHookEdited(t *testing.T) {
 	}
 }
 
-// TestProfileRoundTrip (S60): for each embedded profile, testdata/profiles/<kind>.json is a hook
+// TestProfileRoundTrip: for each embedded profile, testdata/profiles/<kind>.json is a hook
 // file with other hooks in it. Install of every Brain hook entry of the profile adds the start
 // entry, a second install changes nothing, and uninstall gives back the file, byte for byte. A
 // new profile adds its file there with no Go change.

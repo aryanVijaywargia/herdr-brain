@@ -1,13 +1,13 @@
--- Live suggestions (E14-S3, §5.5, §11, §12).
+-- Live suggestions (E14-S3).
 -- - suggestions: one row for each suggestion that Brain reserved at a prompt. observation_id
 --   is the reservation key: the prompt occurrence. A hook record and a pane read of the same
---   prompt are one occurrence (S57): the pane observation is enriched by the hook observation,
+--   prompt are one occurrence: the pane observation is enriched by the hook observation,
 --   and a reservation of one of them blocks the other. The row holds ids only: the proposal,
 --   the capture session and its generation at the reservation, the binding, the workspace key
 --   and the agent pane. prompt_hash is the fingerprint of the prompt; forget deletes the row
---   with the prompt index rows (§6.7). review_pane_id and shown_at are set when the pane
+--   with the prompt index rows. review_pane_id and shown_at are set when the pane
 --   opens. result is NULL while you have not decided: approved, rejected, changed or later
---   after a decision, expired when the suggestion was not shown [NEW].
+--   after a decision, expired when the suggestion was not shown.
 CREATE TABLE suggestions (
 	id             INTEGER PRIMARY KEY,
 	observation_id INTEGER NOT NULL UNIQUE REFERENCES observations (id),

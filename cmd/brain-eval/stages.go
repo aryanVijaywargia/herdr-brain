@@ -21,7 +21,7 @@ import (
 
 // agentStep is the prefix of a setup step that prompts a fresh CLI in place of the shell:
 // "agent claude: <prompt>" or "agent codex: <prompt>". A transfer case saves a fact with one
-// CLI this way and asks it with the other (§12.1 transfer).
+// CLI this way and asks it with the other.
 const agentStep = "agent "
 
 // parseAgentStep returns the harness and prompt of an agent step; ok is false for a shell
@@ -40,8 +40,7 @@ func parseAgentStep(step string, kinds []string) (harness, prompt string, ok boo
 
 // startArgs are the CLI arguments of a fresh CLI of profile p in the scratch folder dir: its
 // eval.args, and for a setup agent also its eval.setup_args. A setup agent of Claude may run
-// `brain remember` without an ask: the runner never answers a permission dialog. [NEW] the
-// allowed tool.
+// `brain remember` without an ask: the runner never answers a permission dialog.
 func startArgs(p *adapter.Profile, dir string, setup bool) ([]string, error) {
 	args, err := agentArgs(p, dir)
 	if err != nil {
@@ -78,9 +77,8 @@ func (r *Runner) runAgentStep(ctx context.Context, h Herdr, shell herdr.Pane, di
 }
 
 // hookProbe calls `brain hook` of harness p.Harness in the shell pane with test start input
-// and the herdr state of mode c.Hook, and returns what it printed as the reply (§12.1
-// exclusion). The hook reads its herdr variables from the pane; the step changes only the
-// one that the mode needs.
+// and the herdr state of mode c.Hook, and returns what it printed as the reply. The hook
+// reads its herdr variables from the pane; the step changes only the one that the mode needs.
 func (r *Runner) hookProbe(ctx context.Context, h Herdr, shell herdr.Pane, dir string, c Case, p Probe, b bindings.Binding, marker string, i int, opened *[]string) (Reply, error) {
 	pane, set, err := r.hookState(ctx, h, shell, dir, c, opened)
 	if err != nil {
@@ -103,7 +101,7 @@ func (r *Runner) hookProbe(ctx context.Context, h Herdr, shell herdr.Pane, dir s
 	}
 	command := fmt.Sprintf("printf '%%s' %s | env %s brain hook --profile %s --event start > %s",
 		shellQuote(string(in)), strings.Join(quoted, " "), p.Harness, shellQuote(out))
-	if err := r.step(ctx, h, shell.ID, command, marker, 1000+i); err != nil { // [NEW] step numbers after the setup steps
+	if err := r.step(ctx, h, shell.ID, command, marker, 1000+i); err != nil { // step numbers after the setup steps
 		return Reply{}, fmt.Errorf("hook call: %w", err)
 	}
 	data, err := os.ReadFile(out)
@@ -111,7 +109,7 @@ func (r *Runner) hookProbe(ctx context.Context, h Herdr, shell herdr.Pane, dir s
 		return Reply{}, err
 	}
 	rep := Reply{Harness: p.Harness, Pane: pane, Screen: string(data), Text: strings.TrimSpace(string(data)), Status: Delivered}
-	// The profile's output_none, for example agy's "{}", is how the hook prints nothing (§8.3).
+	// The profile's output_none, for example agy's "{}", is how the hook prints nothing.
 	if rep.Text == "" || rep.Text == prof.OutputNone {
 		rep.Status, rep.Why = NotDelivered, "the hook printed nothing"
 	}
@@ -134,7 +132,7 @@ func (r *Runner) hookState(ctx context.Context, h Herdr, shell herdr.Pane, dir s
 	case "unbound-session":
 		return shell.ID, []string{"HERDR_SOCKET_PATH=" + filepath.Join(dir, "unbound.sock")}, nil
 	case "no-herdr-answer":
-		// A herdr that answers after the hook's lookup deadline of 150 ms. [NEW] 2 s.
+		// A herdr that answers after the hook's lookup deadline of 150 ms.
 		slow := filepath.Join(dir, ".brain-eval-slow-herdr")
 		if err := os.WriteFile(slow, []byte("#!/bin/sh\nsleep 2\n"), 0o700); err != nil {
 			return "", nil, err
@@ -200,7 +198,7 @@ func hookLabel(c Case, markers map[string]string, text string) (Label, string) {
 }
 
 // record is what a usefulness probe changed in the scratch folder dir: `git status
-// --porcelain`, for your review of the case (§12.1 usefulness).
+// --porcelain`, for your review of the case.
 func (r *Runner) record(ctx context.Context, dir string) string {
 	ctx, cancel := context.WithTimeout(ctx, r.Timeouts.Step)
 	defer cancel()
@@ -219,7 +217,7 @@ func (r *Runner) record(ctx context.Context, dir string) string {
 // leak reports where the test store of b still holds one of forgotten, the answers that a
 // forget case removed: a file of the out folder, or a text value of a table. The store keeps
 // no raw page check: SQLite can keep a removed value in a free page until a vacuum. It
-// returns "" when the text is nowhere (§12.1 forget, S19).
+// returns "" when the text is nowhere.
 func (r *Runner) leak(ctx context.Context, b bindings.Binding, forgotten []string) (string, error) {
 	var where []string
 	err := filepath.WalkDir(filepath.Join(b.Store, outDir), func(path string, d fs.DirEntry, err error) error {

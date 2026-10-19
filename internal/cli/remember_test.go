@@ -89,7 +89,7 @@ func newFixture(t *testing.T) *fixture {
 	pane := func(id, ws string) herdr.Pane { return herdr.Pane{ID: id, WorkspaceID: ws, TabID: ws + ":t1"} }
 	f.panes = map[string]herdr.Pane{
 		"w14:p1": pane("w14:p1", "w14"),
-		"w14:p2": pane("w20:p2", "w20"), // moved to w20 (S49)
+		"w14:p2": pane("w20:p2", "w20"), // moved to w20
 		"w16:p1": pane("w16:p1", "w16"),
 	}
 	return f
@@ -346,7 +346,7 @@ func TestRememberItemText(t *testing.T) {
 	}
 }
 
-// TestDraftNotLive is the S52 path: an agent's call makes a draft, and nothing goes live. The
+// TestDraftNotLive: an agent's call makes a draft, and nothing goes live. The
 // next command's repair builds no output with the draft in it.
 func TestDraftNotLive(t *testing.T) {
 	f := newFixture(t)

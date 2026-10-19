@@ -194,7 +194,7 @@ func (r *startGone) Read(b []byte) (int, error) {
 	return r.answer.Read(b)
 }
 
-// Rule 14 (Sol review of PR #324): a start entry that goes away while update waits for the
+// Review of PR #324 (no over-defensive code): a start entry that goes away while update waits for the
 // answer gets no hook record entry; the other CLIs still get theirs.
 func TestUpdateRecordsStartGone(t *testing.T) {
 	home := updateHome(t, true)

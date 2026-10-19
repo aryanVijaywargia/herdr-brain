@@ -14,7 +14,7 @@ import (
 
 const undoUsage = `usage: brain undo <item>`
 
-// Undo runs `brain undo` with args after "undo" (§7.5 undo, E4-S5). It undoes the latest
+// Undo runs `brain undo` with args after "undo" (E4-S5). It undoes the latest
 // revision of an item with a new revision.
 func Undo(ctx context.Context, e Env, args []string) error {
 	return onItem(ctx, e, "undo", undoUsage, args, caller.undo)
@@ -45,7 +45,7 @@ func onItem(ctx context.Context, e Env, name, usage string, args []string,
 }
 
 // undo writes a revision of item id that copies the revision before the latest one, and
-// records the latest one in undoes_revision (§7.5). Undo of a creation retires the item. A
+// records the latest one in undoes_revision. Undo of a creation retires the item. A
 // latest revision that is itself an undo is left as it is, so a second undo does nothing.
 func (cl caller) undo(ctx context.Context, id int64) error {
 	var next store.ItemRevision
@@ -88,7 +88,7 @@ func (cl caller) undo(ctx context.Context, id int64) error {
 }
 
 // undoMerge undoes the rest of a merge when next, the revision that undo wrote, undid the
-// revision of the kept item that a merge proposal wrote (§9.5 undo): it restores each retired
+// revision of the kept item that a merge proposal wrote: it restores each retired
 // item of the merge whose latest revision is still its retirement by that merge, and removes
 // the same_as links of the merge. It returns the revisions that restore those items. A retired
 // item that changed since then, or that you forgot, stays as it is.
@@ -125,8 +125,7 @@ func (cl caller) undoMerge(ctx context.Context, tx *sql.Tx, next store.ItemRevis
 // undone is the revision that undoes cur, the current revision of item it. It copies the fields
 // of the revision before cur: text, scope, workspace key, state, pin and links. When there is
 // none, or it is a draft, cur created the item, and the undo retires it. Undo of an automation
-// always retires it: it disables future runs, and an older binding never runs again by an undo
-// (§7.5, §10.4).
+// always retires it: it disables future runs, and an older binding never runs again by an undo.
 func (cl caller) undone(ctx context.Context, tx *sql.Tx, it store.Item, cur store.ItemRevision) (store.ItemRevision, error) {
 	prev := store.ItemRevision{State: store.StateDraft}
 	if cur.Revision > 1 && it.Kind != store.KindAutomation {
@@ -136,13 +135,12 @@ func (cl caller) undone(ctx context.Context, tx *sql.Tx, it store.Item, cur stor
 		}
 	}
 	if prev.State == store.StateDraft {
-		// A retired revision keeps its text, so that restore can bring it back (§9.2).
+		// A retired revision keeps its text, so that restore can bring it back.
 		prev = cur
 		prev.State = store.StateRetired
 	}
 	// The E4 scope check covers the restored target too: undo never moves an item into a
-	// workspace that the caller does not see. The one exception is the undo of a link move
-	// (§9.4 "Link undo").
+	// workspace that the caller does not see. The one exception is the undo of a link move.
 	if !cl.sees(prev.WorkspaceKey) {
 		back, err := cl.linkUndo(cur, prev)
 		if err != nil {
@@ -160,7 +158,7 @@ func (cl caller) undone(ctx context.Context, tx *sql.Tx, it store.Item, cur stor
 // linkUndo reports whether undo may return cur, a revision in the caller's workspace, to prev,
 // the revision before it, in a workspace that the caller does not see. Only a link moves a
 // workspace item to another workspace key, so cur is a link move. The old key must be an entry
-// of the caller's herdr session that is not live (§9.4). It need not be in the relink list any
+// of the caller's herdr session that is not live. It need not be in the relink list any
 // more: a later close of another workspace can drop it from there.
 func (cl caller) linkUndo(cur, prev store.ItemRevision) (bool, error) {
 	if cur.Scope != store.ScopeWorkspace || prev.Scope != store.ScopeWorkspace {

@@ -19,8 +19,7 @@ import (
 )
 
 // popupEnviron is the env of a popup that herdr opens from an action with paneID of workspace
-// ws focused: no HERDR_PANE_ID and no HERDR_WORKSPACE_ID, the caller in the context JSON (M0
-// E5-S3 popup facts).
+// ws focused: no HERDR_PANE_ID and no HERDR_WORKSPACE_ID, the caller in the context JSON.
 func (f *fixture) popupEnviron(paneID, ws string) []string {
 	return []string{"HERDR_ENV=1", "HERDR_SOCKET_PATH=" + f.sock, "HERDR_SESSION=default", "HERDR_PLUGIN_ENTRYPOINT_ID=recall",
 		fmt.Sprintf(`HERDR_PLUGIN_CONTEXT_JSON={"workspace_id":%q,"workspace_label":"shop","tab_id":"%s:t1","focused_pane_id":%q,"invocation_source":"api"}`,
@@ -259,7 +258,7 @@ func TestRecallPopupNoChange(t *testing.T) {
 	}
 }
 
-// The popup checks its pane again before each read (§8.6): a pane that moved to another
+// The popup checks its pane again before each read: a pane that moved to another
 // workspace gets no item of its old workspace.
 func TestRecallPopupRecheck(t *testing.T) {
 	f := newFixture(t)

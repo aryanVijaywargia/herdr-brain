@@ -156,8 +156,7 @@ func TestScriptCap(t *testing.T) {
 	}
 }
 
-// Forget of the tool draft item erases the script of the same chain too, and supersedes it
-// (§6.7).
+// Forget of the tool draft item erases the script of the same chain too, and supersedes it.
 func TestScriptForgotten(t *testing.T) {
 	f := newFixture(t)
 	f.cli.reply = noClaims
@@ -212,7 +211,7 @@ func TestScriptCapPair(t *testing.T) {
 }
 
 // Forget of every session of the evidence deletes the candidate: its script loses its text and
-// its candidate, so no later forget or scope check depends on it (§6.7).
+// its candidate, so no later forget or scope check depends on it.
 func TestScriptSessionsForgotten(t *testing.T) {
 	f := newFixture(t)
 	f.cli.reply = noClaims

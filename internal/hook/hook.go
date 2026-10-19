@@ -1,8 +1,8 @@
-// Package hook is `brain hook` (HLD §8.3, §5.2). At the start of an agent session in a live
-// pane of a bound herdr session, it prints the brief of the current output generation in the
-// output form of the harness profile, and records a receipt. It prefers a missed delivery to a
-// wrong one, and it never fails a session start: on any error it prints nothing. At a prompt,
-// a shell command or a stop it stores one hook record, and prints nothing (E11-S5, §6.1).
+// Package hook is `brain hook`. At the start of an agent session in a live pane of a bound
+// herdr session, it prints the brief of the current output generation in the output form of
+// the harness profile, and records a receipt. It prefers a missed delivery to a wrong one, and
+// it never fails a session start: on any error it prints nothing. At a prompt, a shell command
+// or a stop it stores one hook record, and prints nothing (E11-S5).
 package hook
 
 import (
@@ -31,36 +31,35 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
 )
 
-// The time limits of §8.3. The cap covers the whole hook from its start: the stdin read, the
-// lookup, the file reads, the receipt and the print. The lookup ends by lookupDeadline, plus
-// the 50 ms that the herdr client waits for herdr's pipes; a receipt waits at most busyTimeout
-// for the store lock. That is 250 ms, so at least 50 ms of the cap is left for the file reads
-// and the print, which took under 1 ms in M0 (E7-S4 FINDINGS). The agent check of earlier
-// records (§8.3 limit) adds one read before the print, which takes no lock; its updates join
-// the receipt transaction, so the hook still waits for the store lock once.
+// The time limits of the hook. The cap covers the whole hook from its start: the stdin read,
+// the lookup, the file reads, the receipt and the print. The lookup ends by lookupDeadline,
+// plus the 50 ms that the herdr client waits for herdr's pipes; a receipt waits at most
+// busyTimeout for the store lock. That is 250 ms, so at least 50 ms of the cap is left for the
+// file reads and the print, which took under 1 ms in the E7-S4 test. The agent check of earlier
+// records adds one read before the print, which takes no lock; its updates join the receipt
+// transaction, so the hook still waits for the store lock once.
 const (
-	// hookCap is the total cap of one hook run (§8.3 "Time limits"). [NEW] 300 ms, no source.
+	// hookCap is the total cap of one hook run.
 	hookCap = 300 * time.Millisecond
-	// lookupDeadline is the herdr lookup deadline, counted from the hook start (§8.3 "Time
-	// limits", owner decision 2026-09-28).
+	// lookupDeadline is the herdr lookup deadline, counted from the hook start.
 	lookupDeadline = 150 * time.Millisecond
-	// busyTimeout is how long a receipt write waits for the lock of another Brain process. [NEW]
+	// busyTimeout is how long a receipt write waits for the lock of another Brain process.
 	busyTimeout = 50 * time.Millisecond
-	// outDir is the out folder of a store (§7.5 step 3). [NEW] its place in the store folder.
+	// outDir is the out folder of a store.
 	outDir = "out"
-	// retestDir is the folder of the retest markers in the data home (S14). [NEW] its place.
+	// retestDir is the folder of the retest markers in the data home.
 	retestDir = "retest"
 )
 
-// The reasons of the withheld receipts that the hook writes itself (§8.5 "Receipts"). The
-// resolver gives the reasons of a failed live check.
+// The reasons of the withheld receipts that the hook writes itself. The resolver gives the
+// reasons of a failed live check.
 const (
 	reasonIdentity     = "identity"
 	reasonInconsistent = "inconsistent"
 	reasonForget       = "forget pending"
 )
 
-// errCapped: the hook cap stopped the hook. It printed nothing and wrote nothing (S50).
+// errCapped: the hook cap stopped the hook. It printed nothing and wrote nothing.
 var errCapped = errors.New("hook cap reached")
 
 // Main runs the hook for the frozen command `brain hook --profile <name> --event <event>` with
@@ -117,12 +116,12 @@ type Hook struct {
 
 // Run reads the hook input from stdin and prints the brief to stdout, or nothing. A result
 // that withholds the brief is not an error. On an error Run has printed nothing, unless the
-// receipt write after the print failed: then the delivery is unknown (§8.3 step 7). For a
-// profile with output_none, "nothing" is that output (E16-S11), also on an error.
+// receipt write after the print failed: then the delivery is unknown. For a profile with
+// output_none, "nothing" is that output (E16-S11), also on an error.
 //
 // Run returns by hookCap after Start, also when stdin, herdr or stdout stall. The caller
 // exits then. A run that the cap stops prints nothing after the cap and writes no receipt,
-// so status shows the session as unknown (S50).
+// so status shows the session as unknown.
 func (h Hook) Run(ctx context.Context, stdin io.Reader, stdout io.Writer) error {
 	ctx, cancel := context.WithDeadline(ctx, h.Start.Add(hookCap))
 	defer cancel()
@@ -150,7 +149,7 @@ func (h Hook) Run(ctx context.Context, stdin io.Reader, stdout io.Writer) error 
 }
 
 // inHerdr is run for a hook inside herdr. Outside herdr the hook reads no file and asks no
-// herdr (S61).
+// herdr.
 func (h Hook) inHerdr(ctx context.Context, stdin io.Reader, stdout io.Writer) error {
 	if lookup(h.Environ, "HERDR_ENV") != "1" {
 		return nil
@@ -171,8 +170,8 @@ func (h Hook) run(ctx context.Context, stdin io.Reader, stdout io.Writer) (err e
 	if errors.Is(err, adapter.ErrNotStart) {
 		return nil
 	}
-	// Input of an unknown shape sets the adapter state to retest (S14). The marker is a file
-	// outside every store, so the run still writes the store at most once.
+	// Input of an unknown shape sets the adapter state to retest. The marker is a file outside
+	// every store, so the run still writes the store at most once.
 	if errors.Is(err, adapter.ErrRetest) {
 		return errors.Join(err, harness.MarkRetest(h.Retest, h.Profile.Kind, h.Profile.SHA256, h.Now()))
 	}
@@ -188,14 +187,14 @@ func (h Hook) run(ctx context.Context, stdin io.Reader, stdout io.Writer) (err e
 			now: h.Now}, nil
 	}
 	// The resolver checks the earlier records of the pane and records this agent session; the
-	// receipt of this run holds the record (§8.3 limit).
+	// receipt of this run holds the record.
 	res, err := resolver.New(h.Bindings, open, h.pane).Resolve(ctx, h.Environ, in.SessionID)
 	if err != nil {
 		return err
 	}
 	switch r := res.(type) {
 	case *resolver.NoStore:
-		// No store is open (S64), and a lookup timeout writes nothing.
+		// No store is open, and a lookup timeout writes nothing.
 		return nil
 	case *resolver.Denied:
 		return r.Withheld(ctx)
@@ -232,7 +231,7 @@ func (h Hook) deliver(ctx context.Context, rc *receipts, r *resolver.Resolved, s
 		key = m.Entry.Key
 		d.WorkspaceKey = &key
 	case workspace.Unmapped:
-		// A new workspace gets the global part only, never the part of another workspace (S48).
+		// A new workspace gets the global part only, never the part of another workspace.
 		d.Result = store.ResultUnmapped
 	case workspace.Withheld:
 		// The global part still prints; only the workspace part is withheld.
@@ -241,7 +240,7 @@ func (h Hook) deliver(ctx context.Context, rc *receipts, r *resolver.Resolved, s
 	}
 	// The forget check, the read, the print and the receipt are one write transaction. A forget
 	// marks the outputs in a write transaction, so it commits before the check or after the
-	// receipt, never between them (§6.7).
+	// receipt, never between them.
 	return rc.s.Write(ctx, func(tx *sql.Tx) error {
 		pending, err := store.ForgetPending(ctx, tx)
 		if err != nil {
@@ -261,8 +260,8 @@ func (h Hook) deliver(ctx context.Context, rc *receipts, r *resolver.Resolved, s
 		if err != nil {
 			return err
 		}
-		// The brief is made from the same bytes that passed the manifest check (S65). The
-		// receipt names the (item, revision) pairs of that manifest, not the store rows now.
+		// The brief is made from the same bytes that passed the manifest check. The receipt
+		// names the (item, revision) pairs of that manifest, not the store rows now.
 		// The brief hash covers the last session line and its handoff lines too.
 		text := brief.Text(b.Global, ws)
 		if err := h.Profile.Write(stdout, text); err != nil {
@@ -278,7 +277,7 @@ func (h Hook) deliver(ctx context.Context, rc *receipts, r *resolver.Resolved, s
 // lastSession adds the line of the last session of workspace key before agent session
 // agentSession to the workspace part of b (E15-S4), and below it the handoff lines of that
 // session that fit the brief budget (E20-S8). key "" is an unmapped or withheld workspace: it
-// gets no workspace part, so no lines (S48). The time is in the zone of the hook clock.
+// gets no workspace part, so no lines. The time is in the zone of the hook clock.
 func (h Hook) lastSession(ctx context.Context, tx *sql.Tx, key, agentSession string, b output.Brief) (string, error) {
 	if key == "" {
 		return b.Workspace, nil
@@ -336,14 +335,14 @@ type agentCheck struct {
 	check                         resolver.AgentCheck
 }
 
-// WriteWithheld writes the receipt of a pane that failed the live check (S49, S63).
+// WriteWithheld writes the receipt of a pane that failed the live check.
 func (rc *receipts) WriteWithheld(ctx context.Context, w resolver.Withheld) error {
 	return rc.write(ctx, withheld(store.Delivery{HerdrSession: &w.Session, PaneID: w.PaneID}, string(w.Reason)))
 }
 
 // RecordAgentSession writes nothing now: the receipt of this run, which has the same herdr
 // session, pane and agent session, holds the record. At hook time herdr does not show the new
-// agent yet, so the next brain call for the pane checks it (§17 item 29).
+// agent yet, so the next brain call for the pane checks it.
 func (rc *receipts) RecordAgentSession(context.Context, string, string, string) error {
 	rc.recorded = true
 	return nil

@@ -12,27 +12,25 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// scanHelp tells the extractor what a scan batch is (§6.8 "Proposals"): repeats of past
-// sessions, from which Brain proposes only items, skills and tools (D12 stays open, S95).
+// scanHelp tells the extractor what a scan batch is: repeats of past sessions, from which Brain
+// proposes only items, skills and tools (hook and allow-rule suggestions stay open).
 const scanHelp = "These signals come from the user's past sessions, and each one repeats there. Return only facts, " +
 	"preferences, lessons, procedures, skills and tools. A repeat that fits a hook best, such as \"run the formatter " +
 	"after each edit\", becomes a lesson or a tool: Brain proposes no hook, allow rule or automation from it.\n"
 
 // globalHelp tells the extractor that the sessions of the global pool come from project folders
-// with no workspace, so Brain keeps only a claim that it marks global (§6.8 "Global pool", S90,
-// owner decision 2026-10-14, S5 gap HS-G10).
+// with no workspace, so Brain keeps only a claim that it marks global.
 const globalHelp = "These sessions come from project folders that have no herdr workspace. Brain drops a rule about " +
 	"one project's code, files, commands, tools or release steps: return only a claim that holds in every project, " +
 	"with scope_guess global, and no skill or tool.\n"
 
-// scanJobs returns every scan batch that waits (§6.8 "Proposals"): for each scope of the history
-// scan in its extracting state, the findings after the progress of the scope, in finding order,
-// packed into batches up to the input byte cap. A finding is one that still reaches the gate of
-// its kind with the observations that still exist (store.HistoryScanReport). An exact command
-// chain goes to the exact tool path instead (exactChain). The batches of a
-// scope follow each other: the start of each is the last finding of the one before, so a later
-// batch waits until the earlier one commits. It returns the scan too; ok is false when there is
-// no scan in its extracting state.
+// scanJobs returns every scan batch that waits: for each scope of the history scan in its
+// extracting state, the findings after the progress of the scope, in finding order, packed into
+// batches up to the input byte cap. A finding is one that still reaches the gate of its kind with
+// the observations that still exist (store.HistoryScanReport). An exact command chain goes to the
+// exact tool path instead (exactChain). The batches of a scope follow each other: the start of each
+// is the last finding of the one before, so a later batch waits until the earlier one commits. It
+// returns the scan too; ok is false when there is no scan in its extracting state.
 func (p Pass) scanJobs(ctx context.Context, tx *sql.Tx) (scan store.Scan, jobs []job, ok bool, err error) {
 	s, ok, err := store.HistoryScan(ctx, tx)
 	if err != nil || !ok || s.Status != store.ScanExtracting {
@@ -75,7 +73,7 @@ func (p Pass) scanJobs(ctx context.Context, tx *sql.Tx) (scan store.Scan, jobs [
 }
 
 // exactChain reports whether finding f is a command chain of a workspace that the exact tool path
-// drafts with no model call (§6.8, exactTools): in each session the same commands, with no
+// drafts with no model call (exactTools): in each session the same commands, with no
 // failure, that give one exact draft. Such a finding goes into no scan batch.
 func exactChain(f store.Finding, byID map[int64]store.SignalInput) bool {
 	if f.Kind != store.CandidateCommandChain || f.Scope == "" {
@@ -106,9 +104,9 @@ func exactChain(f store.Finding, byID map[int64]store.SignalInput) bool {
 
 // scanPlan returns the scan batches that this pass extracts now, after the live batches: those
 // of the scopes of its herdr session binding that may call now (batch), in round robin order of
-// the scopes, each scope in finding order (§7.3 queue). A scope belongs to the binding of the
+// the scopes, each scope in finding order. A scope belongs to the binding of the
 // session of its first finding: the scan gives a workspace session the binding of its workspace,
-// and a global pool session the binding of the brained that ran the scan (§6.8). An active scan
+// and a global pool session the binding of the brained that ran the scan. An active scan
 // batch of the binding was left by a crash, and is discarded first, also when the binding has no
 // scan batch left. When no scan batch is left in any scope, every one is committed: the scan is
 // done.
@@ -142,7 +140,7 @@ func (p Pass) scanPlan(ctx context.Context, tx *sql.Tx) ([]job, error) {
 
 // scanRoom reports whether a scan batch may call now, with d the use of the daily caps: live
 // batches go first, so the caps keep room for one call and one proposal of each live batch of
-// every binding that may call now (S93). The caps cover the whole store.
+// every binding that may call now. The caps cover the whole store.
 func (p Pass) scanRoom(ctx context.Context, tx *sql.Tx, d Day) (bool, error) {
 	runs, sigs, byID, err := p.finished(ctx, tx, "")
 	if err != nil {
@@ -166,7 +164,7 @@ func (p Pass) scanRoom(ctx context.Context, tx *sql.Tx, d Day) (bool, error) {
 }
 
 // fitFindings returns how many of findings fs, from the first, fit in the input cap with their
-// excerpts (§7.3). A finding stays whole, and the first one goes in also when it alone is
+// excerpts. A finding stays whole, and the first one goes in also when it alone is
 // larger, as one long signal of a live batch does.
 func (p Pass) fitFindings(fs []store.Finding, byID map[int64]store.SignalInput) int {
 	size := 0
@@ -248,9 +246,9 @@ func findingKind(k store.CandidateKind) signal.Kind {
 	return signal.Kind(k)
 }
 
-// scanDrop returns why scan batch j drops checked claim c, or "" (§6.8 "Global pool", S90): the
-// global pool keeps only an item claim that the extractor marks global. A skill and a tool
-// always have a workspace, and a claim about one project has no workspace to go to.
+// scanDrop returns why scan batch j drops checked claim c, or "": the global pool keeps only an
+// item claim that the extractor marks global. A skill and a tool always have a workspace, and a
+// claim about one project has no workspace to go to.
 func scanDrop(c Claim, j job) string {
 	if !j.batch.Scan() || j.batch.WorkspaceKey != "" {
 		return ""

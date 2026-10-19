@@ -19,16 +19,16 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
 )
 
-// kindTool is the claim kind of a tool draft (§10.1 detection, E17-S6).
+// kindTool is the claim kind of a tool draft (E17-S6).
 const kindTool = "tool"
 
 // The fields of a tool draft that Brain writes itself, for an exact repeat and for "make this a
-// tool" (§10.1). [NEW] the values: the timeout of the §10.1 example; no read-only guess, so the
+// tool". The values: the timeout of the tool.toml example; no read-only guess, so the
 // restriction is yours to set; an effects line that asks for your words.
 const (
 	draftTimeout = 600
 	draftEffects = "runs the recorded commands as the agent ran them; edit this line to say what they change"
-	// draftRule is the rule of the claim key of a tool draft [NEW].
+	// draftRule is the rule of the claim key of a tool draft.
 	draftRule = "make it a brain tool"
 	// ExactBenefit is the benefit of a tool draft that Brain writes itself: the exact tool path
 	// and "make this a tool". No model wrote it, so review names the exact repeat rule as the
@@ -36,14 +36,13 @@ const (
 	ExactBenefit = "runs these commands with one reviewed contract"
 )
 
-// shellChars are the characters of shell syntax [NEW]: a command with one of them needs a
-// shell, so it does not fit one argv list (§10.1 "argv, not shell").
+// shellChars are the characters of shell syntax: a command with one of them needs a shell, so it
+// does not fit one argv list.
 const shellChars = "|&;<>()$`\\\"'*?[]{}~#\n"
 
 // toolWords returns the argv list of command text argv, its words. It returns false when the
 // command does not fit an argv list: it needs a shell (shellChars, or a first word that sets a
-// variable), or it runs Brain itself, as brain run does: a tool of a tool is no new tool. [NEW]
-// both rules.
+// variable), or it runs Brain itself, as brain run does: a tool of a tool is no new tool.
 func toolWords(argv string) ([]string, bool) {
 	ws := strings.Fields(argv)
 	if len(ws) == 0 || strings.ContainsAny(argv, shellChars) || strings.Contains(ws[0], "=") || path.Base(ws[0]) == "brain" {
@@ -53,13 +52,13 @@ func toolWords(argv string) ([]string, bool) {
 }
 
 // heldBack reports whether Brain never drafts a tool from command c: the secret filter found a
-// secret in it, or it was cut (§6.7).
+// secret in it, or it was cut.
 func heldBack(c store.CommandRecord) bool { return c.SecretFound || c.Truncated }
 
-// toolKey is the claim key of a tool draft with steps in folder cwd [NEW]: Brain makes it from
-// the folder and the commands, with each input as {name}, so the same commands in another
-// session, from Brain or from the extractor, give the same claim. It keeps the case and quotes
-// each word, so two other commands never share a key.
+// toolKey is the claim key of a tool draft with steps in folder cwd: Brain makes it from the
+// folder and the commands, with each input as {name}, so the same commands in another session,
+// from Brain or from the extractor, give the same claim. It keeps the case and quotes each word,
+// so two other commands never share a key.
 func toolKey(cwd string, steps [][]string) store.ClaimKey {
 	runs := make([]string, len(steps))
 	for i, s := range steps {
@@ -73,7 +72,7 @@ func toolKey(cwd string, steps [][]string) store.ClaimKey {
 		Rule: draftRule}
 }
 
-// draftToml is the tool.toml of a draft, in the field order of §10.1.
+// draftToml is the tool.toml of a draft, in the field order of the tool form.
 type draftToml struct {
 	Name        string                `toml:"name"`
 	Description string                `toml:"description"`
@@ -87,7 +86,7 @@ type draftToml struct {
 }
 
 // text returns the tool text of d, after the E17-S3 contract check (tool.Parse): a draft that
-// breaks a §10.1 rule is no draft. One command is argv; more are steps.
+// breaks a rule of the tool form is no draft. One command is argv; more are steps.
 func (d draftToml) text(steps [][]string) (string, error) {
 	if len(steps) == 1 {
 		d.Argv = steps[0]
@@ -107,11 +106,11 @@ func (d draftToml) text(steps [][]string) (string, error) {
 // nameChars are the runs of characters that a tool name cannot hold.
 var nameChars = regexp.MustCompile(`[^a-z0-9]+`)
 
-// maxDraftName is the longest name of a tool draft in characters [NEW], as for a skill.
+// maxDraftName is the longest name of a tool draft in characters, as for a skill.
 const maxDraftName = 40
 
-// draftName is the name of a draft that runs argv [NEW]: its words, with the folder of the
-// program cut, in lower case with hyphens, cut to maxDraftName at a hyphen.
+// draftName is the name of a draft that runs argv: its words, with the folder of the program
+// cut, in lower case with hyphens, cut to maxDraftName at a hyphen.
 func draftName(argv []string) string {
 	words := append([]string{path.Base(argv[0])}, argv[1:]...)
 	n := strings.Trim(nameChars.ReplaceAllString(strings.ToLower(strings.Join(words, " ")), "-"), "-")
@@ -126,10 +125,9 @@ func draftName(argv []string) string {
 	return strings.Trim(n, "-")
 }
 
-// exactDraft is the tool text of an exact repeat of cmds, one example in run order [NEW form]:
-// the commands as they ran, in the folder where they ran. It refuses a command that held a
-// secret, that was cut (§6.7), or that does not fit an argv list, and commands of more than
-// one folder.
+// exactDraft is the tool text of an exact repeat of cmds, one example in run order: the commands
+// as they ran, in the folder where they ran. It refuses a command that held a secret, that was
+// cut, or that does not fit an argv list, and commands of more than one folder.
 func exactDraft(cmds []store.CommandRecord) (string, error) {
 	steps := make([][]string, 0, len(cmds))
 	runs := make([]string, 0, len(cmds))
@@ -165,16 +163,16 @@ type gatedTool struct {
 	script string // "" for a chain that is too short for a script
 }
 
-// exactTools runs the exact repeats of command chains (§10.1 detection: exact repeats come
-// first, model placeholders after). It makes no model call. Each command chain (E12-S1) that
+// exactTools runs the exact repeats of command chains (exact repeats come first, model
+// placeholders after). It makes no model call. Each command chain (E12-S1) that
 // ran with no failure, whose commands Brain may draft a tool from, is evidence of the claim of
 // its exact commands (toolKey), a command chain candidate in its workspace: the gate is 3
-// sessions (§7.2). A failed chain and the chain of one session stay as evidence. At the gate
+// sessions. A failed chain and the chain of one session stay as evidence. At the gate
 // the candidate gets one tool draft (exactDraft), after the queue checks of proposeBinding: the
-// daily proposal cap, in round robin order of the workspaces (§7.3). A chain of minScript or more
+// daily proposal cap, in round robin order of the workspaces. A chain of minScript or more
 // commands gets a script proposal too (proposeScript): the review offers both, and you pick one;
-// they count as one proposal (#355). A chain that the extractor made a skill of needs judgment
-// (§10.3): it gives no tool draft.
+// they count as one proposal (#355). A chain that the extractor made a skill of needs judgment:
+// it gives no tool draft.
 func (p Pass) exactTools(ctx context.Context, tx *sql.Tx) error {
 	ins, err := store.SignalInputs(ctx, tx)
 	if err != nil {
@@ -212,7 +210,7 @@ func (p Pass) exactTools(ctx context.Context, tx *sql.Tx) error {
 }
 
 // proposeGated makes the tool drafts and the scripts of gated, in round robin order of the
-// workspaces (§7.3). A new tool draft needs room for one proposal under the daily cap. Its script
+// workspaces. A new tool draft needs room for one proposal under the daily cap. Its script
 // needs none, and nor does the script of a pending draft, as the extractor's: a tool draft and
 // its script count as one (#355), so the review offers both at once and you pick one (E17-S8).
 func (p Pass) proposeGated(ctx context.Context, tx *sql.Tx, gated []gatedTool) error {
@@ -337,8 +335,8 @@ func knownDraft(ctx context.Context, tx *sql.Tx, cand store.Candidate, text stri
 }
 
 // runs reports whether tool c runs chain when a step that runs again right after itself counts
-// once, as in a chain (signal.chain) [NEW]: each command of chain fits the step of c at its
-// place, and the words in place of its inputs are values that the input schema of c takes
+// once, as in a chain (signal.chain): each command of chain fits the step of c at its place, and
+// the words in place of its inputs are values that the input schema of c takes
 // (tool.Contract.Fill). So a chain that adds a rerun to the steps of c is c, and so is a chain
 // of a tool whose steps hold a rerun, as a draft before #337 could.
 func runs(c tool.Contract, chain [][]string) bool {
@@ -369,9 +367,9 @@ func runs(c tool.Contract, chain [][]string) bool {
 
 // freeName returns tool text with a name that no other tool that a pane of workspace key sees
 // has, active or pending (#339): its own name, else that name with the first free number from
-// 2, as "reset-db-sh-2" [NEW]. A tool of a name that an active tool has cannot be approved
-// (§10.1), and brain run finds one tool by a name. item is the tool item of text, 0 for a new
-// one: its own texts are no clash.
+// 2, as "reset-db-sh-2". A tool of a name that an active tool has cannot be approved, and brain
+// run finds one tool by a name. item is the tool item of text, 0 for a new one: its own texts
+// are no clash.
 func freeName(ctx context.Context, tx *sql.Tx, text, key string, item int64) (string, error) {
 	c, err := tool.Parse(text)
 	if err != nil {
@@ -397,8 +395,8 @@ func freeName(ctx context.Context, tx *sql.Tx, text, key string, item int64) (st
 }
 
 // heldChain reports whether chain s gives no exact draft: a forget erased the claim key, and the
-// tombstone of a source stops the same evidence (§6.7); or the extractor made a skill of it, as
-// it needs judgment (§10.3).
+// tombstone of a source stops the same evidence; or the extractor made a skill of it, as
+// it needs judgment.
 func heldChain(ctx context.Context, tx *sql.Tx, s signal.Signal, byID map[int64]store.SignalInput) (bool, error) {
 	for _, id := range s.Observations {
 		stopped, err := store.Tombstoned(ctx, tx, byID[id].CaptureIdentity)
@@ -496,13 +494,13 @@ func proposeTool(ctx context.Context, tx *sql.Tx, id int64, text, benefit string
 	return pid, store.MarkProposed(ctx, tx, id)
 }
 
-// MakeTool is the review action "make this a tool" (§10.1) on command candidate id [NEW form]:
-// it makes a tool draft from one example, the commands of the newest session in the evidence
-// of the candidate, as they ran (exactDraft). It needs no model call and adds no evidence: the
-// batch of the example is committed, its watermark stays, and the support count does not
-// change. For an input in place of a word, ask for a change of the draft (brain review <id>
-// --change): the E13-S5 request route drafts it again with the extractor. The draft goes
-// through the normal review; nothing runs before your approval. It returns the proposal id.
+// MakeTool is the review action "make this a tool" on command candidate id: it makes a tool
+// draft from one example, the commands of the newest session in the evidence of the candidate,
+// as they ran (exactDraft). It needs no model call and adds no evidence: the batch of the
+// example is committed, its watermark stays, and the support count does not change. For an input
+// in place of a word, ask for a change of the draft (brain review <id> --change): the E13-S5
+// request route drafts it again with the extractor. The draft goes through the normal review;
+// nothing runs before your approval. It returns the proposal id.
 func MakeTool(ctx context.Context, tx *sql.Tx, id int64, now time.Time) (int64, error) {
 	cand, err := store.CandidateByID(ctx, tx, id)
 	if err != nil {
@@ -587,7 +585,7 @@ type rawInput struct {
 // checkTool returns the tool text of claim r of kind tool, with refs its evidence, and its
 // folder and commands. The secret filter runs on the model fields first (Redact). Each command
 // must be a command of the evidence that Brain may draft a tool from, with an input only in
-// place of a whole word: Brain never writes new program logic (§10.1, §10.3). All the commands
+// place of a whole word: Brain never writes new program logic. All the commands
 // must have run in one folder, the folder of the tool; the newest folder that fits wins. The
 // model does not give it. Then tool.Parse checks the contract with the E17-S3 rules. No error
 // holds model text.

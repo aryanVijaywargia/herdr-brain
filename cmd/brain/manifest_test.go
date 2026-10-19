@@ -59,7 +59,7 @@ func TestManifestSetupAction(t *testing.T) {
 	}
 }
 
-// D4: one [[events]] entry, for workspace.closed, runs `brain event workspace-closed`.
+// E2-S6: one [[events]] entry, for workspace.closed, runs `brain event workspace-closed`.
 func TestManifestClosedEvent(t *testing.T) {
 	events := manifestTables(t, "events")
 	if len(events) != 1 {
@@ -73,7 +73,7 @@ func TestManifestClosedEvent(t *testing.T) {
 	}
 }
 
-// D6 (E5-S3): the review action opens the queue split, and the queue runs `brain review`.
+// E5-S3: the review action opens the queue split, and the queue runs `brain review`.
 func TestManifestReviewAction(t *testing.T) {
 	action := findTable(manifestTables(t, "actions"), "review")
 	if action == nil {
@@ -108,7 +108,7 @@ func TestManifestReviewPane(t *testing.T) {
 	}
 }
 
-// D7 (E11-S2): one [[startup]] entry runs `brain brained`, with exec, so the process that
+// E11-S2: one [[startup]] entry runs `brain brained`, with exec, so the process that
 // herdr starts is brained itself.
 func TestManifestStartup(t *testing.T) {
 	startup := manifestTables(t, "startup")

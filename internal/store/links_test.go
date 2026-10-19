@@ -60,9 +60,9 @@ func TestConfirmAndKeepApart(t *testing.T) {
 	}
 }
 
-// Sol review of #360: a rejection of the merged claim in a scope holds for the claim it means
-// now, so a reworded telling there stays rejected (§7.2). Your reason stays on the first
-// rejection only.
+// Review of #360: a rejection of the merged claim in a scope holds for the claim it means
+// now, so a reworded telling there stays rejected. Your reason stays on the first rejection
+// only.
 func TestConfirmLinkKeepsRejection(t *testing.T) {
 	ctx := context.Background()
 	e := newEvidenceStore(t)
@@ -92,7 +92,7 @@ func TestConfirmLinkKeepsRejection(t *testing.T) {
 	})
 }
 
-// Sol review of #360: keep apart ends a proposed link back from the other claim too, so the
+// Review of #360: keep apart ends a proposed link back from the other claim too, so the
 // pair leaves the review at once.
 func TestKeepApartBothWays(t *testing.T) {
 	ctx := context.Background()

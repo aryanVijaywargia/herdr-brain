@@ -13,7 +13,7 @@ import (
 // busy handler when it changes the journal mode, so without a retry one open fails with
 // SQLITE_BUSY.
 func TestOpenNewStoreRace(t *testing.T) {
-	const rounds, openers = 50, 4 // [NEW]
+	const rounds, openers = 50, 4
 	for round := range rounds {
 		dir := t.TempDir()
 		var wg sync.WaitGroup
@@ -78,7 +78,7 @@ func TestOpenBusyEndsAtTimeout(t *testing.T) {
 	if !errors.Is(err, ErrBusy) {
 		t.Errorf("Open() while locked = %v, want ErrBusy", err)
 	}
-	// The margin is for a slow test machine. [NEW]
+	// The margin is for a slow test machine.
 	if limit := timeout + 250*time.Millisecond; waited >= limit {
 		t.Errorf("Open() with a 50 ms busy timeout waited %s, want less than %s", waited, limit)
 	}

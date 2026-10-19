@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// E17-S11: agent.get gives the state of the event join and the event key (M0 E17-S1).
+// E17-S11: agent.get gives the state of the event join and the event key (E17-S1 test).
 func TestSocketAgent(t *testing.T) {
 	path := serveOne(t, "agent.get", strings.TrimSpace(fixture(t, "agent-get.json")))
 	got, err := Socket{Path: path}.Agent(testCtx(t), "w1:p1")

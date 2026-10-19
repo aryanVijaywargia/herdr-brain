@@ -1,5 +1,5 @@
--- Pane capture (E11-S3, §6.2, §6.4, §11). brained reads the panes of one herdr session and
--- keeps the new part of each read.
+-- Pane capture (E11-S3). brained reads the panes of one herdr session and keeps the new part of
+-- each read.
 -- - sessions: one agent session in one binding. Every key holds the canonical binding
 --   (herdr_session, E2-S2), so two herdr sessions with the same pane ids and the same agent
 --   session ids never share a row. key_kind 'agent': key_id is the agent session id from
@@ -9,7 +9,7 @@
 -- - segments: one run of reads of a session in one pane and one workspace. A pane move, a
 --   reconnect or a learning switch starts a new one; text never joins across two.
 --   read_source is the pane.read source: 'visible' has a lower coverage.
--- - observations: one new part of a read, or one gap. capture_identity is unique (§6.4).
+-- - observations: one new part of a read, or one gap. capture_identity is unique.
 --   E11-S4 adds the filters and the cursor, E11-S5 the hook records.
 -- workspace_key is NULL when the workspace has no Brain key.
 CREATE TABLE sessions (

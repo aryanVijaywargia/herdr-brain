@@ -18,7 +18,7 @@ const claudeShell = "Bash"
 // input.exit_pattern (adapters/claude.toml).
 var claudeExit = regexp.MustCompile(`^Exit code (\d+)`)
 
-// claudeLine is one line of a Claude session file (§17 item 34).
+// claudeLine is one line of a Claude session file.
 type claudeLine struct {
 	Type             string         `json:"type"`
 	Subtype          string         `json:"subtype"`
@@ -68,8 +68,8 @@ type claude struct {
 	replyID string
 }
 
-// ReadClaude reads the Claude session file at path up to limit bytes (§6.8). The session id is
-// the file name: Claude names each file <session id>.jsonl (§17 item 32).
+// ReadClaude reads the Claude session file at path up to limit bytes. The session id is the
+// file name: Claude names each file <session id>.jsonl.
 func ReadClaude(path string, limit int64) (Session, error) {
 	c := claude{usage: map[string]bool{}, pending: map[string]ref{}}
 	c.s.ID = strings.TrimSuffix(filepath.Base(path), ".jsonl")
@@ -81,7 +81,7 @@ func ReadClaude(path string, limit int64) (Session, error) {
 }
 
 // line reads one line. A line of a type other than user or assistant gives only its time and
-// cwd: system, summary and the other types hold no prompt, command or reply (§17 item 34).
+// cwd: system, summary and the other types hold no prompt, command or reply.
 func (c *claude) line(raw []byte, _ int64) error {
 	var l claudeLine
 	if err := json.Unmarshal(raw, &l); err != nil {
@@ -95,7 +95,7 @@ func (c *claude) line(raw []byte, _ int64) error {
 		return err
 	}
 	c.at(at, l.CWD)
-	// A claude -p or Agent SDK run is not interactive (owner decision 2026-10-13, S5 gap HS-G1).
+	// A claude -p or Agent SDK run is not interactive.
 	if l.Entrypoint == "sdk-cli" {
 		c.s.Interactive = false
 	}
@@ -109,7 +109,7 @@ func (c *claude) line(raw []byte, _ int64) error {
 	if err != nil {
 		return err
 	}
-	// Side chains, meta records, compaction summaries and synthetic replies are dropped (§6.8).
+	// Side chains, meta records, compaction summaries and synthetic replies are dropped.
 	if l.IsSidechain || l.IsMeta || l.IsCompactSummary || l.Message.Model == "<synthetic>" {
 		return nil
 	}
@@ -161,7 +161,7 @@ func (c *claude) user(l claudeLine, at time.Time, blocks []claudeBlock) error {
 }
 
 // toolResult reads the result of a shell command: its exit status from the exit line, when it
-// has one. Only the output of a failed command is kept (S88); is_error marks the failure.
+// has one. Only the output of a failed command is kept; is_error marks the failure.
 func (c *claude) toolResult(b claudeBlock, t Text) error {
 	r, ok := c.pending[b.ToolUseID]
 	if !ok {
@@ -254,8 +254,7 @@ func (c *claude) text(l claudeLine, at time.Time, t string) {
 	c.reply(Text{ID: l.UUID, At: at, Text: t})
 }
 
-// blockID is the record id of block i of the record uuid: one record can hold several commands
-// (§6.8, S89).
+// blockID is the record id of block i of the record uuid: one record can hold several commands.
 func blockID(uuid string, i int) string {
 	return uuid + "#" + strconv.Itoa(i)
 }

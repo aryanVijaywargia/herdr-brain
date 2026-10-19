@@ -10,7 +10,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// AC proposal (§9.5): the review pane shows a merge proposal as brain review does: what it
+// AC proposal: the review pane shows a merge proposal as brain review does: what it
 // merges, the new text, each old text with its id, and the characters saved. Its permission
 // words need the y confirm, as for other proposals.
 func TestMergePane(t *testing.T) {
@@ -42,7 +42,7 @@ func TestMergePane(t *testing.T) {
 	}
 }
 
-// AC forget (§6.7, §9.5): forget of an item that an approved merge retired names the kept item
+// AC forget: forget of an item that an approved merge retired names the kept item
 // first and keeps its merged text. After an undo of the merge, or when the kept item is
 // forgotten already, forget prints no such line.
 func TestForgetNamesMergeKept(t *testing.T) {

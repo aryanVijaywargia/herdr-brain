@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// The exit codes of a run that no step gave. [NEW] the shell's numbers.
+// The exit codes of a run that no step gave: the shell's numbers.
 const (
 	ExitTimeout  = 124 // the timeout stopped the run
 	ExitNotStart = 127 // a step did not start
@@ -24,7 +24,7 @@ const (
 )
 
 // waitDelay is how long a run waits for the output of a child that keeps the pipes open
-// after its step ended. [NEW] 2 s.
+// after its step ended.
 const waitDelay = 2 * time.Second
 
 // ErrTimeout means that the timeout of the contract stopped the run.
@@ -33,7 +33,7 @@ var ErrTimeout = errors.New("the tool timed out")
 // Fill checks the values against the input schema of c and returns the commands of c with
 // each input filled in. Each input of the schema needs one value; a value of an input that
 // the schema does not have, a value of the wrong type and a value that fails the pattern stop
-// the call. A value fills one whole argv element, so it never becomes command text (S58).
+// the call. A value fills one whole argv element, so it never becomes command text.
 func (c Contract) Fill(values map[string]string) ([][]string, error) {
 	for _, n := range slices.Sorted(maps.Keys(values)) {
 		in, ok := c.Inputs[n]
@@ -108,7 +108,7 @@ type Run struct {
 // returns the exit code of the last step that ran, and an error when a step failed. When the
 // timeout ends, it stops the step and its children (their process group) and returns
 // ExitTimeout and ErrTimeout. Standard input is /dev/null: a tool takes its inputs as
-// arguments. [NEW] the null input.
+// arguments.
 func (r Run) Exec(ctx context.Context) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.Timeout)
 	defer cancel()
@@ -128,7 +128,7 @@ func (r Run) Exec(ctx context.Context) (int, error) {
 }
 
 // step runs one argv list. A run.sh step runs the reviewed run.sh with sh, and the inputs
-// reach it as "$1", "$2" (§10.1).
+// reach it as "$1", "$2".
 func (r Run) step(ctx context.Context, argv []string) (int, error) {
 	prog, args := argv[0], argv[1:]
 	if prog == ScriptName {
@@ -157,7 +157,7 @@ func (r Run) step(ctx context.Context, argv []string) (int, error) {
 		// The step ended well; a child kept its output open after it.
 		return 0, nil
 	default:
-		// The step started, but its output could not be copied. [NEW] exit code 1.
+		// The step started, but its output could not be copied.
 		return 1, fmt.Errorf("%s: %w", argv[0], err)
 	}
 }

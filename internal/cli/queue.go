@@ -21,8 +21,8 @@ var errNotFound = errors.New("not found in this workspace")
 // errDecided: a surface decided the proposal already, for example in another process.
 var errDecided = errors.New("conflict")
 
-// permissionWords finds text that may change a permission, an allow rule or a safety rule
-// (§7.4). [NEW] the list is a guess (E4-S3); proposals.permission_warning records how often
+// permissionWords finds text that may change a permission, an allow rule or a safety rule.
+// The list is a guess (E4-S3); proposals.permission_warning records how often
 // it fires in M1.
 var permissionWords = regexp.MustCompile(`(?i)allow|permission|sandbox|--dangerously|\b(never|always)\s+run`)
 
@@ -41,7 +41,7 @@ type caller struct {
 func newCaller(e Env, c *Call) caller {
 	cl := caller{Env: e, Call: c, surface: store.SurfaceCLI}
 	// A workspace with no key has no items of its own: it sees the global items only, as the
-	// hook gives it the global part only (S48). keyErr says why, for --scope workspace.
+	// hook gives it the global part only. keyErr says why, for --scope workspace.
 	cl.key, cl.label, cl.keyErr = c.WorkspaceKey()
 	return cl
 }
@@ -123,13 +123,12 @@ func nextRevision(cur store.ItemRevision, now time.Time) store.ItemRevision {
 	return cur
 }
 
-// deliver runs the post-commit build (E4): the hook never builds (§8.3), so a commit that
+// deliver runs the post-commit build (E4): the hook never builds, so a commit that
 // changes the delivered text is built at once, and the next hook prints it. A failed build
-// keeps the commit; the repair in the next brain call builds it (§7.5 step 6).
+// keeps the commit; the repair in the next brain call builds it.
 func (cl caller) deliver(ctx context.Context, proposalID *int64) error {
 	_, err := output.Build(ctx, cl.Store, filepath.Join(cl.Binding.Store, outDir), proposalID, cl.Now)
-	// A newer commit made this build stale; the build of that commit holds this change too
-	// (§7.5 step 4).
+	// A newer commit made this build stale; the build of that commit holds this change too.
 	if err == nil || errors.Is(err, output.ErrStale) {
 		return nil
 	}

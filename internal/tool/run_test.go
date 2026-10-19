@@ -38,7 +38,7 @@ func TestFill(t *testing.T) {
 		"unknown":     {map[string]string{"package": "shop", "count": "1", "other": "x"}, "has no input other"},
 		"not integer": {map[string]string{"package": "shop", "count": "1e3"}, "is not an integer"},
 		"pattern":     {map[string]string{"package": "shop", "count": "1234"}, "does not match the pattern"},
-		// S58: a value that holds shell text fails the pattern.
+		// A value that holds shell text fails the pattern.
 		"semicolon": {map[string]string{"package": "; rm -rf ~", "count": "1"}, "does not match the pattern"},
 		"subshell":  {map[string]string{"package": "$(touch x)", "count": "1"}, "does not match the pattern"},
 	} {

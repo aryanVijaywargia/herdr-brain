@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Rejection is one row of rejections: you rejected one claim in one scope (§7.2).
+// Rejection is one row of rejections: you rejected one claim in one scope.
 type Rejection struct {
 	ID            int64
 	ClaimID       string
@@ -26,7 +26,7 @@ type Rejection struct {
 var ErrRejected = errors.New("rejected")
 
 // Reject records that you rejected the claim of candidate c in the scope of c, with reason,
-// and returns the id of the rejection. A reworded key keeps the claim id (§7.2), so it stays
+// and returns the id of the rejection. A reworded key keeps the claim id, so it stays
 // rejected too. A rejection that already holds for the claim and scope stays as it is.
 func Reject(ctx context.Context, tx *sql.Tx, c Candidate, reason string, at time.Time) (int64, error) {
 	_, err := tx.ExecContext(ctx, `INSERT INTO rejections (claim_id, scope, workspace_key, reason, evidence_count, at)
@@ -59,7 +59,7 @@ func Rejected(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string) (bo
 }
 
 // ProposeCandidate adds p as a proposal of candidate id and returns its id. It refuses with
-// ErrRejected when you rejected the claim of the candidate in its scope (§7.2). E13 makes its
+// ErrRejected when you rejected the claim of the candidate in its scope. E13 makes its
 // proposals through it. The trigger prompts of p are the fingerprints of the prompt index rows
 // of the evidence of the candidate, and those rows link the new proposal (E14-S1).
 func ProposeCandidate(ctx context.Context, tx *sql.Tx, id int64, p Proposal) (int64, error) {
@@ -118,13 +118,13 @@ func Rejections(ctx context.Context, tx *sql.Tx) ([]Rejection, error) {
 }
 
 // ReopenRejection ends rejection id at now: the claim can get proposals in its scope again.
-// Only you reopen a rejection; Brain never does (§7.2).
+// Only you reopen a rejection; Brain never does.
 func ReopenRejection(ctx context.Context, tx *sql.Tx, id int64, now time.Time) error {
 	return updateRejection(ctx, tx, id, `reopened = ?2`, timeArg(now))
 }
 
 // ResetRejection keeps rejection id and counts its new evidence from now: the evidence count
-// of the rejection becomes the count now. [NEW] reset is the "reset" of §7.2.
+// of the rejection becomes the count now.
 func ResetRejection(ctx context.Context, tx *sql.Tx, id int64, now time.Time) error {
 	return updateRejection(ctx, tx, id, `at = ?2, evidence_count = COALESCE((SELECT c.count FROM candidates c
 		WHERE c.claim_id = rejections.claim_id

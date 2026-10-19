@@ -183,7 +183,7 @@ func TestFixedEvalDir(t *testing.T) {
 	if !ok {
 		t.Fatal("the fake env has no MapFS profiles")
 	}
-	if err := os.MkdirAll(fixed, 0o700); err != nil { // [NEW] 0o700, as the runner makes it
+	if err := os.MkdirAll(fixed, 0o700); err != nil { // 0o700, as the runner makes it
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(fixed, "stale.txt"), "from an old case")

@@ -28,20 +28,18 @@ type RunHerdr interface {
 }
 
 // originEnv tells a brain run in a tool of an automation run that Brain called it, so its call
-// is Brain-origin too and teaches nothing (§10.4 "No chains"). [NEW] the name.
+// is Brain-origin too and teaches nothing.
 const originEnv = "BRAIN_CALL_ORIGIN"
 
 // The pane label of an automation run: a herdr metadata token of the triggering pane, whose
-// value is the tool and the result of its newest run. [NEW] the source, the token name and the
-// value form.
+// value is the tool and the result of its newest run.
 const (
 	labelSource = "brain"
 	labelToken  = "brain-automation"
 )
 
-// launcher is one `brain automation launch` process: the run of one claimed stop event
-// (§10.4 steps 3 to 7). brained starts it with ids only, and with the herdr variables of the
-// triggering pane.
+// launcher is one `brain automation launch` process: the run of one claimed stop event. brained
+// starts it with ids only, and with the herdr variables of the triggering pane.
 type launcher struct {
 	Env
 	pid    int    // this process, for brain automation cancel
@@ -88,7 +86,7 @@ func (ln launcher) run(ctx context.Context, l brained.Launch) (err error) {
 	if ln.paused != nil {
 		ln.paused()
 	}
-	// The busy check comes right before the launch mark (§10.4 step 4).
+	// The busy check comes right before the launch mark.
 	if why == nil {
 		why = ln.busy(ctx, b, r, a)
 	}
@@ -117,7 +115,7 @@ func (ln launcher) run(ctx context.Context, l brained.Launch) (err error) {
 
 // runResult is the result of a tool run and its cause: for a failure, the failed step and its
 // exit code, or a fixed line for a refusal of the call (#352). The text of any other error can
-// hold herdr or store text, so it is no cause. [NEW] the refusal line.
+// hold herdr or store text, so it is no cause.
 func runResult(res ToolResult, err error) (store.RunResult, string) {
 	switch {
 	case err == nil:
@@ -130,7 +128,7 @@ func runResult(res ToolResult, err error) (store.RunResult, string) {
 	return store.RunFailed, ""
 }
 
-// check builds the caller context of run r from its pane and resolves it again (§10.4 step 3):
+// check builds the caller context of run r from its pane and resolves it again:
 // the pane must resolve to the binding and the store of l, with the pane and the workspace of
 // the event, and its workspace key must be the key of automation a. It never uses the pane
 // that brained started in: brained gives the pane of the event. It returns the binding, or
@@ -158,8 +156,7 @@ func (ln launcher) check(ctx context.Context, l brained.Launch, r store.Automati
 	return c.Binding, nil
 }
 
-// busy fails when an agent in the workspace of run r works in the pinned folder of a (§10.4
-// step 4).
+// busy fails when an agent in the workspace of run r works in the pinned folder of a.
 func (ln launcher) busy(ctx context.Context, b bindings.Binding, r store.AutomationRun, a store.Automation) error {
 	h, err := ln.RunHerdr(target(b))
 	if err != nil {
@@ -181,7 +178,7 @@ func (ln launcher) busy(ctx context.Context, b bindings.Binding, r store.Automat
 }
 
 // mark writes the launch mark of run r in one short transaction, after it checks the binding,
-// its enabled state and the approval again (§10.4 step 5). A pause, a removal or an undo that
+// its enabled state and the approval again. A pause, a removal or an undo that
 // completed before it stops the run. It returns the automation and the tool name.
 func (ln launcher) mark(ctx context.Context, st *store.Store, l brained.Launch, r store.AutomationRun) (a store.Automation, name string, err error) {
 	err = st.Write(ctx, func(tx *sql.Tx) error {
@@ -220,7 +217,7 @@ func (ln launcher) finish(ctx context.Context, st *store.Store, id int64, result
 
 // label shows result of a run of tool name on the pane label of pane id; ok clears it. The
 // label holds the row's result, so a run shows unknown until it ends, and a crash leaves
-// unknown (§10.4 "Failure feedback").
+// unknown.
 func (ln launcher) label(ctx context.Context, b bindings.Binding, id, name string, result store.RunResult) error {
 	h, err := ln.RunHerdr(target(b))
 	if err != nil {
@@ -267,7 +264,7 @@ func processCommand(ctx context.Context, pid int) (string, error) {
 }
 
 // cancelRun records cancelled for active run id of an automation of the caller's workspace,
-// then stops its process (§10.4 "Cancel"). The record comes first, so the end that the run
+// then stops its process. The record comes first, so the end that the run
 // writes after the stop keeps cancelled. Effects that happened stay.
 func (cl caller) cancelRun(ctx context.Context, id int64) error {
 	var r store.AutomationRun

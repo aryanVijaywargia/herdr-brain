@@ -19,7 +19,7 @@ func HookPrompt(harness, text string) string {
 
 // panePrompt returns the full prompt of the filtered lines of one part of a pane read of
 // harness: the lines without their sender mark, so the prompt "❯ run make foo" in the pane and
-// the hook prompt "run make foo" give one fingerprint [NEW]. The read has no blank lines.
+// the hook prompt "run make foo" give one fingerprint. The read has no blank lines.
 func panePrompt(harness string, lines []string) string {
 	ls := make([]string, len(lines))
 	for i, l := range lines {
@@ -37,7 +37,7 @@ func panePrompt(harness string, lines []string) string {
 // IndexPrompt adds the prompt index row of stored observation o when it is a prompt: text of
 // an unconfirmed sender that Brain did not cause. full is its full prompt after the secret
 // filter (HookPrompt, panePrompt). The row holds the fingerprint of full and its text cut to
-// the excerpt limit. The caller runs it in the transaction that stored o (§6.7).
+// the excerpt limit. The caller runs it in the transaction that stored o.
 func IndexPrompt(ctx context.Context, tx *sql.Tx, o store.Observation, full string) error {
 	if !isPrompt(o) {
 		return nil

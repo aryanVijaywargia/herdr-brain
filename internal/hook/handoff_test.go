@@ -150,7 +150,7 @@ func TestHandoffLines(t *testing.T) {
 }
 
 // AC #273 4 and 6: the handoff lines show only under the last session line, so a start with no
-// last session line gets none (S48); after brain forget --session of the last session, its
+// last session line gets none; after brain forget --session of the last session, its
 // failed commands never show, and the session before it is the last one.
 func TestNoHandoffLines(t *testing.T) {
 	forget := func(t *testing.T, f *fixture) {
@@ -194,7 +194,7 @@ func TestNoHandoffLines(t *testing.T) {
 	}{
 		{name: "unmapped workspace", env: func(f *fixture) []string { return environ(f.mainSock, "", "w15:p1", "w15") }},
 		{name: "workspace part withheld", env: func(f *fixture) []string { return environ(f.mainSock, "", "w16:p1", "w16") }},
-		// S79: B's w14 is another workspace than A's w14.
+		// B's w14 is another workspace than A's w14.
 		{name: "session of another workspace", env: func(f *fixture) []string { return environ(f.workSock, "work", "w14:p1", "w14") }},
 		{name: "forget pending", env: paneA14, after: pending, silent: true},
 		{name: "forgotten session", env: paneA14, after: forget},

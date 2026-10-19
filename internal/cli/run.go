@@ -20,11 +20,11 @@ import (
 
 const runUsage = `usage: brain run <tool> [--<input> <value>]...`
 
-// ErrRefused means that a check refused a tool call, so nothing ran (§10.1).
+// ErrRefused means that a check refused a tool call, so nothing ran.
 var ErrRefused = errors.New("refused; nothing ran")
 
 // ExitError is the error of a tool run whose last step did not exit 0. brain run exits with
-// Code. [NEW] brain run exits with the tool's exit code.
+// Code.
 type ExitError struct {
 	Code int
 	Err  error
@@ -62,7 +62,7 @@ type ToolResult struct {
 	Step string
 }
 
-// Run runs `brain run <tool> [--<input> <value>]` (E17-S4, §10.1) in the agent's shell. It
+// Run runs `brain run <tool> [--<input> <value>]` (E17-S4) in the agent's shell. It
 // writes the tool's output to its own and exits with the tool's exit code. brain run is not
 // a sandbox: it checks the call and runs the reviewed command.
 func Run(ctx context.Context, e Env, args []string) error {
@@ -73,7 +73,7 @@ func Run(ctx context.Context, e Env, args []string) error {
 	// Ctrl-C or a stop of the agent's shell stops the tool's process group too.
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	// A brain run in a tool of an automation run is Brain-origin too (§10.4 "No chains").
+	// A brain run in a tool of an automation run is Brain-origin too.
 	origin := store.OriginAgent
 	if lookupEnv(e.Environ, originEnv) == string(store.OriginAutomation) {
 		origin = store.OriginAutomation
@@ -88,7 +88,7 @@ func Run(ctx context.Context, e Env, args []string) error {
 }
 
 // parseRun reads the tool name and the inputs: --<input> <value> or --<input>=<value>, each
-// input once. [NEW] the flag forms. On a bad input argument it still returns the name, so the
+// input once. On a bad input argument it still returns the name, so the
 // call of a known tool is logged as refused; the name is "" when there is none.
 func parseRun(args []string) (string, map[string]string, error) {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
@@ -117,7 +117,7 @@ func parseRun(args []string) (string, map[string]string, error) {
 }
 
 // RunTool runs the tool r.Tool for pane r.PaneID of workspace r.WorkspaceID. The checks come in
-// order: herdr confirms the pane in its workspace live, through the resolver (§8.3); the tool
+// order: herdr confirms the pane in its workspace live, through the resolver; the tool
 // is a tool of that workspace or a global one; output.Runnable checks the approval, the
 // contract hash and the tool files; each input matches its type and its pattern. Then it runs
 // the commands with no shell in the cwd of the contract, within its timeout.

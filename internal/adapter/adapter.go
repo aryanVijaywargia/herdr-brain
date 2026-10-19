@@ -1,4 +1,4 @@
-// Package adapter is the base adapter (HLD §8.5): the code that every harness shares. It loads
+// Package adapter is the base adapter: the code that every harness shares. It loads
 // a harness profile, reads the hook input by the profile's JSON paths and writes the brief in
 // the profile's output form. It knows no harness by name. Package harness computes the
 // adapter state (E8-S4).
@@ -22,57 +22,57 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/adapters"
 )
 
-// formAdditionalContext is the output form of Claude and Codex (HLD §8.3, M0 item 1). Its
-// output also names the start event in hookSpecificOutput.hookEventName.
+// formAdditionalContext is the output form of Claude and Codex. Its output also names the
+// start event in hookSpecificOutput.hookEventName.
 const formAdditionalContext = "hookSpecificOutput.additionalContext"
 
 // defaultHooksKey is the root key of the hook object in a CLI hook file: Claude and Codex keep
-// their events in "hooks" (§8.3).
+// their events in "hooks".
 const defaultHooksKey = "hooks"
 
 // TrustCodex is the hook_trust value of a CLI that runs a new or changed hook entry only after
 // you trust it, with the trust state in the hooks.state table of its config.toml, as Codex
-// 0.154 does (M0 test "E8-S3: trust check").
+// 0.154 does (E8-S3 trust test).
 const TrustCodex = "codex"
 
 var (
 	// ErrNotStart says that the hook input does not meet the profile's start condition. The
-	// hook prints nothing (§8.3 step 2).
+	// hook prints nothing.
 	ErrNotStart = errors.New("hook input does not meet the start condition")
 	// ErrRetest says that the hook input has a shape that the profile does not know, for
 	// example after a CLI update. The hook prints nothing, and the caller sets the adapter
-	// state to retest (S14).
+	// state to retest.
 	ErrRetest = errors.New("unknown hook input shape: adapter needs retest")
 )
 
-// Profile is one harness profile (§8.5), M1 fields only.
+// Profile is one harness profile, M1 fields only.
 type Profile struct {
 	Kind          string `toml:"kind"`
 	InstallTarget string `toml:"install_target"`
 	Events        struct {
 		Start string `toml:"start"`
-		// The CLI events of the hook records (E11-S5, §6.1). An empty event is off: a CLI gets
+		// The CLI events of the hook records (E11-S5). An empty event is off: a CLI gets
 		// hook records only after its E11-S1 hook test.
 		Prompt      string   `toml:"prompt"`
 		Tool        []string `toml:"tool"`
 		ToolMatcher string   `toml:"tool_matcher"` // the shell tool: the tool hook runs only for it
 		Stop        string   `toml:"stop"`
 	} `toml:"events"`
-	// StartCondition is one or more checks `<JSON path> == <JSON value>`, joined by "&&" [NEW],
-	// for example `invocationNum == 0 && initialNumSteps == 1` (§8.3 step 2, E16-S11).
+	// StartCondition is one or more checks `<JSON path> == <JSON value>`, joined by "&&",
+	// for example `invocationNum == 0 && initialNumSteps == 1` (E16-S11).
 	StartCondition string `toml:"start_condition"`
 	// OutputForm is the JSON path of the brief in the hook output, for example
 	// `injectSteps[0].ephemeralMessage` (E16-S11). A path is object keys joined by dots; a key
-	// may end in array steps such as "[0]" [NEW syntax].
+	// may end in array steps such as "[0]".
 	OutputForm string `toml:"output_form"`
-	// OutputNone [NEW] is the output of a run that delivers nothing, for a CLI that wants JSON
-	// on every hook run: agy reads "{}" (M0 test "E16-S2"). "" prints nothing.
+	// OutputNone is the output of a run that delivers nothing, for a CLI that wants JSON
+	// on every hook run: agy reads "{}" (E16-S2 test). "" prints nothing.
 	OutputNone string `toml:"output_none"`
-	// HooksKey [NEW] is the root key of the object that holds the CLI events in the hook file:
+	// HooksKey is the root key of the object that holds the CLI events in the hook file:
 	// "hooks" when empty, as for Claude and Codex. agy keeps each named hook at its own root
 	// key, so its profile names Brain's key (E16-S2).
 	HooksKey string `toml:"hooks_key"`
-	// FlatHandlers [NEW]: the entry of each event but the tool events is the handler object
+	// FlatHandlers: the entry of each event but the tool events is the handler object
 	// itself, not a matcher group around it, as agy wants for PreInvocation and Stop (E16-S2).
 	FlatHandlers bool `toml:"flat_handlers"`
 	Input        struct {
@@ -89,7 +89,7 @@ type Profile struct {
 		// ExitPattern is a regular expression on the error text; its first group is the exit
 		// status. With no match the exit status is unknown.
 		ExitPattern string `toml:"exit_pattern"`
-		// QuestionReply [NEW] is the name of the tag around the answers when a prompt answers
+		// QuestionReply is the name of the tag around the answers when a prompt answers
 		// questions of the CLI (#341). "" for none.
 		QuestionReply string `toml:"question_reply"`
 	} `toml:"input"`
@@ -97,13 +97,13 @@ type Profile struct {
 	// AdditionalContextLimit goes into the hook entry when set. Codex sends a longer
 	// additionalContext to a file and not to the model; 0 turns the limit off (E8 epic).
 	AdditionalContextLimit *int `toml:"additional_context_limit"`
-	// HookTrust [NEW] names the trust step that the CLI needs before it runs a Brain hook entry:
+	// HookTrust names the trust step that the CLI needs before it runs a Brain hook entry:
 	// "" for none, or TrustCodex. Setup shows its steps, and doctor checks it (E16-S10).
 	HookTrust string `toml:"hook_trust"`
-	// AltScreen [NEW] says that the CLI draws in the alternate screen: the eval runner reads its
+	// AltScreen says that the CLI draws in the alternate screen: the eval runner reads its
 	// visible screen after idle (E11-S1). An inline CLI keeps its scrollback.
 	AltScreen bool `toml:"alt_screen"`
-	// Eval [NEW] holds the CLI arguments of a fresh CLI that the eval runner starts (E10-S3).
+	// Eval holds the CLI arguments of a fresh CLI that the eval runner starts (E10-S3).
 	Eval struct {
 		// Args go to each fresh CLI. "{{dir}}" in an argument is the real path of the
 		// runner's scratch folder, as a quoted string.
@@ -111,31 +111,31 @@ type Profile struct {
 		// SetupArgs also go to a CLI that runs a setup step, so that it may run
 		// `brain remember` with no ask: the runner never answers a permission dialog.
 		SetupArgs []string `toml:"setup_args"`
-		// Dir [NEW] is one fixed scratch folder for the cases that probe this CLI, for a CLI
+		// Dir is one fixed scratch folder for the cases that probe this CLI, for a CLI
 		// that trusts folders by path and asks again in each new folder, as agy 1.2.16 does
 		// (E16-S12). The runner empties it before each case. "" is a fresh temp folder.
 		Dir string `toml:"dir"`
 	} `toml:"eval"`
 	// NoiseLines are optional regular expressions of screen lines that herdr capture drops,
-	// for example the input box (§6.3, E11-S3). A line matches when a pattern matches all of it.
+	// for example the input box (E11-S3). A line matches when a pattern matches all of it.
 	NoiseLines []string `toml:"noise_lines"`
-	// NoiseBlocks [NEW] are optional screen parts of more than one line that herdr capture
+	// NoiseBlocks are optional screen parts of more than one line that herdr capture
 	// drops, such as a tip that wraps or a start banner (#258). A block is a line that Start
 	// matches and each next line that Next matches; a blank line ends it, unless Next matches
 	// the empty line (#291). Patterns match a whole line.
 	NoiseBlocks []struct {
 		Start string `toml:"start"`
 		Next  string `toml:"next"`
-		// AfterBlank [NEW] makes the block start only under a blank line or at the top of
+		// AfterBlank makes the block start only under a blank line or at the top of
 		// the read: a prompt line with the same text is right under the prompt, so it stays
 		// (#316).
 		AfterBlank bool `toml:"after_blank"`
-		// UnderStart [NEW] drops the next lines only under the start line, so a read that
+		// UnderStart drops the next lines only under the start line, so a read that
 		// starts inside the block keeps them: its Next also matches real text, such as tool
 		// output at column 0 (#385).
 		UnderStart bool `toml:"under_start"`
 	} `toml:"noise_blocks"`
-	// NoiseAbove [NEW] are optional screen lines that herdr capture drops only when the next
+	// NoiseAbove are optional screen lines that herdr capture drops only when the next
 	// line that is not blank matches Below, such as the placeholder of the empty input box
 	// above the rule or the footer of the box (#316): a sent prompt with the same text has
 	// other text under it. Patterns match a whole line.
@@ -143,7 +143,7 @@ type Profile struct {
 		Line  string `toml:"line"`
 		Below string `toml:"below"`
 	} `toml:"noise_above"`
-	// NoiseLast [NEW] are optional screen lines that herdr capture drops only when no line
+	// NoiseLast are optional screen lines that herdr capture drops only when no line
 	// under them matches Unless, such as the placeholder of the empty input box, whatever box
 	// line is under it: a sent prompt with the same text has the input line, a reply or the
 	// spinner under it (#338). Patterns match a whole line.
@@ -151,7 +151,7 @@ type Profile struct {
 		Line   string `toml:"line"`
 		Unless string `toml:"unless"`
 	} `toml:"noise_last"`
-	// SidePanel [NEW] is an optional column that the CLI draws to the right of the main text,
+	// SidePanel is an optional column that the CLI draws to the right of the main text,
 	// such as the Claude diff panel (#258). Header is a regular expression of its header row;
 	// herdr capture cuts each line of a read at the column where the header starts.
 	SidePanel struct {
@@ -161,7 +161,7 @@ type Profile struct {
 		MinColumn int `toml:"min_column"`
 	} `toml:"side_panel"`
 	// SHA256 is the hex SHA-256 of the profile file. A conformance result holds it, so a
-	// changed profile needs a new test (§8.5, E8-S4).
+	// changed profile needs a new test (E8-S4).
 	SHA256 string `toml:"-"`
 
 	// cond is StartCondition, parsed; empty when the profile has no condition.
@@ -181,7 +181,7 @@ type Profile struct {
 }
 
 // condition is one check of a start condition, `<JSON path> == <JSON value>`, for example
-// `invocationNum == 0` (§8.3 step 2).
+// `invocationNum == 0`.
 type condition struct {
 	path  string
 	value any
@@ -209,7 +209,7 @@ func Load(harness string) (*Profile, error) {
 
 // Kinds returns the kind of each profile of fsys, one for each <kind>.toml, in name order. A
 // nil fsys is the embedded set (E16-S10): the entry points take this list, so a new CLI needs
-// only its profile file (S60).
+// only its profile file.
 func Kinds(fsys fs.FS) []string {
 	// fs.Glob returns only a bad pattern error, and this pattern is good.
 	names, _ := fs.Glob(set(fsys), "*.toml")
@@ -420,7 +420,7 @@ func (p *Profile) WriteNone(w io.Writer) error {
 
 // StartInput returns hook start input that Parse reads as sessionID and cwd: the two values at
 // the profile's JSON paths, and the value of its start condition. The eval runner calls
-// `brain hook` with it (§12.1 exclusion), so input of the profile's own shape does not set the
+// `brain hook` with it in its exclusion probes, so input of the profile's own shape does not set the
 // adapter to retest.
 func (p *Profile) StartInput(sessionID, cwd string) ([]byte, error) {
 	doc := put(nil, p.Input.SessionID, sessionID)

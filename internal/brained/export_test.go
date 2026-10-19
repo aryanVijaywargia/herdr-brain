@@ -90,7 +90,7 @@ func (p *Pipeline) Runs(t *testing.T) []store.AutomationRun {
 }
 
 // MergePass runs the merge pass of the store of session s1 at now, with the fake extractor CLI r
-// and no config file (§9.5).
+// and no config file.
 func (p *Pipeline) MergePass(r extract.Runner, now time.Time) error {
 	g := NewGate(bindings.Binding{Session: "s1", Socket: p.h.f.path, Store: p.h.store, Kind: bindings.KindMain})
 	return mergePass(context.Background(), g, filepath.Join(p.h.store, "config.toml"), io.Discard, r,

@@ -1,5 +1,5 @@
 // Package workspace keeps the workspace map of a store: it maps a (herdr session, workspace id)
-// pair to Brain's own workspace key (HLD §11 "Workspace identity", owner decision 2026-09-28).
+// pair to Brain's own workspace key.
 //
 // A `brain` call refreshes the map from `herdr workspace list`. The first mapping records the
 // project folder: the git top-level of the saved root (identity_cwd in herdr's session.json),
@@ -29,12 +29,12 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// mapVersion is the version of the map file format. [NEW]
+// mapVersion is the version of the map file format.
 const mapVersion = 1
 
 // Entry maps one (herdr session, workspace id) pair to a key. A remap keeps the old entry,
-// so that its items wait for a relink (§9.4, S83); ReplacedBy then names the new key. A
-// close keeps the entry too, with Closed set: herdr can reuse the id after a restart (D4).
+// so that its items wait for a relink; ReplacedBy then names the new key. A
+// close keeps the entry too, with Closed set: herdr can reuse the id after a restart.
 type Entry struct {
 	Key         string `json:"key"`
 	Session     string `json:"session"`      // herdr session name
@@ -219,13 +219,13 @@ func (e Entry) row(now time.Time) store.Workspace {
 // Remapped is the result of a remap.
 type Remapped struct {
 	New Entry
-	Old []Entry // earlier entries of the pair; their items wait for a relink (§9.4)
+	Old []Entry // earlier entries of the pair; their items wait for a relink
 }
 
 // Remap gives workspace id of s a new key for the project folder of its saved root. The old
-// entry and its store row stay, so its items stay on the old key for a relink; nothing moves
-// (S83). The new key gets its own row. Remap refuses a workspace whose root still lies in its
-// project folder.
+// entry and its store row stay, so its items stay on the old key for a relink; nothing moves.
+// The new key gets its own row. Remap refuses a workspace whose root still lies in its project
+// folder.
 func (s Session) Remap(ctx context.Context, environ []string, st *store.Store, id string, now time.Time) (Remapped, error) {
 	var res Remapped
 	err := s.update(func(m *mapFile) (bool, error) {
@@ -263,16 +263,15 @@ func (s Session) Remap(ctx context.Context, environ []string, st *store.Store, i
 	return res, err
 }
 
-// Relink is an old entry whose items wait for a relink, and the current entry that it could
-// link to (§9.4).
+// Relink is an old entry whose items wait for a relink, and the current entry that it
+// could link to.
 type Relink struct {
 	Old, New Entry
 }
 
 // Relinks lists the old entries of s whose items wait for a relink, in map order: each entry
-// that a remap replaced (S83), and each closed entry with the project folder of a current
-// entry (S20). Brain links nothing by itself; `brain status` only lists them. It reads the map
-// file only.
+// that a remap replaced, and each closed entry with the project folder of a current entry.
+// Brain links nothing by itself; `brain status` only lists them. It reads the map file only.
 func (s Session) Relinks() ([]Relink, error) {
 	m, err := readMap(s.MapFile)
 	if err != nil {
@@ -301,7 +300,7 @@ func (s Session) Relinks() ([]Relink, error) {
 			rs = append(rs, Relink{Old: e, New: byKey[e.ReplacedBy]})
 		}
 	}
-	// A new herdr id with the project folder of an older current entry (§9.4): the map
+	// A new herdr id with the project folder of an older current entry: the map
 	// appends entries, so the older one comes first.
 	for i, e := range cur {
 		for _, old := range cur[:i] {
@@ -330,8 +329,8 @@ func (s Session) Entry(key string) (Entry, bool, error) {
 }
 
 // Close marks workspace id of s closed: each entry of the pair, the remapped ones too, and
-// their store rows. The items stay in the store, without delivery (§9.4). A later workspace
-// with the same id is then unmapped, and the next `brain` call gives it a new key (D4). An
+// their store rows. The items stay in the store, without delivery. A later workspace
+// with the same id is then unmapped, and the next `brain` call gives it a new key. An
 // unknown pair changes nothing.
 //
 // The map goes first: herdr does not replay an event, and a map that still holds the pair
@@ -375,7 +374,7 @@ func (s Session) newEntry(ctx context.Context, environ []string, id, label, root
 	return Entry{Key: k, Session: s.Name, WorkspaceID: id, Label: label, Project: p}, nil
 }
 
-// newKey returns an opaque random key. [NEW] 8 random bytes, in hex with a "ws_" prefix.
+// newKey returns an opaque random key. 8 random bytes, in hex with a "ws_" prefix.
 func newKey() (string, error) {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
@@ -425,7 +424,7 @@ func readMap(path string) (*mapFile, error) {
 // read-change-write; otherwise one call could drop the key that the other just made. The hook
 // takes no lock: the write is a rename, so a reader sees the whole old or the whole new file.
 func (s Session) update(f func(m *mapFile) (bool, error)) (err error) {
-	// [NEW] 0o700: the store folder holds your items, so only you may list it.
+	// 0o700: the store folder holds your items, so only you may list it.
 	if err := os.MkdirAll(filepath.Dir(s.MapFile), 0o700); err != nil {
 		return err
 	}
@@ -455,7 +454,7 @@ func writeMap(path string, m *mapFile) error {
 	if err != nil {
 		return err
 	}
-	// os.CreateTemp makes the file with mode 0o600 [NEW]; the rename keeps it.
+	// os.CreateTemp makes the file with mode 0o600; the rename keeps it.
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".workspaces-*.tmp")
 	if err != nil {
 		return err

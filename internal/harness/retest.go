@@ -12,20 +12,19 @@ import (
 )
 
 // marker is the retest marker of one harness: the time of the last hook input that the
-// profile could not parse (S14), and the hash of that profile. It holds no hook input.
+// profile could not parse, and the hash of that profile. It holds no hook input.
 type marker struct {
 	At time.Time `json:"at"`
 	// Profile is the adapter.Profile.SHA256 that could not parse the input. A marker of
 	// another profile is stale, so a Brain update with a new profile clears it (#251). A
-	// marker of an older writer has none; it stays until a later pass. [NEW] the field.
+	// marker of an older writer has none; it stays until a later pass.
 	Profile string `json:"profile_sha256"`
 }
 
 // MarkRetest records in dir that the hook input of harness kind had a shape that the profile
 // with hash profile cannot parse, at time at. The hook calls it, so it writes no store: the
-// file is <dir>/<kind>.json. [NEW] the folder and the file name. Two hooks can mark at about
-// the same time, so it holds <dir>/<kind>.lock and keeps a newer marker of the same profile
-// that is already there (#118).
+// file is <dir>/<kind>.json. Two hooks can mark at about the same time, so it holds
+// <dir>/<kind>.lock and keeps a newer marker of the same profile that is already there (#118).
 func MarkRetest(dir, kind, profile string, at time.Time) (err error) {
 	data, err := json.Marshal(marker{At: at, Profile: profile})
 	if err != nil {

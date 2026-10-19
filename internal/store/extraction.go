@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// ExtractorCLI is the official CLI that runs the extractor (§7.3, D4).
+// ExtractorCLI is the official CLI that runs the extractor.
 type ExtractorCLI string
 
 // The extractor CLIs.
@@ -60,7 +60,7 @@ func Extractor(ctx context.Context, tx *sql.Tx) (ExtractorSetting, error) {
 }
 
 // ExtractionOn reports whether extraction is on for the workspace with key workspaceKey: no
-// off switch of the store or of the workspace applies. Extraction is on by default (§7.3 D9).
+// off switch of the store or of the workspace applies. Extraction is on by default.
 func ExtractionOn(ctx context.Context, tx *sql.Tx, workspaceKey string) (bool, error) {
 	var offs int
 	err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM extractor_settings WHERE extraction = 'off'
@@ -71,7 +71,7 @@ func ExtractionOn(ctx context.Context, tx *sql.Tx, workspaceKey string) (bool, e
 	return offs == 0, nil
 }
 
-// BatchStatus is the status of an extraction batch (§11).
+// BatchStatus is the status of an extraction batch.
 type BatchStatus string
 
 // The batch statuses.
@@ -85,9 +85,9 @@ const (
 )
 
 // Batch is one row of extraction_batches. Its stable id is (SessionID, WorkspaceKey,
-// FirstCapture, LastCapture) (§7.3); ID is the row id. A scan batch (ScanID not 0) is a fixed
+// FirstCapture, LastCapture); ID is the row id. A scan batch (ScanID not 0) is a fixed
 // run of findings of one scope of the history scan: its stable id is (ScanID, WorkspaceKey,
-// FirstFinding, LastFinding), and WorkspaceKey is the scope, "" for the global pool (§6.8).
+// FirstFinding, LastFinding), and WorkspaceKey is the scope, "" for the global pool.
 type Batch struct {
 	ID           int64
 	SessionID    int64 // for a scan batch, the session of the first observation of its first finding
@@ -111,7 +111,7 @@ type Batch struct {
 // Scan reports whether b is a scan batch.
 func (b Batch) Scan() bool { return b.ScanID != 0 }
 
-// Done reports whether the batch is committed or empty: a retry adds nothing (§7.3).
+// Done reports whether the batch is committed or empty: a retry adds nothing.
 func (b Batch) Done() bool { return b.Status == BatchCommitted || b.Status == BatchEmpty }
 
 const batchColumns = `id, session_id, workspace_key, first_capture, last_capture, start_watermark, last_observation,
@@ -148,7 +148,7 @@ func Batches(ctx context.Context, tx *sql.Tx) ([]Batch, error) {
 		func(rows *sql.Rows) (Batch, error) { return scanBatch(rows) })
 }
 
-// FailedBatches returns the failed and invalid batches, by id: brain status shows them (§7.3).
+// FailedBatches returns the failed and invalid batches, by id: brain status shows them.
 func FailedBatches(ctx context.Context, tx *sql.Tx) ([]Batch, error) {
 	return query(ctx, tx, `SELECT `+batchColumns+` FROM extraction_batches WHERE status IN (?, ?) ORDER BY id`,
 		func(rows *sql.Rows) (Batch, error) { return scanBatch(rows) }, BatchFailed, BatchInvalid)
@@ -193,11 +193,11 @@ func StartBatch(ctx context.Context, tx *sql.Tx, b Batch, now time.Time) (Batch,
 }
 
 // StartScanBatch makes scan batch b the one active scan batch, adds one model call to it and
-// returns it, as StartBatch does for a live batch (§6.8 "Proposals"). A batch with the same
-// stable id is used again; a done one is returned as it is, with no call added. The failed and
-// invalid scan batches of its scope are discarded: this one replaces them. Any other active scan
-// batch runs in another binding (DiscardScanBatches): StartScanBatch then starts nothing and
-// returns false.
+// returns it, as StartBatch does for a live batch. A batch with the same stable id is used
+// again; a done one is returned as it is, with no call added. The failed and invalid scan
+// batches of its scope are discarded: this one replaces them. Any other active scan batch runs
+// in another binding (DiscardScanBatches): StartScanBatch then starts nothing and returns
+// false.
 func StartScanBatch(ctx context.Context, tx *sql.Tx, b Batch, now time.Time) (Batch, bool, error) {
 	old, err := FindBatch(ctx, tx, b)
 	switch {
@@ -314,7 +314,7 @@ func Watermarks(ctx context.Context, tx *sql.Tx, sessionID int64) (map[string]in
 }
 
 // MoveWatermark sets the watermark of the session and workspace key of b to the last
-// observation of b. The caller moves it in the transaction that commits b (§7.3 G3).
+// observation of b. The caller moves it in the transaction that commits b.
 func MoveWatermark(ctx context.Context, tx *sql.Tx, b Batch) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO extraction_watermarks (session_id, workspace_key, observation_id,
 		capture_identity) VALUES (?, ?, ?, ?) ON CONFLICT (session_id, workspace_key) DO UPDATE SET
@@ -327,7 +327,7 @@ func MoveWatermark(ctx context.Context, tx *sql.Tx, b Batch) error {
 }
 
 // ObservationHeld reports whether observation id with capture identity is still in the
-// store: a forget deletes it (§6.7), and the identity check stops a reused row id.
+// store: a forget deletes it, and the identity check stops a reused row id.
 func ObservationHeld(ctx context.Context, tx *sql.Tx, id int64, identity string) (bool, error) {
 	var n int
 	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM observations WHERE id = ? AND capture_identity = ?`,
@@ -347,9 +347,9 @@ func CandidateOf(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string) 
 
 // ClaimHasItem reports whether claim claimID is known in the scope with key workspaceKey ("" for
 // global): an item of the claim is in that scope now, or a revision of an item of the claim had
-// that scope's key. So a new proposal would be a duplicate (§7.3). The second case keeps a
-// claim known in a workspace that a link (§9.4) or a promotion moved its item out of: a queued
-// extraction there must not draft the item again.
+// that scope's key. So a new proposal would be a duplicate. The second case keeps a claim known
+// in a workspace that a link or a promotion moved its item out of: a queued extraction there
+// must not draft the item again.
 func ClaimHasItem(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string) (bool, error) {
 	var has bool
 	err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM items WHERE claim_id = ?1
@@ -371,8 +371,8 @@ func MarkProposed(ctx context.Context, tx *sql.Tx, id int64) error {
 }
 
 // ClaimSourceKeys returns the capture identities of the evidence of claim claimID, and of the
-// claims whose same_as is claimID, sorted: the source keys of its tombstone, which hold no text
-// (§6.7). A brain remember claim has no evidence of its own; the extractor claim of the same
+// claims whose same_as is claimID, sorted: the source keys of its tombstone, which hold no text.
+// A brain remember claim has no evidence of its own; the extractor claim of the same
 // telling links to it (#389).
 func ClaimSourceKeys(ctx context.Context, tx *sql.Tx, claimID string) ([]string, error) {
 	return query(ctx, tx, `SELECT DISTINCT l.capture_identity FROM evidence_links l
@@ -382,7 +382,7 @@ func ClaimSourceKeys(ctx context.Context, tx *sql.Tx, claimID string) ([]string,
 }
 
 // Tombstoned reports whether a tombstone holds capture identity as a source key: forget
-// stopped that evidence (§6.7).
+// stopped that evidence.
 func Tombstoned(ctx context.Context, tx *sql.Tx, identity string) (bool, error) {
 	var n int
 	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM tombstones t, json_each(t.source_keys) k
@@ -393,8 +393,8 @@ func Tombstoned(ctx context.Context, tx *sql.Tx, identity string) (bool, error) 
 	return n > 0, nil
 }
 
-// SetExtractorCLI records the extractor CLI and model of the store row (brain setup, D4); cli ""
-// clears the choice. It keeps the switch of the row; a new row has extraction on (§7.3 D9).
+// SetExtractorCLI records the extractor CLI and model of the store row (brain setup); cli ""
+// clears the choice. It keeps the switch of the row; a new row has extraction on.
 func SetExtractorCLI(ctx context.Context, tx *sql.Tx, cli ExtractorCLI, model string, now time.Time) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO extractor_settings (workspace_key, extraction, cli, model, changed)
 		VALUES ('', 'on', ?, ?, ?) ON CONFLICT (workspace_key) DO UPDATE SET cli = excluded.cli,
@@ -436,11 +436,11 @@ func CallsSince(ctx context.Context, tx *sql.Tx, since time.Time) (int, error) {
 
 // ExtractorProposalsSince returns the proposals made since since from a candidate, the
 // drafts of the change requests of item revisions (E15-S1, a skill patch of E20-S5) and the
-// merge proposals (§9.5): only the extractor makes them (§7.3 caps). Your own edit in review
-// has none of them. A script proposal does not count: it comes only beside the tool draft of
-// its candidate, and a tool proposal and its script form count as one proposal (§7.3 caps,
-// #355). It is the one proposal of a candidate with
-// no item, as §11 has no script kind; a forget of the tool item blanks its target, not that.
+// merge proposals: only the extractor makes them. Your own edit in review has none of them. A
+// script proposal does not count: it comes only beside the tool draft of its candidate, and a
+// tool proposal and its script form count as one proposal (#355). It is the one proposal of a
+// candidate with no item, as the items table has no script kind; a forget of the tool item
+// blanks its target, not that.
 func ExtractorProposalsSince(ctx context.Context, tx *sql.Tx, since time.Time) (int, error) {
 	var n int
 	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM proposals WHERE `+extractorProposals,
@@ -483,7 +483,7 @@ func NthExtractorProposalSince(ctx context.Context, tx *sql.Tx, since time.Time,
 }
 
 // LastCalls returns, by workspace key, the time of its last extractor call: the round robin of
-// the queue serves the key that waited longest first (§7.3).
+// the queue serves the key that waited longest first.
 func LastCalls(ctx context.Context, tx *sql.Tx) (map[string]time.Time, error) {
 	type row struct {
 		key string
@@ -560,7 +560,7 @@ func refuseCall(ctx context.Context, tx *sql.Tx, table, column string, id int64,
 }
 
 // ScanProposals returns, by finding id, the oldest pending proposal of a candidate with evidence
-// in the observations of each of findings: the scan proposal of that finding (§6.8 "Proposals").
+// in the observations of each of findings: the scan proposal of that finding.
 // A finding with none is not in the map.
 func ScanProposals(ctx context.Context, tx *sql.Tx, findings []Finding) (map[int]int64, error) {
 	m := map[int]int64{}
@@ -586,7 +586,7 @@ func ScanProposals(ctx context.Context, tx *sql.Tx, findings []Finding) (map[int
 }
 
 // FindingOf returns the first of findings with an observation that is evidence of candidate id:
-// the finding of a scan proposal of the candidate (§6.8 "Proposals"). It returns false for none.
+// the finding of a scan proposal of the candidate. It returns false for none.
 func FindingOf(ctx context.Context, tx *sql.Tx, id int64, findings []Finding) (Finding, bool, error) {
 	obs, err := query(ctx, tx, `SELECT observation_id FROM evidence_links WHERE candidate_id = ?`,
 		func(r *sql.Rows) (o int64, err error) { return o, r.Scan(&o) }, id)

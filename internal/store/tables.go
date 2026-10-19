@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// The typed rows of the M1 tables (HLD §11, migration 0002). A nil pointer field is NULL, and
+// The typed rows of the M1 tables (migration 0002). A nil pointer field is NULL, and
 // so is a zero time.Time in a field that the table lets be NULL. Each table has an insert and
 // a read by its key; the item commands, the compiler and the hook add the queries they need.
 
@@ -73,7 +73,7 @@ const (
 	OriginExtractor Origin = "extractor"
 )
 
-// ProposalStatus is proposals.status. [NEW] the values: §11 names none.
+// ProposalStatus is proposals.status.
 type ProposalStatus string
 
 // The proposal statuses.
@@ -105,7 +105,7 @@ const (
 	ResultUnmapped Result = "unmapped"
 )
 
-// Workspace maps one herdr workspace to Brain's own key (§11 workspace identity).
+// Workspace maps one herdr workspace to Brain's own key.
 type Workspace struct {
 	Key              string
 	HerdrSession     string
@@ -147,12 +147,12 @@ type Item struct {
 	WorkspaceKey    *string
 	State           State
 	Pinned          bool
-	// Anchors are the git files that the item text names (§9.1), set at approval.
+	// Anchors are the git files that the item text names, set at approval.
 	Anchors []Anchor
 	Created time.Time
 }
 
-// Anchor is one git file that an item text names (§9.1): the repo root, the path in the repo
+// Anchor is one git file that an item text names: the repo root, the path in the repo
 // and the blob hash of the file at approval.
 type Anchor struct {
 	Root string `json:"root"`
@@ -182,7 +182,7 @@ func ItemByID(ctx context.Context, tx *sql.Tx, id int64) (Item, error) {
 	return it, nil
 }
 
-// ItemRevision holds every field of an item that undo can restore (§7.5).
+// ItemRevision holds every field of an item that undo can restore.
 type ItemRevision struct {
 	ItemID       int64
 	Revision     int64
@@ -197,7 +197,7 @@ type ItemRevision struct {
 	// UndoesRevision is the revision that this revision undid.
 	UndoesRevision *int64
 	// ExceptionToItem and ExceptionToRevision link a workspace item to the global item that it
-	// is an exception to (§7.4). Both are set, or neither.
+	// is an exception to. Both are set, or neither.
 	ExceptionToItem     *int64
 	ExceptionToRevision *int64
 	ConflictsWith       []int64
@@ -239,7 +239,7 @@ func scanRevision(row interface{ Scan(dest ...any) error }) (ItemRevision, error
 	return r, err
 }
 
-// Proposal is one change that waits for your decision, or that you decided (§7.4).
+// Proposal is one change that waits for your decision, or that you decided.
 type Proposal struct {
 	ID                int64
 	CandidateID       *int64
@@ -251,17 +251,17 @@ type Proposal struct {
 	Diff              string
 	ExpectedBenefit   string
 	PermissionWarning bool
-	// ConflictsWith are the items that the proposal conflicts with (§7.4, M2): the active
+	// ConflictsWith are the items that the proposal conflicts with (M2): the active
 	// items of the claim that the extractor named.
 	ConflictsWith []int64
 	// TriggerPrompts are the hashes of the prompts that led to the proposal.
 	TriggerPrompts []string
 	ChangeRequest  *string
-	// Dispute are the paths of the anchors whose change made the item disputed (§9.1). Empty
+	// Dispute are the paths of the anchors whose change made the item disputed. Empty
 	// for a proposal of another kind.
 	Dispute []string
-	// Merge are the items of a merge proposal with their base revisions, the kept item too
-	// (§9.5). Empty for a proposal of another kind.
+	// Merge are the items of a merge proposal with their base revisions, the kept item too.
+	// Empty for a proposal of another kind.
 	Merge         []RevisionRef
 	Status        ProposalStatus
 	Surface       *Surface
@@ -297,7 +297,7 @@ func ProposalByID(ctx context.Context, tx *sql.Tx, id int64) (Proposal, error) {
 	return p, nil
 }
 
-// Output is one output generation (§7.5). ManifestHash and BuiltAt stay empty until the
+// Output is one output generation. ManifestHash and BuiltAt stay empty until the
 // compiler builds the generation. Current is a copy: the pointer file is the authority.
 type Output struct {
 	Generation         int64
@@ -329,9 +329,9 @@ func OutputByGeneration(ctx context.Context, tx *sql.Tx, generation int64) (Outp
 	return o, nil
 }
 
-// AppliedEdit logs one file that an output generation wrote (§7.5 step 7). ContentBefore is
+// AppliedEdit logs one file that an output generation wrote. ContentBefore is
 // nil when the edit created the file, and ContentAfter when it removed the file.
-// ContentBefore is nil too when the forget rule kept the old bytes out (§6.7); then
+// ContentBefore is nil too when the forget rule kept the old bytes out; then
 // RevisionsBefore is not empty.
 type AppliedEdit struct {
 	ID            int64
@@ -381,7 +381,7 @@ type RevisionRef struct {
 	Revision int64 `json:"revision"`
 }
 
-// Delivery is the receipt of one hook run (§8.3).
+// Delivery is the receipt of one hook run.
 type Delivery struct {
 	ID               int64
 	Profile          string
@@ -396,14 +396,14 @@ type Delivery struct {
 	Result           Result
 	WithheldReason   *string
 	At               time.Time
-	// AgentCheck is the deferred session-id check (§8.3 limit): "pending", "unknown", "match"
-	// or "not this pane's agent". nil when the receipt holds no (pane, agent session id) record.
+	// AgentCheck is the deferred session-id check: "pending", "unknown", "match" or "not this
+	// pane's agent". nil when the receipt holds no (pane, agent session id) record.
 	AgentCheck *string
 	// TranscriptPath is the transcript_path of the start hook input (E15-S4). nil when the input
 	// had none, or after brain forget --session. Brain never reads the file.
 	TranscriptPath *string
 	// Recalled are the revisions that brain recall returned on this receipt, newest first. Only
-	// TiedReceipt fills it (§8.6); no column holds it.
+	// TiedReceipt fills it; no column holds it.
 	Recalled []RevisionRef
 }
 
@@ -472,11 +472,11 @@ func SetAgentCheck(ctx context.Context, tx *sql.Tx, session, paneID, agentSessio
 }
 
 // ReviewPane is one review pane that Brain opened. Brain closes or targets only a pane whose
-// binding and pane id are in this table (§11).
+// binding and pane id are in this table.
 type ReviewPane struct {
 	ID           int64
 	HerdrSession string
-	// SessionIdentity is the herdr session's continuity identity. herdr 0.9.1 has none (§4.2).
+	// SessionIdentity is the herdr session's continuity identity. herdr 0.9.1 has none.
 	SessionIdentity *string
 	PaneID          string
 	BesidePaneID    string
@@ -519,7 +519,7 @@ func OpenReviewPanes(ctx context.Context, tx *sql.Tx, proposalID int64) ([]Revie
 
 // ReviewPanesBeside reads the review panes that Brain opened beside pane paneID of herdr session
 // herdrSession and has not marked closed, oldest first: one agent has one review pane at a
-// time (§5.5).
+// time.
 func ReviewPanesBeside(ctx context.Context, tx *sql.Tx, herdrSession, paneID string) ([]ReviewPane, error) {
 	ps, err := openReviewPanes(ctx, tx, `herdr_session = ? AND beside_pane_id = ?`, herdrSession, paneID)
 	if err != nil {
@@ -548,7 +548,7 @@ func CloseReviewPane(ctx context.Context, tx *sql.Tx, id int64, now time.Time) e
 	return nil
 }
 
-// Tombstone is what forget keeps of a claim, so the same evidence does not come back (§6.7).
+// Tombstone is what forget keeps of a claim, so the same evidence does not come back.
 // It holds no text.
 type Tombstone struct {
 	ClaimID     string

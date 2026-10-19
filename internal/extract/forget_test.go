@@ -49,7 +49,7 @@ func (f *fixture) textIn(text string) []string {
 	return found
 }
 
-// forget erases item as brain forget does in the store (§6.7), and checks that ItemTextLeft
+// forget erases item as brain forget does in the store, and checks that ItemTextLeft
 // finds nothing and that no store column holds text.
 func (f *fixture) forget(item int64, text string) {
 	f.t.Helper()
@@ -130,10 +130,10 @@ func (f *fixture) onlyItem() int64 {
 	return int64(f.count(`SELECT id FROM items`))
 }
 
-// AC 2 (#389, run 7 R7-2): forget of a brain remember item also stops the evidence of the
+// AC 2 (#389, M2 eval run 7): forget of a brain remember item also stops the evidence of the
 // extractor claim with same_as to its claim: the tombstone holds its source keys, and its key
-// goes, so the same telling after the forget starts a new candidate at count 1, not count 2
-// with the old evidence. The run 7 shape: the claim of the telling has its own candidate, as the
+// goes, so the same telling after the forget starts a new candidate at count 1, not count 2 with
+// the old evidence. The run 7 shape: the claim of the telling has its own candidate, as the
 // permission flag keeps the link for review.
 func TestForgetLinkedEvidence(t *testing.T) {
 	f := newFixture(t)

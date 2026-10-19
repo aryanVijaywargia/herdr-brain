@@ -1,6 +1,6 @@
--- Extractor calls (E13-S4, §7.3 caps). One row for each extractor call, at its dispatch time,
+-- Extractor calls (E13-S4). One row for each extractor call, at its dispatch time,
 -- so the daily call cap counts each call once, also the calls of a batch that is retried on a
--- later day (extraction_batches keeps only the count and the last change) [NEW]. The queue
+-- later day (extraction_batches keeps only the count and the last change). The queue
 -- serves the workspace key whose last call is oldest first.
 CREATE TABLE extraction_calls (
 	id            INTEGER PRIMARY KEY,

@@ -75,7 +75,7 @@ func LatestPaneReceipt(ctx context.Context, tx *sql.Tx, session, profile, paneID
 }
 
 // TiedReceipt reads the last receipt before observation obs that ties to its capture session,
-// of any result (§5.4), with the E11-S3 join: the binding and the harness first, then the
+// of any result, with the E11-S3 join: the binding and the harness first, then the
 // agent session id of the session. A session that herdr never gave an id ties by its stored
 // capture row: the receipts of its pane in its binding after the previous session of that pane,
 // whose agent session id no other session of the binding holds. ok is false when no receipt
@@ -85,7 +85,7 @@ func LatestPaneReceipt(ctx context.Context, tx *sql.Tx, session, profile, paneID
 // A pane id never joins across bindings.
 // d.Recalled names the revisions that brain recall returned to the session on that receipt up
 // to the observation, the newest recall first: the session got them too, also on a withheld
-// receipt, and a later recall can name a newer revision than the brief (§8.6, E20-S2).
+// receipt, and a later recall can name a newer revision than the brief (E20-S2).
 func TiedReceipt(ctx context.Context, tx *sql.Tx, obs int64) (d Delivery, ok bool, err error) {
 	var s struct {
 		id                        int64
@@ -144,13 +144,13 @@ func TiedReceipt(ctx context.Context, tx *sql.Tx, obs int64) (d Delivery, ok boo
 
 // LastSession reads the newest receipt of workspace key that has a transcript path and
 // another agent session id than agentSession, of any harness and any result except "withheld:
-// identity" (E15-S4, E15-S5, §8.3): that receipt keeps the key of a workspace that Brain does
-// not trust to belong to its project folder any more (§11), so its transcript can be about
+// identity" (E15-S4, E15-S5): that receipt keeps the key of a workspace that Brain does
+// not trust to belong to its project folder any more, so its transcript can be about
 // another project. IS keeps the receipts with a NULL reason, such as emitted ones. It reads the
 // id, the profile, the binding, the agent session id, the time and the transcript path of the
 // receipt only; the handoff lines need the binding and the agent session id (E20-S8). ok is
 // false when there is none. A workspace key names one workspace of one store, so a receipt of
-// another workspace never matches (S48). The partial index deliveries_transcript serves it.
+// another workspace never matches. The partial index deliveries_transcript serves it.
 func LastSession(ctx context.Context, tx *sql.Tx, key, agentSession string) (d Delivery, ok bool, err error) {
 	err = tx.QueryRowContext(ctx, `SELECT id, profile, herdr_session, agent_session_id, at, transcript_path FROM deliveries
 		WHERE workspace_key = ? AND transcript_path IS NOT NULL AND agent_session_id IS NOT ?
@@ -179,7 +179,7 @@ func TranscriptPaths(ctx context.Context, tx *sql.Tx, session, agentSession stri
 }
 
 // ClearTranscriptPaths sets the transcript path of the receipts that TranscriptPaths counts to
-// NULL: brain forget --session (E15-S4, §6.7). The receipts stay.
+// NULL: brain forget --session (E15-S4). The receipts stay.
 func ClearTranscriptPaths(ctx context.Context, tx *sql.Tx, session, agentSession string) error {
 	_, err := tx.ExecContext(ctx, `UPDATE deliveries SET transcript_path = NULL `+transcriptRows, session, agentSession)
 	if err != nil {

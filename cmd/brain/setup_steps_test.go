@@ -294,7 +294,7 @@ func TestSetupKeepsEditedEntry(t *testing.T) {
 	}
 }
 
-// S81: herdr older than 0.9.1. Setup refuses with the version and the fix, writes nothing,
+// Herdr older than 0.9.1. Setup refuses with the version and the fix, writes nothing,
 // and the hook prints nothing.
 func TestSetupS81(t *testing.T) {
 	home := setupHome(t, "0.8.2")
@@ -323,7 +323,7 @@ func TestSetupS81(t *testing.T) {
 	}
 }
 
-// S54: a herdr version that is not tested shows the tested versions and the warning, and
+// A herdr version that is not tested shows the tested versions and the warning, and
 // setup goes on.
 func TestSetupUntestedHerdr(t *testing.T) {
 	// 0.9.2 came before a tested release, so it stays untested.
@@ -366,7 +366,7 @@ func TestSetupTestBinding(t *testing.T) {
 	}
 }
 
-// S76: setup refuses a test store that is, holds or sits inside the main store or another test
+// Setup refuses a test store that is, holds or sits inside the main store or another test
 // store, after links, and a real session on a test store. The bindings file stays as it was.
 func TestSetupS76(t *testing.T) {
 	cases := map[string]struct {

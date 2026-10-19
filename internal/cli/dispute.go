@@ -10,7 +10,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// anchor stores the anchors of r, a revision that approval or restore just wrote (§9.1): each
+// anchor stores the anchors of r, a revision that approval or restore just wrote: each
 // path in its text that git tracks in the root folder of its workspace. A global item has no
 // one workspace root and gets no anchor (E16-S6 open point), nor does a workspace whose root
 // is not in git. A revision that is not active keeps the anchors of the item.
@@ -33,10 +33,10 @@ func anchor(ctx context.Context, tx *sql.Tx, r store.ItemRevision) error {
 	return store.SetAnchors(ctx, tx, r.ItemID, anchors)
 }
 
-// settle decides the dispute proposal id (§9.1): keep makes the item active again with a new
+// settle decides the dispute proposal id: keep makes the item active again with a new
 // revision of the same text, and stores its anchors as they are now: the new blob of a changed
 // path, no anchor for a path that is gone. Retire retires the item with a new revision, which
-// keeps the history: brain review --restore brings it back (§9.2). [NEW] the keep action.
+// keeps the history: brain review --restore brings it back.
 func (cl caller) settle(ctx context.Context, id int64, keep bool) error {
 	var next store.ItemRevision
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {

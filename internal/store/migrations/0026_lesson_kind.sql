@@ -1,4 +1,4 @@
--- Plain-words lessons (#253, §7.1, §7.2): the candidate kind 'lesson' joins the CHECK of
+-- Plain-words lessons (#253): the candidate kind 'lesson' joins the CHECK of
 -- candidates.kind. SQLite cannot change a CHECK, so the migration builds candidates again, and
 -- evidence_links with it: foreign keys stay on inside the migration transaction, so no row may
 -- point at a dropped table at any step. The rename moves the evidence_links reference to

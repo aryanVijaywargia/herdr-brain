@@ -20,9 +20,9 @@ const workspaceUsage = `usage: brain workspace link <old key> <new key> [--confi
 // the skill name check of the store too, and then rolls back, so it writes nothing.
 var errDryRun = errors.New("dry run")
 
-// Workspace runs `brain workspace` with args after "workspace" (§9.4, E16-S9). Its one
+// Workspace runs `brain workspace` with args after "workspace" (E16-S9). Its one
 // subcommand, link, moves the items of an old workspace key to a new one on your request:
-// Brain never links by itself and never asks (S20). With no --confirm it prints what moves and
+// Brain never links by itself and never asks. With no --confirm it prints what moves and
 // writes nothing.
 func Workspace(ctx context.Context, e Env, args []string) (err error) {
 	if len(args) == 0 || args[0] != "link" {
@@ -92,11 +92,11 @@ func (cl caller) linkWorkspace(ctx context.Context, oldKey, newKey string, confi
 	}
 	_, err = fmt.Fprintf(cl.Stdout, "linked %s to %s: moved %d, each with a new revision: %s; pending proposals superseded: %s\n"+
 		"undo the move of one item: brain undo <item>\n", oldKey, newKey, len(m.items), itemList(m.items), listOrNone(m.ended))
-	// The build runs even when the message fails: the commit is done (§7.5, as in undo).
+	// The build runs even when the message fails: the commit is done (as in undo).
 	return errors.Join(err, cl.deliver(ctx, nil))
 }
 
-// linkScope checks the scope rule of a link (§9.4 "Link scope", S83): the call comes from a
+// linkScope checks the scope rule of a link: the call comes from a
 // pane in new, and old is a relink entry of this herdr session that is not live. It returns the
 // map entry of old. An entry that is closed or replaced never becomes current again, so the
 // check holds until the transaction of the link.
@@ -122,7 +122,7 @@ func (cl caller) linkScope(oldKey, newKey string) (workspace.Entry, error) {
 }
 
 // relinkEntry returns the map entry of key when it is an old entry of the relink list of the
-// caller's herdr session (§9.4), and false when it is not.
+// caller's herdr session, and false when it is not.
 func (cl caller) relinkEntry(key string) (workspace.Entry, bool, error) {
 	rs, err := cl.Workspace.Relinks()
 	if err != nil {
@@ -136,15 +136,15 @@ func (cl caller) relinkEntry(key string) (workspace.Entry, bool, error) {
 	return workspace.Entry{}, false, nil
 }
 
-// live reports whether e is the current map entry of its herdr workspace (S83): checked by the
+// live reports whether e is the current map entry of its herdr workspace: checked by the
 // map entry, not by the herdr workspace id, which a later workspace can reuse.
 func live(e workspace.Entry) bool { return !e.Closed && e.ReplacedBy == "" }
 
-// move gives each item of key old a new revision with key new, and ends the pending proposals
-// of those items: they are for a base revision that the move replaces. A draft stays with its
-// proposal in old (§9.4: proposals stay). A disputed item becomes active, as after any new
-// revision, and the next stale check in new marks it again when its anchors still differ.
-// The store refuses a skill whose name an active skill in new has (§8.2).
+// move gives each item of key old a new revision with key new, and ends the pending proposals of
+// those items: they are for a base revision that the move replaces. A draft stays with its proposal
+// in old. A disputed item becomes active, as after any new revision, and the next stale check in
+// new marks it again when its anchors still differ. The store refuses a skill whose name an active
+// skill in new has.
 func (cl caller) move(ctx context.Context, tx *sql.Tx, oldKey, newKey string) (moved, error) {
 	var m moved
 	for _, st := range []store.State{store.StateActive, store.StateDisputed, store.StateRetired} {
@@ -180,7 +180,7 @@ func (cl caller) move(ctx context.Context, tx *sql.Tx, oldKey, newKey string) (m
 
 // endProposals ends the pending proposals of items as superseded, and returns their ids. A link
 // and its undo move an item to another key: the proposals are for a base revision that the move
-// replaces. [NEW] superseded, made in surface: the link is your action.
+// replaces. They end in surface: the link is your action.
 func endProposals(ctx context.Context, tx *sql.Tx, items []int64, surface store.Surface, now time.Time) ([]int64, error) {
 	pending, err := store.PendingProposalIDs(ctx, tx)
 	if err != nil {
