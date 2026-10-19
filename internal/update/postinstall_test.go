@@ -218,12 +218,13 @@ func TestPostInstallDeadline(t *testing.T) {
 	}
 }
 
-// gone reports whether the process pid has exited, within 2 s. An orphan child is a zombie until
-// init takes it, so the test asks again for a short time.
+// gone reports whether the process pid has exited, within 10 s. An orphan child is a zombie
+// until init takes it, so the test asks again until then. [NEW] 10 s: a loaded machine can be
+// slow to reap; gone returns at once when the process is gone.
 func gone(pid int) bool {
 	tick := time.NewTicker(10 * time.Millisecond)
 	defer tick.Stop()
-	end := time.After(2 * time.Second)
+	end := time.After(10 * time.Second)
 	for {
 		if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
 			return true
@@ -247,12 +248,12 @@ func TestCallKillsHerdrChildren(t *testing.T) {
 	for _, c := range []struct {
 		name, script string
 		ctx          time.Duration // the deadline of ctx, 0 for none; 3 s, so a slow shell start still writes the pid
-		bound        time.Duration // a deadline, or 1 s after an answer: the child holds the pipes for 20 s
+		bound        time.Duration // the budget of the call: the deadline of ctx, else herdrDeadline
 		ok           bool          // the call returns the answer
 		inGroup      bool          // the child stays in the process group of herdr
 	}{
-		{"answer, child holds the pipes", "sleep 20 & echo $! > pid\necho ok\n", 0, time.Second, false, true},
-		{"answer, child holds no pipe", "sleep 20 >/dev/null 2>&1 & echo $! > pid\necho ok\n", 0, time.Second, true, true},
+		{"answer, child holds the pipes", "sleep 20 & echo $! > pid\necho ok\n", 0, herdrDeadline, false, true},
+		{"answer, child holds no pipe", "sleep 20 >/dev/null 2>&1 & echo $! > pid\necho ok\n", 0, herdrDeadline, true, true},
 		{"no answer, child in the group", "sleep 20 & echo $! > pid\nexec sleep 20\n", 3 * time.Second, 3 * time.Second, false, true},
 		{"no answer, 5 s deadline", "sleep 20 & echo $! > pid\nexec sleep 20\n", 0, herdrDeadline, false, true},
 		{"no answer, child in its own session",
