@@ -60,7 +60,7 @@ func TestSetupFakeProfile(t *testing.T) {
 			}
 			target := filepath.Join(home, ".fake", "hooks.json")
 			for _, want := range []string{"claude is not installed", "codex is not installed",
-				"Add this entry to the BeforeTurn array of " + target, "Apply all of this? [y/N] "} {
+				"fake: add this entry to the BeforeTurn array of " + target, "Apply all of this? [y/N] "} {
 				if !strings.Contains(out.String(), want) {
 					t.Errorf("setup output lacks %q:\n%s", want, out.String())
 				}

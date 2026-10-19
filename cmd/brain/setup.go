@@ -290,13 +290,12 @@ func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, p
 		planNone(ctx, d, dir, cur, p, stdout)
 		return nil
 	default:
-		fmt.Fprintf(stdout, "- Unknown answer %q. The extractor choice does not change.\n"+
-			"- To choose one later: brain setup --extractor\n", answer)
+		fmt.Fprintf(stdout, "Unknown answer %q. The extractor choice does not change. To choose one later: brain setup --extractor\n", answer)
 		p.say("- Extractor: no change. To choose one: brain setup --extractor\n")
 		return nil
 	}
 	if _, err := d.lookPath(string(cli)); err != nil {
-		fmt.Fprintf(stdout, "- %s is not on PATH. Each extractor call fails until it is. brain doctor shows why.\n", cli)
+		fmt.Fprintf(stdout, "%s is not on PATH. Each extractor call fails until it is. brain doctor shows why.\n", cli)
 	}
 	model, err := askLine(in, stdout, "Which model? [the default model of the CLI] ")
 	if err != nil {
@@ -687,11 +686,12 @@ func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, tr
 		return false, false, err
 	}
 	var hooked bool
-	var skipped []string
+	// One bullet holds the hooks of every CLI, so the plan keeps few bullets.
+	p.say("- Hooks:\n")
 	for _, pr := range ps {
 		kind := pr.Kind
 		if _, err := d.lookPath(kind); err != nil {
-			skipped = append(skipped, kind)
+			p.say("  %s is not installed. Setup skips it.\n", kind)
 			continue
 		}
 		e, st, err := inst.WouldInstall(pr)
@@ -701,15 +701,15 @@ func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, tr
 		start := false
 		switch st {
 		case install.Present:
-			p.say("- The Brain hook for %s is in %s. Already done.\n", kind, e.Target)
+			p.say("  The Brain hook for %s is in %s. Already done.\n", kind, e.Target)
 		case install.Edited:
-			p.say("- %s holds a Brain hook entry for %s that you edited. Brain keeps it.\n", e.Target, kind)
+			p.say("  %s holds a Brain hook entry for %s that you edited. Brain keeps it.\n", e.Target, kind)
 			continue
 		default:
-			p.say("- Add this entry to the %s array of %s:\n    %s\n", pr.Events.Start, e.Target, e.Text)
+			p.say("  %s: add this entry to the %s array of %s:\n    %s\n", kind, pr.Events.Start, e.Target, e.Text)
 			start = true
 		}
-		records, err := planRecords(inst, pr, p)
+		records, err := planRecordsUnder(inst, pr, p)
 		if err != nil {
 			return false, false, err
 		}
@@ -721,7 +721,6 @@ func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, tr
 			p.add(func() error { return applyHooks(inst, pr, e.Target, start, records, d.now(), stdout) })
 		}
 	}
-	saySkipped(p, skipped, len(skipped) == len(ps))
 	if hooked {
 		p.say("- Setup lists each hook entry it adds in %s.\n  It saves a copy of each hook file before the first change.\n", inst.Record)
 		p.say("  To remove the hook entries later: brain uninstall, then brain uninstall --apply\n" +
@@ -730,17 +729,15 @@ func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, tr
 	return trustNow, trustAdded, nil
 }
 
-// saySkipped shows the CLIs that are not installed as lines under the hook bullet before them,
-// so that the plan keeps few bullets. With no hook bullet (none is installed), the first line
-// is a bullet.
-func saySkipped(p *plan, skipped []string, none bool) {
-	for i, kind := range skipped {
-		lead := "  "
-		if i == 0 && none {
-			lead = "- "
-		}
-		p.say("%s%s is not installed. Setup skips it.\n", lead, kind)
+// planRecordsUnder plans the hook record entries of pr as planRecords does, with two more
+// spaces before each line, so that they sit under the line of the CLI in the "Hooks" bullet.
+func planRecordsUnder(inst *install.Installer, pr *adapter.Profile, p *plan) ([]adapter.Hook, error) {
+	var sub plan
+	records, err := planRecords(inst, pr, &sub)
+	if text := strings.TrimSuffix(sub.text.String(), "\n"); text != "" {
+		p.say("  %s\n", strings.ReplaceAll(text, "\n", "\n  "))
 	}
+	return records, err
 }
 
 // installer is the hook installer of the user's home and install record, for binary bin.

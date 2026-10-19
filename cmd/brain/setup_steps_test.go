@@ -211,20 +211,14 @@ func TestSetupOneYes(t *testing.T) {
 		t.Errorf("extractor = %+v, want claude", x)
 	}
 	for _, want := range []string{"Step 4: plan\n", "- Binding: bind session \"default\" to the main store ", "Make the symlink ",
-		"Add this entry to the SessionStart array of ", "Add these entries to ", "brain uninstall --apply",
+		"- Hooks:\n", "  agy is not installed. Setup skips it.\n", "  claude: add this entry to the SessionStart array of ",
+		"  codex: add this entry to the SessionStart array of ", "    Add these entries to ", "brain uninstall --apply",
 		"Setup lists each hook entry it adds in " + filepath.Join(home, ".local", "share", "brain", "install.json"),
 		"- Extractor: record claude", "Bound session", "Linked ", "Added the Brain hook for codex",
 		"Added the hook record entries for claude", "Step 5: trust the Codex hook\n", "every other new or changed hook"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not contain %q:\n%s", want, out)
 		}
-	}
-	// The plan groups its lines: the binding and link, the hooks of each CLI, the install record
-	// and the undo, and the extractor and history scan.
-	_, planText, _ := strings.Cut(out, "Step 4: plan\n")
-	planText, _, _ = strings.Cut(planText, "Apply all of this?")
-	if n := strings.Count("\n"+planText, "\n- "); n > 5 {
-		t.Errorf("the plan has %d bullets, want 5 or fewer:\n%s", n, planText)
 	}
 
 	before := snapshot(t, home)
@@ -290,7 +284,7 @@ func TestSetupKeepsEditedEntry(t *testing.T) {
 		t.Errorf("setup did not apply its plan: no link: %v\n%s", err, out)
 	}
 	if !strings.Contains(out, file+" holds a Brain hook entry for codex that you edited. Brain keeps it.") ||
-		strings.Contains(out, "Add this entry to the SessionStart array of "+file) {
+		strings.Contains(out, "add this entry to the SessionStart array of "+file) {
 		t.Errorf("the plan does not keep the edited entry:\n%s", out)
 	}
 	if now := mustRead(t, file); !bytes.Equal(now, edited) {
@@ -544,20 +538,60 @@ func TestSetupOverlap(t *testing.T) {
 	}
 }
 
-// A CLI that is not installed is a line under the hook bullet before it. With no CLI installed,
-// the first of those lines is the bullet.
-func TestSaySkipped(t *testing.T) {
-	for _, c := range []struct {
-		none bool
-		want string
-	}{
-		{false, "  agy is not installed. Setup skips it.\n  codex is not installed. Setup skips it.\n"},
-		{true, "- agy is not installed. Setup skips it.\n  codex is not installed. Setup skips it.\n"},
-	} {
-		var p plan
-		saySkipped(&p, []string{"agy", "codex"}, c.none)
-		if got := p.text.String(); got != c.want {
-			t.Errorf("saySkipped(none=%t) = %q, want %q", c.none, got, c.want)
+// bullets returns the count of bullet lines in out between the line start and the line end,
+// and that text.
+func bullets(out, start, end string) (int, string) {
+	_, text, _ := strings.Cut(out, start)
+	text, _, _ = strings.Cut(text, end)
+	return strings.Count("\n"+text, "\n- "), text
+}
+
+// The plan has at most 5 bullets with every CLI installed: the binding and link, the hooks,
+// the install record and the undo, and the extractor and history scan. Each hook entry still
+// shows in full.
+func TestSetupPlanBullets(t *testing.T) {
+	home := setupHome(t, "0.9.1")
+	if err := os.WriteFile(filepath.Join(home, "path", "agy"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := runSetup(t, "claude\n\ny\nn\n")
+	if code != 0 {
+		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
+	}
+	if n, text := bullets(out, "Step 4: plan\n", "Apply all of this?"); n > 5 {
+		t.Errorf("the plan has %d bullets, want 5 or fewer:\n%s", n, text)
+	}
+	for _, kind := range []string{"agy", "claude", "codex"} {
+		if want := " hook --profile " + kind + " --event start"; !strings.Contains(out, "  "+kind+": add this entry to the ") ||
+			!strings.Contains(out, want) {
+			t.Errorf("the plan does not show the %s hook entry %q:\n%s", kind, want, out)
 		}
+	}
+}
+
+// An unknown extractor answer and a CLI that is not on PATH are plain lines, so step 2 keeps
+// its 5 bullets.
+func TestSetupExtractorAnswerLines(t *testing.T) {
+	for name, c := range map[string]struct {
+		answers, missing, line string
+	}{
+		"unknown":     {"gemini\n\nn\n", "", "\nUnknown answer \"gemini\". The extractor choice does not change."},
+		"not on PATH": {"codex\n\nn\nn\n", "codex", "\ncodex is not on PATH. Each extractor call fails until it is."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := setupHome(t, "0.9.1")
+			if c.missing != "" {
+				if err := os.Remove(filepath.Join(home, "path", c.missing)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			code, out, errOut := runSetup(t, c.answers)
+			if code != 0 || !strings.Contains(out, c.line) {
+				t.Fatalf("setup = %d, want the line %q: %s\n%s", code, c.line, errOut, out)
+			}
+			if n, text := bullets(out, "Step 2: extractor CLI\n", "\nStep 3: "); n > 5 {
+				t.Errorf("step 2 has %d bullets, want 5 or fewer:\n%s", n, text)
+			}
+		})
 	}
 }
