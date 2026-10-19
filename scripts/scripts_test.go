@@ -13,7 +13,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -507,12 +509,14 @@ func TestGitAutoMaintenanceOff(t *testing.T) {
 
 // fakeHerdr is a herdr that appends each command line to $HERDR_DIR/log. plugin list prints
 // $HERDR_DIR/list.json, or no plugin when that file is missing, and does not answer while
-// $HERDR_DIR/hang exists. session list has four sessions: default and work run, old is
+// $HERDR_DIR/hang exists. It writes the pid of the process that asks to $HERDR_DIR/asker.
+// session list has four sessions: default and work run, old is
 // stopped, and herdr cannot reach gone.
 const fakeHerdr = `#!/bin/sh
 echo "$*" >> "$HERDR_DIR/log"
 case "$*" in
 "plugin list --json --plugin brain")
+	echo "$PPID" > "$HERDR_DIR/asker"
 	[ -e "$HERDR_DIR/hang" ] && exec /bin/sleep 60
 	if [ -f "$HERDR_DIR/list.json" ]; then /bin/cat "$HERDR_DIR/list.json"
 	else echo '{"id":"cli:plugin","result":{"plugins":[],"type":"plugin_list"}}'; fi ;;
@@ -791,35 +795,95 @@ func TestBuildStartsNoChild(t *testing.T) {
 	}
 }
 
+// relist changes the reply of `herdr plugin list` for fakeHerdr in dir with edit. It writes a
+// new file and renames it, so herdr never prints half a file.
+func relist(t *testing.T, dir string, edit func(string) string) {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, "list.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "list.new"), edit(string(b)))
+	if err := os.Rename(filepath.Join(dir, "list.new"), filepath.Join(dir, "list.json")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// stopChild waits until the child of the build has asked `herdr plugin list` twice after the
+// change of the test, then kills it. early is the number of plugin list calls when the change
+// was in place. A child that finds its install asks no more and invokes brain.start, so a second
+// poll after the change means that the first one found no install. So the test needs no
+// deadline of the child, and has no time race.
+func stopChild(t *testing.T, dir string, early int) {
+	t.Helper()
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+	end := time.After(30 * time.Second) // [NEW] far above the 1 s polls of the child
+	for {
+		// A child that invokes asks no more: the caller's check of the calls shows it.
+		if rest, polls := calls(t, dir); rest != "" || polls >= early+2 {
+			break
+		}
+		select {
+		case <-end:
+			t.Fatal("the child asked herdr less than twice in 30 s after the change")
+		case <-tick.C:
+		}
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "asker"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The test started this child. An error means that it has exited already; the check of the
+	// herdr calls then shows what it did.
+	_ = syscall.Kill(pid, syscall.SIGKILL)
+}
+
+// startCalls are the herdr calls of a child that invokes brain.start in each running session.
+const startCalls = "session list --json\n" +
+	"--session default plugin action invoke brain.start\n--session work plugin action invoke brain.start\n"
+
 // #427 AC: herdr lists this checkout as the plugin root before the build. An install in place
-// changes the registration of the entry (the commit, the install time, also to a lower one, or
-// the source kind), so the child invokes brain.start. A build by hand of the plugin root or of
-// a linked checkout changes nothing, so the child invokes nothing and stops at its deadline.
+// changes a signal of an install in the entry (the commit, the install time, also to a lower
+// one, or the source kind), so the child invokes brain.start. A build by hand of the plugin
+// root or of a linked checkout changes nothing, and a change of metadata only (owner case,
+// subdir, an extra field) is no install, so the child invokes nothing.
 func TestBuildSameRoot(t *testing.T) {
 	other := strings.Repeat("0", 40)
+	metadata := func(s string) string {
+		s = strings.Replace(s, `"owner":"aryanVijaywargia"`, `"owner":"AryanVijaywargia","subdir":"x"`, 1)
+		return strings.Replace(s, `"plugins":[{`, `"plugins":[{"extra":1,`, 1)
+	}
+	none := func(string, string) entry { return entry{} }
 	for _, c := range []struct {
-		name          string
-		before, after func(dir, commit string) entry // after: a zero entry for no change
-		start         bool
+		name   string
+		before func(dir, commit string) entry
+		after  func(dir, commit string) entry // a zero entry for no new entry
+		edit   func(string) string            // a change of the listed entry after the build, nil for none
+		start  bool
 	}{
 		{"install in place over another commit",
 			func(dir, _ string) entry { return entry{"github", dir, other, 1000} },
-			func(dir, commit string) entry { return entry{"github", dir, commit, 2000} }, true},
+			func(dir, commit string) entry { return entry{"github", dir, commit, 2000} }, nil, true},
 		{"reinstall in place, later install time",
 			func(dir, commit string) entry { return entry{"github", dir, commit, 1000} },
-			func(dir, commit string) entry { return entry{"github", dir, commit, 2000} }, true},
+			func(dir, commit string) entry { return entry{"github", dir, commit, 2000} }, nil, true},
 		{"reinstall in place, lower install time",
 			func(dir, commit string) entry { return entry{"github", dir, commit, 2000} },
-			func(dir, commit string) entry { return entry{"github", dir, commit, 1000} }, true},
+			func(dir, commit string) entry { return entry{"github", dir, commit, 1000} }, nil, true},
 		{"install in place over a link",
 			func(dir, _ string) entry { return entry{"local", dir, "", 0} },
-			func(dir, commit string) entry { return entry{"github", dir, commit, 1000} }, true},
+			func(dir, commit string) entry { return entry{"github", dir, commit, 1000} }, nil, true},
 		{"rebuild of the plugin root",
-			func(dir, commit string) entry { return entry{"github", dir, commit, 1000} },
-			func(string, string) entry { return entry{} }, false},
+			func(dir, commit string) entry { return entry{"github", dir, commit, 1000} }, none, nil, false},
 		{"rebuild of a linked checkout",
-			func(dir, _ string) entry { return entry{"local", dir, "", 0} },
-			func(string, string) entry { return entry{} }, false},
+			func(dir, _ string) entry { return entry{"local", dir, "", 0} }, none, nil, false},
+		{"rebuild, then a change of metadata only",
+			func(dir, commit string) entry { return entry{"github", dir, commit, 1000} }, none, metadata, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			assetName(t)
@@ -827,36 +891,38 @@ func TestBuildSameRoot(t *testing.T) {
 			commit := head(t, dir)
 			hd, path := herdrDir(t, noGoPath(t))
 			list(t, hd, c.before(dir, commit))
-			done := buildDetached(t, dir, path, hd, "BRAIN_AUTO_SETUP_WAIT=2")
+			done := buildDetached(t, dir, path, hd)
 			if e := c.after(dir, commit); e.kind != "" {
 				list(t, hd, e)
 			}
-			_, early := calls(t, hd)
-			waitDone(t, done)
-			want := ""
-			if c.start {
-				want = "session list --json\n" +
-					"--session default plugin action invoke brain.start\n--session work plugin action invoke brain.start\n"
+			if c.edit != nil {
+				relist(t, hd, c.edit)
 			}
-			if got, polls := calls(t, hd); got != want || (!c.start && polls <= early) {
-				t.Errorf("herdr calls = %q and %d plugin lists (%d before the change), want %q, "+
-					"and with no start, plugin lists also after the change", got, polls, early, want)
+			want := startCalls
+			if !c.start {
+				_, early := calls(t, hd)
+				stopChild(t, hd, early)
+				want = ""
+			}
+			waitDone(t, done)
+			if got, _ := calls(t, hd); got != want {
+				t.Errorf("herdr calls = %q, want %q", got, want)
 			}
 		})
 	}
 }
 
-// #427 AC: the child invokes nothing and stops after BRAIN_AUTO_SETUP_WAIT for a plain build, a
-// linked checkout, an install of another commit, an old install of this commit, an install of
-// this commit from another checkout (a build by hand, then `herdr plugin install` of the same
-// ref), and a herdr that does not answer after the build.
+// #427 AC: the child invokes nothing for a plain build, a linked checkout, an install of
+// another commit, an old install of this commit, and an install of this commit from another
+// checkout (a build by hand, then `herdr plugin install` of the same ref). When herdr does not
+// answer after the build, the child stops at its deadline, BRAIN_AUTO_SETUP_WAIT.
 func TestBuildChildGivesUp(t *testing.T) {
 	for _, c := range []struct {
 		name   string
 		before bool // herdr lists an old install of this commit before the build
 		hang   bool // herdr does not answer after the build
 		// after returns the entry that herdr lists after the build; a zero entry for none. It
-		// runs before the build, so the child sees the entry before its deadline.
+		// runs before the build, so its work does not use the time of the child.
 		after func(t *testing.T, dir, commit string) entry
 	}{
 		{"plain build", false, false, nil},
@@ -893,19 +959,23 @@ func TestBuildChildGivesUp(t *testing.T) {
 			if c.after != nil {
 				e = c.after(t, dir, commit)
 			}
-			done := buildDetached(t, dir, path, hd, "BRAIN_AUTO_SETUP_WAIT=2")
+			var env []string
+			if c.hang {
+				env = append(env, "BRAIN_AUTO_SETUP_WAIT=2")
+			}
+			done := buildDetached(t, dir, path, hd, env...)
 			if e.kind != "" {
 				list(t, hd, e)
 			}
 			if c.hang {
 				writeFile(t, filepath.Join(hd, "hang"), "")
+			} else {
+				_, early := calls(t, hd)
+				stopChild(t, hd, early)
 			}
-			_, early := calls(t, hd)
 			waitDone(t, done)
-			// The child asks herdr again after the change, so it sees the change.
-			if got, polls := calls(t, hd); got != "" || polls <= early {
-				t.Errorf("herdr calls = %q and %d plugin lists (%d before the change), want only plugin lists, "+
-					"also after the change", got, polls, early)
+			if got, _ := calls(t, hd); got != "" {
+				t.Errorf("herdr calls = %q, want only plugin lists", got)
 			}
 		})
 	}

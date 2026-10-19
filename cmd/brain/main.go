@@ -84,8 +84,10 @@ var commands = map[string]func(context.Context, cli.Env, []string) error{
 // herdrCommands are the commands that herdr or its build runs with the process environment.
 // post-install is hidden: only scripts/build.sh runs it (#427), so the usage does not list it.
 var herdrCommands = map[string]func(context.Context, []string, []string) error{
-	"event":        event.Main,
-	"post-install": update.PostInstall,
+	"event": event.Main,
+	"post-install": func(ctx context.Context, args, environ []string) error {
+		return update.PostInstall(ctx, args, environ, os.Stdin)
+	},
 }
 
 func main() {

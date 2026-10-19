@@ -33,6 +33,12 @@ func TestOurs(t *testing.T) {
 	reg := func(kind, commit, ref string, ms uint64) *source {
 		return &source{Kind: kind, Commit: commit, Ref: ref, Installed: ms}
 	}
+	// meta is the old registration of the entry at time 2000 with only metadata changed by edit.
+	meta := func(edit func(*source)) *source {
+		s := &source{Kind: "github", Owner: "acme", Repo: "brain", Commit: commit, Installed: 2000}
+		edit(s)
+		return s
+	}
 	for _, c := range []struct {
 		name, kind, commit, root string
 		ms                       uint64
@@ -52,10 +58,14 @@ func TestOurs(t *testing.T) {
 		{"same root, other commit before", "github", commit, ours1, 2000, reg("github", "d2", "", 2000), true},
 		{"same root, other ref before", "github", commit, ours1, 2000, reg("github", commit, "v0.1.0", 2000), true},
 		{"same root, linked before", "github", commit, ours1, 2000, reg("local", "", "", 0), true},
+		{"same root, owner case changed", "github", commit, ours1, 2000, meta(func(s *source) { s.Owner = "Acme" }), false},
+		{"same root, repo changed", "github", commit, ours1, 2000, meta(func(s *source) { s.Repo = "other" }), false},
+		{"same root, subdir changed", "github", commit, ours1, 2000, meta(func(s *source) { s.Subdir = "sub" }), false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var p plugin
 			p.Root, p.Source.Kind, p.Source.Commit, p.Source.Installed = c.root, c.kind, c.commit, c.ms
+			p.Source.Owner, p.Source.Repo = "acme", "brain"
 			if got := ours(p, commit, "n1", c.old); got != c.want {
 				t.Errorf("ours(%s %s %s %d, nonce n1, old %+v) = %v, want %v", c.kind, c.commit, c.root, c.ms, c.old, got, c.want)
 			}
@@ -93,9 +103,9 @@ esac
 	return []string{"PATH=" + os.Getenv("PATH"), "HERDR_BIN_PATH=" + filepath.Join(dir, "herdr")}, log
 }
 
-// childArgs are the arguments of the child of post-install with nonce and a deadline wait from now.
-func childArgs(nonce string, wait time.Duration) []string {
-	return []string{"--commit", "c1", "--nonce", nonce, "--deadline", strconv.FormatInt(time.Now().Add(wait).UnixMilli(), 10)}
+// childArgs are the arguments of the child of post-install with nonce n1 and a deadline wait from now.
+func childArgs(wait time.Duration) []string {
+	return []string{"--commit", "c1", "--nonce", "n1", "--deadline", strconv.FormatInt(time.Now().Add(wait).UnixMilli(), 10)}
 }
 
 func readLog(t *testing.T, log string) string {
@@ -111,7 +121,7 @@ func readLog(t *testing.T, log string) string {
 // running session, also after an invoke fails, and returns the error of that invoke.
 func TestPostInstallStartsSessions(t *testing.T) {
 	environ, log := postInstallHerdr(t, nonceRoot(t, "n1"), 2, false)
-	err := PostInstall(context.Background(), childArgs("n1", 10*time.Second), environ)
+	err := PostInstall(context.Background(), childArgs(10*time.Second), environ, strings.NewReader(""))
 	if err == nil || !strings.Contains(err.Error(), "no server") {
 		t.Errorf("PostInstall = %v, want the error of the invoke in s1", err)
 	}
@@ -122,11 +132,34 @@ func TestPostInstallStartsSessions(t *testing.T) {
 	}
 }
 
+// #427: the child reads the old registration of this checkout from stdin. A change in a signal
+// of an install starts brain; a change in metadata only, or in no field, does not.
+func TestPostInstallOldRegistration(t *testing.T) {
+	for _, c := range []struct {
+		name, old string
+		start     bool
+	}{
+		{"install time changed", `{"kind":"github","resolved_commit":"c1","installed_unix_ms":5}`, true},
+		{"metadata only", `{"kind":"github","owner":"Acme","subdir":"x","resolved_commit":"c1","extra":1}`, false},
+		{"no change", `{"kind":"github","resolved_commit":"c1"}`, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			environ, log := postInstallHerdr(t, nonceRoot(t, "n1"), 1, false)
+			if err := PostInstall(context.Background(), childArgs(time.Second), environ, strings.NewReader(c.old)); err != nil {
+				t.Errorf("PostInstall = %v, want nil", err)
+			}
+			if got := strings.Contains(readLog(t, log), "brain.start"); got != c.start {
+				t.Errorf("brain.start invoked = %v, want %v", got, c.start)
+			}
+		})
+	}
+}
+
 // #427: when herdr lists only the install of another build until the deadline, the child
 // invokes nothing and returns no error.
 func TestPostInstallGivesUp(t *testing.T) {
 	environ, log := postInstallHerdr(t, nonceRoot(t, "n2"), 2, false)
-	if err := PostInstall(context.Background(), childArgs("n1", time.Second), environ); err != nil {
+	if err := PostInstall(context.Background(), childArgs(time.Second), environ, strings.NewReader("")); err != nil {
 		t.Errorf("PostInstall = %v, want nil", err)
 	}
 	got := readLog(t, log)
@@ -143,10 +176,10 @@ const slack = 300 * time.Millisecond
 // it. 13 invokes that do not answer would take 65 s with only the 5 s deadline of each call.
 func TestPostInstallDeadline(t *testing.T) {
 	environ, _ := postInstallHerdr(t, nonceRoot(t, "n1"), 13, true)
-	args := childArgs("n1", 2*time.Second)
+	args := childArgs(2 * time.Second)
 	start := time.Now()
 	done := make(chan error, 1)
-	go func() { done <- PostInstall(context.Background(), args, environ) }()
+	go func() { done <- PostInstall(context.Background(), args, environ, strings.NewReader("")) }()
 	select {
 	case err := <-done:
 		if err == nil {
@@ -188,19 +221,19 @@ func TestCallKillsHerdrChildren(t *testing.T) {
 	}
 	for _, c := range []struct {
 		name, script string
-		ctx          time.Duration // the deadline of ctx, 0 for none
+		ctx          time.Duration // the deadline of ctx, 0 for none; 3 s, so a slow shell start still writes the pid
 		bound        time.Duration // a deadline, or 1 s after an answer: the child holds the pipes for 20 s
 		ok           bool          // the call returns the answer
 		inGroup      bool          // the child stays in the process group of herdr
 	}{
 		{"answer, child holds the pipes", "sleep 20 & echo $! > pid\necho ok\n", 0, time.Second, false, true},
 		{"answer, child holds no pipe", "sleep 20 >/dev/null 2>&1 & echo $! > pid\necho ok\n", 0, time.Second, true, true},
-		{"no answer, child in the group", "sleep 20 & echo $! > pid\nexec sleep 20\n", time.Second, time.Second, false, true},
+		{"no answer, child in the group", "sleep 20 & echo $! > pid\nexec sleep 20\n", 3 * time.Second, 3 * time.Second, false, true},
 		{"no answer, 5 s deadline", "sleep 20 & echo $! > pid\nexec sleep 20\n", 0, herdrDeadline, false, true},
 		{"no answer, child in its own session",
 			"perl -e 'use POSIX; POSIX::setsid(); open(F, \">pid.new\"); print F $$; close(F); rename(\"pid.new\", \"pid\"); sleep 20' &\n" +
 				"while [ ! -f pid ]; do sleep 0.01; done\nexec sleep 20\n",
-			time.Second, time.Second, false, false},
+			3 * time.Second, 3 * time.Second, false, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -254,18 +287,20 @@ func TestPostInstallErrors(t *testing.T) {
 		name    string
 		args    []string
 		environ []string
+		stdin   string
 		want    string
 	}{
-		{"no commit", nil, nil, "usage: brain post-install"},
-		{"extra argument", []string{"--commit", "c1", "x"}, nil, "usage: brain post-install"},
-		{"unknown flag", []string{"--commit", "c1", "--x"}, nil, "usage: brain post-install"},
-		{"nonce with no deadline", []string{"--commit", "c1", "--nonce", "n1"}, nil, "usage: brain post-install"},
-		{"deadline with no nonce", []string{"--commit", "c1", "--deadline", "1"}, nil, "usage: brain post-install"},
-		{"bad deadline", []string{"--commit", "c1", "--nonce", "n1", "--deadline", "x"}, nil, "--deadline"},
-		{"bad wait", []string{"--commit", "c1"}, []string{"BRAIN_AUTO_SETUP_WAIT=x"}, "BRAIN_AUTO_SETUP_WAIT"},
+		{"no commit", nil, nil, "", "usage: brain post-install"},
+		{"extra argument", []string{"--commit", "c1", "x"}, nil, "", "usage: brain post-install"},
+		{"unknown flag", []string{"--commit", "c1", "--x"}, nil, "", "usage: brain post-install"},
+		{"nonce with no deadline", []string{"--commit", "c1", "--nonce", "n1"}, nil, "", "usage: brain post-install"},
+		{"deadline with no nonce", []string{"--commit", "c1", "--deadline", "1"}, nil, "", "usage: brain post-install"},
+		{"bad deadline", []string{"--commit", "c1", "--nonce", "n1", "--deadline", "x"}, nil, "", "--deadline"},
+		{"bad old registration", childArgs(time.Second), nil, "{", "old registration"},
+		{"bad wait", []string{"--commit", "c1"}, []string{"BRAIN_AUTO_SETUP_WAIT=x"}, "", "BRAIN_AUTO_SETUP_WAIT"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			err := PostInstall(context.Background(), c.args, c.environ)
+			err := PostInstall(context.Background(), c.args, c.environ, strings.NewReader(c.stdin))
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Errorf("PostInstall(%q) = %v, want an error with %q", c.args, err, c.want)
 			}
