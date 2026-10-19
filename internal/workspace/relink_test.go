@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// S83, S20, §9.4: a replaced entry, a closed entry with the project of a current entry, and a
+// S83, S20: a replaced entry, a closed entry with the project of a current entry, and a
 // current entry with the project of a newer current entry wait for a relink. Entries of another
 // herdr session and a closed entry with no current project do not.
 func TestRelinks(t *testing.T) {

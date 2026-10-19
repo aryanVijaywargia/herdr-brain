@@ -17,7 +17,7 @@ import (
 
 var testNow = time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC)
 
-// eventJSON is the HERDR_PLUGIN_EVENT_JSON of a close in herdr 0.9.1 (D4 test step 2).
+// eventJSON is the HERDR_PLUGIN_EVENT_JSON of a close in herdr 0.9.1 (E2-S6 test step 2).
 const eventJSON = `{"event":"workspace_closed","data":{"type":"workspace_closed","workspace_id":"w2","workspace":{"label":"B2"}}}`
 
 func TestParseClosed(t *testing.T) {
@@ -109,7 +109,7 @@ func (b bound) state(t *testing.T) workspace.State {
 	return m.State
 }
 
-// D4: the close event of a bound session marks the pair closed and its row closed.
+// The close event of a bound session marks the pair closed and its row closed.
 func TestWorkspaceClosed(t *testing.T) {
 	b := newBound(t)
 	env := []string{"HERDR_SESSION=work", "HERDR_SOCKET_PATH=" + b.socket, "HERDR_PLUGIN_EVENT_JSON=" + eventJSON}
@@ -133,7 +133,7 @@ func TestWorkspaceClosed(t *testing.T) {
 	}
 }
 
-// D4: an unbound session, a binding of another session name, or an unknown workspace changes
+// An unbound session, a binding of another session name, or an unknown workspace changes
 // nothing and is no error.
 func TestWorkspaceClosedIgnored(t *testing.T) {
 	b := newBound(t)

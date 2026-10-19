@@ -7,7 +7,7 @@ import (
 )
 
 // ShapeError reports a herdr reply that Brain does not know: the JSON does not decode, or a
-// required field is missing, null or malformed. Callers fail closed on it (HLD §4.2).
+// required field is missing, null or malformed. Callers fail closed on it.
 type ShapeError struct {
 	Field  string // JSON path, for example "pane.workspace_id"; empty for the whole reply
 	Reason string
@@ -40,7 +40,7 @@ type AgentSession struct {
 	Value  string
 }
 
-// Workspace is a herdr workspace. herdr gives no folder for it (HLD §4.2).
+// Workspace is a herdr workspace. herdr gives no folder for it.
 type Workspace struct {
 	ID     string
 	Label  string
@@ -64,7 +64,7 @@ type PluginPane struct {
 }
 
 // Ids as herdr 0.9.1 prints them: workspace w14, pane w14:p2F, tab w14:t1. A pane or tab id
-// starts with its workspace id (HLD §4.2). Past workspace 9, herdr 0.9.3 puts letters in the
+// starts with its workspace id. Past workspace 9, herdr 0.9.3 puts letters in the
 // workspace id too: wZ, w1A, w1N:p1 (bug #247).
 var (
 	workspaceIDRe = regexp.MustCompile(`^w[0-9A-Za-z]+$`)

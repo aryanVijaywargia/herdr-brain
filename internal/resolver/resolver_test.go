@@ -539,7 +539,7 @@ func TestResolveStoreOpenError(t *testing.T) {
 }
 
 // A test binding whose store is a dangling link is dropped: its session gets no store, and
-// the default session still resolves (owner decision, 2026-09-28).
+// the default session still resolves.
 func TestDroppedBinding(t *testing.T) {
 	f := newFixture(t)
 	bs, dropped, err := bindings.Read(f.file)

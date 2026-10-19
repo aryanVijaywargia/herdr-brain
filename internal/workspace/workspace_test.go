@@ -166,7 +166,7 @@ func TestRestartKeepsKey(t *testing.T) {
 		t.Errorf("project = %q, want %q", before.Project, canon(t, repo))
 	}
 
-	// A restart keeps the ids and the last saved identity_cwd [M0]; herdr saves on stop.
+	// A restart keeps the ids and the last saved identity_cwd; herdr saves on stop.
 	save(t, s, map[string]string{"w1": repo})
 	refresh(t, s, w("w1", "brain"))
 	if after := mapped(t, s, "w1"); after.Key != before.Key {
@@ -368,7 +368,7 @@ func TestRecreatedSessionHookFirst(t *testing.T) {
 	refresh(t, s, w("w1", "brain"))
 	old := mapped(t, s, "w1")
 
-	// herdr state deleted and the session recreated: w1 is reused for another folder [M0].
+	// herdr state deleted and the session recreated: w1 is reused for another folder.
 	save(t, s, map[string]string{"w1": other})
 	if m := lookup(t, s, "w1"); m.State != Withheld {
 		t.Fatalf("hook Lookup(w1).State = %q, want %q", m.State, Withheld)

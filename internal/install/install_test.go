@@ -645,8 +645,7 @@ func TestNamedHookLayout(t *testing.T) {
 	}
 }
 
-// TestNamedHookEdited: a flat Brain handler that you edited stays, and install adds no second
-// one (§8.1).
+// TestNamedHookEdited: a flat Brain handler that you edited stays, and install adds no second one.
 func TestNamedHookEdited(t *testing.T) {
 	p, err := adapter.LoadFS(os.DirFS("../adapter/testdata/agylike"), "agylike")
 	if err != nil {

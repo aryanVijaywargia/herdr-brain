@@ -1,6 +1,6 @@
-// Package bindings reads and writes the session bindings file (HLD §8.3 "Session bindings and
-// the resolver", F1). A binding ties one herdr session to one store folder. All real sessions
-// share the main store; a test session has its own store.
+// Package bindings reads and writes the session bindings file. A binding ties one herdr
+// session to one store folder. All real sessions share the main store; a test session has its
+// own store.
 package bindings
 
 import (
@@ -45,10 +45,10 @@ type Dropped struct {
 }
 
 // Read reads the bindings file once and validates it. A bad test binding does not stop the
-// other sessions (owner decision, 2026-09-28): Read leaves it out and returns it in dropped.
+// other sessions: Read leaves it out and returns it in dropped.
 // A test binding that conflicts with a main binding is dropped; two test bindings that
 // conflict are both dropped. A bad main binding, or main bindings that disagree, make Read
-// fail. A binding stays in the file when its herdr session is gone (§8.3), so Read never
+// fail. A binding stays in the file when its herdr session is gone, so Read never
 // checks the socket against herdr.
 func Read(path string) (bs []Binding, dropped []Dropped, err error) {
 	data, err := os.ReadFile(path)
@@ -224,7 +224,7 @@ func BySocket(bs []Binding, socket string) (Binding, bool, error) {
 // validate checks each binding and the rules between them: one binding per session name and
 // per socket, one main store for all real sessions, and each test store apart from the main
 // store and from every other test store. No store may hold dir, the bindings folder, because
-// the file must stay outside every store (§8.3). Paths compare after links and aliases.
+// the file must stay outside every store. Paths compare after links and aliases.
 func validate(bs []Binding, dir string) error {
 	for _, b := range bs {
 		if err := checkOne(b, dir); err != nil {
@@ -308,7 +308,7 @@ func conflict(prev, b Binding) error {
 	if err != nil {
 		return err
 	}
-	// A test store is reset before each eval case (§12.1), so it must not hold another store,
+	// A test store is reset before each eval case, so it must not hold another store,
 	// nor sit inside one.
 	nested, err := nested(prev.Store, b.Store)
 	if err != nil {

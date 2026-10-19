@@ -11,8 +11,8 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 )
 
-// Record is the install record, <data home>/install.json (§11, E8 epic). It holds tokens when
-// a snapshot does (owner decision 2026-09-28), so its mode is 0o600.
+// Record is the install record, <data home>/install.json (E8 epic). It holds tokens when a
+// snapshot does, so its mode is 0o600.
 type Record struct {
 	Entries map[string]Entry `json:"entries"` // the start entries, by profile kind, for example "codex"
 	// Records are the hook record entries (E11-S5), by profile kind and CLI event, for
@@ -73,7 +73,7 @@ type Entry struct {
 }
 
 // Snapshot holds the whole hook file before Brain's first edit. It is recovery material only:
-// uninstall never restores it, because you may have changed the file since (§8.1).
+// uninstall never restores it, because you may have changed the file since.
 type Snapshot struct {
 	Missing bool   `json:"missing,omitempty"` // the file did not exist
 	Data    []byte `json:"data,omitempty"`    // the original bytes, base64 in the JSON

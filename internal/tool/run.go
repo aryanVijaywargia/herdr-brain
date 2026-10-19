@@ -128,7 +128,7 @@ func (r Run) Exec(ctx context.Context) (int, error) {
 }
 
 // step runs one argv list. A run.sh step runs the reviewed run.sh with sh, and the inputs
-// reach it as "$1", "$2" (§10.1).
+// reach it as "$1", "$2".
 func (r Run) step(ctx context.Context, argv []string) (int, error) {
 	prog, args := argv[0], argv[1:]
 	if prog == ScriptName {

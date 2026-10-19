@@ -17,8 +17,8 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
 )
 
-// Trust is the Codex trust state of the Brain hook entry (M0 test "E8-S3: trust
-// check", the status rule of Codex 0.154).
+// Trust is the Codex trust state of the Brain hook entry (E8-S3 trust test, the status
+// rule of Codex 0.154).
 type Trust string
 
 // The trust states. Codex runs the hook only when it is Trusted.

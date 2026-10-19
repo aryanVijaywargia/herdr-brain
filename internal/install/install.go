@@ -1,8 +1,8 @@
 // Package install adds the one Brain hook entry to a CLI's hook file and takes it out again
-// (HLD §8.1, §8.3, E8-S2). It splices bytes: every byte outside the Brain entry stays as it is.
+// (E8-S2). It splices bytes: every byte outside the Brain entry stays as it is.
 // The install record, <data home>/install.json, holds the entry, its hash and a snapshot of
 // each file before its first edit. It sits outside every store, because the CLI files are
-// shared by all bindings (§11). `brain setup` (E9) and `brain uninstall` (E8-S5) call it.
+// shared by all bindings. `brain setup` (E9) and `brain uninstall` (E8-S5) call it.
 package install
 
 import (
@@ -24,7 +24,7 @@ import (
 )
 
 // entryTimeout is the timeout of the entry in the CLI config, in seconds [NEW] (E8-S2). The
-// real limit is the 300 ms cap inside the hook (§8.3).
+// real limit is the 300 ms cap inside the hook.
 const entryTimeout = 5
 
 // newFileMode is the mode of a hook file that did not exist before the install. [NEW]
@@ -47,7 +47,7 @@ const (
 	Present Status = "present" // install found the same entry in the file
 	Removed Status = "removed" // uninstall removed the unchanged entry
 	// Edited: the file holds a Brain entry that you changed by hand. Brain keeps it, writes
-	// nothing and reports it (§8.1).
+	// nothing and reports it.
 	Edited       Status = "edited"
 	NotFound     Status = "not found"     // uninstall found no Brain entry in the file
 	NotInstalled Status = "not installed" // the record holds no entry for the profile
@@ -134,7 +134,7 @@ func (in *Installer) InstallHook(p *adapter.Profile, h adapter.Hook) (Status, er
 // Uninstall removes the Brain entries of profile p from its hook file when the hash of each
 // entry is unchanged: the hook record entries, then the start entry. It keeps every other byte
 // as it is now (S45). A hand-edited entry stays, and Uninstall returns Edited. The snapshot
-// stays in the record as recovery material (§8.1). With more than one entry it returns the
+// stays in the record as recovery material. With more than one entry it returns the
 // outcome that needs the most attention: Edited, then Removed, NotFound and NotInstalled.
 func (in *Installer) Uninstall(p *adapter.Profile) (Status, error) {
 	lk, err := lock(in.Record)
@@ -314,10 +314,10 @@ func (in *Installer) target(p *adapter.Profile) string {
 }
 
 // entry builds the frozen Brain entry of hook h of p: one matcher group with one command
-// handler (§8.3), or the handler alone for a profile with flat handlers, except for a tool
+// handler, or the handler alone for a profile with flat handlers, except for a tool
 // event (E16-S11). The Codex profile sets additional_context_limit 0, so Codex sends the whole
 // brief inline; the field is in the start entry and its hash, so Codex trust covers it (E8
-// epic). A tool entry has the matcher of the shell tool (§6.1).
+// epic). A tool entry has the matcher of the shell tool.
 func (in *Installer) entry(p *adapter.Profile, h adapter.Hook, target string) (Entry, error) {
 	type handler struct {
 		Type                   string `json:"type"`
@@ -345,7 +345,7 @@ func (in *Installer) entry(p *adapter.Profile, h adapter.Hook, target string) (E
 	return Entry{Target: target, Command: command, Text: string(b), SHA256: hash(b)}, nil
 }
 
-// check reads the file again just before the write (§8.1). Any change since the first read,
+// check reads the file again just before the write. Any change since the first read,
 // by you or another tool, stops the edit.
 func (in *Installer) check(old file) error {
 	if in.beforeCheck != nil {

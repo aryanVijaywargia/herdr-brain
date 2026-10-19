@@ -1,4 +1,4 @@
-// Package harness computes the adapter state of each harness (HLD §8.5, E8-S4). Check computes
+// Package harness computes the adapter state of each harness (E8-S4). Check computes
 // it on each call from herdr, the install record, the CLI and the conformance results; no
 // store holds it. `brain status` and `brain doctor` call Check (E9). The hook never does,
 // because Check runs `<cli> --version`.
@@ -27,8 +27,8 @@ import (
 // State is the one word for a harness in `brain status`.
 type State string
 
-// The states, from the lowest to the highest (§8.5). Retest overrides the others. A CLI
-// version that no test passed does not change the state (D13): Status.VersionNote warns.
+// The states, from the lowest to the highest. Retest overrides the others. A CLI
+// version that no test passed does not change the state: Status.VersionNote warns.
 const (
 	None       State = "none"       // herdr sees no pane of the kind and nothing is installed
 	Detected   State = "detected"   // herdr reports the kind in some pane
@@ -38,7 +38,7 @@ const (
 )
 
 // Status is the state of one harness, with each part apart, so `brain status` can show a
-// configured hook with no test as unverified (§8.5, S28).
+// configured hook with no test as unverified (S28).
 type Status struct {
 	Kind       string
 	Installed  bool // the CLI is on the PATH
@@ -49,10 +49,10 @@ type Status struct {
 	RetestAt   time.Time // the time of the last such hook input
 	CLIVersion string    // empty when `<cli> --version` failed; VersionErr says why
 	VersionErr error
-	Tested     string // the tested version: of the last pass, else of the profile (§8.5)
+	Tested     string // the tested version: of the last pass, else of the profile
 }
 
-// VersionNote is the version warning of s (D13): "newer than tested" for a CLI version above
+// VersionNote is the version warning of s: "newer than tested" for a CLI version above
 // the tested version, or "" when there is none. It changes no state.
 func (s Status) VersionNote() string {
 	switch {
@@ -114,7 +114,7 @@ type Files struct {
 }
 
 // versionRe matches a version word in `<cli> --version`: "2.1.283 (Claude Code)" and
-// "codex-cli 0.154.0" (M0 test).
+// "codex-cli 0.154.0".
 var versionRe = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
 // Check returns the status of each profile, in order. It finds each CLI by its profile kind on
@@ -152,7 +152,7 @@ func Check(ctx context.Context, h Panes, f Files, profiles []*adapter.Profile) (
 		// marker of an older writer has no profile, so it stays.
 		marked = marked && (m.Profile == "" || m.Profile == p.SHA256)
 		r, ok := last(results, p.Kind)
-		// A newer CLI version keeps the state (D13), so the version is not a current value.
+		// A newer CLI version keeps the state, so the version is not a current value.
 		current := s.Configured && ok && r.Result == Pass && r.ProfileSHA256 == p.SHA256 && r.EntrySHA256 == e.SHA256
 		// Hook input of an unknown shape after the pass invalidates it (S14). Only a pass on
 		// the current values that completed after the marker clears the marker.
@@ -162,7 +162,7 @@ func Check(ctx context.Context, h Panes, f Files, profiles []*adapter.Profile) (
 		s.Verified = current && !marked
 		s.Retest = s.Installed && marked
 		s.RetestAt = m.At
-		// A pass tests the version it ran on (§8.5 "tested version").
+		// A pass tests the version it ran on.
 		s.Tested = p.TestedVersion
 		if ok && r.Result == Pass {
 			s.Tested = r.CLIVersion

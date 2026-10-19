@@ -1,11 +1,10 @@
-// Package update is `brain update` (E19-S4, HLD §4.1). herdr has no plugin update: a new
+// Package update is `brain update` (E19-S4). herdr has no plugin update: a new
 // `herdr plugin install` replaces a managed checkout, and a linked checkout is the user's own
 // git clone. update finds the install kind and the repo in `herdr plugin list`, compares the
 // installed version with the newest version of the repo (`git ls-remote`), and then reinstalls
 // or pulls and builds, and runs the hook record step and `brain doctor --fix` of the new
 // binary. A managed install at a release tag follows the release tags (E19-S6); any other
-// install follows the default branch. It is the only Brain command that uses the network
-// (§0 point 13).
+// install follows the default branch. It is the only Brain command that uses the network.
 package update
 
 import (
@@ -73,7 +72,7 @@ type source struct {
 	Installed uint64 `json:"installed_unix_ms"`
 }
 
-// Records is the hook record step of brain update (#315, §8.5): it shows the hook record
+// Records is the hook record step of brain update (#315): it shows the hook record
 // entries of the profiles of this binary that are missing, asks once on in, and adds them on
 // yes, as brain setup does. Any other answer writes nothing.
 type Records func(in io.Reader, stdout io.Writer) error
@@ -103,7 +102,7 @@ type state struct {
 // Main runs `brain update` with args in the process environment environ. It writes the
 // output of each step to stdout and stderr, and reads the answer of the hook record step,
 // records, from stdin. Up to date, it runs records; after an install, the new binary runs its
-// own step (owner decision 2026-10-08, #315).
+// own step (#315).
 func Main(ctx context.Context, args, environ []string, stdin io.Reader, stdout, stderr io.Writer, records Records) error {
 	check := len(args) == 1 && args[0] == "--check"
 	if len(args) == 1 && args[0] == "--records" {

@@ -1,4 +1,4 @@
-// Package adapter is the base adapter (HLD §8.5): the code that every harness shares. It loads
+// Package adapter is the base adapter: the code that every harness shares. It loads
 // a harness profile, reads the hook input by the profile's JSON paths and writes the brief in
 // the profile's output form. It knows no harness by name. Package harness computes the
 // adapter state (E8-S4).
@@ -22,22 +22,22 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/adapters"
 )
 
-// formAdditionalContext is the output form of Claude and Codex (HLD §8.3, M0 item 1). Its
-// output also names the start event in hookSpecificOutput.hookEventName.
+// formAdditionalContext is the output form of Claude and Codex. Its output also names the
+// start event in hookSpecificOutput.hookEventName.
 const formAdditionalContext = "hookSpecificOutput.additionalContext"
 
 // defaultHooksKey is the root key of the hook object in a CLI hook file: Claude and Codex keep
-// their events in "hooks" (§8.3).
+// their events in "hooks".
 const defaultHooksKey = "hooks"
 
 // TrustCodex is the hook_trust value of a CLI that runs a new or changed hook entry only after
 // you trust it, with the trust state in the hooks.state table of its config.toml, as Codex
-// 0.154 does (M0 test "E8-S3: trust check").
+// 0.154 does (E8-S3 trust test).
 const TrustCodex = "codex"
 
 var (
 	// ErrNotStart says that the hook input does not meet the profile's start condition. The
-	// hook prints nothing (§8.3 step 2).
+	// hook prints nothing.
 	ErrNotStart = errors.New("hook input does not meet the start condition")
 	// ErrRetest says that the hook input has a shape that the profile does not know, for
 	// example after a CLI update. The hook prints nothing, and the caller sets the adapter
@@ -45,13 +45,13 @@ var (
 	ErrRetest = errors.New("unknown hook input shape: adapter needs retest")
 )
 
-// Profile is one harness profile (§8.5), M1 fields only.
+// Profile is one harness profile, M1 fields only.
 type Profile struct {
 	Kind          string `toml:"kind"`
 	InstallTarget string `toml:"install_target"`
 	Events        struct {
 		Start string `toml:"start"`
-		// The CLI events of the hook records (E11-S5, §6.1). An empty event is off: a CLI gets
+		// The CLI events of the hook records (E11-S5). An empty event is off: a CLI gets
 		// hook records only after its E11-S1 hook test.
 		Prompt      string   `toml:"prompt"`
 		Tool        []string `toml:"tool"`
@@ -59,14 +59,14 @@ type Profile struct {
 		Stop        string   `toml:"stop"`
 	} `toml:"events"`
 	// StartCondition is one or more checks `<JSON path> == <JSON value>`, joined by "&&" [NEW],
-	// for example `invocationNum == 0 && initialNumSteps == 1` (§8.3 step 2, E16-S11).
+	// for example `invocationNum == 0 && initialNumSteps == 1` (E16-S11).
 	StartCondition string `toml:"start_condition"`
 	// OutputForm is the JSON path of the brief in the hook output, for example
 	// `injectSteps[0].ephemeralMessage` (E16-S11). A path is object keys joined by dots; a key
 	// may end in array steps such as "[0]" [NEW syntax].
 	OutputForm string `toml:"output_form"`
 	// OutputNone [NEW] is the output of a run that delivers nothing, for a CLI that wants JSON
-	// on every hook run: agy reads "{}" (M0 test "E16-S2"). "" prints nothing.
+	// on every hook run: agy reads "{}" (E16-S2 test). "" prints nothing.
 	OutputNone string `toml:"output_none"`
 	// HooksKey [NEW] is the root key of the object that holds the CLI events in the hook file:
 	// "hooks" when empty, as for Claude and Codex. agy keeps each named hook at its own root
@@ -117,7 +117,7 @@ type Profile struct {
 		Dir string `toml:"dir"`
 	} `toml:"eval"`
 	// NoiseLines are optional regular expressions of screen lines that herdr capture drops,
-	// for example the input box (§6.3, E11-S3). A line matches when a pattern matches all of it.
+	// for example the input box (E11-S3). A line matches when a pattern matches all of it.
 	NoiseLines []string `toml:"noise_lines"`
 	// NoiseBlocks [NEW] are optional screen parts of more than one line that herdr capture
 	// drops, such as a tip that wraps or a start banner (#258). A block is a line that Start
@@ -161,7 +161,7 @@ type Profile struct {
 		MinColumn int `toml:"min_column"`
 	} `toml:"side_panel"`
 	// SHA256 is the hex SHA-256 of the profile file. A conformance result holds it, so a
-	// changed profile needs a new test (§8.5, E8-S4).
+	// changed profile needs a new test (E8-S4).
 	SHA256 string `toml:"-"`
 
 	// cond is StartCondition, parsed; empty when the profile has no condition.
@@ -181,7 +181,7 @@ type Profile struct {
 }
 
 // condition is one check of a start condition, `<JSON path> == <JSON value>`, for example
-// `invocationNum == 0` (§8.3 step 2).
+// `invocationNum == 0`.
 type condition struct {
 	path  string
 	value any
@@ -420,7 +420,7 @@ func (p *Profile) WriteNone(w io.Writer) error {
 
 // StartInput returns hook start input that Parse reads as sessionID and cwd: the two values at
 // the profile's JSON paths, and the value of its start condition. The eval runner calls
-// `brain hook` with it (§12.1 exclusion), so input of the profile's own shape does not set the
+// `brain hook` with it in its exclusion probes, so input of the profile's own shape does not set the
 // adapter to retest.
 func (p *Profile) StartInput(sessionID, cwd string) ([]byte, error) {
 	doc := put(nil, p.Input.SessionID, sessionID)

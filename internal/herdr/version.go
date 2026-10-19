@@ -8,11 +8,11 @@ import (
 	"strconv"
 )
 
-// minVersion is the oldest herdr that Brain supports (D6).
+// minVersion is the oldest herdr that Brain supports.
 const minVersion = "0.9.1"
 
 // TestedVersions returns the herdr releases that passed the conformance test and the eval
-// delivery and exclusion stages (D6). Add a release to the list only after those pass.
+// delivery and exclusion stages. Add a release to the list only after those pass.
 func TestedVersions() []string {
 	return []string{
 		"0.9.1",
@@ -25,7 +25,7 @@ func tested(v string) bool { return slices.Contains(TestedVersions(), v) }
 
 var versionRe = regexp.MustCompile(`^([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`)
 
-// CheckServer checks the version of the running herdr server (D6). The server version
+// CheckServer checks the version of the running herdr server. The server version
 // decides, not the version of the herdr binary: a newer binary can talk to an older server
 // that still runs. The hook does not call it, so that it stays inside its time cap.
 func (c *Client) CheckServer(ctx context.Context) (version string, untested bool, err error) {

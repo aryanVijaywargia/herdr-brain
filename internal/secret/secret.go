@@ -1,5 +1,5 @@
 // Package secret finds text that looks like a secret, with a fixed list of known patterns
-// (HLD §6.7, S12). It cannot find every secret: only the supported pattern classes below.
+// (S12). It cannot find every secret: only the supported pattern classes below.
 //
 // Nothing that this package returns holds the matched text. A Hit names its class and its
 // byte range, so an M1 text write can refuse with the class name, and a later caller can

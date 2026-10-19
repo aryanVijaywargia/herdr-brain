@@ -17,7 +17,7 @@ func closeWS(t *testing.T, s testSession, id string) {
 	}
 }
 
-// D4: a closed pair is unmapped for the hook, and its rows are closed; the items stay.
+// A closed pair is unmapped for the hook, and its rows are closed; the items stay.
 func TestClosedPairUnmapped(t *testing.T) {
 	repo := gitRepo(t)
 	s := newSession(t, "default")
@@ -41,8 +41,8 @@ func TestClosedPairUnmapped(t *testing.T) {
 	}
 }
 
-// D4: herdr reuses a closed id after a restart. The next brain call gives it a new key, also
-// in the same project folder, so it never gets the items of the closed workspace (§11).
+// herdr reuses a closed id after a restart. The next brain call gives it a new key, also
+// in the same project folder, so it never gets the items of the closed workspace.
 func TestReusedIDGetsNewKey(t *testing.T) {
 	repo := gitRepo(t)
 	s := newSession(t, "default")
@@ -64,7 +64,7 @@ func TestReusedIDGetsNewKey(t *testing.T) {
 	}
 }
 
-// D4, E2-S4 open point: a close marks the remapped rows of the pair closed too. A later remap
+// E2-S4 open point: a close marks the remapped rows of the pair closed too. A later remap
 // of the reused id does not offer the closed entries for a relink.
 func TestCloseMarksRemappedRows(t *testing.T) {
 	a, b := gitRepo(t), gitRepo(t)

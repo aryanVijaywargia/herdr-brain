@@ -137,7 +137,7 @@ func TestStates(t *testing.T) {
 			if s := check(t, e, seen, p); s.State() != Verified {
 				t.Fatalf("conformance pass: state %s, want verified", s.State())
 			}
-			// A newer CLI version keeps the state and only warns (D13, #251).
+			// A newer CLI version keeps the state and only warns (#251).
 			e.cli(t, tc.kind, strings.Replace(tc.version, p.TestedVersion, "9.9.9", 1))
 			s = check(t, e, seen, p)
 			if s.State() != Verified || s.CLIVersion != "9.9.9" || s.Retest ||
@@ -220,7 +220,7 @@ func TestNotVerified(t *testing.T) {
 		{"pending", []Result{with(func(r *Result) { r.Result = "pending" })}, Configured},
 		{"fail", []Result{with(func(r *Result) { r.Result = "fail" })}, Configured},
 		{"inconclusive", []Result{with(func(r *Result) { r.Result = "inconclusive" })}, Configured},
-		// The pass tested another version than the current one: only a warning (D13).
+		// The pass tested another version than the current one: only a warning.
 		{"other CLI version", []Result{with(func(r *Result) { r.CLIVersion = "0.153.0" })}, Verified},
 		{"other profile", []Result{with(func(r *Result) { r.ProfileSHA256 = "00" })}, Configured},
 		{"other entry", []Result{with(func(r *Result) { r.EntrySHA256 = "00" })}, Configured},
@@ -391,7 +391,7 @@ func TestNotConfigured(t *testing.T) {
 
 // TestVersionFailure checks that a CLI that is not on the PATH is not installed, with no
 // retest and no warning (#250), and that a version that cannot be parsed warns "version
-// unknown" and changes no state (D13).
+// unknown" and changes no state.
 func TestVersionFailure(t *testing.T) {
 	tests := []struct {
 		name      string

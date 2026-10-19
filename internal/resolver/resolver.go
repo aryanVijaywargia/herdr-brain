@@ -1,6 +1,6 @@
-// Package resolver finds the one store of a Brain call from the process environment (HLD
-// §8.3 "Session bindings and the resolver", G1). Every entry point calls it, and there is no
-// --store flag. A call gets one of three results: Resolved, Denied or NoStore.
+// Package resolver finds the one store of a Brain call from the process environment. Every
+// entry point calls it, and there is no --store flag. A call gets one of three results:
+// Resolved, Denied or NoStore.
 package resolver
 
 import (
@@ -40,7 +40,7 @@ const (
 )
 
 // AgentCheck is the result of the check of a (pane, agent session id) record against the
-// `agent_session` that herdr later shows for that pane (§8.3 limit, §17 item 29).
+// `agent_session` that herdr later shows for that pane.
 type AgentCheck string
 
 // The agent checks.
@@ -154,7 +154,7 @@ func New(path string, open Opener, pane PaneFunc) *Resolver {
 	return &Resolver{bindings: path, open: open, pane: pane}
 }
 
-// env is the part of the process environment that herdr puts in each pane (HLD §4.2).
+// env is the part of the process environment that herdr puts in each pane.
 type env struct {
 	socket, session, paneID, workspaceID string
 }
@@ -267,7 +267,7 @@ func (r *Resolver) denied(b bindings.Binding, e env, agentSession string, reason
 
 // checkAgents checks the pending (pane, agent session id) records of pane p of session
 // against the agent session that herdr shows now, then records agentSession. At hook time
-// herdr does not show the new agent yet, so a record is checked on the next call (§17 item 29).
+// herdr does not show the new agent yet, so a record is checked on the next call.
 // Each record gets one check only: a later call could see another agent in the pane.
 func checkAgents(ctx context.Context, st Store, session string, p herdr.Pane, agentSession string) error {
 	ids, err := st.UncheckedAgentSessions(ctx, session, p.ID)

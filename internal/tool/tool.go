@@ -1,4 +1,4 @@
-// Package tool reads the contract of a Brain tool (HLD §10.1): its tool.toml, and the reviewed
+// Package tool reads the contract of a Brain tool: its tool.toml, and the reviewed
 // run.sh when a pipeline needs one. It refuses a contract that puts an input where it could
 // change the command, and it gives the one hash of the whole contract that your approval
 // covers. It does not run a tool: brain run (E17-S4) does.
@@ -17,7 +17,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// The files of one tool revision (§10.1).
+// The files of one tool revision.
 const (
 	TomlName   = "tool.toml"
 	ScriptName = "run.sh"
@@ -57,8 +57,7 @@ var (
 	name = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 	// inputName is the form of an input name. [NEW]
 	inputName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-	// placeholder is an input in an argv element or in run.sh: {name}. [NEW] the form, from
-	// the §10.1 example.
+	// placeholder is an input in an argv element or in run.sh: {name}. [NEW] the form.
 	placeholder = regexp.MustCompile(`\{([a-z][a-z0-9_]*)\}`)
 )
 
@@ -85,7 +84,7 @@ func Files(text string) map[string]string {
 	return fs
 }
 
-// Hash is the one hash of the whole contract of a tool revision (§10.1): its text (the
+// Hash is the one hash of the whole contract of a tool revision: its text (the
 // command bytes, the input schema, the cwd, the timeout, the effects and the restriction)
 // and its scope. [NEW] the input: the lines "scope: <scope>" and "workspace: <key>", an empty
 // line, then the text.
@@ -95,7 +94,7 @@ func Hash(text, scope, workspaceKey string) string {
 }
 
 // Parse reads and checks a tool text. It refuses an unknown or missing field, and each
-// contract that breaks a §10.1 rule: an input in the first argv element, an input that fills
+// contract that breaks a contract rule: an input in the first argv element, an input that fills
 // only part of an element, an input in a command position, an input with no type or no
 // pattern, and a run.sh that puts an input in its text.
 func Parse(text string) (Contract, error) {
@@ -149,7 +148,7 @@ func (c Contract) check() error {
 
 // DropsRestriction reports whether next removes the read-only restriction of old: both are
 // tool texts, old with read_only true and next with read_only false. That change is a change
-// of a safety rule (§7.4).
+// of a safety rule.
 func DropsRestriction(old, next string) bool {
 	o, err := Parse(old)
 	if err != nil || !o.ReadOnly {

@@ -1,6 +1,6 @@
-// Package event handles the herdr plugin events that Brain listens to (HLD §4.2, D4). herdr
-// runs `brain event <name>` once for each event; the command does its work and exits. There
-// is no listener process.
+// Package event handles the herdr plugin events that Brain listens to. herdr runs
+// `brain event <name>` once for each event; the command does its work and exits. There is no
+// listener process.
 package event
 
 import (
@@ -42,7 +42,7 @@ type Closed struct {
 }
 
 // ParseClosed reads a workspace.closed event from environ. A close event has no
-// HERDR_PANE_ID, so it does not go through the resolver (D4).
+// HERDR_PANE_ID, so it does not go through the resolver.
 func ParseClosed(environ []string) (Closed, error) {
 	var ev struct {
 		Data struct {
@@ -58,7 +58,7 @@ func ParseClosed(environ []string) (Closed, error) {
 		WorkspaceID: ev.Data.WorkspaceID,
 	}
 	if c.Session == "" {
-		c.Session = "default" // the default session has no HERDR_SESSION (M0)
+		c.Session = "default" // the default session has no HERDR_SESSION
 	}
 	switch {
 	case c.WorkspaceID == "":
@@ -70,7 +70,7 @@ func ParseClosed(environ []string) (Closed, error) {
 }
 
 // WorkspaceClosed marks the closed workspace of the event in environ closed, in the workspace
-// map and the store of its binding (§9.4 "Close"). bindingsFile is the bindings file. An
+// map and the store of its binding. bindingsFile is the bindings file. An
 // unbound session, a binding of another session, or an unknown workspace changes nothing.
 func WorkspaceClosed(ctx context.Context, environ []string, bindingsFile string) (err error) {
 	c, err := ParseClosed(environ)

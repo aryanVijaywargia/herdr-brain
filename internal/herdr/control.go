@@ -13,7 +13,7 @@ import (
 )
 
 // The calls in this file open, drive and close panes and agents, and start a named herdr
-// server. Only the eval runner (E10) uses them, and only in its test session (HLD §12.1).
+// server. Only the eval runner (E10) uses them, and only in its test session.
 
 // CreateWorkspace opens a workspace with its root pane in folder cwd, from `herdr workspace
 // create`. It never takes focus. It returns the root pane.
@@ -140,8 +140,7 @@ func (c *Client) PromptAgent(ctx context.Context, target, text string, timeout t
 }
 
 // ReadAgent returns the last lines of the agent target's screen as plain text, from `herdr
-// agent read --source recent-unwrapped`. herdr 0.9.1 prints text here, not JSON
-// (M0 test, item 28).
+// agent read --source recent-unwrapped`. herdr 0.9.1 prints text here, not JSON.
 func (c *Client) ReadAgent(ctx context.Context, target string, lines int) (string, error) {
 	out, err := c.run(ctx, "agent", "read", target, "--source", "recent-unwrapped", "--lines", strconv.Itoa(lines))
 	if err != nil {
@@ -152,7 +151,7 @@ func (c *Client) ReadAgent(ctx context.Context, target string, lines int) (strin
 
 // ReadAgentVisible returns the screen of the agent target as plain text, from `herdr agent
 // read --source visible`. An alternate-screen agent (Claude) has only its screen: a longer
-// read fails while it works and scrolls the pane at idle (HLD §6.2, E11-S1).
+// read fails while it works and scrolls the pane at idle (E11-S1).
 func (c *Client) ReadAgentVisible(ctx context.Context, target string) (string, error) {
 	out, err := c.run(ctx, "agent", "read", target, "--source", "visible")
 	if err != nil {

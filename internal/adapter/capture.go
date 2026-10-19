@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// The events of `brain hook --event` (E11-S5, §6.1). Start delivers the brief; the others
+// The events of `brain hook --event` (E11-S5). Start delivers the brief; the others
 // store one hook record.
 const (
 	EventStart  = "start"
@@ -55,7 +55,7 @@ type Record struct {
 	CWD       string // "" when the input has none
 	Text      string // the prompt or the reply; "" for a tool
 	Command   string // the shell command of a tool
-	// ExitStatus is the exit status of a tool; nil when the input has none (§6.7).
+	// ExitStatus is the exit status of a tool; nil when the input has none.
 	ExitStatus *int
 }
 

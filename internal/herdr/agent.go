@@ -5,15 +5,15 @@ import (
 	"fmt"
 )
 
-// The agent statuses that the automation runner reads (M0 E17-S1).
+// The agent statuses that the automation runner reads (E17-S1 test).
 const (
 	StatusWorking = "working"
 	StatusIdle    = "idle"
 	StatusDone    = "done"
 )
 
-// Agent is the agent state of one pane, from agent.get or agent.list (§10.4). herdr gives
-// state_change_seq only here, not in pane.get or pane.list (M0 E17-S1).
+// Agent is the agent state of one pane, from agent.get or agent.list. herdr gives
+// state_change_seq only here, not in pane.get or pane.list (E17-S1 test).
 type Agent struct {
 	PaneID      string
 	WorkspaceID string
@@ -21,7 +21,7 @@ type Agent struct {
 	Status      string // agent_status
 	Session     string // the herdr agent session id; "" when herdr has none
 	Cwd         string // "" when herdr does not know it
-	TerminalID  string // changes at a herdr server restart (M0 E17-S1)
+	TerminalID  string // changes at a herdr server restart (E17-S1 test)
 	Seq         uint64 // state_change_seq: one counter for the whole herdr server
 }
 
@@ -65,7 +65,7 @@ func (r *rawAgent) parse(c *check, field string) Agent {
 }
 
 // Agent returns the agent state of pane id, from agent.get. Brain calls it at once for each
-// status event, so the event joins the state that herdr has now (§10.4 step 1).
+// status event, so the event joins the state that herdr has now.
 func (s Socket) Agent(ctx context.Context, id string) (Agent, error) {
 	if err := checkPaneID(id); err != nil {
 		return Agent{}, err

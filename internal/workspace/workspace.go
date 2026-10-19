@@ -1,5 +1,5 @@
 // Package workspace keeps the workspace map of a store: it maps a (herdr session, workspace id)
-// pair to Brain's own workspace key (HLD §11 "Workspace identity", owner decision 2026-09-28).
+// pair to Brain's own workspace key.
 //
 // A `brain` call refreshes the map from `herdr workspace list`. The first mapping records the
 // project folder: the git top-level of the saved root (identity_cwd in herdr's session.json),
@@ -33,8 +33,8 @@ import (
 const mapVersion = 1
 
 // Entry maps one (herdr session, workspace id) pair to a key. A remap keeps the old entry,
-// so that its items wait for a relink (§9.4, S83); ReplacedBy then names the new key. A
-// close keeps the entry too, with Closed set: herdr can reuse the id after a restart (D4).
+// so that its items wait for a relink (S83); ReplacedBy then names the new key. A
+// close keeps the entry too, with Closed set: herdr can reuse the id after a restart.
 type Entry struct {
 	Key         string `json:"key"`
 	Session     string `json:"session"`      // herdr session name
@@ -219,7 +219,7 @@ func (e Entry) row(now time.Time) store.Workspace {
 // Remapped is the result of a remap.
 type Remapped struct {
 	New Entry
-	Old []Entry // earlier entries of the pair; their items wait for a relink (§9.4)
+	Old []Entry // earlier entries of the pair; their items wait for a relink
 }
 
 // Remap gives workspace id of s a new key for the project folder of its saved root. The old
@@ -263,8 +263,8 @@ func (s Session) Remap(ctx context.Context, environ []string, st *store.Store, i
 	return res, err
 }
 
-// Relink is an old entry whose items wait for a relink, and the current entry that it could
-// link to (§9.4).
+// Relink is an old entry whose items wait for a relink, and the current entry that it
+// could link to.
 type Relink struct {
 	Old, New Entry
 }
@@ -301,7 +301,7 @@ func (s Session) Relinks() ([]Relink, error) {
 			rs = append(rs, Relink{Old: e, New: byKey[e.ReplacedBy]})
 		}
 	}
-	// A new herdr id with the project folder of an older current entry (§9.4): the map
+	// A new herdr id with the project folder of an older current entry: the map
 	// appends entries, so the older one comes first.
 	for i, e := range cur {
 		for _, old := range cur[:i] {
@@ -330,8 +330,8 @@ func (s Session) Entry(key string) (Entry, bool, error) {
 }
 
 // Close marks workspace id of s closed: each entry of the pair, the remapped ones too, and
-// their store rows. The items stay in the store, without delivery (§9.4). A later workspace
-// with the same id is then unmapped, and the next `brain` call gives it a new key (D4). An
+// their store rows. The items stay in the store, without delivery. A later workspace
+// with the same id is then unmapped, and the next `brain` call gives it a new key. An
 // unknown pair changes nothing.
 //
 // The map goes first: herdr does not replay an event, and a map that still holds the pair
