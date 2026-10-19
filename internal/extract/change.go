@@ -52,6 +52,14 @@ func (p Pass) requests(ctx context.Context, tx *sql.Tx) ([]job, error) {
 			r.Status == store.ChangeActive && p.Now().Sub(r.At) < changeStale {
 			continue
 		}
+		// A request whose last call the CLI refused is not spent, also after all its tries: it
+		// takes back the proposal that an older Brain gave back to review, so that changeJob
+		// finds it current (#428).
+		if failed && r.Refusal != store.RefusalNone && noTryLeft(r.Status == store.ChangeFailed, r.ModelCalls) {
+			if err := retake(ctx, tx, r, p.Now()); err != nil {
+				return nil, err
+			}
+		}
 		// A request that a Brain before #359 called to the end gives its proposal back now, so
 		// that changeJob finds it current.
 		if spent {
@@ -143,10 +151,25 @@ func (p Pass) changeJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) 
 
 // ChangeSpent reports whether change request r failed or was invalid with no try left
 // (noTryLeft, #359): it gets no more calls and stays so, and its proposal is back in review
-// (store.ReturnChanged). A new request of the item starts with new tries.
+// (store.ReturnChanged). A new request of the item starts with new tries. A request whose last
+// call the CLI refused (r.Refusal, #428) is not spent: that call used no try.
 func ChangeSpent(r store.ChangeRequest) bool {
-	return (r.Status == store.ChangeFailed || r.Status == store.ChangeInvalid) &&
+	return (r.Status == store.ChangeFailed || r.Status == store.ChangeInvalid) && r.Refusal == store.RefusalNone &&
 		noTryLeft(r.Status == store.ChangeFailed, r.ModelCalls)
+}
+
+// retake takes back the proposal of change request r from review at now, when an older Brain
+// gave it back (giveBack) and you did not decide it yet: the CLI refused the last call of r, so r
+// gets its call again (#428). A proposal that you decided stays as it is; changeJob then
+// discards r.
+func retake(ctx context.Context, tx *sql.Tx, r store.ChangeRequest, now time.Time) error {
+	switch {
+	case r.Source == store.ChangeProposal:
+		return store.RetakeChanged(ctx, tx, r.SourceID, now)
+	case r.NewProposalID != nil:
+		return store.RetakeChanged(ctx, tx, *r.NewProposalID, now)
+	}
+	return nil
 }
 
 // requestStatus is the status of the proposal of change request r while r is current: changed,

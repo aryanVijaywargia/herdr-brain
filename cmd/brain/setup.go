@@ -51,8 +51,8 @@ const codexTrust = `- Start codex. Choose "Review hooks", then press t on the Br
 // locality says where the excerpts of an extractor call go (§7.3 D9, D4).
 const locality = `- Brain calls claude -p or codex exec, with no tools, to learn from finished sessions.
 - Each call sends short excerpts, after the secret filter, to that CLI's provider or proxy.
-- The CLI signs in with its own login, or a key or proxy in the herdr env.
-  Brain never logs or stores them, and never picks the CLI itself.
+- The CLI signs in as it does in a herdr pane: its own login, or a key or proxy in the herdr env.
+  Brain passes that env on. It does not read it, and it filters the error text that it keeps.
 - Extraction is on by default. An off switch that you set stays off.
 - To stop the calls: brain extract off [--workspace <id>]
   Capture and the signal rules keep running.

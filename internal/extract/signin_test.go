@@ -10,76 +10,40 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// AC #428: the environment of a call is HOME, PATH, USER and LANG, and each sign-in and routing
-// variable of the chosen CLI that is set: the claude variables go only to claude and the codex
-// variables only to codex. An empty variable, HERDR_*, other CLAUDE_CODE_* variables and any
-// other variable stay out.
+// AC #428 (owner decision): the environment of a call is the environment of brained, with no
+// variable of the denylist: HERDR_*, BRAIN_* and the session markers of Claude Code and codex.
+// Sign-in, provider, proxy and any other variables stay, and LANG stays as it is.
 func TestCleanEnv(t *testing.T) {
-	vars := map[string]string{
-		"HOME": "/h", "PATH": "/bin", "USER": "u", "LANG": "fr_FR.UTF-8",
-		"ANTHROPIC_AUTH_TOKEN": "a-tok", "ANTHROPIC_BASE_URL": "http://127.0.0.1:8317", "CLAUDE_CODE_OAUTH_TOKEN": "o-tok",
-		"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": "us-east-1",
-		"OPENAI_API_KEY": "k", "CODEX_HOME": "/h/.codex",
-		"HTTPS_PROXY": "http://proxy:3128", "no_proxy": "localhost", "SSL_CERT_FILE": "/ca.pem", "TMPDIR": "/t",
-		"ANTHROPIC_API_KEY": "", "HERDR_SESSION": "default", "HERDR_ENV": "1", "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDECODE": "1",
-		"AWS_DEFAULT_REGION": "eu-west-1", "SECRET_THING": "s", "GOOGLE_API_KEY": "g",
+	kept := []string{"HOME=/h", "PATH=/bin", "USER=u", "LANG=fr_FR.UTF-8", "ANTHROPIC_API_KEY=k", "ANTHROPIC_AUTH_TOKEN=t",
+		"ANTHROPIC_BASE_URL=http://127.0.0.1:8317", "CLAUDE_CODE_OAUTH_TOKEN=o", "CLAUDE_CODE_USE_BEDROCK=1",
+		"CLAUDE_CODE_USE_VERTEX=1", "CLAUDE_CONFIG_DIR=/h/.claude-work", "AWS_REGION=us-east-1", "OPENAI_API_KEY=k",
+		"CODEX_HOME=/h/.codex", "CLIPROXY_KEY=c", "HTTPS_PROXY=http://proxy:3128", "no_proxy=localhost",
+		"SSL_CERT_FILE=/ca.pem", "RANDOM_VAR=x", "EMPTY="}
+	dropped := []string{"HERDR_SESSION=default", "HERDR_PANE_ID=w1:p1", "HERDR_SOCKET_PATH=/s", "BRAIN_CALL_ORIGIN=x",
+		"BRAIN_PROPOSAL_ID=1", "CLAUDECODE=1", "CLAUDE_CODE_ENTRYPOINT=cli", "CLAUDE_CODE_SSE_PORT=1",
+		"CLAUDE_CODE_SESSION_ID=s", "CLAUDE_CODE_MESSAGING_SOCKET=/m", "CLAUDE_CODE_MESSAGING_TOKEN=m", "CLAUDE_PID=1",
+		"CODEX_SANDBOX=seatbelt", "CODEX_SANDBOX_NETWORK_DISABLED=1", "CODEX_THREAD_ID=t", "CODEX_TOOL_CALL_ID=c"}
+	if got := cleanEnv(append(slices.Clone(kept), dropped...)); !slices.Equal(got, kept) {
+		t.Errorf("cleanEnv() = %q, want %q", got, kept)
 	}
-	getenv := func(name string) string { return vars[name] }
-	base := []string{"HOME=/h", "PATH=/bin", "USER=u", "LANG=en_US.UTF-8", "TMPDIR=/t", "HTTPS_PROXY=http://proxy:3128",
-		"no_proxy=localhost", "SSL_CERT_FILE=/ca.pem", "AWS_REGION=us-east-1"}
-	for _, c := range []struct {
-		cli  store.ExtractorCLI
-		want []string
-	}{
-		{store.ExtractorClaude, append(slices.Clone(base), "ANTHROPIC_AUTH_TOKEN=a-tok", "CLAUDE_CODE_OAUTH_TOKEN=o-tok",
-			"ANTHROPIC_BASE_URL=http://127.0.0.1:8317", "CLAUDE_CODE_USE_BEDROCK=1")},
-		{store.ExtractorCodex, append(slices.Clone(base), "OPENAI_API_KEY=k", "CODEX_HOME=/h/.codex")},
-	} {
-		t.Run(string(c.cli), func(t *testing.T) {
-			if got, _ := cleanEnv(c.cli, getenv); !slices.Equal(got, c.want) {
-				t.Errorf("cleanEnv(%s) = %q, want %q", c.cli, got, c.want)
-			}
-		})
+	if got := cleanEnv([]string{"HOME=/h"}); !slices.Equal(got, []string{"HOME=/h", "LANG=en_US.UTF-8"}) {
+		t.Errorf("cleanEnv(no LANG) = %q, want LANG=en_US.UTF-8 added", got)
 	}
 }
 
-// AC #428: every variable of the allowlist has a name with no "=", is listed once, and no
-// HERDR_* variable is on it. Of the CLAUDE_CODE_* variables, only the sign-in token and the
-// provider switches are.
-func TestCallEnvList(t *testing.T) {
-	keep := []string{"CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"}
-	var seen []string
-	for _, v := range callEnv {
-		switch {
-		case v.name == "" || strings.Contains(v.name, "="):
-			t.Errorf("bad name %q", v.name)
-		case slices.Contains(seen, v.name):
-			t.Errorf("%s is listed twice", v.name)
-		case strings.HasPrefix(v.name, "HERDR_"),
-			strings.HasPrefix(v.name, "CLAUDE_CODE_") && !slices.Contains(keep, v.name):
-			t.Errorf("%s is on the allowlist", v.name)
+// AC #428: the denylist names no sign-in or provider variable of a CLI.
+func TestDenyList(t *testing.T) {
+	for _, name := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
+		"CLAUDE_CONFIG_DIR", "CODEX_HOME", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "CODEX_CA_CERTIFICATE"} {
+		if slices.Contains(denyNames, name) {
+			t.Errorf("the denylist has %s", name)
 		}
-		seen = append(seen, v.name)
 	}
-}
-
-// signInVars is the environment of a call with a sign-in token that no secret pattern matches,
-// as a token of a local proxy can be, and custom headers.
-var signInVars = map[string]string{"HOME": "/h", "PATH": "/bin", "ANTHROPIC_AUTH_TOKEN": "proxy-tok-0123456789",
-	"ANTHROPIC_CUSTOM_HEADERS": "X-Team: blue-team-77\nX-Key: hdr-secret-4242", "OPENAI_API_KEY": "plainkey123",
-	"HTTPS_PROXY": "http://bob:pw-5150@proxy:3128"}
-
-// secretsOf returns the secrets of the calls of both CLIs with the environment vars.
-func secretsOf(vars map[string]string) []string {
-	getenv := func(name string) string { return vars[name] }
-	_, a := cleanEnv(store.ExtractorClaude, getenv)
-	_, b := cleanEnv(store.ExtractorCodex, getenv)
-	return append(a, b...)
 }
 
 // AC #428: the error of a failed call says why the CLI failed: the error result of claude, the
 // error event of codex, else the end of its standard error. The text goes through the secret
-// filter and has no value of a secret variable of the call, and is cut short. A sign-in failure
+// filter and the token filter, so it has no token, and is cut short. A sign-in failure
 // that ran no model is an ErrSignIn error, with a stable reason form; a limit stays a limit.
 func TestFailureReason(t *testing.T) {
 	long := strings.Repeat("word ", 100)
@@ -102,11 +66,11 @@ func TestFailureReason(t *testing.T) {
 		{"codex stderr", store.ExtractorCodex, "", "WARNING: x\nERROR: Your access token could not be refreshed. Please sign in again.\n" +
 			"note: see logs\n", "codex: Your access token could not be refreshed. Please sign in again.: sign-in failed", true},
 		{"token in stderr", store.ExtractorClaude, "", "debug: sent Bearer proxy-tok-0123456789\nerror: 401 for proxy-tok-0123456789\n",
-			"claude: error: 401 for [secret]: sign-in failed", true},
+			"claude: error: 401 for [hidden]: sign-in failed", true},
 		{"header values", store.ExtractorClaude, `{"is_error":true,"result":"Unauthorized: bad header hdr-secret-4242 for blue-team-77"}`,
-			"", "claude: Unauthorized: bad header [secret] for [secret]: sign-in failed", true},
+			"", "claude: Unauthorized: bad header [hidden] for [hidden]: sign-in failed", true},
 		{"proxy password", store.ExtractorCodex, "", "ERROR: proxy http://bob:pw-5150@proxy:3128 refused\n",
-			"sh: exit status 1: proxy [secret] refused", false},
+			"sh: exit status 1: proxy [hidden] refused", false},
 		{"pattern secret", store.ExtractorClaude, `{"is_error":true,"result":"Invalid API key sk-ant-abcdefghijklmnopqrstuvwxyz"}`,
 			"", "claude: Invalid API key [secret]: sign-in failed", true},
 		{"other failure", store.ExtractorClaude, `{"is_error":true,"result":"API Error: Request timed out"}`, "",
@@ -119,7 +83,7 @@ func TestFailureReason(t *testing.T) {
 		{"limit", store.ExtractorClaude, claudeWeekly, "", "claude is at a usage or rate limit", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			err := runError(c.cli, secretsOf(signInVars), []byte(c.out), exit("sh", c.stderr))
+			err := runError(c.cli, []byte(c.out), exit("sh", c.stderr))
 			if err.Error() != c.want || errors.Is(err, ErrSignIn) != c.signIn {
 				t.Errorf("runError() = %q (sign-in %v), want %q (sign-in %v)", err, errors.Is(err, ErrSignIn), c.want, c.signIn)
 			}
@@ -134,12 +98,12 @@ func TestFailureReason(t *testing.T) {
 
 // AC #428: an error result of claude with exit status 0, and a failed codex turn, also say why.
 func TestResultFailure(t *testing.T) {
-	_, err := claudeResult([]byte(`{"is_error":true,"result":"Not logged in · Please run /login"}`), nil)
+	_, err := claudeResult([]byte(`{"is_error":true,"result":"Not logged in · Please run /login"}`))
 	if want := "claude: Not logged in · Please run /login: sign-in failed"; err == nil || err.Error() != want ||
 		!errors.Is(err, ErrSignIn) {
 		t.Errorf("claudeResult() = %v, want %q", err, want)
 	}
-	_, err = codexResult([]byte(`{"type":"turn.failed","error":{"message":"model gpt-x not found"}}`), nil, "")
+	_, err = codexResult([]byte(`{"type":"turn.failed","error":{"message":"model gpt-x not found"}}`), "")
 	if want := "codex reported a failed turn: model gpt-x not found"; err == nil || err.Error() != want {
 		t.Errorf("codexResult() = %v, want %q", err, want)
 	}

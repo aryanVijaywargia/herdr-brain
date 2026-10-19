@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
@@ -197,11 +198,10 @@ func cause(out, stderr []byte) string {
 	return cmp.Or(why, lastLine(stderr))
 }
 
-// reasonText is cause why as a stored reason shows it: with each secret of the call hidden (hide),
-// through the secret filter (Redact) and the token filter (hideTokens), on one line, and cut to
-// maxCause runes.
-func reasonText(why string, secrets []string) string {
-	why = hideTokens(Redact(hide(why, secrets)))
+// reasonText is cause why as a stored reason shows it: through the secret filter (Redact) and the
+// token filter (hideTokens), on one line, and cut to maxCause runes.
+func reasonText(why string) string {
+	why = hideTokens(Redact(why))
 	if r := []rune(why); len(r) > maxCause {
 		why = string(r[:maxCause]) + "..."
 	}
@@ -222,28 +222,50 @@ func lastLine(stderr []byte) string {
 	return cmp.Or(lastErr, last)
 }
 
-// runError is the error of the failed CLI run of a call of cli with the secrets secrets
-// (cleanEnv), with out its output and err the error of the run (failure).
-func runError(cli store.ExtractorCLI, secrets []string, out []byte, err error) error {
+// tokenEdge are the characters that hideTokens trims from the ends of a word. Square brackets
+// stay, so a word that holds a "[secret]" of the secret filter goes whole.
+const tokenEdge = "\"'`,;:(){}<>.!?"
+
+// minToken is the shortest token-shaped word in runes [NEW, #428 Sol round 2].
+const minToken = 8
+
+// hideTokens replaces each token-shaped word of the cause of a failure with "[hidden]" and puts
+// the words on one line (#428): a word that is minToken runes or longer, after its end
+// punctuation, with a digit or one of % + = / \ _ - . : @. Keys, tokens, URLs, hex, base64 and
+// encoded forms go; plain words, such as "Failed to authenticate: OAuth session expired", stay.
+// It runs on a stored reason only, never on model text.
+func hideTokens(text string) string {
+	words := strings.Fields(text)
+	for i, w := range words {
+		core := strings.Trim(w, tokenEdge)
+		if utf8.RuneCountInString(core) >= minToken && strings.ContainsAny(core, `0123456789%+=/\_-.:@`) {
+			words[i] = strings.Replace(w, core, "[hidden]", 1)
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+// runError is the error of the failed CLI run of a call of cli, with out its output and err the
+// error of the run (failure).
+func runError(cli store.ExtractorCLI, out []byte, err error) error {
 	var exit *ExitError
 	var stderr []byte
 	if errors.As(err, &exit) {
 		stderr = exit.Stderr
 	}
-	return failure(cli, secrets, out, stderr, err)
+	return failure(cli, out, stderr, err)
 }
 
 // noText ends the reason of a failure whose CLI wrote no error text. With it, no new reason has
 // the bare form of a Brain before #428, which migration 0037 maps to a sign-in refusal.
 const noText = "the CLI gave no error text"
 
-// failure is the error of a call of cli with the secrets secrets that failed with err, with out
-// its output and stderr the end of its standard error: an ErrLimit error when the CLI is at a
+// failure is the error of a call of cli that failed with err, with out its output and stderr the end of its standard error: an ErrLimit error when the CLI is at a
 // usage or rate limit (limited), an ErrSignIn error when it could not sign in and ran no model
 // (#428), else err with the cause. The check reads the full cause as the CLI wrote it; the error
 // text has the cause as reasonText hides and cuts it. So the stored reason says why, as "claude:
 // Failed to authenticate: ...: sign-in failed".
-func failure(cli store.ExtractorCLI, secrets []string, out, stderr []byte, err error) error {
+func failure(cli store.ExtractorCLI, out, stderr []byte, err error) error {
 	if limited(out, stderr) {
 		return fmt.Errorf("%s is %w", cli, ErrLimit)
 	}
@@ -252,9 +274,9 @@ func failure(cli store.ExtractorCLI, secrets []string, out, stderr []byte, err e
 	case why == "":
 		return fmt.Errorf("%w: %s", err, noText)
 	case signInText.MatchString(why) && !slices.ContainsFunc(events(out), event.ran):
-		return fmt.Errorf("%s: %s: %w", cli, reasonText(why, secrets), ErrSignIn)
+		return fmt.Errorf("%s: %s: %w", cli, reasonText(why), ErrSignIn)
 	}
-	return fmt.Errorf("%w: %s", err, reasonText(why, secrets))
+	return fmt.Errorf("%w: %s", err, reasonText(why))
 }
 
 // refusal is the refusal of failed call error err: the CLI ran no model, as it was at a limit
@@ -282,15 +304,14 @@ func call(ctx context.Context, r Runner, s store.ExtractorSetting, schema, promp
 		return nil, err
 	}
 	defer os.RemoveAll(dir) //nolint:errcheck // a scratch folder in the temp folder
-	env, secrets := cleanEnv(s.CLI, os.Getenv)
+	env := cleanEnv(os.Environ())
 	switch s.CLI {
 	case store.ExtractorClaude:
 		out, err := r.Run(ctx, Command{Dir: dir, Argv: claudeArgv(s.Model, schema, prompt), Env: env})
 		if err != nil {
-			return nil, runError(s.CLI, secrets, out, err)
+			return nil, runError(s.CLI, out, err)
 		}
-		res, err := claudeResult(out, secrets)
-		return scrub(res, secrets), err
+		return claudeResult(out)
 	case store.ExtractorCodex:
 		out, err := r.Run(ctx, Command{Dir: dir, Argv: []string{"codex", "--disable", "plugins", "mcp", "list", "--json"}, Env: env})
 		if err != nil {
@@ -305,10 +326,9 @@ func call(ctx context.Context, r Runner, s store.ExtractorSetting, schema, promp
 		}
 		out, err = r.Run(ctx, Command{Dir: dir, Argv: codexArgv(s.Model, servers, prompt), Env: env})
 		if err != nil {
-			return nil, runError(s.CLI, secrets, out, err)
+			return nil, runError(s.CLI, out, err)
 		}
-		res, err := codexResult(out, secrets, filepath.Join(dir, "last.json"))
-		return scrub(res, secrets), err
+		return codexResult(out, filepath.Join(dir, "last.json"))
 	}
 	return nil, fmt.Errorf("no extractor CLI is chosen")
 }
@@ -325,10 +345,9 @@ func claudeArgv(model, schema, prompt string) []string {
 		"--output-format", "json", "--json-schema", schema, prompt)
 }
 
-// claudeResult reads the structured output of a claude -p JSON result, from a call with the
-// secrets secrets. With no structured output, the model refused the schema: the response is
+// claudeResult reads the structured output of a claude -p JSON result. With no structured output, the model refused the schema: the response is
 // invalid (E13-S1). An error result is a failure.
-func claudeResult(out []byte, secrets []string) (json.RawMessage, error) {
+func claudeResult(out []byte) (json.RawMessage, error) {
 	var res struct {
 		IsError          bool            `json:"is_error"`
 		StructuredOutput json.RawMessage `json:"structured_output"`
@@ -337,7 +356,7 @@ func claudeResult(out []byte, secrets []string) (json.RawMessage, error) {
 	case err != nil:
 		return nil, fmt.Errorf("claude output is not JSON: %w", ErrInvalid)
 	case res.IsError:
-		return nil, failure(store.ExtractorClaude, secrets, out, nil, errors.New("claude reported an error"))
+		return nil, failure(store.ExtractorClaude, out, nil, errors.New("claude reported an error"))
 	case len(res.StructuredOutput) == 0 || string(res.StructuredOutput) == "null":
 		return nil, fmt.Errorf("claude gave no structured output: %w", ErrInvalid)
 	}
@@ -390,10 +409,9 @@ func enabledServers(out []byte) ([]string, error) {
 // is a tool item: Brain rejects the reply (E13-S1).
 var codexItems = []string{"agent_message", "reasoning"}
 
-// codexResult reads the -o file of codex exec, after it checks the --json events out of a call
-// with the secrets secrets. A failed turn or no file is a failure; a tool item is an invalid
+// codexResult reads the -o file of codex exec, after it checks the --json events out. A failed turn or no file is a failure; a tool item is an invalid
 // response (E13-S1).
-func codexResult(out []byte, secrets []string, last string) (json.RawMessage, error) {
+func codexResult(out []byte, last string) (json.RawMessage, error) {
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	sc.Buffer(nil, 16<<20)
 	for sc.Scan() {
@@ -409,7 +427,7 @@ func codexResult(out []byte, secrets []string, last string) (json.RawMessage, er
 		}
 		switch ev.Type {
 		case "turn.failed", "error":
-			return nil, failure(store.ExtractorCodex, secrets, out, nil, errors.New("codex reported a failed turn"))
+			return nil, failure(store.ExtractorCodex, out, nil, errors.New("codex reported a failed turn"))
 		case "item.started", "item.completed":
 			if t := ev.Item.Type + ev.Item.ItemType; !slices.Contains(codexItems, t) {
 				return nil, fmt.Errorf("codex used a tool (%s): %w", t, ErrInvalid)

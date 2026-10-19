@@ -167,6 +167,18 @@ func ReturnChanged(ctx context.Context, tx *sql.Tx, id int64) error {
 	return nil
 }
 
+// RetakeChanged takes proposal id back from review at now, the opposite of ReturnChanged: its
+// change request gets a call again (#428). Only a pending proposal with its request text is
+// taken back; one that you decided stays as it is.
+func RetakeChanged(ctx context.Context, tx *sql.Tx, id int64, now time.Time) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE proposals SET status = ?, decided = ?
+		WHERE id = ? AND status = ? AND change_request IS NOT NULL`, ProposalChanged, timeArg(now), id,
+		ProposalPending); err != nil {
+		return fmt.Errorf("take proposal %d back from review: %w", id, err)
+	}
+	return nil
+}
+
 // ProposalChangeOf returns the change request of proposal id: the request that you asked on it,
 // or that redrafts it (AskItemChange). ok is false for none.
 func ProposalChangeOf(ctx context.Context, tx *sql.Tx, id int64) (c ChangeRequest, ok bool, err error) {
