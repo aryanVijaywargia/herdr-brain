@@ -416,7 +416,7 @@ func TestS98MergeNoCall(t *testing.T) {
 }
 
 // A forget of an item in a waiting merge proposal removes that proposal from the queue, and
-// erases its text (§9.5 forget, §6.7).
+// erases its text.
 func TestMergeForget(t *testing.T) {
 	c := newMergeCase(t, 21)
 	c.m.groups = []map[string]any{group(c.ids[0], merged, c.ids...)}
@@ -431,7 +431,7 @@ func TestMergeForget(t *testing.T) {
 	})
 }
 
-// AC approve (§9.5): approve writes the kept item pinned when an item of the group was pinned,
+// AC approve: approve writes the kept item pinned when an item of the group was pinned,
 // and takes an edit. It needs --confirm when a claim of the group touches a permission. A changed
 // base revision of any item fails with the existing message, and a merge takes no scope change.
 func TestMergeApprove(t *testing.T) {
@@ -491,7 +491,7 @@ func TestMergeApprove(t *testing.T) {
 	})
 }
 
-// AC trigger (§9.5): the global part takes a merge call when it is at least 80% of its budget,
+// AC trigger: the global part takes a merge call when it is at least 80% of its budget,
 // with its own items only.
 func TestMergeGlobalPart(t *testing.T) {
 	c := newMergeCase(t, 0)

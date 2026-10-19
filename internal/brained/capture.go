@@ -19,16 +19,16 @@ import (
 )
 
 const (
-	// recentLines is the length of a recent_unwrapped read (§6.2 step 2: about 120 lines).
+	// recentLines is the length of a recent_unwrapped read.
 	recentLines = 120
-	// excerptLimit is the longest excerpt in characters (§6.7, §11: ≤ 500 characters).
+	// excerptLimit is the longest excerpt in characters.
 	excerptLimit = 500
 )
 
 // inline lists the agents that draw inline, so their rows go to the scrollback and a
-// recent_unwrapped read works while they work (M0 E11-S1b). Every other agent gets a visible
+// recent_unwrapped read works while they work (the E11-S1b test). Every other agent gets a visible
 // read: Claude draws in the alternate screen, where a longer read fails while it works and
-// scrolls the pane at idle (M0 E11-S1). A visible read never scrolls a pane.
+// scrolls the pane at idle (the E11-S1 test). A visible read never scrolls a pane.
 var inline = map[string]bool{"codex": true}
 
 // The events of a gap observation, beside the Gap of a baseline.
@@ -46,7 +46,7 @@ const (
 	gapDetected = "agent detected again"
 )
 
-// Capture is the Handler that reads panes (E11-S3, HLD §6.2). It keeps the last read of each
+// Capture is the Handler that reads panes (E11-S3). It keeps the last read of each
 // pane in memory only, and it stores the new part of each read as one observation. It only
 // reads: it sends no keys and no scroll to any pane.
 type Capture struct {
@@ -102,8 +102,8 @@ type read struct {
 	agent   string     // "" when the pane has no agent
 	read    herdr.PaneRead
 	lines   []string
-	senders []store.Sender // the sender of each line (§6.5)
-	clean   []string       // lines with the secrets dropped (§6.7)
+	senders []store.Sender // the sender of each line
+	clean   []string       // lines with the secrets dropped
 	head    int            // the number of lines at the start whose sender is not known
 	full    bool           // the read holds the whole history of the pane
 }
@@ -150,7 +150,7 @@ func (c *Capture) Handle(ctx context.Context, s Step) error {
 func (c *Capture) baseline(ctx context.Context, s Step, gap string) error {
 	cp := c.panes[s.PaneID]
 	// A forget during the read may delete text that the read shows, so that read is no base
-	// of the new generation: the baseline notes the forgets before it reads (§6.7).
+	// of the new generation: the baseline notes the forgets before it reads.
 	var forgets int64
 	err := c.write(ctx, s, func(tx *sql.Tx, _ time.Time, _ Learning) (err error) {
 		forgets, err = store.Forgets(ctx, tx)
@@ -311,7 +311,7 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 			if status == store.ObservationPartial {
 				// A partial read does not start inside the old text, so a text that the segment
 				// holds can be old text shown again: Brain cannot tell a replay from new
-				// evidence, so it stores it and does not count it (§6.4, S34). A complete read
+				// evidence, so it stores it and does not count it (S34). A complete read
 				// that repeats a text is a real repeat (S40).
 				seen, err := store.SeenExcerpt(ctx, tx, cp.segment, p.sender, excerpt)
 				if err != nil {
@@ -324,7 +324,7 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 				o.Counts = !seen && !shown
 			}
 			if p.unsure {
-				o.Counts = false // the sender is not known (§6.4, #281)
+				o.Counts = false // the sender is not known (#281)
 			}
 			if err := record(ctx, tx, cp, o, panePrompt(cp.agent, p.lines)); err != nil {
 				return err
@@ -334,7 +334,7 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 	})
 	if errors.Is(err, store.ErrForgotten) {
 		// brain forget --session deleted the evidence of the session after the baseline: the
-		// read may hold forgotten text, so it is dropped, and a new baseline follows (§6.7).
+		// read may hold forgotten text, so it is dropped, and a new baseline follows.
 		return c.baseline(ctx, s, gapForget)
 	}
 	if err != nil {
@@ -367,7 +367,7 @@ func busy(status string) bool {
 }
 
 // copies drops the prompts of ps, the parts of the new lines added of r, that a read showed
-// before: one sent prompt is one occurrence (§6.4, #278). Codex shows a prompt again at later
+// before: one sent prompt is one occurrence (#278). Codex shows a prompt again at later
 // reads, cut to one line, with a banner or an earlier prompt above it, or with another wrap.
 // A prompt that the session shows is a copy when its first line starts the text of a known
 // prompt, or the known first line starts it, and its other lines are text of that prompt. A
@@ -567,7 +567,7 @@ func (cp *capturePane) hookPrompts(ctx context.Context, tx *sql.Tx) ([]hookPromp
 
 // hookCopy reports whether prompt part p, to be stored as observation o of the session of cp,
 // is a copy of a sent prompt that a prompt hook record of hooks holds: one send is one
-// occurrence (§6.4, #349). The first read of a sent prompt is the pane counterpart of its hook
+// occurrence (#349). The first read of a sent prompt is the pane counterpart of its hook
 // record (S35), and it stays. A cut copy (copies) is a copy. Any other read that shows the text
 // of a hook record, or a start of it, is a copy too: a repaint, or the prompt after the read at
 // its send failed, when its hook record counts alone. Only the last prompt of the read, last,
@@ -657,7 +657,7 @@ func (k promptKey) within(text string) bool {
 }
 
 // suggest starts the suggestions that the last write of cp reserved, after its commit: the
-// fallback path of §5.5. Each process gets the herdr variables of the pane of s, so it
+// fallback path through a pane read. Each process gets the herdr variables of the pane of s, so it
 // resolves the pane again (E2-S3).
 func (c *Capture) suggest(ctx context.Context, s Step, cp *capturePane) error {
 	var errs []error
@@ -703,7 +703,7 @@ func (c *Capture) begin(ctx context.Context, tx *sql.Tx, s Step, cp *capturePane
 }
 
 // record stores observation o of the session of cp and moves the cursor of the session in tx,
-// so a crash leaves both or neither (§6.4). tx has run the exclusion check (Capture.write), and
+// so a crash leaves both or neither. tx has run the exclusion check (Capture.write), and
 // the caller writes only when the learning state is the one of its base. A known capture
 // identity is a retry or a duplicate: it adds nothing and moves no cursor. A gap has no text,
 // so it never counts. A hook record with the same text enriches the new observation (S35).
@@ -783,7 +783,7 @@ func (c *Capture) lose(ctx context.Context, s Step, cp *capturePane, err error) 
 
 // end ends the session of the pane and drops its last read. An end writes no text, so it
 // needs no learning check. After a session ends, the stale check reads the anchors of the
-// items of its workspace (§9.1).
+// items of its workspace.
 func (c *Capture) end(ctx context.Context, s Step, cp *capturePane) error {
 	ended := cp != nil && cp.session != 0 && !c.held(cp.key, s.PaneID)
 	if ended {
@@ -840,7 +840,7 @@ func (c *Capture) write(ctx context.Context, s Step, fn func(tx *sql.Tx, now tim
 }
 
 // read reads pane id: pane.get, pane.read, pane.get. The read counts only when the pane holds
-// the same agent, agent session and workspace before and after it (§6.2 step 3). An agent
+// the same agent, agent session and workspace before and after it. An agent
 // session id that herdr gives during the read keeps the read.
 func (c *Capture) read(ctx context.Context, id string) (read, error) {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -938,7 +938,7 @@ func probeRun(p herdr.Process) bool {
 
 // runsAgent reports whether foreground process p runs agent, and not as a probe: its program or
 // its name is the agent, or it runs the agent as a script path, as "node /usr/local/bin/codex"
-// [M0 test E11-S1b]. A word "claude" that grep looks for is no script path.
+// [the E11-S1b test]. A word "claude" that grep looks for is no script path.
 func runsAgent(p herdr.Process, agent string) bool {
 	if len(p.Argv) == 0 || probeRun(p) {
 		return false
@@ -971,7 +971,7 @@ func (c *Capture) lines(harness, text string) []string {
 }
 
 // newPart returns the indexes of the lines of r that the last read old does not hold, and the status of the
-// new part (§6.2 steps 4-5). A line diff keeps each new line, also one with the same text as
+// new part. A line diff keeps each new line, also one with the same text as
 // an old line (S40). Old text with other line breaks is a resize or a rewrap, so it is not new
 // (S38) [NEW, design choice]. The part is complete when the read starts inside the old text or
 // holds the whole history; else text may be lost between the reads, and it is partial.
@@ -1118,7 +1118,7 @@ func (s squashed) holdsToEnd(text string) bool {
 }
 
 // identity is the capture identity of an observation: the binding, the segment and the read
-// time, because herdr events have no id (§6.4).
+// time, because herdr events have no id.
 func identity(s Step, segment int64, now time.Time) string {
 	return fmt.Sprintf("%s/%d/%s", s.Gate.Binding.Session, segment, now.Format(time.RFC3339Nano))
 }

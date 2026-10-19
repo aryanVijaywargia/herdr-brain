@@ -14,7 +14,7 @@ import (
 // after the hook, because brained reads a pane only when its agent status changes.
 const matchWindow = 5 * time.Minute
 
-// HookText runs the capture filters of §6.3 and §6.7 on text from a hook payload of harness,
+// HookText runs the capture filters on text from a hook payload of harness,
 // as on pane text: it drops Brain blocks, the CLI scaffolding and a compaction summary, puts
 // [secret] in place of each secret, and cuts the result to the excerpt limit. brain says that
 // the text held a Brain block, so the text after it is Brain-origin.
@@ -42,7 +42,7 @@ func HookText(harness, text string) (excerpt string, truncated, brain bool) {
 }
 
 // Match links observation o of session to its counterpart from the other source, when one
-// matches (§6.4, S35): the same session, a time within matchWindow, the pane sender of the
+// matches (S35): the same session, a time within matchWindow, the pane sender of the
 // hook event, and the same normalized text. The hook record then enriches the pane observation
 // and is not a second occurrence. The nearest counterpart in time wins. o.ID is the stored
 // row; o.Source is herdr or hook.

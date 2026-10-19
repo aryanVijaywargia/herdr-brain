@@ -18,15 +18,15 @@ import (
 )
 
 const (
-	// mergeEvery is the pause between two merge passes (§9.5 "once a day"). [NEW] 24 h from the
+	// mergeEvery is the pause between two merge passes: once a day. [NEW] 24 h from the
 	// start of brained, as staleEvery.
 	mergeEvery = 24 * time.Hour
 	// mergeFull is the share of its budget, in percent, that a brief part fills before the merge
-	// pass calls the model for it (§9.5).
+	// pass calls the model for it.
 	mergeFull = 80
 )
 
-// mergePass runs the merge pass of the store of g (§9.5): each part of the current output
+// mergePass runs the merge pass of the store of g: each part of the current output
 // generation that is at least mergeFull percent of its budget goes to extract.Pass.Merge, which
 // checks the rest of the trigger. The global part goes to any pass, and a workspace part to the
 // pass of its herdr session, as a change request does. The caps come from the config file

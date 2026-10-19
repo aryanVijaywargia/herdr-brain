@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	codexRun1 = "01a0ec3e-5e95-7253-aa8d-e7d232139183" // the agent session ids of M0 E11-S1b
+	codexRun1 = "01a0ec3e-5e95-7253-aa8d-e7d232139183" // the agent session ids of the E11-S1b test
 	codexRun2 = "01a0ec41-83c7-7463-a232-9faa89066336"
 )
 

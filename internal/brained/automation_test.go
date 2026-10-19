@@ -188,10 +188,9 @@ func (h *autoHarness) startPane(t *testing.T, status string) *fakeSub {
 	return st
 }
 
-// Method P (M0 E17-S1, §10.4 step 1): a joined working, then a joined idle, is one stop. It
-// claims one run and starts one launch process with the pane of the event. A duplicate of the
-// stop joins at rest and claims nothing (S51). A user stop (Esc) gives the same change, so it
-// runs (owner, 2026-10-05).
+// Method P (the E17-S1 test): a joined working, then a joined idle, is one stop. It claims
+// one run and starts one launch process with the pane of the event. A duplicate of the stop
+// joins at rest and claims nothing (S51). A user stop (Esc) gives the same change, so it runs.
 func TestAutomationStop(t *testing.T) {
 	h := newAutoHarness(t, bindings.KindMain)
 	st := h.startPane(t, "idle")

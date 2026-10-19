@@ -19,7 +19,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/transcript"
 )
 
-// The history scan tests use hand-made session files in a scratch home (HLD §17 items 32-34);
+// The history scan tests use hand-made session files in a scratch home;
 // no line comes from a real session. They use no real home, no model and no real herdr.
 
 // scanClaim is the claim time of the test scans.
@@ -373,7 +373,7 @@ func TestScanImport(t *testing.T) {
 }
 
 // offsetOf returns the byte offset of line i of the Codex file of session x1, the record id of
-// that line (§6.8).
+// that line.
 func offsetOf(t *testing.T, f *scanFix, i int) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(f.home, ".codex", "sessions", "2026", "10", "12", "rollout-x1.jsonl"))
@@ -515,8 +515,8 @@ func TestScanSkipsAndScope(t *testing.T) {
 	})
 }
 
-// Owner decision 2026-10-13, S5 gap HS-G1: a Claude session with the entrypoint sdk-cli
-// (claude -p, the Agent SDK) is not interactive and the scan skips it; one with cli is read.
+// A Claude session with the entrypoint sdk-cli (claude -p, the Agent SDK) is not interactive
+// and the scan skips it; one with cli is read.
 func TestScanClaudeEntrypoint(t *testing.T) {
 	f := newScanFix(t, bindings.KindMain)
 	f.claude("sdk", time.Hour, cUser("sdk-u", "/nowhere", 1, "a prompt", obj{"entrypoint": "sdk-cli"}))
@@ -643,10 +643,9 @@ func TestScanFindings(t *testing.T) {
 	}
 }
 
-// Owner decision 2026-10-13, S5 gap HS-G2: a repeated prompt needs at least 3 words. A
-// 2-word prompt in 3 sessions is no finding; a 3-word prompt in 2 sessions is one. The match
-// uses word sets, so "run tests" joins "run run tests": each prompt counts with its own words,
-// in either order.
+// A repeated prompt needs at least 3 words. A 2-word prompt in 3 sessions is no finding; a
+// 3-word prompt in 2 sessions is one. The match uses word sets, so "run tests" joins "run run
+// tests": each prompt counts with its own words, in either order.
 func TestScanPromptWords(t *testing.T) {
 	for name, c := range map[string]struct {
 		prompts [][]string // the prompts of each session, newest session first
@@ -825,10 +824,10 @@ func (f *scanFix) noPaneNoCall(t *testing.T, h *harness) {
 	})
 }
 
-// AC 6: the kind of each finding (§6.8 "Repeats"): a repeated text with a correction marker is a
-// correction, a repeated lesson in plain words is one lesson, other repeated text is a repeated
-// prompt, a lesson counts from its first telling, a procedure joins the procedures that it is
-// like, and a command chain and a failure join by their signature. A procedure below its gate
+// AC 6: the kind of each finding: a repeated text with a correction marker is a correction, a
+// repeated lesson in plain words is one lesson, other repeated text is a repeated prompt, a
+// lesson counts from its first telling, a procedure joins the procedures that it is like, and
+// a command chain and a failure join by their signature. A procedure below its gate
 // and a chain in fewer than 3 sessions are no findings.
 func TestScanKinds(t *testing.T) {
 	f := newScanFix(t, bindings.KindMain)
@@ -1020,7 +1019,7 @@ func TestScanRestartKeepsImported(t *testing.T) {
 }
 
 // Sol fix: a Claude file that repeats a prompt record gives one turn, and the usage of each
-// assistant message counts once in it (§6.4).
+// assistant message counts once in it.
 func TestScanRepeatedRecord(t *testing.T) {
 	f := newScanFix(t, bindings.KindMain)
 	u := cUser("u1", "/nowhere", 1, "a prompt")

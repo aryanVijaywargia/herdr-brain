@@ -15,13 +15,13 @@ import (
 )
 
 const (
-	// staleEvery is the pause between two stale checks of every workspace (§9.1 "once a day").
+	// staleEvery is the pause between two stale checks of every workspace: once a day.
 	// [NEW] 24 h from the start of brained: any time of day.
 	staleEvery = 24 * time.Hour
 	// staleTimeout is the deadline of one stale check: its git reads, its write and the build.
 	// [NEW] 1 minute.
 	staleTimeout = time.Minute
-	// outDir is the out folder of a store, as in the hook (§7.5 step 3).
+	// outDir is the out folder of a store, as in the hook.
 	outDir = "out"
 )
 
@@ -31,7 +31,7 @@ type dispute struct {
 	changes []signal.AnchorChange
 }
 
-// check is what the stale check does with one item (§9.1, #252): dispute it, give it a new
+// check is what the stale check does with one item (#252): dispute it, give it a new
 // baseline after a normal edit, or make it active again.
 type check struct {
 	item store.Item
@@ -42,7 +42,7 @@ type check struct {
 }
 
 // Stale checks the anchors of the active and disputed items of workspace key in the store of
-// g, or of every workspace when key is "" (§9.1). An active item whose anchor file moved or
+// g, or of every workspace when key is "". An active item whose anchor file moved or
 // was deleted becomes disputed, with a proposal in the review queue that holds the anchor
 // diff. It stays delivered with a mark, so Stale builds the output. A normal edit of an anchor
 // file does not dispute the item: the item gets the new blob as its baseline. A disputed item

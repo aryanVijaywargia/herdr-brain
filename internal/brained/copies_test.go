@@ -165,7 +165,7 @@ func TestCaptureTipUnderPrompt(t *testing.T) {
 // from session S1 of the M2 eval run) and the folder trust dialog and the diff lines at the top
 // of a Claude screen (session S2) are no user text: they make no user text observation and no
 // signal. The question of the approval dialog is agent text, and it still makes the blocked
-// approval signal (§7.1).
+// approval signal.
 func TestCaptureDialogLines(t *testing.T) {
 	for _, tc := range []struct {
 		harness string

@@ -124,7 +124,7 @@ func TestRevertCommit(t *testing.T) {
 
 // AC #283 2, 3 and 4, the S7 shape: codex changes src/notes.js, you put it back with git
 // checkout and say why. The revert is a git observation, and it reaches the extractor beside
-// your reason as evidence of the same correction: 2 occurrences, the correction gate (§7.2).
+// your reason as evidence of the same correction: 2 occurrences, the correction gate.
 func TestRevertCheckoutS7(t *testing.T) {
 	gitEnv(t)
 	ctx := context.Background()
@@ -330,7 +330,7 @@ func TestRevertCommitThenRevert(t *testing.T) {
 }
 
 // Sol review of #283: a revert commit made while learning is off never comes back, and the
-// work tree starts from a baseline after learning is on again (§6.7).
+// work tree starts from a baseline after learning is on again.
 func TestRevertLearningOffDropped(t *testing.T) {
 	gitEnv(t)
 	ctx := context.Background()

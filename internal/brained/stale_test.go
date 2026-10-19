@@ -284,7 +284,7 @@ func TestStaleOldEditDispute(t *testing.T) {
 		t.Errorf("brief workspace part = %q, want %q", b.Workspace, want)
 	}
 
-	// The deleted file is back: its dispute waits for your decision (§9.1).
+	// The deleted file is back: its dispute waits for your decision.
 	git(t, root, "checkout", "-q", "HEAD~1", "--", "drop.go")
 	git(t, root, "commit", "-q", "-m", "restore")
 	if err := Stale(ctx, g, "", now); err != nil {
@@ -313,7 +313,7 @@ func TestStaleNoRepo(t *testing.T) {
 	}
 }
 
-// The end of a captured session runs the stale check of its workspace (§9.1). An end with no
+// The end of a captured session runs the stale check of its workspace. An end with no
 // session runs none.
 func TestCaptureEndStale(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
@@ -354,7 +354,7 @@ func writeFile(t *testing.T, path string, v any) {
 	}
 }
 
-// A tick starts the stale check of every workspace of the bound store (§9.1 "once a day"). No
+// A tick starts the stale check of every workspace of the bound store (once a day). No
 // second check starts less than staleEvery after the last start.
 func TestStaleTrigger(t *testing.T) {
 	h := newHarness(t, bindings.KindMain)

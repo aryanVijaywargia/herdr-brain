@@ -8,7 +8,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 )
 
-// AC trigger (§9.5): brained starts the merge pass of the bound store at the first tick, and not
+// AC trigger: brained starts the merge pass of the bound store at the first tick, and not
 // again within a day, as the stale check.
 func TestMergeTrigger(t *testing.T) {
 	h := newHarness(t, bindings.KindMain)

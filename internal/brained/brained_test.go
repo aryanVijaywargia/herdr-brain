@@ -188,8 +188,8 @@ func TestRunning(t *testing.T) {
 	}
 }
 
-// D7: brained stops on the end of the event socket, and at the next check after Brain is
-// disabled or unlinked.
+// brained stops on the end of the event socket, and at the next check after Brain is disabled
+// or unlinked.
 func TestStops(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -245,7 +245,7 @@ func TestLatePane(t *testing.T) {
 	wantStep(t, h.step(t), End, "w1:p3", "", ReasonGone)
 }
 
-// An unbound session and a test store (learning off by default, §12.1) give no steps. A
+// An unbound session and a test store (learning off by default) give no steps. A
 // later binding or switch turns capture on with a baseline and a gap.
 func TestNoCaptureWhenOff(t *testing.T) {
 	h := newHarness(t, bindings.KindTest)
@@ -259,7 +259,7 @@ func TestNoCaptureWhenOff(t *testing.T) {
 	wantStep(t, h.step(t), Baseline, "w1:p1", GapLearning, "")
 }
 
-// Off-time text reaches no store write (E9-S4, HLD §8.3). capture follows the Handler rule
+// Off-time text reaches no store write (E9-S4). capture follows the Handler rule
 // and writes the text of each change in a real store transaction.
 func TestOffTime(t *testing.T) {
 	t1 := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)

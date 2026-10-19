@@ -64,8 +64,8 @@ func toolFailure(t *testing.T, harness, text string, screens ...string) (store.O
 
 // #363 AC 1 (M2 eval run 5, R5-3): text of files that the agent printed, as the README lines of
 // proposal 16 under the Codex tool mark, and a passing test, give no failure signal. The output
-// is stored and still counts, so its read stays evidence of the agent's state (§10.4, review of
-// PR #369). The eval report gives the lines, not the command above them, so the call lines are
+// is stored and still counts, so its read stays evidence of the agent's state (review of PR
+// #369). The eval report gives the lines, not the command above them, so the call lines are
 // made: a command of readers that Codex does not fold into "Explored" (two files), a Codex
 // search, a Claude shell read, and a Claude read whose call line came in the read before.
 func TestCaptureFileRead(t *testing.T) {
