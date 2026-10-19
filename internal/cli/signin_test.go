@@ -37,7 +37,7 @@ var signedIn = map[store.ExtractorCLI]string{
 	store.ExtractorCodex:  `printf '%s\n' '{"claims":[]}' > last.json` + "\n" + `printf '%s\n' '{"type":"turn.completed"}'` + "\n",
 }
 
-// AC #428 end to end (owner decision): a fake claude and a fake codex on PATH print their
+// AC #428 end to end: a fake claude and a fake codex on PATH print their
 // environment and fail with a sign-in error. The call inherits the env of brained: sign-in,
 // proxy and any other variables pass, and HERDR_*, BRAIN_* and the session markers do not. brain
 // status and brain doctor show why the call failed, with the sign-in hint of that CLI, and with

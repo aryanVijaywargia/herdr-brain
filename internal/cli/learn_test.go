@@ -201,7 +201,7 @@ func TestLearnWorkspaceOffWins(t *testing.T) {
 	}
 }
 
-// AC: a new test store starts with learning off (§12.1); brain learn on there turns it on.
+// AC: a new test store starts with learning off; brain learn on there turns it on.
 func TestLearnNewTestStoreOff(t *testing.T) {
 	f := newFixture(t)
 	test := f.bindLearn(t, "t1", bindings.KindTest)

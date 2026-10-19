@@ -78,7 +78,7 @@ func (f *fixture) changeRequests(t *testing.T) []store.ChangeRequest {
 	return crs
 }
 
-// AC (§7.4, E15-S1): the draft of an item revision shows the comeback excerpts and offers a
+// AC (E15-S1): the draft of an item revision shows the comeback excerpts and offers a
 // change request.
 func TestItemDraftShowsComebacks(t *testing.T) {
 	f := newFixture(t)

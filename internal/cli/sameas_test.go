@@ -269,7 +269,7 @@ func TestChangeNext(t *testing.T) {
 	}
 }
 
-// Sol review of #360 (go-quality rule 14): a link that names another claim after the pane
+// Review of #360 (no over-defensive check): a link that names another claim after the pane
 // showed it, as after a new telling, is not merged at the y: the pane says so, and nothing
 // changes.
 func TestPaneLinkChanged(t *testing.T) {

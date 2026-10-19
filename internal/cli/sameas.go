@@ -69,8 +69,7 @@ func (cl caller) linkView(l extract.Link) string {
 }
 
 // linkCandidate checks that the caller sees candidate id of a link. When other is not "", the
-// link must still name claim other: the claim that a pane showed before it waited for your key
-// (go-quality rule 14).
+// link must still name claim other: the claim that a pane showed before it waited for your key.
 func (cl caller) linkCandidate(ctx context.Context, tx *sql.Tx, id int64, other string) error {
 	c, err := store.CandidateByID(ctx, tx, id)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && !cl.sees(scopeKey(c.Scope, c.WorkspaceKey)) {

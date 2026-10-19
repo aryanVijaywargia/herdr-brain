@@ -28,7 +28,7 @@ const (
 
 // recallPopup runs `brain pane recall`, the recall popup (E20-S3), with the keys of keys, in
 // a screen of size: it searches the items that the brief of the focused pane can deliver, as
-// brain recall does (§8.6), and shows one item in full with its source excerpts. It only
+// brain recall does, and shows one item in full with its source excerpts. It only
 // reads: it writes no recall record, which is for an agent session, and no decision. herdr
 // runs it in a popup, which has no HERDR_PANE_ID, so the caller is the focused pane of the
 // action context (popupEnv).
@@ -50,8 +50,8 @@ func recallPopup(ctx context.Context, e Env, keys *bufio.Reader, size func() (ro
 
 // popupEnv returns environ with the caller of a popup: a popup gets no HERDR_PANE_ID and no
 // HERDR_WORKSPACE_ID, so they come from the focused pane and the workspace of
-// HERDR_PLUGIN_CONTEXT_JSON (§4, M0 E5-S3 popup facts). The resolver then asks herdr to
-// confirm that pane, as for any call. A pane that has its own HERDR_PANE_ID keeps it.
+// HERDR_PLUGIN_CONTEXT_JSON. The resolver then asks herdr to confirm that pane, as for any call. A
+// pane that has its own HERDR_PANE_ID keeps it.
 func popupEnv(environ []string) ([]string, error) {
 	if lookupEnv(environ, "HERDR_PANE_ID") != "" {
 		return environ, nil
@@ -200,7 +200,7 @@ func (p *recallPane) search(ctx context.Context, query string) ([]recallHit, err
 	var hits []recallHit
 	err := p.cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		// The pane can move to another workspace while the popup is open, so check it again
-		// before each read, as brain recall does (§8.6).
+		// before each read, as brain recall does.
 		if err := p.cl.recheck(ctx, p.cl.Call); err != nil {
 			return err
 		}
@@ -223,7 +223,7 @@ func (p *recallPane) search(ctx context.Context, query string) ([]recallHit, err
 // show returns the full view of result m, or "" and the error. The view has the item, skill or
 // tool as the brief shows it, with its marks, its scope and state, the command for a change, and
 // the source excerpts of the newest proposal of the item that has captured evidence, through the
-// secret filter as in review (§7.4).
+// secret filter as in review.
 func (p *recallPane) show(ctx context.Context, m recallMatch) (view, msg string) {
 	var b strings.Builder
 	err := p.cl.Store.Write(ctx, func(tx *sql.Tx) error {

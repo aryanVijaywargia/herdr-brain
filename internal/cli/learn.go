@@ -17,10 +17,10 @@ import (
 
 const learnUsage = `usage: brain learn on|off [--workspace <workspace id> | --pane <pane id>]`
 
-// Learn runs `brain learn` with args after "learn" (E9-S4, §6.7 "Exclusion", §12). It records
-// the learning switch of the whole store, of one workspace (by its Brain key) or of one pane
-// of this herdr session. Delivery and brain remember never read it, and in M1 there is no
-// capture, so the switch only records: it changes no item, output or receipt. E11 reads it.
+// Learn runs `brain learn` with args after "learn" (E9-S4). It records the learning switch of the
+// whole store, of one workspace (by its Brain key) or of one pane of this herdr session. Delivery
+// and brain remember never read it, and in M1 there is no capture, so the switch only records: it
+// changes no item, output or receipt. E11 reads it.
 func Learn(ctx context.Context, e Env, args []string) (err error) {
 	on, ws, pane, err := parseLearn(args)
 	if err != nil {
@@ -159,7 +159,7 @@ func livePane(ctx context.Context, e Env, b bindings.Binding, id string) (herdr.
 }
 
 // learningDefault is the learning setting of a store with no store row: off for a test store,
-// so the M2 listener never captures an eval session (§12.1).
+// so the M2 listener never captures an eval session.
 func learningDefault(b bindings.Binding) bool { return b.Kind != bindings.KindTest }
 
 func onOffWord(on bool) string {

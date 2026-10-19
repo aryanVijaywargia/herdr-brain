@@ -225,7 +225,7 @@ func TestStatusCodexNoSessionID(t *testing.T) {
 	}
 }
 
-// AC 1: a CLI version that cannot be read is a note, not a failed check (D13).
+// AC 1: a CLI version that cannot be read is a note, not a failed check.
 func TestDoctorVersionUnknown(t *testing.T) {
 	f := newDoctorFixture(t)
 	f.cli(t, "claude", "Claude Code")

@@ -19,7 +19,7 @@ import (
 
 const uninstallUsage = `usage: brain uninstall [--apply] [--data]`
 
-// Uninstall runs `brain uninstall` with args after "uninstall" (E8-S5, §8.1). It is a dry run
+// Uninstall runs `brain uninstall` with args after "uninstall" (E8-S5). It is a dry run
 // by default: it lists what would change. With --apply it removes each Brain hook entry whose
 // hash is unchanged, then the install record, the ~/.local/bin/brain link when it points to
 // this binary, and the bindings file. --data also removes the data home with the stores, and
@@ -85,7 +85,7 @@ type uninstaller struct {
 
 // entries removes the Brain hook entry of each profile in the install record whose hash is
 // unchanged; profiles holds the profiles (nil is the embedded set). An entry that you edited
-// stays, and Brain reports it (§8.1); edited says whether one did.
+// stays, and Brain reports it; edited says whether one did.
 func (u *uninstaller) entries(in *install.Installer, profiles fs.FS) (edited bool, err error) {
 	rec, err := install.Read(in.Record)
 	if err != nil {

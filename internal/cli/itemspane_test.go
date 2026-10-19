@@ -158,7 +158,7 @@ func TestItemsPaneBulk(t *testing.T) {
 }
 
 // An item that another surface changes while the confirm or the undo waits stops the whole
-// action: nothing is written, and the change is not undone (§7.5 expected revision).
+// action: nothing is written, and the change is not undone.
 func TestItemsPaneChangedMeanwhile(t *testing.T) {
 	f := newFixture(t)
 	ids := f.listItems(t)

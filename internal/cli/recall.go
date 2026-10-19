@@ -24,14 +24,14 @@ const recallUsage = `usage: brain recall <words>`
 // (E20-S2 AC, #344).
 const maxRecall = 10
 
-// Recall runs `brain recall` with args after "recall" (E20-S2, §8.6). It prints the items, the
+// Recall runs `brain recall` with args after "recall" (E20-S2). It prints the items, the
 // skills and the tools that the brief of the calling pane can deliver and whose text matches the
 // words, best match first, as the brief shows them. It records the revisions that it printed on
-// the receipt of the pane's agent session, so outcomes count them as delivered (§5.4).
+// the receipt of the pane's agent session, so outcomes count them as delivered.
 func Recall(ctx context.Context, e Env, args []string) (err error) {
 	words := recallWords(strings.Join(args, " "))
 	if len(words) == 0 {
-		// One line, as every refusal of recall (§1.2).
+		// One line, as every refusal of recall.
 		return fmt.Errorf("want words to match; %s", recallUsage)
 	}
 	c, err := e.Open(ctx)
@@ -41,7 +41,7 @@ func Recall(ctx context.Context, e Env, args []string) (err error) {
 	defer func() { err = errors.Join(err, c.Close()) }()
 	return c.Store.Write(ctx, func(tx *sql.Tx) error {
 		// The pane can move to another workspace while the write waits for the store lock, so
-		// check it again under the lock, before the read (§5.1).
+		// check it again under the lock, before the read.
 		if err := e.recheck(ctx, c); err != nil {
 			return err
 		}
@@ -188,7 +188,7 @@ func recallText(ms []recallMatch) (string, error) {
 }
 
 // briefKey is the workspace key whose part the brief of the calling pane delivers, or "" for
-// the global part only: an unmapped workspace, or one whose root check failed (§8.3 step 4).
+// the global part only: an unmapped workspace, or one whose root check failed.
 func briefKey(c *Call) (string, error) {
 	m, err := c.Workspace.Lookup(c.WorkspaceID)
 	if err != nil {

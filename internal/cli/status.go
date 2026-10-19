@@ -58,10 +58,10 @@ func adapterFiles(data string) (harness.Files, error) {
 		Installed: filepath.Join(data, installedDir)}, nil
 }
 
-// Status runs `brain status` (E9-S2, §8.3 "Human diagnostics"): one screen of counts and short
-// lines, never item text. It opens the store as every store command does, so it runs the
-// repair and the deferred session-id check. In a session with no binding it explains, prints
-// the setup command, and reads and writes nothing (S84).
+// Status runs `brain status` (E9-S2): one screen of counts and short lines, never item text. It
+// opens the store as every store command does, so it runs the repair and the deferred session-id
+// check. In a session with no binding it explains, prints the setup command, and reads and writes
+// nothing (S84).
 func Status(ctx context.Context, e Env, args []string) (err error) {
 	if len(args) != 0 {
 		return fmt.Errorf("unexpected argument %q\n%s", args[0], statusUsage)
@@ -189,13 +189,13 @@ func (s *statusCall) run(ctx context.Context) {
 }
 
 // callWindow is the window of the tool calls that brain status counts: the M4 review prompt
-// "Tools get no calls in 4 weeks" (§13).
+// "Tools get no calls in 4 weeks".
 const callWindow = 28 * 24 * time.Hour
 
 // tools shows the count of active tools, and each one that may not run, with the reason: a
-// contract or a tool file that changed after your approval stops the tool (§10.1, E17-S4).
+// contract or a tool file that changed after your approval stops the tool (E17-S4).
 // Then it shows the ran calls of the last 4 weeks, of any tool, and the active tools with none
-// (§13, E17-S5).
+// (E17-S5).
 // [NEW] the calls line form.
 func (s *statusCall) tools(ctx context.Context) {
 	var ts []store.Tool
@@ -249,8 +249,8 @@ func (s *statusCall) tools(ctx context.Context) {
 
 // automations shows the count of active automations, the paused ones, and each one that may
 // not run, with the reason: for example a tool contract that changed after your approval of
-// the binding stops it until you approve it again (§10.4, E17-S10). A newest run that failed or
-// whose result is unknown shows too (§10.4 "Failure feedback", E17-S11).
+// the binding stops it until you approve it again (E17-S10). A newest run that failed or
+// whose result is unknown shows too (E17-S11).
 func (s *statusCall) automations(ctx context.Context) {
 	var n, paused int
 	var stopped, runs []string
@@ -307,7 +307,7 @@ func runLine(a store.Automation, r store.AutomationRun) string {
 }
 
 // evalSession is the herdr session of the eval runner, whose test store holds the results of
-// the last eval run (HLD §12.1).
+// the last eval run.
 const evalSession = "brain-eval"
 
 // evalLabels are the answer labels in the order that the eval line counts them.
@@ -379,7 +379,7 @@ type fixedPanes []herdr.Pane
 func (f fixedPanes) Panes(context.Context) ([]herdr.Pane, error) { return f, nil }
 
 // clis prints the adapter state of each profile, and "no start-time delivery" for each live
-// agent kind with no profile (D3).
+// agent kind with no profile.
 func (s *statusCall) clis(ctx context.Context, ps []*adapter.Profile) {
 	s.w.printf("\nagent CLIs:\n")
 	sts, err := harness.Check(ctx, fixedPanes(s.panes), s.Adapters, ps)
@@ -490,8 +490,8 @@ func (s *statusCall) delivery(ctx context.Context, tx *sql.Tx) error {
 	return s.observedDelivery(ctx, tx)
 }
 
-// observedDelivery prints the delivery gaps of each profile in the sessions that capture saw
-// (§12 "Delivery gaps"), with the sessions observed and the capture gaps beside them.
+// observedDelivery prints the delivery gaps of each profile in the sessions that capture saw,
+// with the sessions observed and the capture gaps beside them.
 func (s *statusCall) observedDelivery(ctx context.Context, tx *sql.Tx) error {
 	s.w.printf("\ndelivery to observed sessions:\n")
 	for _, kind := range s.kinds {
@@ -606,9 +606,9 @@ func (h herdrState) noReceipt(ctx context.Context, kind string, p herdr.Pane) st
 	return noReceipt
 }
 
-// queue prints the count and the oldest age of the pending proposals that the caller sees in
-// the default brain review list: a proposal of a candidate below its gate in the config
-// (§7.2) is not counted. Then it counts the same_as links that wait for review there (#358).
+// queue prints the count and the oldest age of the pending proposals that the caller sees in the
+// default brain review list: a proposal of a candidate below its gate in the config is not counted.
+// Then it counts the same_as links that wait for review there (#358).
 func (s *statusCall) queue(ctx context.Context, tx *sql.Tx) error {
 	if err := s.proposalQueue(ctx, tx); err != nil {
 		return err
@@ -666,8 +666,8 @@ func (s *statusCall) proposalQueue(ctx context.Context, tx *sql.Tx) error {
 const archiveShown = 3
 
 // archive prints the count of the archive candidates that the caller sees and the ids and idle
-// times of the oldest ones, then one count line for each closed workspace with live items
-// (§9.2, §9.4). It shows no item text and asks nothing (D7). The items of a closed workspace
+// times of the oldest ones, then one count line for each closed workspace with live items.
+// It shows no item text and asks nothing. The items of a closed workspace
 // are in no pane's view: you act on them after a link.
 func (s *statusCall) archive(ctx context.Context, tx *sql.Tx) error {
 	all, err := store.ArchiveCandidates(ctx, tx, s.Now().Add(-store.ArchiveAge))
@@ -708,7 +708,7 @@ func (s *statusCall) archive(ctx context.Context, tx *sql.Tx) error {
 }
 
 // extraction prints the extractor and its switches, the use of the daily caps, the work of
-// this herdr session that waits with its oldest age and why by workspace key (§7.3, S15), and
+// this herdr session that waits with its oldest age and why by workspace key (S15), and
 // the batches that failed or gave an invalid response (S70). Their watermark stays, so their
 // evidence waits for a retry, or, with no try left, for new evidence of its session (#347).
 // The change requests that failed follow (failedChanges).
@@ -746,7 +746,7 @@ func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
 	for _, w := range ws {
 		where := "workspace " + w.WorkspaceKey
 		if w.WorkspaceKey == "" {
-			where = "the global pool" // scan work of the global pool (§6.8)
+			where = "the global pool" // scan work of the global pool
 		}
 		s.w.printf("  waiting in %s: %s, the oldest %s old; %s\n", where, batches(w.Batches),
 			age(s.Now().Sub(w.Oldest)), cmp.Or(w.Why, "the next pass takes them"))
@@ -783,7 +783,7 @@ func (s *statusCall) signInHint(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-// historyScan prints the history scan of the store, when it has one (§6.8): why it waits, its
+// historyScan prints the history scan of the store, when it has one: why it waits, its
 // progress line, the sessions that it skipped and each CLI with no file that parsed, then the
 // report from the observations that still exist. A forget takes its observations out of the
 // numbers, and a finding below its gate leaves the report (S92).
@@ -909,7 +909,7 @@ func changeNext(r store.ChangeRequest) string {
 	return fmt.Sprintf("no try left: edit the item with brain review --item %d --edit \"<text>\"", r.SourceID)
 }
 
-// configSet returns the gates and caps of the config that are not the defaults (§7.2, §7.3),
+// configSet returns the gates and caps of the config that are not the defaults,
 // as "key = value (default d)", in a fixed order.
 func configSet(gates store.Gates, caps extract.Caps) []string {
 	var set []string
@@ -938,7 +938,7 @@ func batches(n int) string {
 }
 
 // extractor prints the extraction line: the chosen CLI and the switches. Extraction off is
-// apart from learning off: capture and the rules keep running (D9).
+// apart from learning off: capture and the rules keep running.
 func (s *statusCall) extractor(ctx context.Context, tx *sql.Tx) error {
 	x, err := store.Extractor(ctx, tx)
 	if err != nil {
@@ -970,7 +970,7 @@ const measurementWeeks = 4
 // maxExamples is the count of example observations for each item revision. [NEW]
 const maxExamples = 3
 
-// measurement prints the M2 counts (§12): raw counts with no score (R6). Each line of counts
+// measurement prints the M2 counts: raw counts with no score (R6). Each line of counts
 // sits under the sessions observed and the capture gaps of its span. Brain shows no week
 // percentage and no target. The backlog, the switches, the delivery gaps and the block sizes
 // are on their own lines above.
@@ -1109,7 +1109,7 @@ func age(d time.Duration) string {
 	return fmt.Sprintf("%dd", int(d/(24*time.Hour)))
 }
 
-// output prints the brief size of each part against its budget (§8.1), the output conflicts
+// output prints the brief size of each part against its budget, the output conflicts
 // (S66) and a pending forget (S77).
 func (s *statusCall) output(forgetPending bool) {
 	out := filepath.Join(s.Binding.Store, outDir)

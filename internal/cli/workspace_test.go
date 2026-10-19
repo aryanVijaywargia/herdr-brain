@@ -164,7 +164,7 @@ func (f *fixture) oldShop(t *testing.T) (fact, skill, retired, own int64) {
 	return fact, skill, retired, f.addActive(t, ptr("ws_a14"), "own item")
 }
 
-// AC S20, §9.4: the dry run lists what moves and writes nothing. The link moves the items of
+// AC S20: the dry run lists what moves and writes nothing. The link moves the items of
 // the closed old key, with a new revision each; a fresh hook in the new workspace gets the old
 // items and skills; the items of the new key stay. A second link of the same pair moves
 // nothing.
@@ -220,7 +220,7 @@ func TestWorkspaceLink(t *testing.T) {
 	}
 }
 
-// AC §9.4 link undo: undo of one moved item from the new workspace sends it back to the old
+// AC link undo: undo of one moved item from the new workspace sends it back to the old
 // key, and the next hook no longer gets it. The item is out of the caller's view again.
 func TestWorkspaceLinkUndo(t *testing.T) {
 	f := newFixture(t)
@@ -252,7 +252,7 @@ func (r rows) revisionOf(t *testing.T, id int64) int64 {
 	return it.CurrentRevision
 }
 
-// AC S83, §9.4 link scope: a live old key, a call from a pane outside the new workspace, a key
+// AC S83 link scope: a live old key, a call from a pane outside the new workspace, a key
 // that is not in the relink list (unknown, the new key itself, or an entry of another herdr
 // session) and bad arguments are refused, and nothing is written.
 func TestWorkspaceLinkRefused(t *testing.T) {
@@ -298,10 +298,10 @@ func TestWorkspaceLinkRefused(t *testing.T) {
 	}
 }
 
-// AC §9.4 what moves: with an open candidate, a rejection and a pending extraction in the old
+// AC what moves: with an open candidate, a rejection and a pending extraction in the old
 // workspace, and a candidate of the same claim in the new one, only the items move. Their
 // evidence keeps its source, so no old observation becomes evidence of the new key. The new
-// key has an item of the claim now, so its candidate gets no duplicate proposal (§7.3). A
+// key has an item of the claim now, so its candidate gets no duplicate proposal. A
 // pending proposal of a moved item ends as superseded; a draft stays with its proposal in old.
 func TestWorkspaceLinkMovesOnlyItems(t *testing.T) {
 	f := newFixture(t)
@@ -358,7 +358,7 @@ func TestWorkspaceLinkMovesOnlyItems(t *testing.T) {
 		t.Errorf("draft proposal %d: %s, key %q, want pending in ws_a9", draft, dp.Status, r.keyOf(t, *dp.ItemID))
 	}
 	f.storeWrite(t, func(ctx context.Context, tx *sql.Tx) error {
-		// The claim is known in both keys: the item is in ws_a14, and it was in ws_a9 (§7.3).
+		// The claim is known in both keys: the item is in ws_a14, and it was in ws_a9.
 		for key, want := range map[string]bool{"ws_a14": true, "ws_a9": true, "ws_a15": false} {
 			if has, err := store.ClaimHasItem(ctx, tx, claim, key); err != nil || has != want {
 				t.Errorf("ClaimHasItem(%s) = %v, %v, want %v", key, has, err, want)
@@ -375,7 +375,7 @@ func TestWorkspaceLinkMovesOnlyItems(t *testing.T) {
 	}
 }
 
-// AC §6.7: forget of a source session of the old workspace, from a pane in the new one, still
+// AC: forget of a source session of the old workspace, from a pane in the new one, still
 // finds the evidence of a moved item: the candidate of its claim keeps its links.
 func TestWorkspaceLinkForgetSource(t *testing.T) {
 	f := newFixture(t)
@@ -397,7 +397,7 @@ func TestWorkspaceLinkForgetSource(t *testing.T) {
 	})
 }
 
-// AC §8.2: a skill of the old key whose name an active skill in the new key has refuses the
+// AC: a skill of the old key whose name an active skill in the new key has refuses the
 // link and asks for a new name, in the dry run too. No file changes.
 func TestWorkspaceLinkSkillNameClash(t *testing.T) {
 	f := newFixture(t)
@@ -420,7 +420,7 @@ func TestWorkspaceLinkSkillNameClash(t *testing.T) {
 	}
 }
 
-// AC E4, §9.4 link undo: undo across workspaces stays refused unless the move was a link from
+// AC E4 link undo: undo across workspaces stays refused unless the move was a link from
 // an old key that is not live. Undo of a moved item from another workspace finds nothing. An
 // item that came to ws_a15 from ws_a14 cannot go back: ws_a14 is in the relink list (same
 // root as ws_a15), but it is live.
@@ -496,7 +496,7 @@ func TestWorkspaceLinkUndoEndsProposals(t *testing.T) {
 
 // Review fix: a queued extraction of the old key runs after the link. Its evidence goes to the
 // old candidate of the moved skill's claim, but the claim stays known in the old key: no draft
-// and no pending proposal appear there (§7.3, §9.4).
+// and no pending proposal appear there.
 func TestWorkspaceLinkQueuedExtraction(t *testing.T) {
 	f := newFixture(t)
 	f.setClaude(t)

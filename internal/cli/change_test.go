@@ -41,7 +41,7 @@ func (f *fixture) extractorProposal(t *testing.T, conflicts ...int64) (int64, st
 	return pid, claim
 }
 
-// AC (§7.4): a proposal shows the text, the scope, the target, the diff, 1-3 excerpts with
+// AC: a proposal shows the text, the scope, the target, the diff, 1-3 excerpts with
 // sender, session, workspace and local date, the expected benefit and its conflicts; with
 // --detail the claim id and the revision too (#254); the excerpts of another workspace stay
 // hidden.
@@ -256,7 +256,7 @@ func (f *fixture) extractorProposalIn(t *testing.T, ws string) (int64, string) {
 	return pid, claim
 }
 
-// AC (§6.7): brain forget of the item of a proposal forgets its claim too (the claim key text
+// AC: brain forget of the item of a proposal forgets its claim too (the claim key text
 // goes, and a tombstone holds the claim id). It removes the change request text and discards
 // the queue entry, so no draft comes of it.
 func TestForgetRemovesChangeRequest(t *testing.T) {
@@ -294,7 +294,7 @@ func TestForgetRemovesChangeRequest(t *testing.T) {
 	}
 }
 
-// AC #411 (§7.4, §6.8): a proposal with evidence of history scan sessions of the global pool
+// AC #411: a proposal with evidence of history scan sessions of the global pool
 // shows their excerpts, with the global pool in place of a workspace, in the proposal and in its
 // evidence view. A global pool session of another binding stays hidden.
 func TestReviewGlobalPoolExcerpts(t *testing.T) {

@@ -369,7 +369,7 @@ func TestDoctorOtherCodexHome(t *testing.T) {
 	}
 }
 
-// AC §17 item 30: a live agent of a configured kind with no receipt after its first prompt:
+// AC: a live agent of a configured kind with no receipt after its first prompt:
 // hook not trusted or not firing.
 func TestDoctorNoReceipt(t *testing.T) {
 	f := newDoctorFixture(t)

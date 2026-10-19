@@ -20,7 +20,7 @@ import (
 )
 
 // clock returns a clock that moves one minute on each read, so the cleanup of a later call
-// finds every old generation past the hook time cap (§7.5 step 8).
+// finds every old generation past the hook time cap.
 func clock() func() time.Time {
 	t := testNow
 	return func() time.Time {
@@ -688,7 +688,7 @@ func sessionLinks(t *testing.T, f *fixture, id int64) int {
 	return n
 }
 
-// AC #412 (§6.8): the list line of a history scan session, which has no pane, says no pane.
+// AC #412: the list line of a history scan session, which has no pane, says no pane.
 func TestForgetScanSession(t *testing.T) {
 	f := newFixture(t)
 	sessions := scanRow(t, f.store, store.ScanExtracting, map[string]store.ScanCounts{})

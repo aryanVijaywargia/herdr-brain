@@ -72,7 +72,7 @@ func (f *fixture) parts(t *testing.T) (global, workspace string) {
 	return b.Global, b.Workspace
 }
 
-// AC: each bar check refuses with its reason (§9.3), and writes nothing. An item that you
+// AC: each bar check refuses with its reason, and writes nothing. An item that you
 // wrote, and a Brain item with 2 pieces of evidence, pass.
 func TestPromoteBar(t *testing.T) {
 	cases := []struct {
@@ -172,7 +172,7 @@ func TestPromoteOtherWorkspace(t *testing.T) {
 	}
 }
 
-// AC (S46, §9.3): the review shows the global text and the "also seen" hint. Approve with an
+// AC (S46): the review shows the global text and the "also seen" hint. Approve with an
 // edit makes a global revision; a promoted skill is in the global part and not in the
 // workspace part. Undo makes a revision with the old scope and workspace key, and the skill
 // goes back to its workspace part.
@@ -216,7 +216,7 @@ func TestPromoteSkillAndUndo(t *testing.T) {
 	}
 }
 
-// AC (§9.3): the hint counts the other workspaces with a candidate of the claim.
+// AC: the hint counts the other workspaces with a candidate of the claim.
 func TestPromoteHint(t *testing.T) {
 	f := newFixture(t)
 	id := f.brainItem(t, 2, "ws_b", "ws_c")
@@ -261,7 +261,7 @@ func TestPromoteSkillNameClash(t *testing.T) {
 	}
 }
 
-// AC (§8.1): the E6 global budget check applies: a promotion that does not fit the global
+// AC: the E6 global budget check applies: a promotion that does not fit the global
 // part refuses, and nothing is written.
 func TestPromoteBudget(t *testing.T) {
 	f := newFixture(t)
@@ -338,7 +338,7 @@ func TestReviewItemScope(t *testing.T) {
 	}
 }
 
-// AC (§8.1): the budget check counts the promoted item without its workspace anchors, which
+// AC: the budget check counts the promoted item without its workspace anchors, which
 // the global revision drops: a promotion that fills the global part to its limit passes.
 func TestPromoteBudgetAnchors(t *testing.T) {
 	// promoted promotes an anchored item next to a global item of fill bytes, and returns the

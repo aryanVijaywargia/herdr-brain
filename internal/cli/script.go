@@ -21,7 +21,7 @@ func scriptSummary(p store.Proposal) string {
 // it, and then offers only approve, reject and later.
 const scriptLine = "kind:     script\n"
 
-// scriptText is the text of script proposal p in show (§10.4): Brain installs no script, so
+// scriptText is the text of script proposal p in show: Brain installs no script, so
 // approve records your decision only.
 func scriptText(p store.Proposal) string {
 	return "text:\n  " + strings.ReplaceAll(strings.TrimSuffix(p.Text, "\n"), "\n", "\n  ") + "\n" +
@@ -82,7 +82,7 @@ func (cl caller) supersede(ctx context.Context, tx *sql.Tx, sibs []store.Proposa
 	return ids, nil
 }
 
-// approveScript records your approval of script proposal p in tx (§10.4): it writes nothing
+// approveScript records your approval of script proposal p in tx: it writes nothing
 // outside the store, and no item, as Brain installs no script. The tool draft of the same chain
 // is superseded: you picked the script. It returns the ids of the superseded proposals.
 func (cl caller) approveScript(ctx context.Context, tx *sql.Tx, r review, p store.Proposal) ([]int64, error) {

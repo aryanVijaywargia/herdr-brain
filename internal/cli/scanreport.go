@@ -11,14 +11,14 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// The text of the history scan report (§6.8 "Efficiency report"). brain status, brain review
-// and the brained notification show it; brain setup shows the state line.
+// The text of the history scan report. brain status, brain review and the brained notification show
+// it; brain setup shows the state line.
 
-// maxScanFindings is the most finding lines of the report. [NEW] 10 (§6.8).
+// maxScanFindings is the most finding lines of the report. [NEW] 10.
 const maxScanFindings = 10
 
 // maxScanExcerpt is the most characters of a finding excerpt on its one line. [NEW] 80, as the
-// failed command of the handoff lines (§8.3).
+// failed command of the handoff lines.
 const maxScanExcerpt = 80
 
 // ScanState is the one state line of the scan s, for the setup plan and brain status:
@@ -37,7 +37,7 @@ func ScanState(s store.Scan) string {
 	return fmt.Sprintf("History scan: done on %s.", localDate(s.Finished))
 }
 
-// ScanWait is a reason why the scan or its proposals wait (§6.8). brain status says it.
+// ScanWait is a reason why the scan or its proposals wait. brain status says it.
 type ScanWait string
 
 // The waiting reasons.
@@ -107,8 +107,7 @@ func ScanNotification(r store.ScanReport, extractor bool) string {
 		plural(top.Sessions, "session"), tokensUsed(top.Turns), next)
 }
 
-// skipWords are the words of each skip reason (§6.8 "Privacy and forget"), in the order that the
-// skip line shows them.
+// skipWords are the words of each skip reason, in the order that the skip line shows them.
 var skipWords = []struct {
 	reason store.SkipReason
 	words  string
@@ -141,8 +140,8 @@ func ScanSkipped(s store.Scan) string {
 }
 
 // ScanUnparsed are the lines of the CLIs of scan s with no session file that parsed: each file
-// that the scan tried had an unknown format, so the scan read no session of that CLI (§6.8
-// "Fail closed", S94). The other CLI continues.
+// that the scan tried had an unknown format, so the scan read no session of that CLI (S94).
+// The other CLI continues.
 func ScanUnparsed(s store.Scan) []string {
 	var lines []string
 	for _, h := range slices.Sorted(maps.Keys(s.Counts)) {
@@ -181,7 +180,7 @@ func tokens(t store.TurnTokens, unit string) string {
 	return s
 }
 
-// becomes says what a finding of kind k can become (§6.8 "Efficiency report").
+// becomes says what a finding of kind k can become.
 func becomes(k store.CandidateKind) string {
 	switch k {
 	case store.FindingPrompt, store.CandidateProcedure:

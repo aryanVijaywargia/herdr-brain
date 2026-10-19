@@ -29,14 +29,13 @@ const doctorUsage = `usage: brain doctor [--fix]`
 // noReceipt is the gap word of a live agent whose agent session has no receipt (brain status).
 const noReceipt = "unknown: no receipt for its agent session"
 
-// Doctor runs `brain doctor` (E9-S3, §13 "Clear failures"): every check, and one line with
-// the fix for each failed check. A clean setup prints "all checks passed"; any failed check
-// returns an error, so the command exits 1. It opens the store as every store command does, so
-// it runs the repair and the deferred session-id check (§7.5 step 6). The one fix that writes,
-// a new hook entry, asks first and goes through install with its guard (§8.1). With --fix it
-// applies that fix with no question (E19-S4: brain update runs it); an entry that you edited
-// still stays. In a session with no binding it explains, prints the setup command, and reads
-// and writes nothing (S84).
+// Doctor runs `brain doctor` (E9-S3): every check, and one line with the fix for each failed
+// check. A clean setup prints "all checks passed"; any failed check returns an error, so the
+// command exits 1. It opens the store as every store command does, so it runs the repair and the
+// deferred session-id check. The one fix that writes, a new hook entry, asks first and goes
+// through install with its guard. With --fix it applies that fix with no question (E19-S4: brain
+// update runs it); an entry that you edited still stays. In a session with no binding it
+// explains, prints the setup command, and reads and writes nothing (S84).
 func Doctor(ctx context.Context, e Env, args []string) (err error) {
 	fix := len(args) == 1 && args[0] == "--fix"
 	if len(args) != 0 && !fix {
@@ -112,9 +111,8 @@ func (d *doctorCall) run(ctx context.Context) {
 	d.conflicts()
 }
 
-// historyScan reports each CLI whose session files the history scan could not parse (§6.8
-// "Fail closed", S94). It is a note, not a failed check: the scan runs once, and the other CLI
-// and herdr capture still work.
+// historyScan reports each CLI whose session files the history scan could not parse (S94). It is a
+// note, not a failed check: the scan runs once, and the other CLI and herdr capture still work.
 func (d *doctorCall) historyScan(ctx context.Context) error {
 	var sc store.Scan
 	var ok bool
@@ -164,7 +162,7 @@ func (d *doctorCall) hooks(ctx context.Context, ps []*adapter.Profile) error {
 				return err
 			}
 		}
-		// A CLI update is only a warning (D13): the receipt check below finds a hook that stopped.
+		// A CLI update is only a warning: the receipt check below finds a hook that stopped.
 		switch n := st.VersionNote(); {
 		case st.Installed && st.VersionErr != nil:
 			d.w.printf("note: %s: version unknown (%v); Brain keeps its hook records and learning on\n", p.Kind, st.VersionErr)
@@ -394,9 +392,9 @@ func (d *doctorCall) recordTrust(dir string, rec install.Record, p *adapter.Prof
 	return nil
 }
 
-// receipts checks that each live agent of the configured profile p has a receipt (§17 item
-// 30). No receipt means that the hook did not run or could not reach the herdr socket. An
-// agent that started before Brain installed its hook never ran it: that is only a note (#249).
+// receipts checks that each live agent of the configured profile p has a receipt. No receipt means
+// that the hook did not run or could not reach the herdr socket. An agent that started before Brain
+// installed its hook never ran it: that is only a note (#249).
 func (d *doctorCall) receipts(ctx context.Context, p *adapter.Profile) error {
 	kind := p.Kind
 	if d.panesErr != nil {
@@ -431,9 +429,9 @@ func (d *doctorCall) receipts(ctx context.Context, p *adapter.Profile) error {
 	if len(missing) == 0 {
 		return nil
 	}
-	// Claude runs the hook at start. Codex runs it at the first prompt (M0 item 1), and herdr
-	// gets the Codex session id from its own hook at that prompt too (#257): a Codex agent with
-	// no id is not counted here, and one with an id ran its hooks.
+	// Claude runs the hook at start. Codex runs it at the first prompt, and herdr gets the Codex
+	// session id from its own hook at that prompt too (#257): a Codex agent with no id is not
+	// counted here, and one with an id ran its hooks.
 	d.fail("%s: hook not trusted or not firing: %d live agent(s) with no Brain receipt (%s); fix: start a new session; "+
 		"if it gets no receipt either, the CLI sandbox may block the herdr socket", kind, len(missing), strings.Join(missing, ", "))
 	return nil

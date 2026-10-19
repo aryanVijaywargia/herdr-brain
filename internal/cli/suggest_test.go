@@ -381,8 +381,7 @@ func TestSuggestConcurrent(t *testing.T) {
 	}
 }
 
-// Your decision in the review pane, or in any surface, gives the shown suggestion its result
-// (§12 counts).
+// Your decision in the review pane, or in any surface, gives the shown suggestion its result.
 func TestSuggestResults(t *testing.T) {
 	for _, tc := range []struct {
 		args []string
@@ -429,7 +428,7 @@ func TestLiveSuggestions(t *testing.T) {
 			t.Errorf("%s: liveSuggestions = %v, %v, want %v, error %v", tc.name, got, err, tc.want, tc.err)
 		}
 	}
-	// A missing file is on, the default of §5.5.
+	// A missing file is on, the default.
 	if got, err := liveSuggestions(filepath.Join(dir, "none.toml")); !got || err != nil {
 		t.Errorf("missing file: liveSuggestions = %v, %v, want true, nil", got, err)
 	}
@@ -483,10 +482,10 @@ func (f *suggestFixture) repeat(t *testing.T) brained.Dispatch {
 	return d
 }
 
-// AC (E15-S3, §5.5 "a reject is final in its scope"): you reject a live suggestion. The same
-// prompt again in the same session and in a new session reserves nothing, so no notification
-// and no pane. The extractor sees the repeats and gives the same claim: its evidence attaches,
-// and no new proposal of the claim comes in the workspace.
+// AC (E15-S3): you reject a live suggestion. The same prompt again in the same session and in a new
+// session reserves nothing, so no notification and no pane. The extractor sees the repeats and
+// gives the same claim: its evidence attaches, and no new proposal of the claim comes in the
+// workspace.
 func TestSuggestRejectNoNag(t *testing.T) {
 	f := newSuggestFixture(t)
 	f.setClaude(t)

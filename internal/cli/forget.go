@@ -19,11 +19,11 @@ import (
 const forgetUsage = `usage: brain forget <item> | --session <id>`
 
 // settle is how long forget waits after its build before it deletes the old generations: a
-// generation that the pointer left less than one hook time cap ago (300 ms, §8.3) may still
-// have a reader (§7.5 step 8). [NEW] 350 ms, the cap and a margin.
+// generation that the pointer left less than one hook time cap ago (300 ms) may still
+// have a reader. [NEW] 350 ms, the cap and a margin.
 const settle = 350 * time.Millisecond
 
-// Forget runs `brain forget` with args after "forget" (§6.7, E4-S6). It removes the text of
+// Forget runs `brain forget` with args after "forget" (E4-S6). It removes the text of
 // one item and its derivatives from the store and the output, and keeps a tombstone with no
 // text. A second call on the same item only reports whether forget is done.
 func Forget(ctx context.Context, e Env, args []string) error {
@@ -35,7 +35,7 @@ func Forget(ctx context.Context, e Env, args []string) error {
 	return onItem(ctx, e, "forget", forgetUsage, args, caller.forget)
 }
 
-// forgetSession runs `brain forget --session <id>` (§6.7, E11-S6). id is a capture session id
+// forgetSession runs `brain forget --session <id>` (E11-S6). id is a capture session id
 // or an agent session id in the caller's herdr session. It lists the evidence of the session,
 // the candidates that use it and the proposals that used its prompts first (S68), then deletes
 // its observations, command records, prompt index rows, outcomes and evidence links in one transaction that raises the capture generation, so a pane read or
@@ -91,7 +91,7 @@ func forgetSession(ctx context.Context, e Env, args []string) (err error) {
 	if len(ss) == 0 && slices.Max(paths) == 0 {
 		return fmt.Errorf("no capture session %q in herdr session %s", *id, c.Binding.Session)
 	}
-	// The list comes first, before anything is deleted (§6.7).
+	// The list comes first, before anything is deleted.
 	w := e.Stdout
 	for i, s := range ss {
 		if _, err := fmt.Fprintf(w, "session %d: %s%s, %s id %s, agent session %q: %d observations, %d command records, %d evidence links, %d prompt index rows, %d outcomes\n",
@@ -192,7 +192,7 @@ func agentIDs(id string, ss []store.Session) []string {
 }
 
 // inPane is the pane part of the list line of a session in pane paneID: none for a history
-// scan session, which has no pane (§6.8).
+// scan session, which has no pane.
 func inPane(paneID string) string {
 	if paneID == "" {
 		return ""
@@ -273,7 +273,7 @@ func forgotten(cur store.ItemRevision) bool { return cur.Text == "" && cur.State
 
 // forget lists the copies of item id's claim in other scopes and the kept items of its merges,
 // then forgets the item in one transaction and builds the output, and reports "done" or
-// "pending" (§6.7).
+// "pending".
 func (cl caller) forget(ctx context.Context, id int64) error {
 	var copies, kept []store.Item
 	var was bool
@@ -292,14 +292,14 @@ func (cl caller) forget(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	// The copies come first, before anything is erased; forget keeps them (§6.7).
+	// The copies come first, before anything is erased; forget keeps them.
 	for _, c := range copies {
 		if _, err := fmt.Fprintf(cl.Stdout, "kept: item %d, a copy of the same claim (%s)\n", c.ID, cl.where(c)); err != nil {
 			return err
 		}
 	}
 	// A merge wrote one new text into the kept item, which may repeat the words of item id;
-	// forget keeps it (§6.7, owner decision 2026-10-14).
+	// forget keeps it.
 	for _, k := range kept {
 		if _, err := fmt.Fprintf(cl.Stdout, "kept: item %d holds merged text from item %d (%s); run brain forget %d to remove it\n",
 			k.ID, id, cl.where(k), k.ID); err != nil {
@@ -326,7 +326,7 @@ func (cl caller) forget(ctx context.Context, id int64) error {
 
 // erase is the forget transaction of item id: a retired revision with no text raises the
 // output generation, the text of the item and its derivatives goes from every text field, and
-// a tombstone with the claim id stays (§6.7).
+// a tombstone with the claim id stays.
 func (cl caller) erase(ctx context.Context, tx *sql.Tx, id int64) error {
 	it, cur, err := cl.item(ctx, tx, id)
 	if err != nil {
@@ -351,7 +351,7 @@ func (cl caller) erase(ctx context.Context, tx *sql.Tx, id int64) error {
 }
 
 // clean waits until no hook can still read the generations that hold item id, and then
-// repairs the output, which deletes them (§7.5 step 8). A conflict stops the repair; report
+// repairs the output, which deletes them. A conflict stops the repair; report
 // names it.
 func (cl caller) clean(ctx context.Context, out string, id int64) error {
 	holds, err := output.Holds(out, id)
@@ -372,7 +372,7 @@ func (cl caller) clean(ctx context.Context, out string, id int64) error {
 }
 
 // report prints "done" when no store field and no output folder holds the text of item id,
-// and "pending" with what still holds it otherwise (§6.7). A copy in another scope does not
+// and "pending" with what still holds it otherwise. A copy in another scope does not
 // count.
 func (cl caller) report(ctx context.Context, out string, id int64) error {
 	var left []store.Field

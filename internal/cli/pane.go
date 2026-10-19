@@ -35,7 +35,7 @@ const (
 )
 
 // popupOf returns the popup of `brain pane` args, with its keys and its screen size, or nil.
-// herdr opens each popup from a plugin action, with no HERDR_PANE_ID (D6): the caller is the
+// herdr opens each popup from a plugin action, with no HERDR_PANE_ID: the caller is the
 // focused pane of the action context (popupEnv).
 func popupOf(args []string) func(ctx context.Context, e Env, keys *bufio.Reader, size func() (rows, cols int)) error {
 	switch strings.Join(args, " ") {
@@ -50,8 +50,7 @@ func popupOf(args []string) func(ctx context.Context, e Env, keys *bufio.Reader,
 }
 
 // Pane runs `brain pane` with args after "pane" (E5-S1): the review pane of one proposal, or
-// a popup. herdr runs it in a plugin pane, and the proposal id comes from the pane's --env
-// (§5.1).
+// a popup. herdr runs it in a plugin pane, and the proposal id comes from the pane's --env.
 func Pane(ctx context.Context, e Env, args []string) error {
 	if popup := popupOf(args); popup != nil {
 		restore, err := cbreak(os.Stdin)
@@ -138,7 +137,7 @@ type reviewPane struct {
 	// exception [NEW key x].
 	conflict string
 	msg      string // the result of the last key
-	dispute  bool   // the proposal is a dispute (§9.1): the pane offers keep, edit and retire
+	dispute  bool   // the proposal is a dispute: the pane offers keep, edit and retire
 	skill    bool   // the proposal is a skill: its file does not fit the one-line edit
 	script   bool   // the proposal is a script (E17-S8): approve takes it as it is
 	detail   bool   // show the claim id and the revision too (#254)
@@ -259,8 +258,8 @@ func (p *reviewPane) list(ctx context.Context, run func(context.Context) error) 
 	}
 }
 
-// disputeKey runs the action of key k on a dispute: keep, edit then approve, retire or later
-// (§9.1). [NEW keys k and t]. The other keys do nothing: reject is refused for a dispute.
+// disputeKey runs the action of key k on a dispute: keep, edit then approve, retire or later.
+// [NEW keys k and t]. The other keys do nothing: reject is refused for a dispute.
 func (p *reviewPane) disputeKey(ctx context.Context, k rune) (done bool, err error) {
 	switch k {
 	case 'k':
@@ -300,7 +299,7 @@ func (p *reviewPane) review(ctx context.Context, args ...string) (string, error)
 }
 
 // approve approves the proposal with edit, the scope and the pin. On a permission warning it
-// asks for y first (§7.4). done is true when the proposal is decided.
+// asks for y first. done is true when the proposal is decided.
 func (p *reviewPane) approve(ctx context.Context, edit *string) (done bool, err error) {
 	args := []string{"--approve"}
 	if edit != nil {

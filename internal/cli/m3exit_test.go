@@ -113,9 +113,8 @@ func TestClosedSameRootS20(t *testing.T) {
 	}
 }
 
-// AC S27 (M3 exit, #165): "shop" (w14) and w15 (the "shop-exp" of §14, "blog" in the fixture)
-// share one checkout. Each has a workspace item and a workspace skill; each brief holds only
-// its own.
+// AC S27 (M3 exit, #165): "shop" (w14) and w15 ("blog" in the fixture) share one checkout. Each has
+// a workspace item and a workspace skill; each brief holds only its own.
 func TestSameCheckoutS27(t *testing.T) {
 	f := newFixture(t)
 	shopItem := f.addActive(t, ptr("ws_a14"), "shop item marker-shop")

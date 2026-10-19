@@ -69,7 +69,7 @@ func (f *fixture) mustMayRun(t *testing.T, id int64) store.Tool {
 }
 
 // The review shows the whole contract: the command bytes, the input schema, the scope, the
-// cwd, the timeout, the stated effects and the restriction (§10.1). Approve writes the tool
+// cwd, the timeout, the stated effects and the restriction. Approve writes the tool
 // files, and the tool may run.
 func TestReviewShowsToolContract(t *testing.T) {
 	f := newFixture(t)
@@ -146,7 +146,7 @@ func TestToolChangeNeedsApproval(t *testing.T) {
 			}
 			approve := []string{fmt.Sprint(pid), "--approve"}
 			if name == "restriction" {
-				// The end of the read-only restriction changes a safety rule (§7.4).
+				// The end of the read-only restriction changes a safety rule.
 				if out := f.mustReview(t, fmt.Sprint(pid)); !strings.Contains(out, "warning:  this may change a permission") {
 					t.Errorf("Review(%d) = %q, want the permission warning", pid, out)
 				}
@@ -229,7 +229,7 @@ func TestToolConflictRepair(t *testing.T) {
 }
 
 // Forget of a tool with two revisions clears its contract and removes all its files, and
-// reports done (§7.5 step 8).
+// reports done.
 func TestForgetTool(t *testing.T) {
 	f := newFixture(t)
 	id := f.approvedTool(t, toolText("test-package"))
@@ -372,7 +372,7 @@ func TestToolsArchive(t *testing.T) {
 }
 
 // brain status shows the ran calls of the last 4 weeks and the active tools with none, for the
-// M4 review prompt "Tools get no calls in 4 weeks" (§13). Refused calls and older calls do
+// M4 review prompt "Tools get no calls in 4 weeks". Refused calls and older calls do
 // not count.
 func TestStatusToolCalls(t *testing.T) {
 	f := newStatusFixture(t)

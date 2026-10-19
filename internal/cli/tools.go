@@ -15,7 +15,7 @@ import (
 
 const toolsUsage = `usage: brain tools`
 
-// Tools runs `brain tools` with args after "tools" (E17-S5, §10.1). It lists all approved
+// Tools runs `brain tools` with args after "tools" (E17-S5). It lists all approved
 // tools that the caller can run, the global ones and those of its workspace, in approval
 // order, with their input schemas. The brief catalog lists only the first 10.
 func Tools(ctx context.Context, e Env, args []string) (err error) {

@@ -48,7 +48,7 @@ func (r review) views() error {
 	return nil
 }
 
-// showEvidence prints the evidence view of proposal id (E20-S4, §7.4): for each source excerpt
+// showEvidence prints the evidence view of proposal id (E20-S4): for each source excerpt
 // that show lists, the stored text of its capture segment around it, up to evidenceLines lines
 // before and after, through the secret filter. It reads only the observations that Brain
 // stores, no transcript.

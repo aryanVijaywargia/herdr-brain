@@ -11,7 +11,7 @@ import (
 )
 
 // link links workspace item r.item to global item r.exceptionTo as an exception, or marks a
-// conflict between it and global item r.conflictsWith, in a new revision (§7.4 G2). M1 has no
+// conflict between it and global item r.conflictsWith, in a new revision. M1 has no
 // automatic marks: you make them here. A link that is set already is left as it is.
 func (cl caller) link(ctx context.Context, r review) error {
 	global := max(r.exceptionTo, r.conflictsWith)
@@ -76,7 +76,7 @@ func (cl caller) linked(ctx context.Context, tx *sql.Tx, r review, cur store.Ite
 
 // except links revision next as an exception to global item g, whose current revision is
 // gcur, and drops its conflict mark with g. A workspace item never relaxes a global permission
-// or safety rule (§7.4, §8.1): except refuses such a g, by its words or by the permission flag
+// or safety rule: except refuses such a g, by its words or by the permission flag
 // of its claim (#388).
 func except(ctx context.Context, tx *sql.Tx, next store.ItemRevision, g store.Item, gcur store.ItemRevision) (store.ItemRevision, error) {
 	// The claim of a brain remember item has no row until a link adds it (#312): no flag.
@@ -102,7 +102,7 @@ func sameLinks(a, b store.ItemRevision) bool {
 }
 
 // staleLinks lists the exception links that went back to review because their global item
-// has a new revision (§7.4), for the items that the caller sees.
+// has a new revision, for the items that the caller sees.
 func (cl caller) staleLinks(ctx context.Context, tx *sql.Tx) ([]string, error) {
 	revs, err := store.StaleExceptions(ctx, tx)
 	if err != nil {

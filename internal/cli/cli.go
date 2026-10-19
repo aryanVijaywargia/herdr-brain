@@ -1,7 +1,7 @@
 // Package cli is the command layer of the `brain` commands that work on a store: remember,
 // and later review, undo, forget and pin (E4). Each command opens its store the same way: the
-// resolver checks the calling pane (§8.3), the workspace map syncs with herdr (E2-S4), and
-// output repair builds any output that is behind the store (§7.5 step 6).
+// resolver checks the calling pane, the workspace map syncs with herdr (E2-S4), and
+// output repair builds any output that is behind the store.
 package cli
 
 import (
@@ -31,7 +31,7 @@ const (
 	busyTimeout = 5 * time.Second
 	// herdrDeadline is the deadline of each herdr call of a command. [NEW]
 	herdrDeadline = 5 * time.Second
-	// outDir is the out folder of a store, as in the hook (§7.5 step 3).
+	// outDir is the out folder of a store, as in the hook.
 	outDir = "out"
 )
 
@@ -206,7 +206,7 @@ const (
 	openRepair   openMode = iota // sync the workspace map and repair the output
 	openNoRepair                 // sync only: brain repair repairs the output itself, and shows each conflict once
 	// openRead writes nothing (the recall popup, E20-S3): no sync, so the workspace map is the
-	// one that the hook reads (§8.3), no repair, and no agent check.
+	// one that the hook reads, no repair, and no agent check.
 	openRead
 )
 
@@ -249,7 +249,7 @@ func (e Env) open(ctx context.Context, mode openMode) (*Call, error) {
 		}
 	}
 	// The pane can move to another workspace during the sync or the repair, so check it again
-	// before the command writes (§5.1).
+	// before the command writes.
 	if err := e.recheck(ctx, c); err != nil {
 		return nil, errors.Join(err, c.Close())
 	}
@@ -303,7 +303,7 @@ func (e Env) recheck(ctx context.Context, c *Call) error {
 }
 
 // noStoreError is the error of a call that gets no store. brain status explains an unbound
-// session instead of failing (§8.3 "Human diagnostics").
+// session instead of failing.
 type noStoreError struct{ *resolver.NoStore }
 
 func (n *noStoreError) Error() string {
@@ -317,7 +317,7 @@ func (n *noStoreError) Unwrap() error { return n.Err }
 
 // commandStore is the store of a command as the resolver sees it. A command passes no agent
 // session and writes no receipt; it only checks the earlier records of the calling pane
-// against the agent that herdr shows now (§8.3 limit, §17 item 29).
+// against the agent that herdr shows now.
 type commandStore struct{ *store.Store }
 
 func (commandStore) WriteWithheld(context.Context, resolver.Withheld) error { return errNoReceipts }

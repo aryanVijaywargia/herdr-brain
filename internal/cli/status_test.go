@@ -196,7 +196,7 @@ func TestStatusNewSetup(t *testing.T) {
 }
 
 // AC: one gap of each kind, the three "unknown" cases, the withheld history apart, an agent
-// kind with no profile (D3), and the review queue. Receipts of a test store and of another
+// kind with no profile, and the review queue. Receipts of a test store and of another
 // herdr session never count for the main binding.
 func TestStatusGaps(t *testing.T) {
 	f := newStatusFixture(t)
@@ -496,7 +496,7 @@ func capture(ctx context.Context, tx *sql.Tx, k store.SessionKey, paneID, ws str
 	return session, obs, nil
 }
 
-// AC E15-S2: the M2 counts of §12 from a fixture store, with the sessions observed and the
+// AC E15-S2: the M2 counts from a fixture store, with the sessions observed and the
 // capture gaps beside each count: comebacks by item revision with example observations and the
 // uncertain matches apart, correction candidates, proposals and their review, live suggestions,
 // the delivery gaps of observed sessions by adapter, and a backlog that waits for extraction.

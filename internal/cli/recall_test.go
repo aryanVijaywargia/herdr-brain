@@ -81,7 +81,7 @@ func TestRecallMatch(t *testing.T) {
 	if out, _, err := f.recall(t, "w14:p1", "w14", "kubernetes"); err != nil || out != "no Brain item matches \"kubernetes\"\n" {
 		t.Errorf("Recall(kubernetes) = %q, %v, want no match", out, err)
 	}
-	// A pane of an unmapped workspace gets the global part only, as its brief (§8.3 step 4).
+	// A pane of an unmapped workspace gets the global part only, as its brief.
 	want = fmt.Sprintf("Brain items for \"pnpm\", best match first:\n- [%d] Use pnpm for packages\n", one)
 	if out, _, err := f.recall(t, "w16:p1", "w16", "pnpm"); err != nil || out != want {
 		t.Errorf("Recall(pnpm) in w16 = %q, %v, want %q", out, err, want)
