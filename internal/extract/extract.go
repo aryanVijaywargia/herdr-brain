@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -327,12 +328,12 @@ func noTryLeft(failed bool, calls int) bool {
 
 // retries reports whether failed or invalid batch b gets its call now, with worked the end of the
 // last call that worked and newest the time of the newest observation of its run (job.newest).
-// With a try left (spent), it gets one as tryAgain says. With no try left, it waits for new
-// evidence of its session and key. Mostly that evidence makes a new batch, which replaces it
+// With a try left (spent), or when the CLI refused its last call (refused), it gets one as
+// tryAgain says. With no try left, it waits for new evidence of its session and key. Mostly that evidence makes a new batch, which replaces it
 // (store.StartBatch); when the input cap cut the run, the new evidence is after the cut, so the
 // batch keeps its range and gets one call for each new evidence.
 func (p Pass) retries(b store.Batch, worked, newest time.Time) bool {
-	if spent(b) {
+	if spent(b) && !refused(b.Reason) {
 		return newest.After(b.At)
 	}
 	return p.tryAgain(b.ModelCalls, b.At, worked, refused(b.Reason))
@@ -354,10 +355,18 @@ func (p Pass) tryAgain(calls int, at, worked time.Time, refused bool) bool {
 
 // refused reports whether reason, the stored reason of a failed batch or change request, says
 // that the CLI refused its last call before it ran a model: at a usage or rate limit (ErrLimit)
-// or with no sign-in (ErrSignIn, #428).
+// or with no sign-in (ErrSignIn, #428). A legacy reason counts as a sign-in failure.
 func refused(reason string) bool {
-	return strings.HasSuffix(reason, ErrLimit.Error()) || strings.HasSuffix(reason, ErrSignIn.Error())
+	return strings.HasSuffix(reason, ErrLimit.Error()) || strings.HasSuffix(reason, ErrSignIn.Error()) ||
+		legacy.MatchString(reason)
 }
+
+// legacy matches the bare reason that a Brain before #428 stored for every failed call, as
+// "claude: exit status 1". Most of them were sign-in failures, which #428 counts as no try: a
+// batch with such a reason gets one more call each retryAfter, also with no try left, so it
+// commits once the sign-in works. That call stores a reason of the new form (failure, noText),
+// so each batch gets this once.
+var legacy = regexp.MustCompile(`^(?:claude|codex): exit status [0-9]+$`)
 
 // SignInHint returns what to do about a failed call whose stored reason is reason, when the
 // extractor CLI could not sign in (ErrSignIn, #428); "" for any other reason. The reason starts

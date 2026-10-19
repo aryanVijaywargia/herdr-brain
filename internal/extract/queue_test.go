@@ -375,7 +375,7 @@ func TestFailedBatchTries(t *testing.T) {
 			if got := f.calls("ws-A"); got != maxTries {
 				t.Fatalf("calls of ws-A while the CLI is down = %d, want %d", got, maxTries)
 			}
-			if ws := f.waiting(); len(ws) != 1 || ws[0].Failed != "claude: exit status 1" {
+			if ws := f.waiting(); len(ws) != 1 || ws[0].Failed != "claude: exit status 1: "+noText {
 				t.Errorf("waiting = %+v, want the failure that waits for its retry", ws)
 			}
 			f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {

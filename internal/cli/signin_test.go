@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -27,8 +29,12 @@ func fakeSignedOut(version, env, out, stderr string) string {
 // with a sign-in error. The call passes the sign-in and routing variables of the chosen CLI,
 // and no HERDR_*, other CLAUDE_CODE_* or other variable. brain status and brain doctor show
 // why the call failed, with the sign-in hint of that CLI, and no token. The call does not
-// count toward the daily cap.
+// count toward the daily cap. The CLI prints its tokens raw, URL-encoded and base64-encoded,
+// a bearer token of its headers and the password of its base URL; none reaches the stored
+// reason. codex also gets the API key variable of its provider in config.toml (Sol round 1).
 func TestExtractorSignInEndToEnd(t *testing.T) {
+	const token, cpKey = "proxy/token+alpha=42", "cp-key-31337"
+	b64 := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
 	for _, c := range []struct {
 		cli             store.ExtractorCLI
 		version         string
@@ -37,29 +43,40 @@ func TestExtractorSignInEndToEnd(t *testing.T) {
 		reason, hint    string
 	}{
 		{store.ExtractorClaude, "2.1.283 (Claude Code)",
-			`{"type":"result","is_error":true,"result":"Failed to authenticate: OAuth session expired and could not be refreshed"}`,
-			"debug: Authorization: Bearer proxy-tok-0123456789",
-			[]string{"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "HTTPS_PROXY", "HOME", "PATH"},
-			[]string{"OPENAI_API_KEY", "CODEX_HOME"},
-			"claude: Failed to authenticate: OAuth session expired and could not be refreshed: sign-in failed",
+			`{"type":"result","is_error":true,"result":"Failed to authenticate: token ` + url.QueryEscape(token) + " " + b64(token) +
+				` bearer bear-tok-77 at http://bu:bp-secret@127.0.0.1:9"}`,
+			"debug: Authorization: Bearer bear-tok-77",
+			[]string{"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS", "HTTPS_PROXY", "HOME", "PATH"},
+			[]string{"OPENAI_API_KEY", "CODEX_HOME", "CLIPROXY_KEY"},
+			"claude: Failed to authenticate: token [secret] [secret] bearer [secret] at [secret]: sign-in failed",
 			"sign in again: run claude, then /login, or set ANTHROPIC_API_KEY in the herdr server env"},
 		{store.ExtractorCodex, "codex-cli 0.154.0",
-			`{"type":"turn.failed","error":{"message":"unexpected status 401 Unauthorized: key plainkey-0123456789"}}`,
+			`{"type":"turn.failed","error":{"message":"unexpected status 401 Unauthorized: key ` + cpKey + " " + b64(cpKey) + `"}}`,
 			"ERROR: unexpected status 401 Unauthorized: key plainkey-0123456789",
-			[]string{"OPENAI_API_KEY", "CODEX_HOME", "HTTPS_PROXY", "HOME", "PATH"},
-			[]string{"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"},
-			"codex: unexpected status 401 Unauthorized: key [secret]: sign-in failed",
+			[]string{"OPENAI_API_KEY", "CODEX_HOME", "CLIPROXY_KEY", "HTTPS_PROXY", "HOME", "PATH"},
+			[]string{"ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_CUSTOM_HEADERS"},
+			"codex: unexpected status 401 Unauthorized: key [secret] [secret]: sign-in failed",
 			"sign in again: run codex login, or set OPENAI_API_KEY in the herdr server env"},
 	} {
 		t.Run(string(c.cli), func(t *testing.T) {
 			f := newDoctorFixture(t)
 			for k, v := range map[string]string{
-				"ANTHROPIC_AUTH_TOKEN": "proxy-tok-0123456789", "ANTHROPIC_BASE_URL": "http://127.0.0.1:9",
+				"ANTHROPIC_AUTH_TOKEN": token, "ANTHROPIC_BASE_URL": "http://bu:bp-secret@127.0.0.1:9",
+				"ANTHROPIC_CUSTOM_HEADERS": "Authorization: Bearer bear-tok-77", "CLIPROXY_KEY": cpKey,
 				"OPENAI_API_KEY": "plainkey-0123456789", "CODEX_HOME": f.codexHome, "HTTPS_PROXY": "http://proxy.invalid:3128",
 				"HERDR_SESSION": "default", "HERDR_PANE_ID": "w14:p1", "CLAUDE_CODE_ENTRYPOINT": "cli", "CLAUDECODE": "1",
 				"RANDOM_VAR": "x",
 			} {
 				t.Setenv(k, v)
+			}
+			config := filepath.Join(f.codexHome, "config.toml")
+			trusted, err := os.ReadFile(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			provider := "model_provider = \"cliproxy\"\n" + string(trusted) + "\n[model_providers.cliproxy]\nenv_key = \"CLIPROXY_KEY\"\n"
+			if err := os.WriteFile(config, []byte(provider), 0o600); err != nil {
+				t.Fatal(err)
 			}
 			bin := filepath.Join(filepath.Dir(f.store), "bin")
 			env := filepath.Join(t.TempDir(), "env")
@@ -103,9 +120,10 @@ func TestExtractorSignInEndToEnd(t *testing.T) {
 			}
 			out := f.failed(t, "", "extraction: the last extractor call for workspace ws_a14 failed ("+c.reason+
 				"), so its signals wait; fix: "+c.hint+"; Brain tries again later")
-			for _, secret := range []string{"proxy-tok", "plainkey"} {
+			for i, secret := range []string{token, url.QueryEscape(token), b64(token), "bear-tok", "bp-secret", cpKey, b64(cpKey),
+				"plainkey"} {
 				if strings.Contains(status, secret) || strings.Contains(out, secret) {
-					t.Errorf("status or doctor shows %s", secret)
+					t.Errorf("status or doctor shows secret form %d", i)
 				}
 			}
 		})

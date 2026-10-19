@@ -181,11 +181,11 @@ func TestSignedOutExtractor(t *testing.T) {
 	if cli.calls != 1 {
 		t.Fatalf("calls = %d, want 1", cli.calls)
 	}
-	want := "  waiting in workspace ws_a14: 1 batch, the oldest 3h old; the last claude call failed: claude: exit status 1\n"
+	want := "  waiting in workspace ws_a14: 1 batch, the oldest 3h old; the last claude call failed: claude: exit status 1: the CLI gave no error text\n"
 	if status := f.mustStatus(t); !strings.Contains(status, want) {
 		t.Errorf("brain status:\n%s\nwant %q", status, want)
 	}
-	f.failed(t, "", "extraction: the last extractor call for workspace ws_a14 failed (claude: exit status 1), so its signals wait; "+
+	f.failed(t, "", "extraction: the last extractor call for workspace ws_a14 failed (claude: exit status 1: the CLI gave no error text), so its signals wait; "+
 		"fix: run claude in a terminal and check that it works and is signed in")
 }
 
@@ -220,7 +220,7 @@ func TestExtractorWorksAfterFailure(t *testing.T) {
 	for _, want := range []string{
 		"  waiting in workspace ws_a14: 1 batch, the oldest 3h old; the next pass takes them\n",
 		"  failed batches: 1; their evidence waits for a retry, or with no try left for new evidence of its session\n",
-		"workspace ws_a14: failed, claude: exit status 1, 30m ago\n",
+		"workspace ws_a14: failed, claude: exit status 1: the CLI gave no error text, 30m ago\n",
 	} {
 		if !strings.Contains(status, want) {
 			t.Errorf("brain status:\n%s\nwant %q", status, want)

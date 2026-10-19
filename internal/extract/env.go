@@ -2,6 +2,9 @@ package extract
 
 import (
 	"cmp"
+	"encoding/base64"
+	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -53,41 +56,123 @@ var callEnv = []envVar{
 	{"OPENAI_BASE_URL", store.ExtractorCodex, true}, {"CODEX_HOME", store.ExtractorCodex, false}, {"CODEX_CA_CERTIFICATE", store.ExtractorCodex, false},
 }
 
-// cleanEnv is the environment of a call of extractor CLI cli, with getenv the environment of
-// Brain: HOME, PATH, USER and LANG (E13-S1), and each variable of callEnv for cli that is set
-// (#428).
-func cleanEnv(cli store.ExtractorCLI, getenv func(string) string) []string {
-	env := []string{"HOME=" + getenv("HOME"), "PATH=" + getenv("PATH"), "USER=" + getenv("USER"), "LANG=en_US.UTF-8"}
-	for _, v := range callEnv {
-		if val := getenv(v.name); val != "" && (v.cli == "" || v.cli == cli) {
-			env = append(env, v.name+"="+val)
+// cleanEnv returns the environment of a call of extractor CLI cli, with getenv the environment
+// of Brain: HOME, PATH, USER and LANG (E13-S1), each variable of callEnv for cli that is set
+// (#428), and for codex the API key variable of its chosen provider (codexKey). secrets are the
+// texts that a failure reason must not show: each form of each secret value (secretForms).
+func cleanEnv(cli store.ExtractorCLI, getenv func(string) string) (env, secrets []string) {
+	env = []string{"HOME=" + getenv("HOME"), "PATH=" + getenv("PATH"), "USER=" + getenv("USER"), "LANG=en_US.UTF-8"}
+	add := func(name string, secret bool) {
+		val := getenv(name)
+		if val == "" || slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, name+"=") }) {
+			return
+		}
+		env = append(env, name+"="+val)
+		if secret {
+			secrets = append(secrets, secretForms(val)...)
 		}
 	}
-	return env
+	for _, v := range callEnv {
+		if v.cli == "" || v.cli == cli {
+			add(v.name, v.secret)
+		}
+	}
+	if cli == store.ExtractorCodex {
+		if name := codexKey(getenv); name != "" {
+			add(name, true)
+		}
+	}
+	return env, secrets
 }
 
-// hide replaces in text each value of a secret variable of env (callEnv) with "[secret]", so the
-// output of a CLI cannot carry a sign-in value into a stored reason (#428). It also hides each
-// line of a value, and the value of each "Name: Value" line, as a CLI can print one header of
-// ANTHROPIC_CUSTOM_HEADERS. The longest part goes first, so no end of a value stays.
-func hide(text string, env []string) string {
-	var parts []string
-	for _, kv := range env {
-		name, val, _ := strings.Cut(kv, "=")
-		if !slices.ContainsFunc(callEnv, func(v envVar) bool { return v.name == name && v.secret }) {
-			continue
+// secretForms returns the texts of secret value val that a CLI can print: the whole value, each
+// line, the value of each "Name: Value" header line and each word after its first (the token
+// of "Authorization: Bearer <token>"), and the user info, user name, password and query values
+// of each URL. Each comes raw, URL-encoded and base64-encoded (encodings). A short value stays:
+// to hide too much is safe, and a local proxy token can be 6 digits.
+func secretForms(val string) []string {
+	parts := []string{val}
+	for _, l := range strings.Split(val, "\n") {
+		l = strings.TrimSpace(l)
+		parts = append(parts, l)
+		if _, h, ok := strings.Cut(l, ":"); ok {
+			h = strings.TrimSpace(h)
+			parts = append(parts, h)
+			if f := strings.Fields(h); len(f) > 1 {
+				parts = append(parts, f[1:]...)
+			}
 		}
-		parts = append(parts, val)
-		for _, l := range strings.Split(val, "\n") {
-			_, h, _ := strings.Cut(l, ":")
-			parts = append(parts, strings.TrimSpace(l), strings.TrimSpace(h))
-		}
+		parts = append(parts, urlParts(l)...)
 	}
-	slices.SortFunc(parts, func(a, b string) int { return cmp.Compare(len(b), len(a)) })
+	var forms []string
 	for _, p := range parts {
 		if p != "" {
-			text = strings.ReplaceAll(text, p, "[secret]")
+			forms = append(forms, encodings(p)...)
 		}
 	}
-	return text
+	slices.Sort(forms)
+	return slices.Compact(forms)
+}
+
+// urlParts returns the user info, user name, password and query values of l as a URL, also with
+// no scheme, as a proxy variable can be ("user:pass@proxy:3128"); none when l is no URL.
+func urlParts(l string) []string {
+	if !strings.Contains(l, "://") {
+		l = "http://" + l
+	}
+	u, err := url.Parse(l)
+	if err != nil {
+		return nil
+	}
+	var parts []string
+	if u.User != nil {
+		pw, _ := u.User.Password()
+		parts = append(parts, u.User.String(), u.User.Username()+":"+pw, u.User.Username(), pw)
+	}
+	for _, vs := range u.Query() {
+		parts = append(parts, vs...)
+	}
+	return parts
+}
+
+// encodings returns s raw, URL-encoded as a query and as a path, and in the four base64 forms.
+func encodings(s string) []string {
+	b := []byte(s)
+	return []string{s, url.QueryEscape(s), url.PathEscape(s), base64.StdEncoding.EncodeToString(b),
+		base64.URLEncoding.EncodeToString(b), base64.RawStdEncoding.EncodeToString(b), base64.RawURLEncoding.EncodeToString(b)}
+}
+
+// userInfo matches the user info of a URL in a text, as in http://user:pass@host.
+var userInfo = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://)[^/\s@]*@`)
+
+// hide replaces in text each match of a secret of the call (cleanEnv) with "[secret]", and the
+// user info of each URL, so the output of a CLI cannot carry a sign-in value into a stored reason
+// (#428). It finds every match in the original text first, so a short secret does not match
+// inside a "[secret]" that hide wrote.
+func hide(text string, secrets []string) string {
+	var spans [][2]int
+	for _, s := range secrets {
+		for i := 0; i < len(text); {
+			j := strings.Index(text[i:], s)
+			if j < 0 {
+				break
+			}
+			spans = append(spans, [2]int{i + j, i + j + len(s)})
+			i += j + 1
+		}
+	}
+	slices.SortFunc(spans, func(a, b [2]int) int { return cmp.Compare(a[0], b[0]) })
+	var b strings.Builder
+	end := 0
+	for _, sp := range spans {
+		if sp[0] < end {
+			end = max(end, sp[1])
+			continue
+		}
+		b.WriteString(text[end:sp[0]])
+		b.WriteString("[secret]")
+		end = sp[1]
+	}
+	b.WriteString(text[end:])
+	return userInfo.ReplaceAllString(b.String(), "${1}[secret]@")
 }

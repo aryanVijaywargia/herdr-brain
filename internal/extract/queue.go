@@ -273,7 +273,7 @@ func (p Pass) why(ctx context.Context, tx *sql.Tx, j job, d Day) (why, failed st
 			return d.Full(), "", err
 		}
 		last := fmt.Sprintf("the last %s call %s: %s", s.CLI, b.Status, b.Reason)
-		if spent(b) {
+		if spent(b) && !refused(b.Reason) {
 			return last + "; " + noTry, "", nil
 		}
 		return last, b.Reason, nil

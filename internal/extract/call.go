@@ -185,19 +185,22 @@ func limited(out, stderr []byte) bool {
 	return false
 }
 
-// cause returns why a failed call says that it failed (#428): the last error text of its output
-// out (event.message), else its last "ERROR:" line of stderr, else the last line of stderr. The
-// text goes through hide with env, the environment of the call, and the secret filter (Redact),
-// and is cut to maxCause runes. It is "" when the CLI said nothing.
-func cause(out, stderr []byte, env []string) string {
+// cause returns why a failed call says that it failed, in full and as the CLI wrote it (#428):
+// the last error text of its output out (event.message), else its last "ERROR:" line of stderr,
+// else the last line of stderr. It is "" when the CLI said nothing. Brain classifies the failure
+// on this text; only reasonText shows it.
+func cause(out, stderr []byte) string {
 	var why string
 	for _, ev := range events(out) {
 		why = cmp.Or(ev.message(), why)
 	}
-	if why == "" {
-		why = lastLine(stderr)
-	}
-	why = strings.Join(strings.Fields(Redact(hide(why, env))), " ")
+	return cmp.Or(why, lastLine(stderr))
+}
+
+// reasonText is cause why as a stored reason shows it: with each secret of the call hidden (hide),
+// through the secret filter (Redact), on one line, and cut to maxCause runes.
+func reasonText(why string, secrets []string) string {
+	why = strings.Join(strings.Fields(Redact(hide(why, secrets))), " ")
 	if r := []rune(why); len(r) > maxCause {
 		why = string(r[:maxCause]) + "..."
 	}
@@ -218,34 +221,39 @@ func lastLine(stderr []byte) string {
 	return cmp.Or(lastErr, last)
 }
 
-// runError is the error of the failed CLI run of a call of cli with environment env, with out
-// its output and err the error of the run (failure).
-func runError(cli store.ExtractorCLI, env []string, out []byte, err error) error {
+// runError is the error of the failed CLI run of a call of cli with the secrets secrets
+// (cleanEnv), with out its output and err the error of the run (failure).
+func runError(cli store.ExtractorCLI, secrets []string, out []byte, err error) error {
 	var exit *ExitError
 	var stderr []byte
 	if errors.As(err, &exit) {
 		stderr = exit.Stderr
 	}
-	return failure(cli, env, out, stderr, err)
+	return failure(cli, secrets, out, stderr, err)
 }
 
-// failure is the error of a call of cli with environment env that failed with err, with out its
-// output and stderr the end of its standard error: an ErrLimit error when the CLI is at a usage
-// or rate limit (limited), an ErrSignIn error with its cause when it could not sign in and ran
-// no model (#428), else err with the cause that the CLI gave, if any. So the stored reason says
-// why, as "claude: Failed to authenticate: ...: sign-in failed".
-func failure(cli store.ExtractorCLI, env []string, out, stderr []byte, err error) error {
+// noText ends the reason of a failure whose CLI wrote no error text. With it, no new reason has
+// the bare form that legacy matches.
+const noText = "the CLI gave no error text"
+
+// failure is the error of a call of cli with the secrets secrets that failed with err, with out
+// its output and stderr the end of its standard error: an ErrLimit error when the CLI is at a
+// usage or rate limit (limited), an ErrSignIn error when it could not sign in and ran no model
+// (#428), else err with the cause. The check reads the full cause as the CLI wrote it; the error
+// text has the cause as reasonText hides and cuts it. So the stored reason says why, as "claude:
+// Failed to authenticate: ...: sign-in failed".
+func failure(cli store.ExtractorCLI, secrets []string, out, stderr []byte, err error) error {
 	if limited(out, stderr) {
 		return fmt.Errorf("%s is %w", cli, ErrLimit)
 	}
-	why := cause(out, stderr, env)
+	why := cause(out, stderr)
 	switch {
 	case why == "":
-		return err
+		return fmt.Errorf("%w: %s", err, noText)
 	case signInText.MatchString(why) && !slices.ContainsFunc(events(out), event.ran):
-		return fmt.Errorf("%s: %s: %w", cli, why, ErrSignIn)
+		return fmt.Errorf("%s: %s: %w", cli, reasonText(why, secrets), ErrSignIn)
 	}
-	return fmt.Errorf("%w: %s", err, why)
+	return fmt.Errorf("%w: %s", err, reasonText(why, secrets))
 }
 
 // uncounted reports whether failed call error err ran no model, so its call leaves the daily
@@ -265,14 +273,14 @@ func call(ctx context.Context, r Runner, s store.ExtractorSetting, schema, promp
 		return nil, err
 	}
 	defer os.RemoveAll(dir) //nolint:errcheck // a scratch folder in the temp folder
-	env := cleanEnv(s.CLI, os.Getenv)
+	env, secrets := cleanEnv(s.CLI, os.Getenv)
 	switch s.CLI {
 	case store.ExtractorClaude:
 		out, err := r.Run(ctx, Command{Dir: dir, Argv: claudeArgv(s.Model, schema, prompt), Env: env})
 		if err != nil {
-			return nil, runError(s.CLI, env, out, err)
+			return nil, runError(s.CLI, secrets, out, err)
 		}
-		return claudeResult(out, env)
+		return claudeResult(out, secrets)
 	case store.ExtractorCodex:
 		out, err := r.Run(ctx, Command{Dir: dir, Argv: []string{"codex", "--disable", "plugins", "mcp", "list", "--json"}, Env: env})
 		if err != nil {
@@ -287,9 +295,9 @@ func call(ctx context.Context, r Runner, s store.ExtractorSetting, schema, promp
 		}
 		out, err = r.Run(ctx, Command{Dir: dir, Argv: codexArgv(s.Model, servers, prompt), Env: env})
 		if err != nil {
-			return nil, runError(s.CLI, env, out, err)
+			return nil, runError(s.CLI, secrets, out, err)
 		}
-		return codexResult(out, env, filepath.Join(dir, "last.json"))
+		return codexResult(out, secrets, filepath.Join(dir, "last.json"))
 	}
 	return nil, fmt.Errorf("no extractor CLI is chosen")
 }
@@ -306,10 +314,10 @@ func claudeArgv(model, schema, prompt string) []string {
 		"--output-format", "json", "--json-schema", schema, prompt)
 }
 
-// claudeResult reads the structured output of a claude -p JSON result, from a call with
-// environment env. With no structured output, the model refused the schema: the response is
+// claudeResult reads the structured output of a claude -p JSON result, from a call with the
+// secrets secrets. With no structured output, the model refused the schema: the response is
 // invalid (E13-S1). An error result is a failure.
-func claudeResult(out []byte, env []string) (json.RawMessage, error) {
+func claudeResult(out []byte, secrets []string) (json.RawMessage, error) {
 	var res struct {
 		IsError          bool            `json:"is_error"`
 		StructuredOutput json.RawMessage `json:"structured_output"`
@@ -318,7 +326,7 @@ func claudeResult(out []byte, env []string) (json.RawMessage, error) {
 	case err != nil:
 		return nil, fmt.Errorf("claude output is not JSON: %w", ErrInvalid)
 	case res.IsError:
-		return nil, failure(store.ExtractorClaude, env, out, nil, errors.New("claude reported an error"))
+		return nil, failure(store.ExtractorClaude, secrets, out, nil, errors.New("claude reported an error"))
 	case len(res.StructuredOutput) == 0 || string(res.StructuredOutput) == "null":
 		return nil, fmt.Errorf("claude gave no structured output: %w", ErrInvalid)
 	}
@@ -372,9 +380,9 @@ func enabledServers(out []byte) ([]string, error) {
 var codexItems = []string{"agent_message", "reasoning"}
 
 // codexResult reads the -o file of codex exec, after it checks the --json events out of a call
-// with environment env. A failed turn or no file is a failure; a tool item is an invalid
+// with the secrets secrets. A failed turn or no file is a failure; a tool item is an invalid
 // response (E13-S1).
-func codexResult(out []byte, env []string, last string) (json.RawMessage, error) {
+func codexResult(out []byte, secrets []string, last string) (json.RawMessage, error) {
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	sc.Buffer(nil, 16<<20)
 	for sc.Scan() {
@@ -390,7 +398,7 @@ func codexResult(out []byte, env []string, last string) (json.RawMessage, error)
 		}
 		switch ev.Type {
 		case "turn.failed", "error":
-			return nil, failure(store.ExtractorCodex, env, out, nil, errors.New("codex reported a failed turn"))
+			return nil, failure(store.ExtractorCodex, secrets, out, nil, errors.New("codex reported a failed turn"))
 		case "item.started", "item.completed":
 			if t := ev.Item.Type + ev.Item.ItemType; !slices.Contains(codexItems, t) {
 				return nil, fmt.Errorf("codex used a tool (%s): %w", t, ErrInvalid)

@@ -36,7 +36,7 @@ func TestCleanEnv(t *testing.T) {
 		{store.ExtractorCodex, append(slices.Clone(base), "OPENAI_API_KEY=k", "CODEX_HOME=/h/.codex")},
 	} {
 		t.Run(string(c.cli), func(t *testing.T) {
-			if got := cleanEnv(c.cli, getenv); !slices.Equal(got, c.want) {
+			if got, _ := cleanEnv(c.cli, getenv); !slices.Equal(got, c.want) {
 				t.Errorf("cleanEnv(%s) = %q, want %q", c.cli, got, c.want)
 			}
 		})
@@ -63,11 +63,19 @@ func TestCallEnvList(t *testing.T) {
 	}
 }
 
-// signInEnv is the environment of a call with a sign-in token that no secret pattern matches,
+// signInVars is the environment of a call with a sign-in token that no secret pattern matches,
 // as a token of a local proxy can be, and custom headers.
-var signInEnv = []string{"HOME=/h", "PATH=/bin", "ANTHROPIC_AUTH_TOKEN=proxy-tok-0123456789",
-	"ANTHROPIC_CUSTOM_HEADERS=X-Team: blue-team-77\nX-Key: hdr-secret-4242", "OPENAI_API_KEY=plainkey123",
-	"HTTPS_PROXY=http://bob:pw-5150@proxy:3128"}
+var signInVars = map[string]string{"HOME": "/h", "PATH": "/bin", "ANTHROPIC_AUTH_TOKEN": "proxy-tok-0123456789",
+	"ANTHROPIC_CUSTOM_HEADERS": "X-Team: blue-team-77\nX-Key: hdr-secret-4242", "OPENAI_API_KEY": "plainkey123",
+	"HTTPS_PROXY": "http://bob:pw-5150@proxy:3128"}
+
+// secretsOf returns the secrets of the calls of both CLIs with the environment vars.
+func secretsOf(vars map[string]string) []string {
+	getenv := func(name string) string { return vars[name] }
+	_, a := cleanEnv(store.ExtractorClaude, getenv)
+	_, b := cleanEnv(store.ExtractorCodex, getenv)
+	return append(a, b...)
+}
 
 // AC #428: the error of a failed call says why the CLI failed: the error result of claude, the
 // error event of codex, else the end of its standard error. The text goes through the secret
@@ -103,7 +111,7 @@ func TestFailureReason(t *testing.T) {
 			"", "claude: Invalid API key [secret]: sign-in failed", true},
 		{"other failure", store.ExtractorClaude, `{"is_error":true,"result":"API Error: Request timed out"}`, "",
 			"sh: exit status 1: API Error: Request timed out", false},
-		{"no text", store.ExtractorClaude, "", "", "sh: exit status 1", false},
+		{"no text", store.ExtractorClaude, "", "", "sh: exit status 1: the CLI gave no error text", false},
 		{"long text", store.ExtractorClaude, "", long, "sh: exit status 1: " + strings.TrimSpace(long)[:maxCause] + "...", false},
 		{"model ran", store.ExtractorCodex, `{"type":"item.completed","item":{"type":"reasoning"}}` + "\n" +
 			`{"type":"turn.failed","error":{"message":"stream error: 401 Unauthorized"}}`, "",
@@ -111,7 +119,7 @@ func TestFailureReason(t *testing.T) {
 		{"limit", store.ExtractorClaude, claudeWeekly, "", "claude is at a usage or rate limit", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			err := runError(c.cli, signInEnv, []byte(c.out), exit("sh", c.stderr))
+			err := runError(c.cli, secretsOf(signInVars), []byte(c.out), exit("sh", c.stderr))
 			if err.Error() != c.want || errors.Is(err, ErrSignIn) != c.signIn {
 				t.Errorf("runError() = %q (sign-in %v), want %q (sign-in %v)", err, errors.Is(err, ErrSignIn), c.want, c.signIn)
 			}
@@ -157,8 +165,7 @@ func TestSignInHint(t *testing.T) {
 
 // AC #428: while the sign-in of the CLI is broken, each call of a batch fails and the batch is
 // tried again each retryAfter, but no call counts toward the daily cap or uses a try. When the
-// sign-in works again, the batch commits with one counted call. A batch that failed before
-// #428 with a counted call gets its retry too: TestFailedBatchTries.
+// sign-in works again, the batch commits with one counted call.
 func TestSignInRetry(t *testing.T) {
 	expired := func(context.Context, string) ([]byte, error) {
 		return []byte(`{"is_error":true,"result":"Failed to authenticate: OAuth session expired and could not be refreshed"}`),
