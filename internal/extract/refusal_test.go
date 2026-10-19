@@ -273,5 +273,60 @@ func TestRecoveryLeavesReview(t *testing.T) {
 				t.Errorf("proposal = %s, want pending: still in review", got.Status)
 			}
 		})
+		// Sol round 5: a pass at the daily call cap makes no call and leaves the proposal in
+		// review; a new revision then discards the request, and the proposal stays in review.
+		t.Run(kind+", daily cap", func(t *testing.T) {
+			f := newFixture(t)
+			cr, proposal, item := make(f)
+			f.legacyRequest(cr.ID, proposal)
+			f.now = f.now.Add(retryAfter + time.Minute)
+			f.caps = Caps{Calls: f.day().Calls, Proposals: 15, InputBytes: 32 << 10}
+			f.cli.reply = redraft(claimOf("use pnpm 9"))
+			runs := f.cli.calls()
+			f.mustRun()
+			if got := f.proposal(proposal); got.Status != store.ProposalPending || f.cli.calls() != runs {
+				t.Errorf("proposal at the cap = %s after %d calls, want pending with no call", got.Status, f.cli.calls()-runs)
+			}
+			f.nextRevision(item)
+			f.mustRun()
+			if got := f.request(cr.ID); got.Status != store.ChangeDiscarded {
+				t.Errorf("request = %+v, want discarded", got)
+			}
+			if got := f.proposal(proposal); got.Status != store.ProposalPending {
+				t.Errorf("proposal = %s, want pending: still in review", got.Status)
+			}
+		})
+		// Sol round 5: an edit between the plan of a pass and the call of the request discards
+		// the request with no call, and the proposal stays in review. The batch of a workspace
+		// key with no call yet goes first (order), and its call makes the edit.
+		t.Run(kind+", edit between plan and call", func(t *testing.T) {
+			f := newFixture(t)
+			cr, proposal, item := make(f)
+			f.legacyRequest(cr.ID, proposal)
+			f.now = f.now.Add(retryAfter + time.Minute)
+			f.session("e1", true, line{"ws-C", pnpm, f.now.Add(-time.Hour)})
+			edited, redrafts := false, 0
+			f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {
+				if strings.Contains(prompt, "You redraft one proposed lesson") {
+					redrafts++
+					return claimOf("use pnpm 9")(ctx, prompt)
+				}
+				if !edited {
+					edited = true
+					f.nextRevision(item)
+				}
+				return claimOf("use pnpm")(ctx, prompt)
+			}
+			f.mustRun()
+			if !edited || redrafts != 0 {
+				t.Fatalf("edited %v, redraft calls %d, want the edit first and no redraft call", edited, redrafts)
+			}
+			if got := f.request(cr.ID); got.Status != store.ChangeDiscarded {
+				t.Errorf("request = %+v, want discarded", got)
+			}
+			if got := f.proposal(proposal); got.Status != store.ProposalPending {
+				t.Errorf("proposal = %s, want pending: still in review", got.Status)
+			}
+		})
 	}
 }

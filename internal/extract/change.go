@@ -87,14 +87,6 @@ func (p Pass) requests(ctx context.Context, tx *sql.Tx) ([]job, error) {
 			}
 			continue
 		}
-		// A recovering request takes back its proposal only now, after the binding, the
-		// revision and the switches let it run: a request that waits or goes leaves the
-		// proposal in review (#428).
-		if recovering(r) {
-			if err := retake(ctx, tx, r, p.Now()); err != nil {
-				return nil, err
-			}
-		}
 		jobs = append(jobs, j)
 	}
 	return jobs, nil
@@ -398,8 +390,14 @@ func (p Pass) runChange(ctx context.Context, j job) error {
 		j = cur
 		// Another pass may run the request: only one attempt is active at a time.
 		j.change.attempt, err = store.StartChange(ctx, tx, r.ID, p.Now(), p.Now().Add(-changeStale))
-		if errors.Is(err, sql.ErrNoRows) {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
 			skip, err = true, nil
+		case err == nil && recovering(r):
+			// A recovering request takes back its proposal only here, in the transaction of its
+			// call, after the revision, switch and cap checks: a request that waits or goes
+			// leaves the proposal in review (#428).
+			err = retake(ctx, tx, r, p.Now())
 		}
 		return err
 	})
