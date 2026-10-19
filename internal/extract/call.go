@@ -198,9 +198,10 @@ func cause(out, stderr []byte) string {
 }
 
 // reasonText is cause why as a stored reason shows it: with each secret of the call hidden (hide),
-// through the secret filter (Redact), on one line, and cut to maxCause runes.
+// through the secret filter (Redact) and the token filter (hideTokens), on one line, and cut to
+// maxCause runes.
 func reasonText(why string, secrets []string) string {
-	why = strings.Join(strings.Fields(Redact(hide(why, secrets))), " ")
+	why = hideTokens(Redact(hide(why, secrets)))
 	if r := []rune(why); len(r) > maxCause {
 		why = string(r[:maxCause]) + "..."
 	}
@@ -233,7 +234,7 @@ func runError(cli store.ExtractorCLI, secrets []string, out []byte, err error) e
 }
 
 // noText ends the reason of a failure whose CLI wrote no error text. With it, no new reason has
-// the bare form that legacy matches.
+// the bare form of a Brain before #428, which migration 0037 maps to a sign-in refusal.
 const noText = "the CLI gave no error text"
 
 // failure is the error of a call of cli with the secrets secrets that failed with err, with out
@@ -256,10 +257,18 @@ func failure(cli store.ExtractorCLI, secrets []string, out, stderr []byte, err e
 	return fmt.Errorf("%w: %s", err, reasonText(why, secrets))
 }
 
-// uncounted reports whether failed call error err ran no model, so its call leaves the daily
-// call cap and uses no try: the CLI was at a limit (ErrLimit, #377) or could not sign in
-// (ErrSignIn, #428).
-func uncounted(err error) bool { return errors.Is(err, ErrLimit) || errors.Is(err, ErrSignIn) }
+// refusal is the refusal of failed call error err: the CLI ran no model, as it was at a limit
+// (ErrLimit, #377) or could not sign in (ErrSignIn, #428), so the call leaves the daily call cap
+// and uses no try. store.RefusalNone for any other failure. The commit stores it as data.
+func refusal(err error) store.Refusal {
+	switch {
+	case errors.Is(err, ErrSignIn):
+		return store.RefusalSignIn
+	case errors.Is(err, ErrLimit):
+		return store.RefusalLimit
+	}
+	return store.RefusalNone
+}
 
 // call runs the extractor CLI of s with prompt and the JSON output schema schema, outside any
 // transaction, in a new scratch folder, and returns the result object that schema describes:
@@ -280,7 +289,8 @@ func call(ctx context.Context, r Runner, s store.ExtractorSetting, schema, promp
 		if err != nil {
 			return nil, runError(s.CLI, secrets, out, err)
 		}
-		return claudeResult(out, secrets)
+		res, err := claudeResult(out, secrets)
+		return scrub(res, secrets), err
 	case store.ExtractorCodex:
 		out, err := r.Run(ctx, Command{Dir: dir, Argv: []string{"codex", "--disable", "plugins", "mcp", "list", "--json"}, Env: env})
 		if err != nil {
@@ -297,7 +307,8 @@ func call(ctx context.Context, r Runner, s store.ExtractorSetting, schema, promp
 		if err != nil {
 			return nil, runError(s.CLI, secrets, out, err)
 		}
-		return codexResult(out, secrets, filepath.Join(dir, "last.json"))
+		res, err := codexResult(out, secrets, filepath.Join(dir, "last.json"))
+		return scrub(res, secrets), err
 	}
 	return nil, fmt.Errorf("no extractor CLI is chosen")
 }

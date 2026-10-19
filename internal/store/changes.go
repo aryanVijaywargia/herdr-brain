@@ -43,7 +43,8 @@ type ChangeRequest struct {
 	WorkspaceKey  string // the scope of the request; "" for global
 	Status        ChangeStatus
 	ModelCalls    int
-	Reason        string // why it failed, was invalid or was discarded; no model text
+	Reason        string // why it failed, was invalid or was discarded; no model text; for display only
+	Refusal       Refusal
 	NewProposalID *int64
 	Created       time.Time
 	At            time.Time // the time of the last status change
@@ -58,13 +59,13 @@ func (c ChangeRequest) Open() bool {
 	return false
 }
 
-const changeColumns = `id, source, source_id, revision, workspace_key, status, model_calls, reason, new_proposal_id,
-	created, at`
+const changeColumns = `id, source, source_id, revision, workspace_key, status, model_calls, reason, refusal,
+	new_proposal_id, created, at`
 
 func scanChange(rows interface{ Scan(...any) error }) (ChangeRequest, error) {
 	var c ChangeRequest
 	err := rows.Scan(&c.ID, &c.Source, &c.SourceID, &c.Revision, &c.WorkspaceKey, &c.Status, &c.ModelCalls, &c.Reason,
-		&c.NewProposalID, timeDest{&c.Created}, timeDest{&c.At})
+		&c.Refusal, &c.NewProposalID, timeDest{&c.Created}, timeDest{&c.At})
 	return c, err
 }
 
@@ -146,7 +147,7 @@ func AskItemChange(ctx context.Context, tx *sql.Tx, id int64, text string, surfa
 		return ChangeRequest{}, err
 	}
 	var cr int64
-	err := tx.QueryRowContext(ctx, `UPDATE change_requests SET status = ?, model_calls = 0, reason = '', at = ?
+	err := tx.QueryRowContext(ctx, `UPDATE change_requests SET status = ?, model_calls = 0, reason = '', refusal = '', at = ?
 		WHERE source = ? AND new_proposal_id = ? AND status IN (?, ?, ?) RETURNING id`,
 		ChangeQueued, timeArg(now), ChangeItem, id, ChangeCommitted, ChangeFailed, ChangeInvalid).Scan(&cr)
 	if err != nil {
@@ -205,7 +206,7 @@ func OpenChangeRequests(ctx context.Context, tx *sql.Tx) ([]ChangeRequest, error
 func StartChange(ctx context.Context, tx *sql.Tx, id int64, now, stale time.Time) (int, error) {
 	var key string
 	var calls int
-	err := tx.QueryRowContext(ctx, `UPDATE change_requests SET status = ?1, model_calls = model_calls + 1, reason = '',
+	err := tx.QueryRowContext(ctx, `UPDATE change_requests SET status = ?1, model_calls = model_calls + 1, reason = '', refusal = '',
 		at = ?2 WHERE id = ?3 AND (status IN ('queued', 'failed', 'invalid') OR status = ?1 AND at < ?4)
 		RETURNING workspace_key, model_calls`, ChangeActive, timeArg(now), id, timeArg(stale)).Scan(&key, &calls)
 	if err != nil {
@@ -224,7 +225,7 @@ func StartChange(ctx context.Context, tx *sql.Tx, id int64, now, stale time.Time
 // not active: a forget discarded it, or its commit is done. Only an active request commits, so
 // a retry makes no second draft.
 func EndChange(ctx context.Context, tx *sql.Tx, id int64, status ChangeStatus, reason string, proposal *int64, now time.Time) (bool, error) {
-	res, err := tx.ExecContext(ctx, `UPDATE change_requests SET status = ?, reason = ?,
+	res, err := tx.ExecContext(ctx, `UPDATE change_requests SET status = ?, reason = ?, refusal = '',
 		new_proposal_id = COALESCE(?, new_proposal_id), at = ? WHERE id = ? AND status IN `+openChanges,
 		status, reason, proposal, timeArg(now), id)
 	if err != nil {
@@ -238,7 +239,7 @@ func EndChange(ctx context.Context, tx *sql.Tx, id int64, status ChangeStatus, r
 // id ?1, and of the items that items selects, and removes the request text of those
 // proposals (§6.7: proposals with change requests, and the extraction queue).
 func discardChanges(ctx context.Context, tx *sql.Tx, proposals, items string, id int64, now time.Time) error {
-	if _, err := tx.ExecContext(ctx, `UPDATE change_requests SET status = ?2, reason = ?3, at = ?4
+	if _, err := tx.ExecContext(ctx, `UPDATE change_requests SET status = ?2, reason = ?3, refusal = '', at = ?4
 		WHERE status IN `+openChanges+` AND (source = 'proposal' AND source_id IN (`+proposals+`)
 		OR source = 'item' AND source_id IN (`+items+`))`,
 		id, ChangeDiscarded, "a forget removed its input", timeArg(now)); err != nil {

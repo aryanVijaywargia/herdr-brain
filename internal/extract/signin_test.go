@@ -145,20 +145,14 @@ func TestResultFailure(t *testing.T) {
 	}
 }
 
-// AC #428: status and doctor give a short hint for a sign-in failure, for the CLI that failed,
-// and none for any other reason.
+// AC #428: status and doctor give a short hint for a sign-in refusal, for the chosen CLI.
 func TestSignInHint(t *testing.T) {
-	for _, c := range []struct{ reason, want string }{
-		{"claude: Failed to authenticate: OAuth session expired: sign-in failed",
-			"sign in again: run claude, then /login, or set ANTHROPIC_API_KEY in the herdr server env"},
-		{"codex: unexpected status 401 Unauthorized: sign-in failed",
-			"sign in again: run codex login, or set OPENAI_API_KEY in the herdr server env"},
-		{"claude: exit status 1", ""},
-		{"claude is at a usage or rate limit", ""},
-		{"", ""},
+	for cli, want := range map[store.ExtractorCLI]string{
+		store.ExtractorClaude: "sign in again: run claude, then /login, or set ANTHROPIC_API_KEY in the herdr server env",
+		store.ExtractorCodex:  "sign in again: run codex login, or set OPENAI_API_KEY in the herdr server env",
 	} {
-		if got := SignInHint(c.reason); got != c.want {
-			t.Errorf("SignInHint(%q) = %q, want %q", c.reason, got, c.want)
+		if got := SignInHint(cli); got != want {
+			t.Errorf("SignInHint(%s) = %q, want %q", cli, got, want)
 		}
 	}
 }
@@ -185,7 +179,7 @@ func TestSignInRetry(t *testing.T) {
 		t.Errorf("CLI runs = %d, want %d: one try each retryAfter", n, 2*maxTries)
 	}
 	b := f.batches()[0]
-	if b.Status != store.BatchFailed || b.ModelCalls != 0 || spent(b) || SignInHint(b.Reason) == "" {
+	if b.Status != store.BatchFailed || b.ModelCalls != 0 || spent(b) || b.Refusal != store.RefusalSignIn {
 		t.Fatalf("batch while signed out = %+v, want failed with no counted call, its tries and a sign-in reason", b)
 	}
 	if d := f.day(); d.Calls != 0 {

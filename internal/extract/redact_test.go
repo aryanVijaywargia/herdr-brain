@@ -43,7 +43,7 @@ func TestHideForms(t *testing.T) {
 // call inside "401", and auth text after the cut of the reason, still make a sign-in failure.
 func TestSignInBeforeHide(t *testing.T) {
 	for _, c := range []struct{ name, stderr, want string }{
-		{"short token", "error: HTTP 401\n", "claude: error: HTTP 40[secret]: sign-in failed"},
+		{"short token", "error: HTTP 401\n", "claude: error: HTTP [hidden]: sign-in failed"},
 		{"auth text after the cut", strings.Repeat("x", 300) + " 401 Unauthorized\n",
 			"claude: " + strings.Repeat("x", maxCause) + "...: sign-in failed"},
 	} {
@@ -57,12 +57,13 @@ func TestSignInBeforeHide(t *testing.T) {
 	}
 }
 
-// legacyBatch gives batch id the bare reason of a Brain before #428 and calls counted calls.
+// legacyBatch makes batch id a batch of a Brain before #428 after migration 37 (see
+// store.TestRefusalMigration): the bare reason, a sign-in refusal and calls counted calls.
 func (f *fixture) legacyBatch(id int64, calls int) {
 	f.t.Helper()
 	f.write(func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `UPDATE extraction_batches SET reason = 'claude: exit status 1', model_calls = ? WHERE id = ?`,
-			calls, id)
+		_, err := tx.ExecContext(ctx, `UPDATE extraction_batches SET reason = 'claude: exit status 1', refusal = ?,
+			model_calls = ? WHERE id = ?`, store.RefusalSignIn, calls, id)
 		return err
 	})
 }
@@ -119,7 +120,7 @@ func TestLegacyRetryOnce(t *testing.T) {
 		f.mustRun()
 	}
 	b := f.batches()[0]
-	if n := f.cli.calls() - runs; n != 1 || b.ModelCalls != maxTries+1 || !spent(b) || refused(b.Reason) {
+	if n := f.cli.calls() - runs; n != 1 || b.ModelCalls != maxTries+1 || !spent(b) || b.Refusal != store.RefusalNone {
 		t.Errorf("calls = %d, batch = %+v, want 1 call, then no try left", n, b)
 	}
 }

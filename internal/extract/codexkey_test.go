@@ -32,6 +32,15 @@ func TestCodexKey(t *testing.T) {
 		{"bad name", "model_provider = \"cliproxy\"\n" + proxy + "env_key = \"my key\"\n", ""},
 		{"array of tables", "model_provider = \"cliproxy\"\n[[model_providers.cliproxy]]\nenv_key = \"CLIPROXY_KEY\"\n", ""},
 		{"broken file", "model_provider = \"cliproxy\n[model_providers.cliproxy\nenv_key = CLIPROXY_KEY\n", ""},
+		// Sol round 2: a multi-line string that looks like keys and a table is a string.
+		{"multi-line string", "model_provider = \"real\"\nnotes = \"\"\"\nmodel_provider = \"ghost\"\n" +
+			"[model_providers.ghost]\nenv_key = \"OTHER_SECRET\"\n\"\"\"\n[model_providers.real]\nenv_key = \"REAL_KEY\"\n" +
+			"[model_providers.ghost]\nenv_key = \"OTHER_SECRET\"\n", "REAL_KEY"},
+		{"escaped name", "model_provider = \"cliproxy\"\n" + proxy + "env_key = \"CLIPROXY\\u005FKEY\"\n", "CLIPROXY_KEY"},
+		{"table comment", "model_provider = \"cliproxy\"\n[model_providers.cliproxy] # see [docs]\nenv_key = \"CLIPROXY_KEY\"\n",
+			"CLIPROXY_KEY"},
+		{"duplicate key", "model_provider = \"cliproxy\"\nmodel_provider = \"other\"\n" + proxy + "env_key = \"CLIPROXY_KEY\"\n", ""},
+		{"junk", "model_provider = \"cliproxy\"\n" + proxy + "env_key = \"CLIPROXY_KEY\"\n%%% junk\n", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -77,5 +86,24 @@ func TestCleanEnvCodexKey(t *testing.T) {
 	delete(vars, "CLIPROXY_KEY")
 	if env, _ := cleanEnv(store.ExtractorCodex, getenv); hasKey(env) {
 		t.Errorf("the codex env has CLIPROXY_KEY, which is not set")
+	}
+}
+
+// AC #428 (Sol round 2): an env_key that callEnv lists as plain, as AWS_PROFILE, is a secret of
+// the codex call all the same: a 401 text that holds its value stores no value.
+func TestCodexKeyOnAllowlist(t *testing.T) {
+	dir := t.TempDir()
+	config := "model_provider = \"cliproxy\"\n[model_providers.cliproxy]\nenv_key = \"AWS_PROFILE\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	vars := map[string]string{"CODEX_HOME": dir, "AWS_PROFILE": "pk-31337"}
+	env, secrets := cleanEnv(store.ExtractorCodex, func(name string) string { return vars[name] })
+	if n := strings.Count(strings.Join(env, "\n"), "AWS_PROFILE="); n != 1 {
+		t.Errorf("the codex env has AWS_PROFILE %d times, want 1", n)
+	}
+	err := runError(store.ExtractorCodex, secrets, nil, exit("codex", "ERROR: 401 Unauthorized: key pk-31337\n"))
+	if strings.Contains(err.Error(), "pk-31337") || !strings.Contains(err.Error(), "key [secret]") {
+		t.Errorf("runError() = %q, want the key hidden by the exact filter", err)
 	}
 }

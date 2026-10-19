@@ -499,9 +499,9 @@ func (d *doctorCall) extraction(ctx context.Context) error {
 		if w.Failed == "" {
 			continue
 		}
-		fix := extract.SignInHint(w.Failed)
-		if fix == "" {
-			fix = fmt.Sprintf("run %s in a terminal and check that it works and is signed in", cli)
+		fix := fmt.Sprintf("run %s in a terminal and check that it works and is signed in", cli)
+		if w.Refusal == store.RefusalSignIn {
+			fix = extract.SignInHint(cli)
 		}
 		d.fail("extraction: the last extractor call for workspace %s failed (%s), so its signals wait; fix: %s; "+
 			"Brain tries again later", w.WorkspaceKey, w.Failed, fix)

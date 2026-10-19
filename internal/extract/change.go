@@ -48,7 +48,7 @@ func (p Pass) requests(ctx context.Context, tx *sql.Tx) ([]job, error) {
 	var jobs []job
 	for _, r := range rs {
 		spent, failed := ChangeSpent(r), r.Status == store.ChangeFailed || r.Status == store.ChangeInvalid
-		if failed && !spent && !p.tryAgain(r.ModelCalls, r.At, worked, refused(r.Reason)) ||
+		if failed && !spent && !p.tryAgain(r.ModelCalls, r.At, worked, r.Refusal != store.RefusalNone) ||
 			r.Status == store.ChangeActive && p.Now().Sub(r.At) < changeStale {
 			continue
 		}
@@ -418,8 +418,8 @@ func (p Pass) commitChange(ctx context.Context, j job, claims []Claim, callErr e
 			if _, err := store.EndChange(ctx, tx, r.ID, r.Status, callErr.Error(), nil, now); err != nil {
 				return err
 			}
-			if uncounted(callErr) {
-				return store.UncountChangeCall(ctx, tx, r.ID)
+			if rf := refusal(callErr); rf != store.RefusalNone {
+				return store.RefuseChangeCall(ctx, tx, r.ID, rf)
 			}
 			return giveBack(ctx, tx, r)
 		}

@@ -184,7 +184,8 @@ func noItemTextFields() []Field {
 		{"extraction_batches", "first_capture"},
 		{"extraction_batches", "last_capture"},
 		{"extraction_batches", "status"},
-		{"extraction_batches", "reason"}, // A fixed reason of Brain; no model text.
+		{"extraction_batches", "reason"},  // A fixed reason of Brain; no model text.
+		{"extraction_batches", "refusal"}, // A fixed value: none, limit or sign-in.
 		{"extraction_batches", "at"},
 		{"extraction_calls", "workspace_key"},
 		{"extraction_calls", "at"},
@@ -198,7 +199,8 @@ func noItemTextFields() []Field {
 		{"change_requests", "source"},
 		{"change_requests", "workspace_key"},
 		{"change_requests", "status"},
-		{"change_requests", "reason"}, // A fixed reason of Brain; no model text.
+		{"change_requests", "reason"},  // A fixed reason of Brain; no model text.
+		{"change_requests", "refusal"}, // A fixed value: none, limit or sign-in.
 		{"change_requests", "created"},
 		{"change_requests", "at"},
 		{"prompt_index", "hash"}, // A prompt hash: forget deletes it with the row of its text.

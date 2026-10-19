@@ -100,7 +100,8 @@ type Batch struct {
 	LastObservation int64 // the observation id of LastCapture; 0 for a scan batch
 	Status          BatchStatus
 	ModelCalls      int
-	Reason          string // why it failed, was invalid or was discarded; no model text
+	Reason          string // why it failed, was invalid or was discarded; no model text; for display only
+	Refusal         Refusal
 	At              time.Time
 	ScanID          int64 // the history scan of a scan batch; 0 for a live batch
 	FirstFinding    int   // the first and last finding id of a scan batch
@@ -114,12 +115,12 @@ func (b Batch) Scan() bool { return b.ScanID != 0 }
 func (b Batch) Done() bool { return b.Status == BatchCommitted || b.Status == BatchEmpty }
 
 const batchColumns = `id, session_id, workspace_key, first_capture, last_capture, start_watermark, last_observation,
-	status, model_calls, reason, at, COALESCE(scan_id, 0), COALESCE(first_finding, 0), COALESCE(last_finding, 0)`
+	status, model_calls, reason, refusal, at, COALESCE(scan_id, 0), COALESCE(first_finding, 0), COALESCE(last_finding, 0)`
 
 func scanBatch(rows interface{ Scan(...any) error }) (Batch, error) {
 	var b Batch
 	err := rows.Scan(&b.ID, &b.SessionID, &b.WorkspaceKey, &b.FirstCapture, &b.LastCapture, &b.StartWatermark,
-		&b.LastObservation, &b.Status, &b.ModelCalls, &b.Reason, timeDest{&b.At}, &b.ScanID, &b.FirstFinding,
+		&b.LastObservation, &b.Status, &b.ModelCalls, &b.Reason, &b.Refusal, timeDest{&b.At}, &b.ScanID, &b.FirstFinding,
 		&b.LastFinding)
 	return b, err
 }
@@ -165,7 +166,7 @@ func StartBatch(ctx context.Context, tx *sql.Tx, b Batch, now time.Time) (Batch,
 	case err != nil && !errors.Is(err, sql.ErrNoRows):
 		return Batch{}, fmt.Errorf("read batch: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE extraction_batches SET status = ?, reason = ?, at = ?
+	if _, err := tx.ExecContext(ctx, `UPDATE extraction_batches SET status = ?, reason = ?, refusal = '', at = ?
 		WHERE scan_id IS NULL AND (session_id = ? AND status = ? OR session_id = ? AND workspace_key = ? AND status IN (?, ?))
 		AND NOT (workspace_key = ? AND first_capture = ? AND last_capture = ?)`,
 		BatchDiscarded, "replaced by a newer batch", timeArg(now), b.SessionID, BatchActive, b.SessionID,
@@ -205,7 +206,7 @@ func StartScanBatch(ctx context.Context, tx *sql.Tx, b Batch, now time.Time) (Ba
 	case err != nil && !errors.Is(err, sql.ErrNoRows):
 		return Batch{}, false, fmt.Errorf("read scan batch: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE extraction_batches SET status = ?, reason = ?, at = ?
+	if _, err := tx.ExecContext(ctx, `UPDATE extraction_batches SET status = ?, reason = ?, refusal = '', at = ?
 		WHERE scan_id = ? AND workspace_key = ? AND status IN (?, ?) AND NOT (first_finding = ? AND last_finding = ?)`,
 		BatchDiscarded, "replaced by a newer batch", timeArg(now), b.ScanID, b.WorkspaceKey, BatchFailed, BatchInvalid,
 		b.FirstFinding, b.LastFinding); err != nil {
@@ -244,7 +245,7 @@ func StartScanBatch(ctx context.Context, tx *sql.Tx, b Batch, now time.Time) (Ba
 // session binding. The pass of a binding plans while none of its calls runs, so such a batch was
 // left by a crash: it would stop the scan batches of every binding (StartScanBatch).
 func DiscardScanBatches(ctx context.Context, tx *sql.Tx, id int64, binding string, now time.Time) error {
-	if _, err := tx.ExecContext(ctx, `UPDATE extraction_batches SET status = ?, reason = ?, at = ?
+	if _, err := tx.ExecContext(ctx, `UPDATE extraction_batches SET status = ?, reason = ?, refusal = '', at = ?
 		WHERE scan_id = ? AND status = ? AND session_id IN (SELECT id FROM sessions WHERE herdr_session = ?)`,
 		BatchDiscarded, "a crash stopped it", timeArg(now), id, BatchActive, binding); err != nil {
 		return fmt.Errorf("discard crashed scan batches: %w", err)
@@ -269,7 +270,7 @@ func EmptyBatch(ctx context.Context, tx *sql.Tx, b Batch, now time.Time) error {
 // EndBatch sets the status of the active batch id to status, with reason. It returns false
 // when the batch is no longer active: a newer batch discarded it.
 func EndBatch(ctx context.Context, tx *sql.Tx, id int64, status BatchStatus, reason string, now time.Time) (bool, error) {
-	res, err := tx.ExecContext(ctx, `UPDATE extraction_batches SET status = ?, reason = ?, at = ?
+	res, err := tx.ExecContext(ctx, `UPDATE extraction_batches SET status = ?, reason = ?, refusal = '', at = ?
 		WHERE id = ? AND status = ?`, status, reason, timeArg(now), id, BatchActive)
 	if err != nil {
 		return false, fmt.Errorf("end batch %d: %w", id, err)
@@ -518,24 +519,37 @@ func LastWorkedCall(ctx context.Context, tx *sql.Tx) (time.Time, error) {
 	return at, nil
 }
 
-// UncountBatchCall takes back the last extractor call of batch id: the CLI refused it at a
-// usage or rate limit, so it ran no model (#377). The call leaves the daily call cap, and the
-// batch keeps the try that the call used.
-func UncountBatchCall(ctx context.Context, tx *sql.Tx, id int64) error {
-	return uncountCall(ctx, tx, "extraction_batches", "batch_id", id)
+// Refusal says why the extractor CLI refused the last call of a failed batch or change request
+// before it ran a model (#377, #428): the call used no try and left the daily call cap.
+// RefusalNone for any other end. It is data: Brain never reads it from the reason text.
+type Refusal string
+
+// The refusals.
+const (
+	RefusalNone   Refusal = ""
+	RefusalLimit  Refusal = "limit"   // at a usage or rate limit of the plan of the CLI
+	RefusalSignIn Refusal = "sign-in" // the CLI could not sign in
+)
+
+// RefuseBatchCall records refusal r of the last extractor call of batch id and takes the call
+// back: the CLI ran no model. The call leaves the daily call cap, and the batch keeps the try
+// that the call used.
+func RefuseBatchCall(ctx context.Context, tx *sql.Tx, id int64, r Refusal) error {
+	return refuseCall(ctx, tx, "extraction_batches", "batch_id", id, r)
 }
 
-// UncountChangeCall takes back the last extractor call of change request id, as
-// UncountBatchCall does for a batch (#377).
-func UncountChangeCall(ctx context.Context, tx *sql.Tx, id int64) error {
-	return uncountCall(ctx, tx, "change_requests", "change_request_id", id)
+// RefuseChangeCall records refusal r of the last extractor call of change request id and takes
+// the call back, as RefuseBatchCall does for a batch.
+func RefuseChangeCall(ctx context.Context, tx *sql.Tx, id int64, r Refusal) error {
+	return refuseCall(ctx, tx, "change_requests", "change_request_id", id, r)
 }
 
-// uncountCall takes back the last call of row id of table, whose calls have id in column of
-// extraction_calls: it lowers the model calls of the row and deletes the call.
-func uncountCall(ctx context.Context, tx *sql.Tx, table, column string, id int64) error {
-	if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET model_calls = model_calls - 1 WHERE id = ? AND model_calls > 0`,
-		id); err != nil {
+// refuseCall records refusal r on row id of table and takes back its last call, whose calls
+// have id in column of extraction_calls: it lowers the model calls of the row and deletes the
+// call.
+func refuseCall(ctx context.Context, tx *sql.Tx, table, column string, id int64, r Refusal) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE `+table+` SET refusal = ?, model_calls = max(model_calls - 1, 0) WHERE id = ?`,
+		r, id); err != nil {
 		return fmt.Errorf("take back the call of %s %d: %w", table, id, err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM extraction_calls WHERE id = (SELECT MAX(id) FROM extraction_calls
