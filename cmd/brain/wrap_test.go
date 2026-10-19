@@ -69,7 +69,7 @@ func TestSetupWrap(t *testing.T) {
 				t.Errorf("setup shows no hook entry, so the test checks none:\n%s", want)
 			}
 			// The constant texts too: the Codex trust steps show only for a hook in place.
-			for _, text := range []string{"Step 4: " + codexTrust, firstUse, locality} {
+			for _, text := range []string{codexTrust, firstUse, locality, historyScan} {
 				var b bytes.Buffer
 				if _, err := io.WriteString(wrapTo(&b, width), text); err != nil {
 					t.Fatal(err)
@@ -80,8 +80,9 @@ func TestSetupWrap(t *testing.T) {
 	}
 }
 
-// AC 1 (#255): a continuation line keeps the indent of its line, the space after a question
-// shows before the answer, and an unknown width leaves the text as it is.
+// AC 1 (#255): a continuation line keeps the indent of its line, a bullet line goes on under
+// its text, the space after a question shows before the answer, and an unknown width leaves
+// the text as it is.
 func TestWrapTo(t *testing.T) {
 	var b bytes.Buffer
 	w := wrapTo(&b, 20)
@@ -92,6 +93,15 @@ func TestWrapTo(t *testing.T) {
 	}
 	if want := "  1. one two three\n  four five\nApply all? [y/N] y\n"; b.String() != want {
 		t.Errorf("wrapped = %q, want %q", b.String(), want)
+	}
+
+	// A wrapped bullet line goes on under the text of the bullet.
+	b.Reset()
+	if _, err := io.WriteString(wrapTo(&b, 12), "- one two three four five\n"); err != nil {
+		t.Fatal(err)
+	}
+	if want := "- one two\n  three four\n  five\n"; b.String() != want {
+		t.Errorf("bullet = %q, want %q", b.String(), want)
 	}
 
 	b.Reset()

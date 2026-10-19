@@ -39,8 +39,9 @@ func TestSetupScanYes(t *testing.T) {
 	if extractor < 0 || question < extractor {
 		t.Errorf("setup did not ask the history question after the extractor choice:\n%s", out)
 	}
-	for _, want := range []string{"~/.claude and ~/.codex", "It keeps short excerpts", "token counts",
-		"It keeps no whole transcript", "Only the excerpts of extractor calls leave this machine",
+	for _, want := range []string{"Step 3: past sessions\n", "~/.claude and ~/.codex", "newest 300 files of the last 30 days",
+		"It keeps short excerpts", "token counts", "secret filter", "no whole transcript and no file path",
+		"Only extractor calls send excerpts off this machine", "brain forget --session <id>",
 		"- History scan: record your yes in the store " + mainStoreOf(home),
 		"History scan: brained reads your past sessions at its next tick."} {
 		if !strings.Contains(out, want) {

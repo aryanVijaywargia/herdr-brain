@@ -10,7 +10,7 @@ Run every command in a shell inside a pane of the herdr session that the user wa
 Two steps ask the user. Do not answer for them:
 
 - The plugin install asks "Install this plugin? [y/N]".
-- `brain setup` asks which CLI runs the extractor, and then asks once "Apply all of this? [y/N]" for the whole plan.
+- `brain setup` asks which CLI runs the extractor, and whether Brain may read the past sessions once. Then it asks once "Apply all of this? [y/N]" for the whole plan.
 
 Ask your user the same questions, show them what setup will change, and answer only with their answer.
 
@@ -84,29 +84,32 @@ BRAIN=~/.config/herdr/plugins/github/brain-bbbf7a6412d6/bin/brain
 ```
 
 With no input, setup takes no extractor and answers no, so it writes nothing.
-It prints the herdr check, the paragraph about where the excerpts of learning go, and the plan under "Step 3: the changes."
+It prints the steps "herdr version", "extractor CLI" and "past sessions", then the plan under the step "plan".
+Each step is a title line, such as "Step 2: extractor CLI", and short bullets.
 
 Now ask your user:
 
-1. Which CLI runs the extractor: `claude`, `codex` or `none`? Show them the paragraph about where the excerpts go.
+1. Which CLI runs the extractor: `claude`, `codex` or `none`? Show them the bullets of the "extractor CLI" step. They say where the excerpts go.
    Skip this question when the plan says "Extractor: ... Already done".
 2. For `claude` or `codex`: which model? Empty means the default model of that CLI.
-3. Show them the plan, with the extractor line that matches their choice. Ask: "Apply all of this? [y/N]".
+3. May Brain read the past Claude Code and Codex sessions once? Show them the bullets of the "past sessions" step.
+   Skip this question when the plan shows a "History scan:" state line other than "History scan: not now".
+4. Show them the plan, with the extractor line that matches their choice. Ask: "Apply all of this? [y/N]".
 
 Then run setup again and give each answer on its own line, in the order setup asks:
 
 ```sh
-printf '%s\n' "<cli>" "<model>" "<yes or no>" | "$BRAIN" setup
+printf '%s\n' "<cli>" "<model>" "<scan yes or no>" "<apply yes or no>" | "$BRAIN" setup
 ```
 
-Leave out the CLI and model lines when setup does not ask for them: with `none` it asks no model, and with a recorded choice it asks neither.
+Leave out the lines of the questions that setup does not ask: with `none` it asks no model, with a recorded choice it asks neither, and with a recorded scan answer it does not ask about the past sessions.
 A line that answers the wrong question does no harm: any answer except `y` to the last question writes nothing.
 
 Expected after a yes:
 
-- `herdr <version>: OK.` at the start. `herdr <version>: not tested with Brain yet. Brain works, and brain status warns.` is fine too.
+- Under "Step 1: herdr version": `- Brain is tested with this version. OK.` The lines `- <version> is not one of the tested versions: ...` and `- Brain works. brain status shows a warning.` are fine too.
 - Each plan line was written, or it says "Already done".
-- For Codex, a "Step 4" block with the Codex trust steps. Do step 4 below.
+- For Codex, a last step "trust the Codex hook" with the Codex trust steps. Do step 4 below.
 - A "First use" guide at the end.
 - With nothing to write, setup prints "Every step is already done. Setup changes nothing." and asks nothing.
 

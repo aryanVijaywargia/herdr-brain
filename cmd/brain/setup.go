@@ -40,38 +40,55 @@ const setupHerdrDeadline = 5 * time.Second
 const setupBusyTimeout = 5 * time.Second
 
 // codexTrust are the trust steps of the M0 test "E8-S3: trust check", for a profile
-// with hook_trust "codex".
-const codexTrust = `trust the hook in Codex.
-Codex runs a new hook only after you trust it:
-  1. Start codex in a terminal. Codex shows "Hooks need review" and "1 hook is new or changed."
-  2. Choose "Review hooks". Find the SessionStart hook with the Brain command, from source ~/.codex/hooks.json.
-  3. Press t to trust it. Press t on the event list to trust all hooks that need review.
-  4. Or choose "Trust all and continue" on the first screen. This trusts every new or changed hook, not only Brain's.
-  5. Do not choose "Continue without trusting (hooks won't run)". Brain then gets no context.
-  6. Later, type /hooks in Codex to see the trust state or to trust the hook.
-  7. Trust again after a Brain update that changes the hook command or timeout.
-     Each new Brain hook entry (a hook record entry too) needs trust again.
-  codex exec does not show the review screen. It skips an untrusted hook with no warning.
-  Run ` + "`brain doctor`" + ` to check.
+// with hook_trust "codex". Setup shows them under the step title "trust the Codex hook".
+const codexTrust = `- Start codex. Choose "Review hooks", then press t on the Brain hook.
+- "Trust all and continue" also trusts every other new hook.
+- Do not choose "Continue without trusting": Brain then gets no context.
+- codex exec skips an untrusted hook with no warning. To check: brain doctor
+- Trust again after a new or changed Brain hook entry: /hooks in Codex, then t.
 `
 
-// locality explains where the excerpts of an extractor call go (§7.3 D9, D4). It is one
-// paragraph with no line breaks: setup wraps it at the pane width (#255).
-const locality = `Brain learns lessons from your finished sessions with one headless call of an official CLI that you choose: claude -p or codex exec, with no tools. Each call sends short excerpts of your sessions, after the secret filter, to the provider that this CLI is set up for, with the CLI's own sign-in. Brain never reads its tokens. Your agents already send their sessions to their provider the same way. Extraction is on after this step. To stop the calls for one workspace or for all: brain extract off [--workspace <id>]. Capture and the signal rules keep running then. Brain never picks or switches the extractor CLI by itself.
+// locality says where the excerpts of an extractor call go (§7.3 D9, D4).
+const locality = `- Brain learns from your finished sessions with claude -p or codex exec.
+- Each call has no tools. It sends short excerpts, after the secret filter.
+- The excerpts go to the provider of that CLI, with the CLI's own sign-in.
+- Brain never reads the CLI's tokens, and never picks the CLI by itself.
+- Extraction is on after setup. To stop it: brain extract off [--workspace <id>]
 `
 
 // historyScan says what the history scan reads, what it keeps and what leaves the machine
-// (§6.8). It is one paragraph with no line breaks: setup wraps it at the pane width (#255).
-const historyScan = `Brain can read your past Claude Code and Codex sessions once, to find what you repeat now instead of after weeks. brained reads them in the background after setup: the newest 300 session files of the last 30 days in ~/.claude and ~/.codex. It keeps short excerpts of your prompts, of the agent's commands and of their failures, after the secret filter, and the token counts that the files record. It keeps no whole transcript and no file path. Only the excerpts of extractor calls leave this machine, through the extractor CLI that you chose. To remove one session later: brain forget --session <id>.
+// (§6.8).
+const historyScan = `- brained reads ~/.claude and ~/.codex: the newest 300 files of the last 30 days.
+- It keeps short excerpts of prompts, commands and failures, and token counts.
+- The secret filter runs first. It keeps no whole transcript and no file path.
+- Only extractor calls send excerpts off this machine.
+- To remove a session later: brain forget --session <id>
 `
 
-const firstUse = `First use:
-  1. In a Claude or Codex session in herdr, have the agent run: brain remember "<one lesson>" --global
-     Approve it in the review pane.
-  2. Start a new session of the other CLI in herdr. It gets the item at its start
-     (Codex at its first prompt).
-  3. Run: brain status
+const firstUse = `First use
+- Ask a Claude or Codex agent in herdr to run:
+  brain remember "<one lesson>" --global
+- Approve the draft in the review pane.
+- Start a new session of the other CLI in herdr. It gets the item.
+  Codex gets it at its first prompt.
+- Check with: brain status
 `
+
+// stepper numbers the steps that setup shows. A step that setup skips takes no number, so
+// the numbers have no gap.
+type stepper struct {
+	w io.Writer
+	n int
+}
+
+// next shows the title line of the next step, after a blank line.
+func (s *stepper) next(title string) {
+	if s.n > 0 {
+		fmt.Fprintln(s.w)
+	}
+	s.n++
+	fmt.Fprintf(s.w, "Step %d: %s\n", s.n, title)
+}
 
 // setupDeps are the parts of setup that reach outside the process; tests replace them.
 type setupDeps struct {
@@ -127,7 +144,8 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 	if d.width != nil {
 		stdout = wrapTo(stdout, d.width(stdout))
 	}
-	fmt.Fprintf(stdout, "Step 1: check the herdr version of session %q.\n", name)
+	st := &stepper{w: stdout}
+	st.next("herdr version")
 	sess, err := herdrSession(ctx, d, name, stdout)
 	if err != nil {
 		return err
@@ -155,28 +173,35 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 		return err
 	}
 
-	fmt.Fprintln(stdout, "\nStep 2: the extractor CLI.")
+	st.next("extractor CLI")
 	if err := chooseExtractor(ctx, d, storeDir, again, &p, in, stdout); err != nil {
 		return err
 	}
-	if err := askScan(ctx, d, storeDir, test, &p, in, stdout); err != nil {
+	if err := askScan(ctx, d, storeDir, test, st, &p, in, stdout); err != nil {
 		return err
 	}
 
-	fmt.Fprintln(stdout, "\nStep 3: the changes.")
-	fmt.Fprint(stdout, p.text.String())
-	if len(p.steps) == 0 {
-		fmt.Fprintln(stdout, "Every step is already done. Setup changes nothing.")
-	}
-	applied, err := p.apply(in, stdout, "Setup wrote nothing. Run brain setup again to apply the changes. Run Brain with: "+bin+"\n")
+	applied, err := showPlan(st, &p, bin, in, stdout)
 	if err != nil {
 		return err
 	}
 	if trustNow || applied && trustAdded {
-		fmt.Fprint(stdout, "\nStep 4: "+codexTrust)
+		st.next("trust the Codex hook")
+		fmt.Fprint(stdout, codexTrust)
 	}
 	fmt.Fprint(stdout, "\n"+firstUse)
 	return nil
+}
+
+// showPlan shows the plan p as the next step of st, then asks once and applies it on yes. It
+// reports whether it applied the plan. bin is the binary path to run Brain with after a "no".
+func showPlan(st *stepper, p *plan, bin string, in *bufio.Reader, stdout io.Writer) (bool, error) {
+	st.next("plan")
+	fmt.Fprint(stdout, p.text.String())
+	if len(p.steps) == 0 {
+		fmt.Fprintln(stdout, "Every step is already done. Setup changes nothing.")
+	}
+	return p.apply(in, stdout, "Setup wrote nothing. To apply the plan later: brain setup\nRun Brain with: "+bin+"\n")
 }
 
 // setupFlags parses the arguments of setup. The session name defaults to this herdr session.
@@ -264,13 +289,14 @@ func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, p
 		planNone(ctx, d, dir, cur, p, stdout)
 		return nil
 	default:
-		fmt.Fprintf(stdout, "Unknown answer %q: the extractor choice stays as it was. To choose one: brain setup --extractor\n", answer)
+		fmt.Fprintf(stdout, "- Unknown answer %q. The extractor choice does not change.\n"+
+			"- To choose one later: brain setup --extractor\n", answer)
 		return nil
 	}
 	if _, err := d.lookPath(string(cli)); err != nil {
-		fmt.Fprintf(stdout, "%s is not on PATH: each call fails, and brain doctor says why, until it is.\n", cli)
+		fmt.Fprintf(stdout, "- %s is not on PATH. Each extractor call fails until it is. brain doctor shows why.\n", cli)
 	}
-	model, err := askLine(in, stdout, "Model (empty for the default model of the CLI): ")
+	model, err := askLine(in, stdout, "Which model? [the default model of the CLI] ")
 	if err != nil {
 		return err
 	}
@@ -279,7 +305,7 @@ func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, p
 		return nil
 	}
 	p.say("- Extractor: record %s, %s in the store %s.\n", cli, cmp.Or(model, "its default model"), dir)
-	p.say("  Each extractor call sends short excerpts, after the secret filter, to the provider of %s, as Step 2 says.\n", cli)
+	p.say("  Each extractor call sends short excerpts, after the secret filter, to the provider of %s.\n", cli)
 	p.add(func() error {
 		if err := writeExtractor(ctx, dir, cli, model, d.now()); err != nil {
 			return err
@@ -290,7 +316,7 @@ func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, p
 		}
 		fmt.Fprintf(stdout, "Extractor: %s, %s.\n", cli, cmp.Or(model, "its default model"))
 		if !x.On {
-			fmt.Fprintln(stdout, "Extraction stays off for the whole store, as you set it: brain extract on turns it on.")
+			fmt.Fprintln(stdout, "Extraction stays off for the whole store, as you set it. To turn it on: brain extract on")
 		}
 		return nil
 	})
@@ -313,8 +339,7 @@ func planNone(ctx context.Context, d setupDeps, dir string, cur store.ExtractorS
 		if err := writeExtractor(ctx, dir, "", "", d.now()); err != nil {
 			return err
 		}
-		fmt.Fprintln(stdout, "No extractor CLI chosen: Brain makes no extractor call, and brain status says so. "+
-			"To choose one later: brain setup --extractor")
+		fmt.Fprintln(stdout, "No extractor CLI: Brain makes no extractor call. To choose one later: brain setup --extractor")
 		return nil
 	})
 }
@@ -348,11 +373,11 @@ func readExtractor(ctx context.Context, dir string) (store.ExtractorSetting, err
 }
 
 // askScan asks whether Brain may read your past Claude and Codex sessions once, for the main
-// store in folder dir (§6.8), and adds the answer to p as one line. A yes adds the write of the
-// pending scan row; setup itself reads no transcript. A "no" writes nothing, so the next setup
-// asks again (S85). A store with a scan row shows its state and asks nothing. A test binding
+// store in folder dir (§6.8), as the next step of st, and adds the answer to p as one line. A
+// yes adds the write of the pending scan row; setup itself reads no transcript. A "no" writes
+// nothing, so the next setup asks again (S85). A store with a scan row shows its state and asks nothing. A test binding
 // (test is its folder) never gets the question, so evals never read your history (S87).
-func askScan(ctx context.Context, d setupDeps, dir, test string, p *plan, in *bufio.Reader, stdout io.Writer) error {
+func askScan(ctx context.Context, d setupDeps, dir, test string, st *stepper, p *plan, in *bufio.Reader, stdout io.Writer) error {
 	if test != "" {
 		return nil
 	}
@@ -364,7 +389,8 @@ func askScan(ctx context.Context, d setupDeps, dir, test string, p *plan, in *bu
 		p.say("- %s\n", cli.ScanState(sc))
 		return nil
 	}
-	fmt.Fprint(stdout, "\n"+historyScan)
+	st.next("past sessions")
+	fmt.Fprint(stdout, historyScan)
 	yes, err := ask(in, stdout, "Read your past Claude and Codex sessions once, to find repeats now? [y/N] ")
 	if err != nil {
 		return err
@@ -373,7 +399,7 @@ func askScan(ctx context.Context, d setupDeps, dir, test string, p *plan, in *bu
 		p.say("- History scan: not now. The next brain setup asks again.\n")
 		return nil
 	}
-	p.say("- History scan: record your yes in the store %s. brained reads your past sessions once, after setup.\n", dir)
+	p.say("- History scan: record your yes in the store %s.\n  brained reads your past sessions once, after setup.\n", dir)
 	p.add(func() error {
 		if err := writeScan(ctx, dir, d.now()); err != nil {
 			return err
@@ -435,11 +461,13 @@ func herdrSession(ctx context.Context, d setupDeps, name string, stdout io.Write
 	if err != nil {
 		return herdr.Session{}, fmt.Errorf("herdr session %q: %w", name, err)
 	}
-	if untested {
-		fmt.Fprintf(stdout, "herdr %s: not tested with Brain yet. Brain works, and brain status warns.\n", v)
-	} else {
-		fmt.Fprintf(stdout, "herdr %s: OK.\n", v)
+	fmt.Fprintf(stdout, "- Session %q runs herdr %s.\n", name, v)
+	if !untested {
+		fmt.Fprintln(stdout, "- Brain is tested with this version. OK.")
+		return ss[i], nil
 	}
+	fmt.Fprintf(stdout, "- %s is not one of the tested versions: %s.\n", v, strings.Join(herdr.TestedVersions(), ", "))
+	fmt.Fprintln(stdout, "- Brain works. brain status shows a warning.")
 	return ss[i], nil
 }
 
@@ -493,8 +521,7 @@ func planBind(d setupDeps, sess herdr.Session, test string, p *plan, stdout io.W
 		}
 	}
 
-	p.say("- Binding: write %s: session %q, socket %s, store %s (%s).\n",
-		file, want.Session, want.Socket, want.Store, want.Kind)
+	p.say("- Binding: bind session %q to the %s store %s.\n  Setup writes it to %s.\n", want.Session, want.Kind, want.Store, file)
 	showReplaced(&p.text, sess.Name, cur, dropped)
 	p.add(func() error {
 		if err := writeBinding(file, before, next, want); err != nil {
@@ -691,9 +718,9 @@ func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, tr
 		}
 	}
 	if hooked {
-		p.say("- Brain records each hook entry it adds in %s, with a copy of each hook file before its first change.\n", inst.Record)
-		p.say("- To remove the hook entries later: brain uninstall (a dry run), then brain uninstall --apply.\n" +
-			"  It removes only Brain's entries, and keeps every other byte of each file.\n")
+		p.say("- Setup lists each hook entry it adds in %s.\n  It saves a copy of each hook file before the first change.\n", inst.Record)
+		p.say("- To remove the hook entries later: brain uninstall, then brain uninstall --apply\n" +
+			"  The first command is a dry run. Brain removes only its own entries.\n")
 	}
 	return trustNow, trustAdded, nil
 }
@@ -739,7 +766,7 @@ func planRecords(inst *install.Installer, p *adapter.Profile, pl *plan) ([]adapt
 	if len(add) == 0 {
 		return nil, nil
 	}
-	pl.say("  Brain also stores hook records of %s: prompts, commands and replies. Add these entries to %s:\n", p.Kind, target)
+	pl.say("  Hook records of %s: Brain stores its prompts, commands and replies.\n  Add these entries to %s:\n", p.Kind, target)
 	for _, t := range texts {
 		pl.say("%s", t)
 	}

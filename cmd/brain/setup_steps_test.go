@@ -13,6 +13,7 @@ import (
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
+	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
@@ -149,7 +150,8 @@ func TestSetupTwice(t *testing.T) {
 			t.Errorf("%s has no Brain hook entry:\n%s", f, b)
 		}
 	}
-	for _, want := range []string{"herdr 0.9.1: OK", "brain uninstall --apply", "Press t to trust it", "First use:", "brain status"} {
+	for _, want := range []string{"- Session \"default\" runs herdr 0.9.1.\n", "- Brain is tested with this version. OK.\n",
+		"brain uninstall --apply", "press t on the Brain hook", "\nFirst use\n", "brain status"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not contain %q:\n%s", want, out)
 		}
@@ -208,11 +210,11 @@ func TestSetupOneYes(t *testing.T) {
 	if x := extractorOf(t, home); x.CLI != store.ExtractorClaude {
 		t.Errorf("extractor = %+v, want claude", x)
 	}
-	for _, want := range []string{"Step 3: the changes.", "- Binding: write ", "Make the symlink ",
+	for _, want := range []string{"Step 4: plan\n", "- Binding: bind session \"default\" to the main store ", "Make the symlink ",
 		"Add this entry to the SessionStart array of ", "Add these entries to ", "brain uninstall --apply",
-		"Brain records each hook entry it adds in " + filepath.Join(home, ".local", "share", "brain", "install.json"),
+		"Setup lists each hook entry it adds in " + filepath.Join(home, ".local", "share", "brain", "install.json"),
 		"- Extractor: record claude", "Bound session", "Linked ", "Added the Brain hook for codex",
-		"Added the hook record entries for claude", "Step 4: trust the hook in Codex."} {
+		"Added the hook record entries for claude", "Step 5: trust the Codex hook\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not contain %q:\n%s", want, out)
 		}
@@ -315,6 +317,25 @@ func TestSetupS81(t *testing.T) {
 	input := `{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart","source":"startup"}`
 	if code := run([]string{"hook", "--profile", "claude", "--event", "start"}, strings.NewReader(input), &hookOut, &hookErr); code != 0 || hookOut.Len() != 0 {
 		t.Errorf("hook = %d, stdout %q, want 0 and nothing", code, hookOut.String())
+	}
+}
+
+// S54: a herdr version that is not tested shows the tested versions and the warning, and
+// setup goes on.
+func TestSetupUntestedHerdr(t *testing.T) {
+	// 0.9.2 came before a tested release, so it stays untested.
+	setupHome(t, "0.9.2")
+	code, out, errOut := runSetup(t, "\nn\nn\n")
+	if code != 0 {
+		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
+	}
+	tested := strings.Join(herdr.TestedVersions(), ", ")
+	for _, want := range []string{"Step 1: herdr version\n- Session \"default\" runs herdr 0.9.2.\n",
+		"- 0.9.2 is not one of the tested versions: " + tested + ".\n", "- Brain works. brain status shows a warning.\n",
+		"Apply all of this? [y/N] "} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output does not contain %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -434,7 +455,7 @@ func TestSetupSkipsMissingCLI(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 	}
-	if !strings.Contains(out, "codex is not installed") || strings.Contains(out, "Press t to trust it") {
+	if !strings.Contains(out, "codex is not installed") || strings.Contains(out, "press t on the Brain hook") {
 		t.Errorf("output:\n%s", out)
 	}
 	if after := mustRead(t, filepath.Join(home, ".codex", "hooks.json")); !bytes.Equal(before, after) {

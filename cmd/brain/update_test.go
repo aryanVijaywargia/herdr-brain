@@ -82,7 +82,7 @@ func TestUpdateHookRecords(t *testing.T) {
 	}
 	for _, want := range []string{"up to date\n",
 		"Hook records: the profiles of this Brain turn on hook records, and these entries are missing.\n",
-		"Brain also stores hook records of claude: prompts, commands and replies. Add these entries to " + settings + ":\n",
+		"  Hook records of claude: Brain stores its prompts, commands and replies.\n  Add these entries to " + settings + ":\n",
 		"    PostToolUseFailure: {", "Add these entries to " + codex + ":\n", "Apply all of this? [y/N] ",
 		"brain update wrote no hook record entry. To add them later, run brain update again.\n"} {
 		if !strings.Contains(out, want) {

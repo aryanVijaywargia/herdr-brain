@@ -65,7 +65,7 @@ func TestSetupFakeProfile(t *testing.T) {
 					t.Errorf("setup output lacks %q:\n%s", want, out.String())
 				}
 			}
-			if strings.Contains(out.String(), "Press t to trust it") {
+			if strings.Contains(out.String(), "press t on the Brain hook") {
 				t.Errorf("setup shows the Codex trust steps for a profile with no hook_trust:\n%s", out.String())
 			}
 			_, err := os.Stat(target)
