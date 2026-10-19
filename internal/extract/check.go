@@ -16,12 +16,11 @@ import (
 
 // claimSchema is the JSON output schema of the extractor for a batch or a change request: the
 // claim fields, strict (the E13-S1 test), the skill fields of a claim of kind skill (E16-S4):
-// name, description, required_tools, example and steps [NEW fields], and the contract fields of
-// a claim of kind tool (E17-S6, the E17-S3 tool.toml fields): name, description, commands,
-// inputs, timeout_s, effects and read_only [NEW fields; Brain sets the cwd]. They are null for
-// any other kind. covered_by is the claim id of a known skill whose steps cover the failure of
-// the claim, or null (E20-S5) [NEW field]. A strict schema needs every field in required, so
-// they are there too.
+// name, description, required_tools, example and steps, and the contract fields of a claim of
+// kind tool (E17-S6, the E17-S3 tool.toml fields): name, description, commands, inputs,
+// timeout_s, effects and read_only (Brain sets the cwd). They are null for any other kind.
+// covered_by is the claim id of a known skill whose steps cover the failure of the claim, or
+// null (E20-S5). A strict schema needs every field in required, so they are there too.
 const claimSchema = `{"type":"object","additionalProperties":false,"required":["claims"],"properties":{"claims":{"type":"array",` +
 	`"items":{"type":"object","additionalProperties":false,"required":["kind","situation","rule","scope_guess",` +
 	`"evidence_refs","same_as","conflicts_with","touches_permission","expected_benefit",` +
@@ -50,7 +49,7 @@ const kindSkill = "skill"
 const kindLesson = "lesson"
 
 // skillName is the form of the name of a skill draft: at most 40 lower-case letters, digits and
-// hyphens [NEW]. store.ParseSkill checks the hyphens.
+// hyphens. store.ParseSkill checks the hyphens.
 var skillName = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
 
 // Claim is one claim of a checked extractor result. Its text is model text: the commit
@@ -251,8 +250,8 @@ func senderMark(s store.Sender) string {
 // claim of the input. The second result says which claims were dropped and why, with no claim
 // text. A result with claims that are all dropped is invalid, so the batch waits for its retry
 // (#263). A scan batch drops a claim of any other kind than claimKinds, as an automation, and a
-// claim that its scope does not keep (scanDrop) (S90, S95): those claims are valid, so they
-// count in the second result but make no result invalid.
+// claim that its scope does not keep (scanDrop): those claims are valid, so they count in the
+// second result but make no result invalid.
 func check(out json.RawMessage, j job) ([]Claim, []string, error) {
 	var res struct {
 		Claims *[]rawClaim `json:"claims"`
@@ -347,7 +346,7 @@ func checkClaim(r rawClaim, j job) (Claim, error) {
 		if err != nil {
 			return Claim{}, err
 		}
-		// A skill draft is a workspace skill (S8): you change the scope in review.
+		// A skill draft is a workspace skill: you change the scope in review.
 		c.Skill, c.Scope = &sk, store.ScopeWorkspace
 	}
 	// Brain sets the permission flag with its own keyword check too, outside the model.
@@ -428,7 +427,7 @@ func knownSkill(f json.RawMessage, j job) (string, error) {
 // description, required tools, example or steps: the skill text must pass store.ParseSkill.
 // The secret filter runs first (Redact), so the checks see the text that Brain stores. No error
 // holds model text: a ParseSkill error can quote the name, so it becomes a fixed reason (#310).
-// [NEW] a header field is one line: its white space folds to single spaces.
+// A header field is one line: its white space folds to single spaces.
 func checkSkill(r rawClaim) (store.Skill, error) {
 	field := func(f *string) string {
 		if f == nil {

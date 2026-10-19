@@ -31,10 +31,10 @@ func procedureReply(situation string) func(context.Context, string) ([]byte, err
 }
 
 // AC 1, 4: the first telling of a procedure or a repeated prompt joins the evidence of the claim
-// of its later tellings, so 3 tellings reach the gate of 3 (#314). The M2 shapes (N5): the
-// release R1 to R4, a new version each time, and the repeated prompt P, in codex and claude
-// sessions. The proposal comes after the third telling, not the fourth. The first telling alone
-// has no signal: an empty batch and no call.
+// of its later tellings, so 3 tellings reach the gate of 3 (#314). The M2 shapes: the release R1
+// to R4, a new version each time, and the repeated prompt P, in codex and claude sessions. The
+// proposal comes after the third telling, not the fourth. The first telling alone has no signal:
+// an empty batch and no call.
 func TestFirstTellingCounts(t *testing.T) {
 	for name, texts := range map[string][]string{
 		"release R1 to R4":  {releaseText("0.2.0"), releaseText("0.3.0"), releaseText("0.4.0"), releaseText("0.5.0")},

@@ -130,7 +130,7 @@ func fitMerge(items []store.MergeItem, limit int) []store.MergeItem {
 }
 
 // mergeInput is the extractor prompt of a merge call: the items of a part, marked as untrusted
-// data. [NEW] the prompt text.
+// data.
 func mergeInput(items []store.MergeItem) string {
 	var b strings.Builder
 	b.WriteString("You find approved brief items that say the same thing, so that Brain can merge them into one item. " +

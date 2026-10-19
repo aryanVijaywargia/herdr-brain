@@ -20,8 +20,8 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// callTimeout is the time limit of one extractor call (E13-S2 sets one). [NEW] 5 minutes: the
-// E13-S1 calls took well under a minute.
+// callTimeout is the time limit of one extractor call (E13-S2 sets one). 5 minutes: the E13-S1
+// calls took well under a minute.
 const callTimeout = 5 * time.Minute
 
 // Command is one command that a Runner runs: argv in folder Dir, with environment Env and no
@@ -48,7 +48,7 @@ type ExecRunner struct{}
 func (ExecRunner) Run(ctx context.Context, c Command) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, c.Argv[0], c.Argv[1:]...)
 	cmd.Dir, cmd.Env = c.Dir, c.Env
-	cmd.WaitDelay = 5 * time.Second // [NEW] a child that keeps the pipes open does not hold the pass
+	cmd.WaitDelay = 5 * time.Second // a child that keeps the pipes open does not hold the pass
 	var out bytes.Buffer
 	var errOut tail
 	cmd.Stdout, cmd.Stderr = &out, &errOut
@@ -69,8 +69,8 @@ func (e *ExitError) Error() string { return e.Err.Error() }
 
 func (e *ExitError) Unwrap() error { return e.Err }
 
-// tailSize is the end of standard error that ExecRunner keeps. [NEW] 16 KiB: the CLI writes its
-// error line last.
+// tailSize is the end of standard error that ExecRunner keeps. 16 KiB: the CLI writes its error
+// line last.
 const tailSize = 16 << 10
 
 // tail keeps the last tailSize bytes written to it.
@@ -92,8 +92,8 @@ var ErrInvalid = errors.New("invalid extractor response")
 // no try of its batch or change request.
 var ErrLimit = errors.New("at a usage or rate limit")
 
-// limitText matches the error text of a CLI at a usage or rate limit [NEW, M2 eval run 6,
-// 2026-10-10]: codex "exceeded retry limit, last status: 429 Too Many Requests" and "unexpected
+// limitText matches the error text of a CLI at a usage or rate limit (M2 eval run 6,
+// 2026-10-10): codex "exceeded retry limit, last status: 429 Too Many Requests" and "unexpected
 // status 503 Service Unavailable: All managed Codex accounts are temporarily unavailable", and
 // claude "You've hit your weekly limit · resets ...". The check reads only the error text of a
 // failed call, never model text.
@@ -106,15 +106,15 @@ var limitText = regexp.MustCompile(`(?i)\b(?:429|503)\b|too many requests|servic
 // it commits once the sign-in works.
 var ErrSignIn = errors.New("sign-in failed")
 
-// signInText matches the error text of a CLI that could not sign in [NEW, #428]: claude "Failed
-// to authenticate: OAuth session expired and could not be refreshed", "Invalid API key · Please
-// run /login" and "Not logged in", and codex "unexpected status 401 Unauthorized", "Your access
+// signInText matches the error text of a CLI that could not sign in (#428): claude "Failed to
+// authenticate: OAuth session expired and could not be refreshed", "Invalid API key · Please run
+// /login" and "Not logged in", and codex "unexpected status 401 Unauthorized", "Your access
 // token could not be refreshed" and "Missing environment variable: `OPENAI_API_KEY`".
 var signInText = regexp.MustCompile(`(?i)authenticat|unauthori[sz]ed|\b401\b|not logged in|log ?in\b|` +
 	`sign(?:ed)?[ -]?in\b|api[ _-]?key|oauth|(?:access|refresh|bearer) token|credential`)
 
-// maxCause is the longest cause of a failure in a stored reason, in runes [NEW, #428]: it fits
-// one line of brain status.
+// maxCause is the longest cause of a failure in a stored reason, in runes (#428): it fits one
+// line of brain status.
 const maxCause = 200
 
 // event is one JSON line of the output of a CLI: a codex exec --json event, or the claude -p
@@ -226,7 +226,7 @@ func lastLine(stderr []byte) string {
 // stay, so a word that holds a "[secret]" of the secret filter goes whole.
 const tokenEdge = "\"'`,;:(){}<>.!?"
 
-// minToken is the shortest token-shaped word in runes [NEW, #428 Sol round 2].
+// minToken is the shortest token-shaped word in runes (#428).
 const minToken = 8
 
 // hideTokens replaces each token-shaped word of the cause of a failure with "[hidden]" and puts
@@ -405,8 +405,8 @@ func enabledServers(out []byte) ([]string, error) {
 	return names, nil
 }
 
-// codexItems are the item types of a codex exec reply with no tool use [NEW]. Any other item
-// is a tool item: Brain rejects the reply (E13-S1).
+// codexItems are the item types of a codex exec reply with no tool use. Any other item is a tool
+// item: Brain rejects the reply (E13-S1).
 var codexItems = []string{"agent_message", "reasoning"}
 
 // codexResult reads the -o file of codex exec, after it checks the --json events out. A failed turn or no file is a failure; a tool item is an invalid

@@ -22,12 +22,12 @@ type Caps struct {
 	InputBytes int // the excerpt bytes of one call
 }
 
-// DefaultCaps are the defaults: 40 calls and 15 new proposals a day (#319). [NEW] 32 KiB of
-// excerpts for each call: the prompt is one argument of the CLI, and it stays far under the
-// argument limit of macOS and Linux (1 MiB and more).
+// DefaultCaps are the defaults: 40 calls and 15 new proposals a day (#319). 32 KiB of excerpts
+// for each call: the prompt is one argument of the CLI, and it stays far under the argument
+// limit of macOS and Linux (1 MiB and more).
 func DefaultCaps() Caps { return Caps{Calls: 40, Proposals: 15, InputBytes: 32 << 10} }
 
-// day is the window of the daily caps. [NEW] the 24 hours before now: it needs no time zone.
+// day is the window of the daily caps: the 24 hours before now. It needs no time zone.
 const day = 24 * time.Hour
 
 func (p Pass) caps() Caps {
@@ -91,7 +91,7 @@ func (d Day) Full() string {
 }
 
 // Paused is the line that says that learning waits for a full cap, which cap, and the local
-// time when room comes back (#372), or "" when no cap is full. [NEW] the line form.
+// time when room comes back (#372), or "" when no cap is full.
 func (d Day) Paused() string {
 	full := d.Full()
 	if full == "" {
@@ -248,8 +248,8 @@ const noTry = "no try left: it waits for new evidence of its session"
 
 // why returns why the next pass makes no call for batch j, or "": the switches and the CLI of
 // allowed, a failure of its last call that still waits for its retry or has no try left, a call
-// that runs, or the caps (S15). failed is the failed batch, while it waits for its retry;
-// the zero Batch for none. Its reason is what the official CLI reported.
+// that runs, or the caps. failed is the failed batch, while it waits for its retry; the zero
+// Batch for none. Its reason is what the official CLI reported.
 func (p Pass) why(ctx context.Context, tx *sql.Tx, j job, d Day) (why string, failed store.Batch, err error) {
 	s, err := store.Extractor(ctx, tx)
 	if err != nil {

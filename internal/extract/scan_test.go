@@ -243,9 +243,9 @@ func scopeInput(t *testing.T, name, prompt string, has, not []string) {
 	}
 }
 
-// AC: a scan batch commits as a live batch does (G3, S69): its claims make candidates and
-// proposals in its scope. A forget during the call, or a scope progress that moved, discards the
-// result, and the progress stays; a later pass extracts the kept evidence.
+// AC: a scan batch commits as a live batch does: its claims make candidates and proposals in its
+// scope. A forget during the call, or a scope progress that moved, discards the result, and the
+// progress stays; a later pass extracts the kept evidence.
 func TestScanBatchCommit(t *testing.T) {
 	for name, tc := range map[string]struct {
 		during func(f *fixture, sid int64)
@@ -399,9 +399,9 @@ func TestScanBatchCrash(t *testing.T) {
 	}
 }
 
-// AC (S93): live batches go first; scan batches use what is left of the daily caps, and one scan
-// batch can go over the remaining proposal room after its call. The rest waits, and the waiting
-// and cap lines show it.
+// AC: live batches go first; scan batches use what is left of the daily caps, and one scan batch
+// can go over the remaining proposal room after its call. The rest waits, and the waiting and
+// cap lines show it.
 func TestScanCaps(t *testing.T) {
 	f := newFixture(t)
 	f.caps = Caps{Calls: 2, Proposals: 2, InputBytes: 2*len(tabs) + 2*len(short)}
@@ -440,8 +440,8 @@ func TestScanCaps(t *testing.T) {
 	}
 }
 
-// AC (S93): the daily caps cover the store, so live batches go first across bindings: a scan
-// batch calls only while the caps keep room for each live batch of another binding that may call.
+// AC: the daily caps cover the store, so live batches go first across bindings: a scan batch
+// calls only while the caps keep room for each live batch of another binding that may call.
 func TestScanCapsOtherBinding(t *testing.T) {
 	f := newFixture(t)
 	f.cli.reply = noClaims
@@ -484,9 +484,9 @@ func TestScanCapsOtherBinding(t *testing.T) {
 	}
 }
 
-// AC (S95): a scan batch keeps only items, skills and tools. A claim of any other kind, as
-// an automation, is dropped and counted in the brained log line with no text; it makes no
-// response invalid. The prompt says that a repeat that fits a hook becomes an item or a tool.
+// AC: a scan batch keeps only items, skills and tools. A claim of any other kind, as an
+// automation, is dropped and counted in the brained log line with no text; it makes no response
+// invalid. The prompt says that a repeat that fits a hook becomes an item or a tool.
 func TestScanKinds(t *testing.T) {
 	f := newFixture(t)
 	a1, a2 := f.scanned("a1", "ws-A", pnpm), f.scanned("a2", "ws-A", pnpm)
@@ -525,9 +525,9 @@ func TestScanKinds(t *testing.T) {
 	}
 }
 
-// AC (S90): the global pool keeps only an item claim that the extractor marks global. A skill, a
-// tool and a claim about one project are dropped and counted. The tool claim of the test fails
-// its own check first (its commands are not in the evidence), which drops it too.
+// AC: the global pool keeps only an item claim that the extractor marks global. A skill, a tool
+// and a claim about one project are dropped and counted. The tool claim of the test fails its
+// own check first (its commands are not in the evidence), which drops it too.
 func TestScanGlobalPool(t *testing.T) {
 	f := newFixture(t)
 	g1, g2 := f.scanned("g1", "", short), f.scanned("g2", "", short)
@@ -596,8 +596,8 @@ func TestScanExactTool(t *testing.T) {
 	}
 }
 
-// AC (S93, S75): with the extractor choice none, no call is made and the scan batches wait;
-// with extraction off for a workspace, its scope makes 0 calls while the global pool goes on.
+// AC: with the extractor choice none, no call is made and the scan batches wait; with extraction
+// off for a workspace, its scope makes 0 calls while the global pool goes on.
 func TestScanSwitches(t *testing.T) {
 	f := newFixture(t)
 	f.cli.reply = noClaims
@@ -626,8 +626,8 @@ func TestScanSwitches(t *testing.T) {
 	}
 }
 
-// AC (S86): a scan proposal opens no review pane, as no agent pane asked for it: a lesson
-// proposal of a scan batch reserves no suggestion.
+// AC: a scan proposal opens no review pane, as no agent pane asked for it: a lesson proposal of
+// a scan batch reserves no suggestion.
 func TestScanLessonNoPane(t *testing.T) {
 	f := newFixture(t)
 	a1 := f.scanned("a1", "ws-A", vet)

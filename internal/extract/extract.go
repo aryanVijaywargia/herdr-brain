@@ -1,6 +1,6 @@
 // Package extract runs the extractor of the learning pipeline: it forms the batches of the
 // finished sessions, calls the extractor CLI outside any transaction, and commits each result
-// with the new watermark in one transaction (G3).
+// with the new watermark in one transaction.
 package extract
 
 import (
@@ -24,13 +24,12 @@ const (
 	// idle is how long a session with work stays quiet before it is finished.
 	idle = 10 * time.Minute
 	// retryAfter is the wait before a failed or invalid batch is tried again, unless a later
-	// call works first (#263). [NEW] 1 hour: the evidence waits, and brain status shows the
-	// failure.
+	// call works first (#263). 1 hour: the evidence waits, and brain status shows the failure.
 	retryAfter = time.Hour
 	// maxTries is the calls of an invalid batch (#347) or change request (#359); a failed one
-	// gets one more (noTryLeft). [NEW] 3: a valid answer can come at a retry, as the model
-	// answers anew each time, but the same input that gave an invalid answer 3 times gives it
-	// again, and each call uses the cap.
+	// gets one more (noTryLeft). 3: a valid answer can come at a retry, as the model answers
+	// anew each time, but the same input that gave an invalid answer 3 times gives it again,
+	// and each call uses the cap.
 	maxTries = 3
 )
 
@@ -117,7 +116,7 @@ func (p Pass) Run(ctx context.Context) error {
 			return err
 		}
 		jobs = order(jobs, last)
-		// Live batches go first; scan batches use what is left of the daily caps (S93).
+		// Live batches go first; scan batches use what is left of the daily caps.
 		scan, err := p.scanPlan(ctx, tx)
 		jobs = append(jobs, scan...)
 		return err
@@ -515,13 +514,13 @@ func (p Pass) extract(ctx context.Context, j job) error {
 	return p.commit(ctx, j, b.ID, claims, dropped, err)
 }
 
-// commit is the one transaction of batch id (G3). A batch that is no longer active adds
-// nothing: a retry of a committed batch, or a batch that a newer one replaced. A failure or an
-// invalid response keeps the watermark; a failure at a usage or rate limit of the CLI takes its
-// call back (#377). Else it checks the settings, the watermark and the
-// input again; a forget that touched the input discards the whole result. Then it writes the
-// evidence links, candidates and proposals, and moves the watermark. The claims that check
-// dropped go to Note once the batch is committed.
+// commit is the one transaction of batch id. A batch that is no longer active adds nothing: a
+// retry of a committed batch, or a batch that a newer one replaced. A failure or an invalid
+// response keeps the watermark; a failure at a usage or rate limit of the CLI takes its call
+// back (#377). Else it checks the settings, the watermark and the input again; a forget that
+// touched the input discards the whole result. Then it writes the evidence links, candidates and
+// proposals, and moves the watermark. The claims that check dropped go to Note once the batch is
+// committed.
 func (p Pass) commit(ctx context.Context, j job, id int64, claims []Claim, dropped []string, callErr error) error {
 	var lessons []Suggestion
 	committed := false
@@ -632,9 +631,9 @@ func watermark(ctx context.Context, tx *sql.Tx, b store.Batch) (int64, error) {
 	return store.Watermark(ctx, tx, b.SessionID, b.WorkspaceKey)
 }
 
-// advance moves the watermark past batch b in the transaction that commits it (G3); for a scan
-// batch, the progress of its scope to its last finding. stale checked the start in the
-// same transaction, so the move cannot miss.
+// advance moves the watermark past batch b in the transaction that commits it; for a scan batch,
+// the progress of its scope to its last finding. stale checked the start in the same
+// transaction, so the move cannot miss.
 func advance(ctx context.Context, tx *sql.Tx, b store.Batch) error {
 	if b.Scan() {
 		_, err := store.MoveScanProgress(ctx, tx, b.ScanID, b.WorkspaceKey, int(b.StartWatermark), b.LastFinding)
@@ -1335,7 +1334,7 @@ func candidateKind(c Claim) store.CandidateKind {
 // candidate. It stores the review fields: the excerpts stay in the evidence links, and the
 // proposal holds the hashes of its trigger prompts (store.ProposeCandidate) and the items that
 // it conflicts with. A lesson proposal of batch j gets its suggestion, but a scan proposal opens
-// no review pane: no agent pane asked for it (S86).
+// no review pane: no agent pane asked for it.
 func (p Pass) propose(ctx context.Context, tx *sql.Tx, j job, id int64, c Claim, now time.Time) (Suggestion, error) {
 	cand, pid, err := p.proposal(ctx, tx, id, c, now)
 	if err != nil || pid == 0 || cand.Kind != store.CandidateLesson || j.batch.Scan() {
@@ -1440,9 +1439,9 @@ func lessonSuggestion(ctx context.Context, tx *sql.Tx, cand store.Candidate, pid
 	return Suggestion{Suggestion: s, WorkspaceID: w.HerdrWorkspaceID}, nil
 }
 
-// itemKind is the item kind of a proposal of claim c. [NEW] a fact claim makes a fact, a skill
-// claim a skill (E16-S4), a tool claim a tool (E17-S6); every other claim kind makes a
-// preference, the kind of a lesson.
+// itemKind is the item kind of a proposal of claim c. A fact claim makes a fact, a skill claim a
+// skill (E16-S4), a tool claim a tool (E17-S6); every other claim kind makes a preference, the
+// kind of a lesson.
 func itemKind(c Claim) store.Kind {
 	switch c.Kind {
 	case "fact":
@@ -1468,8 +1467,8 @@ func claimKey(c Claim) store.ClaimKey {
 func claimText(c Claim) string { return brief.ClaimText(c.Situation, c.Rule) }
 
 // draft is the text and the diff of a new item of claim c: the skill text for a skill (the
-// review shows the whole file, S8), the tool text for a tool (the whole contract, E17-S3), else
-// the claim text.
+// review shows the whole file), the tool text for a tool (the whole contract, E17-S3), else the
+// claim text.
 func draft(c Claim) (text, diff string) {
 	switch {
 	case c.Skill != nil:
@@ -1490,9 +1489,9 @@ func redactClaim(c Claim) Claim {
 }
 
 // conflictItems returns the conflicts of a proposal of claim c for candidate cand: the active
-// items of the claim that c names in conflicts_with, in the scope of cand. [NEW] a claim with
-// no active item gives no conflict: there is nothing in the brief to conflict with. The
-// trigger prompts come from the prompt index (store.ProposeCandidate, E14-S1).
+// items of the claim that c names in conflicts_with, in the scope of cand. A claim with no
+// active item gives no conflict: there is nothing in the brief to conflict with. The trigger
+// prompts come from the prompt index (store.ProposeCandidate, E14-S1).
 func conflictItems(ctx context.Context, tx *sql.Tx, cand store.Candidate, c Claim) ([]int64, error) {
 	if c.ConflictsWith == "" {
 		return nil, nil
@@ -1513,9 +1512,8 @@ func target(ctx context.Context, tx *sql.Tx, c store.Candidate) (string, error) 
 	return fmt.Sprintf("workspace %s (%s)", w.HerdrWorkspaceID, w.Label), nil
 }
 
-// Redact replaces each secret that the secret filter finds in s with "[secret]" [NEW]: model
-// text goes through the filter before Brain stores it, and an excerpt before a proposal shows
-// it.
+// Redact replaces each secret that the secret filter finds in s with "[secret]": model text goes
+// through the filter before Brain stores it, and an excerpt before a proposal shows it.
 func Redact(s string) string {
 	var b strings.Builder
 	end := 0
@@ -1532,8 +1530,8 @@ func Redact(s string) string {
 	return b.String()
 }
 
-// normal is the normal form of a claim key text [NEW]: lower case with single spaces and
-// no end punctuation (#279), so "Writing code." and "writing  code" are one key.
+// normal is the normal form of a claim key text: lower case with single spaces and no end
+// punctuation (#279), so "Writing code." and "writing  code" are one key.
 func normal(s string) string {
 	return strings.TrimRight(strings.Join(strings.Fields(strings.ToLower(s)), " "), ".!?;:, ")
 }

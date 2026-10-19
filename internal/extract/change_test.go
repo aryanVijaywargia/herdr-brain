@@ -151,7 +151,7 @@ func TestTriggerPromptsFullText(t *testing.T) {
 }
 
 // conflicts_with names a claim; the proposal stores the active items of that claim in its
-// scope. A claim with no active item gives no conflict [NEW].
+// scope. A claim with no active item gives no conflict.
 func TestConflictsWith(t *testing.T) {
 	f := newFixture(t)
 	claim, item := f.claimItem("installing packages", "use npm")
@@ -178,7 +178,7 @@ func TestConflictsWith(t *testing.T) {
 }
 
 // AC: a change asked after the session ended, with no new observation, gives one draft to
-// review. A retry after the commit gives no second draft. Nothing becomes active (S56).
+// review. A retry after the commit gives no second draft. Nothing becomes active.
 func TestChangeRequestDraft(t *testing.T) {
 	f := newFixture(t)
 	p := f.proposed()

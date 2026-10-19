@@ -85,7 +85,7 @@ func (p Pass) stopCall(ctx context.Context, tx *sql.Tx, c store.StopCall) (bindi
 	}
 	b := store.Binding{Tool: t.Name, ToolID: t.ID, ContractHash: t.ContractHash, Folder: filepath.Clean(ct.Cwd),
 		CLI: c.Harness, Trigger: trigger}
-	// [NEW] the claim key of the learned case.
+	// The claim key of the learned case.
 	key := store.ClaimKey{Situation: normal(fmt.Sprintf("the %s agent stops working in %s", b.CLI, b.Folder)),
 		Rule: normal("run brain tool " + b.Tool)}
 	claim, err := store.ClaimID(ctx, tx, key, p.Now())

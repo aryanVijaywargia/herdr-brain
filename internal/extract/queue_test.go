@@ -77,13 +77,13 @@ func (f *fixture) hookStore() *store.Store {
 	return hook
 }
 
-// AC S42: many workspaces with signals. The queue takes one batch of each workspace in turn,
-// the call cap bounds each day, and the key that waited longest goes first the next day. The
-// call runs outside any transaction, so a hook write with the hook's lock wait goes through,
-// inside the hook cap (S42).
+// AC: many workspaces with signals. The queue takes one batch of each workspace in turn, the
+// call cap bounds each day, and the key that waited longest goes first the next day. The call
+// runs outside any transaction, so a hook write with the hook's lock wait goes through, inside
+// the hook cap.
 func TestQueueFairAndBounded(t *testing.T) {
 	f := newFixture(t)
-	f.caps = Caps{Calls: 10, Proposals: 15, InputBytes: 32 << 10} // [NEW] test limit of 10 calls: the 16 batches need two days
+	f.caps = Caps{Calls: 10, Proposals: 15, InputBytes: 32 << 10} // test limit of 10 calls: the 16 batches need two days
 	keys := f.manyWorkspaces()
 	hook := f.hookStore()
 	f.cli.reply = func(ctx context.Context, prompt string) ([]byte, error) {
@@ -96,7 +96,7 @@ func TestQueueFairAndBounded(t *testing.T) {
 			t.Errorf("a write during the call: %v", err)
 		}
 		// The hook's receipt write stays inside the hook cap of 300 ms (hook.hookCap)
-		// while the queue runs (S42).
+		// while the queue runs.
 		if d := time.Since(start); d > 300*time.Millisecond {
 			t.Errorf("a hook write during the call took %v, want at most the hook cap 300ms", d)
 		}
@@ -146,9 +146,8 @@ func TestQueueFairAndBounded(t *testing.T) {
 	}
 }
 
-// AC S75, and extraction off with capture on: a workspace with extraction off gets 0 calls,
-// and its signals wait. Learning (capture) stays on, and the wait says extraction, not
-// learning.
+// AC, extraction off with capture on: a workspace with extraction off gets 0 calls, and its
+// signals wait. Learning (capture) stays on, and the wait says extraction, not learning.
 func TestExtractionOffWorkspace(t *testing.T) {
 	f := newFixture(t)
 	f.write(func(ctx context.Context, tx *sql.Tx) error { return store.SetExtraction(ctx, tx, "ws-A", false, t0) })
@@ -227,9 +226,9 @@ func TestNoChosenCLI(t *testing.T) {
 	}
 }
 
-// AC S15 and #428: a signed-out extractor CLI fails. The signals wait with the stored reason,
-// which says why, and the next pass within the retry wait makes no call. The call ran no model,
-// so it uses no try.
+// AC #428: a signed-out extractor CLI fails. The signals wait with the stored reason, which says
+// why, and the next pass within the retry wait makes no call. The call ran no model, so it uses
+// no try.
 func TestSignedOutCLI(t *testing.T) {
 	f := newFixture(t)
 	sid, _ := f.session("a", true, line{"ws-A", pnpm, t0})
@@ -418,7 +417,7 @@ func TestSpentBatchNewEvidence(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
 			if tc.input > 0 {
-				f.caps = Caps{Calls: 40, Proposals: 15, InputBytes: tc.input} // [NEW] test limits: one excerpt a call
+				f.caps = Caps{Calls: 40, Proposals: 15, InputBytes: tc.input} // test limits: one excerpt a call
 			}
 			sid, obs := f.session("a", false, line{"ws-A", pnpm, t0}, line{"ws-A", "wrong, run make lint first", t0})
 			f.cli.reply = func(context.Context, string) ([]byte, error) { return claudeReply(nil) }
@@ -472,7 +471,7 @@ func TestProposalCap(t *testing.T) {
 		return claudeReply(map[string]any{"claims": []any{claim("use pnpm", "e1", "e3"), claim("use tabs", "e2", "e4")}})
 	}
 	p := f.pass()
-	p.Caps = Caps{Calls: 10, Proposals: 1, InputBytes: 1 << 10} // [NEW] test limits: a cap of 1 proposal
+	p.Caps = Caps{Calls: 10, Proposals: 1, InputBytes: 1 << 10} // test limits: a cap of 1 proposal
 	if err := p.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -520,7 +519,7 @@ func TestInputCap(t *testing.T) {
 	sid, obs := f.session("a", true, line{"ws-A", texts[0], t0}, line{"ws-A", texts[1], t0}, line{"ws-A", texts[2], t0})
 	f.cli.reply = noClaims
 	p := f.pass()
-	p.Caps = Caps{Calls: 10, Proposals: 5, InputBytes: len(pnpm) + 1} // [NEW] test limits: one excerpt a call
+	p.Caps = Caps{Calls: 10, Proposals: 5, InputBytes: len(pnpm) + 1} // test limits: one excerpt a call
 	for i := range 3 {
 		if err := p.Run(context.Background()); err != nil {
 			t.Fatal(err)
@@ -550,7 +549,7 @@ func TestFitKeepsSignals(t *testing.T) {
 	}
 	rs := []ref{{id: "e1", obs: 1, excerpt: "aaaa"}, {id: "e2", obs: 2, excerpt: "bbbb"},
 		{id: "e3", obs: 3, excerpt: "cccc"}, {id: "e4", obs: 4, excerpt: "dddd"}}
-	p := Pass{Caps: Caps{Calls: 1, Proposals: 1, InputBytes: 10}} // [NEW] test limits: two excerpts
+	p := Pass{Caps: Caps{Calls: 1, Proposals: 1, InputBytes: 10}} // test limits: two excerpts
 	chain := signal.Signal{Kind: signal.CommandChain, Observations: []int64{2, 3, 4}}
 	for _, tc := range []struct {
 		name string
@@ -609,7 +608,7 @@ func TestCapRoom(t *testing.T) {
 		return nil
 	})
 	room := f.now.Add(4 * time.Hour) // the call of 20 hours ago is a day old then
-	// [NEW] test limits: call caps of 3, 2 and 5 against the 4 calls of the last day.
+	// Test limits: call caps of 3, 2 and 5 against the 4 calls of the last day.
 	for _, tc := range []struct {
 		name string
 		caps Caps

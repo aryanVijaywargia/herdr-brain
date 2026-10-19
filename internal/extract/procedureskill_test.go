@@ -80,8 +80,8 @@ func (f *fixture) skillDraft() store.Proposal {
 	return ps[0]
 }
 
-// AC 1 (#313, S8): the release of the M2 eval rerun, one telling in each session, codex and
-// claude in turn: the extractor sees one telling at a time and returns kind skill, and Brain's
+// AC 1 (#313): the release of the M2 eval rerun, one telling in each session, codex and claude
+// in turn: the extractor sees one telling at a time and returns kind skill, and Brain's
 // procedure gate counts the repeats. The third telling gives one workspace skill draft, though
 // the model guessed global, and no preference. The fourth adds evidence and no second proposal.
 func TestProcedureSkillAcrossSessions(t *testing.T) {
@@ -239,11 +239,11 @@ func TestPermissionFlaggedProcedure(t *testing.T) {
 	}
 }
 
-// AC 5 (#313, N3 for skills): after a skill draft of the release, the same procedure in other
-// words (a skill claim with a same_as to its claim) adds evidence to the skill's candidate,
-// while the draft waits and after its approval: no second candidate and no second skill. A
-// skill is still another thing than a rule (#312): when a preference proposal holds the claim,
-// the skill builds its own candidate and its own draft.
+// AC 5 (#313): after a skill draft of the release, the same procedure in other words (a skill
+// claim with a same_as to its claim) adds evidence to the skill's candidate, while the draft
+// waits and after its approval: no second candidate and no second skill. A skill is still
+// another thing than a rule (#312): when a preference proposal holds the claim, the skill builds
+// its own candidate and its own draft.
 func TestNoSecondSkill(t *testing.T) {
 	for name, tc := range map[string]struct {
 		first     func(context.Context, string) ([]byte, error)

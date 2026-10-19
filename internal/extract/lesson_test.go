@@ -149,8 +149,8 @@ func TestLessonNeedsRuleAndExtractor(t *testing.T) {
 	}
 }
 
-// Sol finding on #261: a correction with a lesson word of an approved lesson keeps its
-// correction mark, so it is a comeback of the item.
+// #261: a correction with a lesson word of an approved lesson keeps its correction mark, so it
+// is a comeback of the item.
 func TestLessonCorrectionComeback(t *testing.T) {
 	f := newFixture(t)
 	item := f.revisedItem(1)

@@ -13,13 +13,13 @@ import (
 )
 
 // scanHelp tells the extractor what a scan batch is: repeats of past sessions, from which Brain
-// proposes only items, skills and tools (hook and allow-rule suggestions stay open, S95).
+// proposes only items, skills and tools (hook and allow-rule suggestions stay open).
 const scanHelp = "These signals come from the user's past sessions, and each one repeats there. Return only facts, " +
 	"preferences, lessons, procedures, skills and tools. A repeat that fits a hook best, such as \"run the formatter " +
 	"after each edit\", becomes a lesson or a tool: Brain proposes no hook, allow rule or automation from it.\n"
 
 // globalHelp tells the extractor that the sessions of the global pool come from project folders
-// with no workspace, so Brain keeps only a claim that it marks global (S90).
+// with no workspace, so Brain keeps only a claim that it marks global.
 const globalHelp = "These sessions come from project folders that have no herdr workspace. Brain drops a rule about " +
 	"one project's code, files, commands, tools or release steps: return only a claim that holds in every project, " +
 	"with scope_guess global, and no skill or tool.\n"
@@ -140,7 +140,7 @@ func (p Pass) scanPlan(ctx context.Context, tx *sql.Tx) ([]job, error) {
 
 // scanRoom reports whether a scan batch may call now, with d the use of the daily caps: live
 // batches go first, so the caps keep room for one call and one proposal of each live batch of
-// every binding that may call now (S93). The caps cover the whole store.
+// every binding that may call now. The caps cover the whole store.
 func (p Pass) scanRoom(ctx context.Context, tx *sql.Tx, d Day) (bool, error) {
 	runs, sigs, byID, err := p.finished(ctx, tx, "")
 	if err != nil {
@@ -246,8 +246,8 @@ func findingKind(k store.CandidateKind) signal.Kind {
 	return signal.Kind(k)
 }
 
-// scanDrop returns why scan batch j drops checked claim c, or "" (S90): the global pool keeps only
-// an item claim that the extractor marks global. A skill and a tool always have a workspace, and a
+// scanDrop returns why scan batch j drops checked claim c, or "": the global pool keeps only an
+// item claim that the extractor marks global. A skill and a tool always have a workspace, and a
 // claim about one project has no workspace to go to.
 func scanDrop(c Claim, j job) string {
 	if !j.batch.Scan() || j.batch.WorkspaceKey != "" {

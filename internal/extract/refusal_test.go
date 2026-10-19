@@ -12,9 +12,8 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// AC #428 (Sol round 1): the sign-in check reads the full error text of the CLI. Auth text that
-// the token filter hides, and auth text after the cut of the reason, still make a sign-in
-// failure.
+// AC #428: the sign-in check reads the full error text of the CLI. Auth text that the token
+// filter hides, and auth text after the cut of the reason, still make a sign-in failure.
 func TestSignInBeforeHide(t *testing.T) {
 	for _, c := range []struct{ name, stderr, want string }{
 		{"hidden token", "error: HTTP/1.1-401\n", "claude: error: [hidden]: sign-in failed"},
@@ -41,10 +40,9 @@ func (f *fixture) legacyBatch(id int64, calls int) {
 	})
 }
 
-// AC #428 (Sol round 1), the owner's case: 4 batches failed before #428 with the bare reason
-// "claude: exit status 1", 2 of them with 3 counted calls and 1 with no try left. Within
-// retryAfter they wait. Then each gets its call with no other call that works, and all commit
-// once the sign-in works.
+// AC #428: 4 batches failed before #428 with the bare reason "claude: exit status 1", 2 of them
+// with 3 counted calls and 1 with no try left. Within retryAfter they wait. Then each gets its
+// call with no other call that works, and all commit once the sign-in works.
 func TestLegacyFailuresRetry(t *testing.T) {
 	f := newFixture(t)
 	for _, s := range []string{"s1", "s2", "s3", "s4"} {
@@ -75,9 +73,9 @@ func TestLegacyFailuresRetry(t *testing.T) {
 	}
 }
 
-// AC #428 (Sol round 1): the recovery of a legacy reason is once per batch. When its call fails
-// for another reason, the new reason counts as usual, and the batch with no try left gets no
-// call each retryAfter.
+// AC #428: the recovery of a legacy reason is once per batch. When its call fails for another
+// reason, the new reason counts as usual, and the batch with no try left gets no call each
+// retryAfter.
 func TestLegacyRetryOnce(t *testing.T) {
 	f := newFixture(t)
 	f.session("s1", true, line{"ws-A", pnpm, t0})
@@ -98,10 +96,10 @@ func TestLegacyRetryOnce(t *testing.T) {
 	}
 }
 
-// AC #428 (Sol round 3): a change request that an older Brain failed with the bare reason, which
-// migration 37 maps to a sign-in refusal, gets its call again: with 3 counted calls, and with 4,
-// where the older Brain gave its proposal back to review. The proposal goes back to changed, and
-// the request commits once the sign-in works.
+// AC #428: a change request that an older Brain failed with the bare reason, which migration 37
+// maps to a sign-in refusal, gets its call again: with 3 counted calls, and with 4, where the
+// older Brain gave its proposal back to review. The proposal goes back to changed, and the
+// request commits once the sign-in works.
 func TestLegacyChangeRetry(t *testing.T) {
 	for _, calls := range []int{maxTries, maxTries + 1} {
 		t.Run(fmt.Sprint(calls, " calls"), func(t *testing.T) {
@@ -136,8 +134,8 @@ func TestLegacyChangeRetry(t *testing.T) {
 	}
 }
 
-// AC #428 (Sol round 3): when you decided the proposal that an older Brain gave back, the request
-// gets no call: it is no longer current.
+// AC #428: when you decided the proposal that an older Brain gave back, the request gets no
+// call: it is no longer current.
 func TestLegacyChangeDecided(t *testing.T) {
 	f := newFixture(t)
 	p := f.proposed()
@@ -232,9 +230,9 @@ var legacyKinds = map[string]func(f *fixture) (store.ChangeRequest, int64, int64
 	},
 }
 
-// AC #428 (Sol round 4): a recovering change request takes back its proposal only when it runs.
-// The pass of another herdr session leaves the proposal in review, and a request that the next
-// pass discards, as the item moved to another revision, leaves it in review too. Both kinds of
+// AC #428: a recovering change request takes back its proposal only when it runs. The pass of
+// another herdr session leaves the proposal in review, and a request that the next pass
+// discards, as the item moved to another revision, leaves it in review too. Both kinds of
 // request.
 func TestRecoveryLeavesReview(t *testing.T) {
 	for kind, make := range legacyKinds {
@@ -273,8 +271,8 @@ func TestRecoveryLeavesReview(t *testing.T) {
 				t.Errorf("proposal = %s, want pending: still in review", got.Status)
 			}
 		})
-		// Sol round 5: a pass at the daily call cap makes no call and leaves the proposal in
-		// review; a new revision then discards the request, and the proposal stays in review.
+		// A pass at the daily call cap makes no call and leaves the proposal in review; a new
+		// revision then discards the request, and the proposal stays in review.
 		t.Run(kind+", daily cap", func(t *testing.T) {
 			f := newFixture(t)
 			cr, proposal, item := make(f)
@@ -296,9 +294,9 @@ func TestRecoveryLeavesReview(t *testing.T) {
 				t.Errorf("proposal = %s, want pending: still in review", got.Status)
 			}
 		})
-		// Sol round 5: an edit between the plan of a pass and the call of the request discards
-		// the request with no call, and the proposal stays in review. The batch of a workspace
-		// key with no call yet goes first (order), and its call makes the edit.
+		// An edit between the plan of a pass and the call of the request discards the request
+		// with no call, and the proposal stays in review. The batch of a workspace key with no
+		// call yet goes first (order), and its call makes the edit.
 		t.Run(kind+", edit between plan and call", func(t *testing.T) {
 			f := newFixture(t)
 			cr, proposal, item := make(f)

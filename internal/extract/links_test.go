@@ -250,8 +250,8 @@ func TestMergeUnclearLink(t *testing.T) {
 	}
 }
 
-// Sol review of #360 (AC #358): a link whose candidate reached its gate on its own still waits
-// for review: tellings 3 to 5 in other words give that claim its own skill proposal. A merge
+// Review of #360 (AC #358): a link whose candidate reached its gate on its own still waits for
+// review: tellings 3 to 5 in other words give that claim its own skill proposal. A merge
 // supersedes that proposal, and the merged candidate proposes the newest telling once.
 func TestMergeProposedLink(t *testing.T) {
 	f := newFixture(t)
@@ -425,7 +425,7 @@ func toolRefs(prompt string) []string {
 	return refs
 }
 
-// Sol review of #370 (AC #361): a merge from a procedure that keeps the agent's own commands
+// Review of #370 (AC #361): a merge from a procedure that keeps the agent's own commands
 // uncounted (your telling turned its command chain) carries them to the other candidate, still
 // uncounted: the claim that gets the skill keeps the evidence that the extractor made a skill of
 // the chain (store.SkillEvidence), so the exact tool path holds that chain (heldChain).

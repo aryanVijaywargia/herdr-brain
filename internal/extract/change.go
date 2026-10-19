@@ -15,11 +15,11 @@ import (
 
 // changeStale is how long an active change request belongs to the pass that started it. A
 // pass of another herdr session can take a global request too, so a younger active request is
-// not started again. [NEW] the call time limit and 1 minute: after that, its call has ended,
-// and an active request means a crash stopped it.
+// not started again. The call time limit and 1 minute: after that, its call has ended, and an
+// active request means a crash stopped it.
 const changeStale = callTimeout + time.Minute
 
-// change is the change request of a job (S56): the request, its original proposal, the candidate of
+// change is the change request of a job: the request, its original proposal, the candidate of
 // that proposal and the current revision of its item.
 type change struct {
 	req      store.ChangeRequest
@@ -197,14 +197,13 @@ func giveBack(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) error {
 	return nil
 }
 
-// comebackRequest is the request text of a change request of an item revision [NEW]: Brain
-// asks, as you do in review.
+// comebackRequest is the request text of a change request of an item revision: Brain asks, as
+// you do in review.
 const comebackRequest = "This lesson came back in two sessions that got it. Propose a better wording, or a stronger " +
 	"place, for example a skill instead of a fact. Keep its meaning."
 
-// skillRequest is the request text of a change request of a skill revision [NEW] (E20-S5): a
-// failure that the skill covers came back, so Brain asks for a patch of the skill, not a second
-// skill.
+// skillRequest is the request text of a change request of a skill revision (E20-S5): a failure
+// that the skill covers came back, so Brain asks for a patch of the skill, not a second skill.
 const skillRequest = "A failure that this skill covers came back in two sessions that got it. Propose a small change " +
 	"of its steps that stops the failure. Keep its name and its purpose."
 
@@ -501,11 +500,11 @@ func redraftKind(k store.Kind) string {
 }
 
 // redraft stores claim c, the new draft of change request job j, as a new pending proposal of
-// the same candidate, item and base revision. [NEW] it keeps the scope and the target of the
-// original proposal: you change them in review. The item does not change. The draft of an
-// item revision has no candidate: it is a proposal of the item, as an edit in review is. The
-// draft of an active skill is a patch: its diff holds only the changed lines. The diff
-// holds the removed lines too, so a patch that removes a safety rule warns.
+// the same candidate, item and base revision. It keeps the scope and the target of the original
+// proposal: you change them in review. The item does not change. The draft of an item revision
+// has no candidate: it is a proposal of the item, as an edit in review is. The draft of an
+// active skill is a patch: its diff holds only the changed lines. The diff holds the removed
+// lines too, so a patch that removes a safety rule warns.
 func (p Pass) redraft(ctx context.Context, tx *sql.Tx, j job, c Claim, now time.Time) (int64, error) {
 	ch := j.change
 	c = redactClaim(c)

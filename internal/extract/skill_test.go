@@ -11,8 +11,8 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// release is a release procedure that the user explains again and again (S8), in three
-// wordings that the procedure signal finds similar, and the correction signal does not.
+// release is a release procedure that the user explains again and again, in three wordings that
+// the procedure signal finds similar, and the correction signal does not.
 var release = []string{
 	"to release: 1. run the tests with go test ./... 2. update the changelog for the new version 3. tag the release with git tag and push the tag to origin",
 	"release checklist, 1. run all the tests with go test ./... first 2. update the changelog entry for this version 3. tag the release with git tag and push it",
@@ -41,7 +41,7 @@ func (f *fixture) releaseSession() {
 		line{"ws-A", release[2], t0.Add(2 * time.Minute)})
 }
 
-// AC S8: a release procedure explained 3 times in a workspace gives one workspace skill draft,
+// AC: a release procedure explained 3 times in a workspace gives one workspace skill draft,
 // though the model guessed global. Its text is the whole skill file, and its diff adds it.
 func TestSkillDraft(t *testing.T) {
 	f := newFixture(t)

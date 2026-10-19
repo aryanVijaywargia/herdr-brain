@@ -11,9 +11,9 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// AC #428 (Sol round 2): the token filter of a stored reason hides a token in every form, such as
-// raw, a lower-case percent escape, hex, a JSON slash escape and base64, and a URL. The common sign-in and limit messages of claude and codex
-// stay readable.
+// AC #428: the token filter of a stored reason hides a token in every form, such as raw, a
+// lower-case percent escape, hex, a JSON slash escape and base64, and a URL. The common sign-in
+// and limit messages of claude and codex stay readable.
 func TestTokenFilter(t *testing.T) {
 	const token = "proxy/token+alpha=42"
 	forms := []string{token, "proxy%2ftoken%2balpha%3d42", hex.EncodeToString([]byte(token)), `proxy\/token+alpha=42`,
@@ -44,9 +44,9 @@ func TestTokenFilter(t *testing.T) {
 	}
 }
 
-// AC #428 (Sol round 2): a failed call whose model ran counts, also when its text ends with
-// "401 Unauthorized: sign-in failed": Brain reads the stored refusal, never the reason text. The
-// batch stops at maxTries calls while no call works.
+// AC #428: a failed call whose model ran counts, also when its text ends with "401 Unauthorized:
+// sign-in failed": Brain reads the stored refusal, never the reason text. The batch stops at
+// maxTries calls while no call works.
 func TestReasonTextIsNoRefusal(t *testing.T) {
 	f := newFixture(t)
 	f.session("s1", true, line{"ws-A", pnpm, t0})

@@ -256,7 +256,7 @@ func TestSkillComebackCaps(t *testing.T) {
 		})
 		calls := f.cli.calls()
 		pass := f.pass()
-		pass.Caps = Caps{Calls: 10, Proposals: 1, InputBytes: 32 << 10} // [NEW] test limits: a cap of 1 proposal
+		pass.Caps = Caps{Calls: 10, Proposals: 1, InputBytes: 32 << 10} // test limits: a cap of 1 proposal
 		if err := pass.Run(context.Background()); err != nil {
 			t.Fatal(err)
 		}
@@ -277,7 +277,7 @@ func TestSkillComebackCaps(t *testing.T) {
 		f.skillFailures(item, failed{2, 1}, failed{2, 2})
 		f.cli.reply = skillReply(map[string]any{"steps": patchedSteps})
 		pass := f.pass()
-		pass.Caps = Caps{Calls: 10, Proposals: 5, InputBytes: len(releaseFailures[1]) + 1} // [NEW] test limits: one excerpt
+		pass.Caps = Caps{Calls: 10, Proposals: 5, InputBytes: len(releaseFailures[1]) + 1} // test limits: one excerpt
 		if err := pass.Run(context.Background()); err != nil {
 			t.Fatal(err)
 		}

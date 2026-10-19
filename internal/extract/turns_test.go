@@ -168,9 +168,9 @@ func (f *fixture) evidenceOf(obs ...int64) int {
 		strings.Join(ids, ",") + `)`)
 }
 
-// AC #381 with the run 6 shapes (R6-7): a task that you send again after the agent could not run
-// it (429 and 503 answers) is one task: no correction, no rule and no proposal, and the
-// extractor never sees it as a signal. Each claim of the extractor takes every ref of its prompt
+// AC #381 with the run 6 shapes: a task that you send again after the agent could not run it
+// (429 and 503 answers) is one task: no correction, no rule and no proposal, and the extractor
+// never sees it as a signal. Each claim of the extractor takes every ref of its prompt
 // (claimOf), as the run 6 correction claim did.
 func TestTaskSentAgain(t *testing.T) {
 	f := newFixture(t)
@@ -286,9 +286,9 @@ func TestUnrun(t *testing.T) {
 	}
 }
 
-// AC #381 (2) (Sol review): a correction after the agent's work that the agent did not run, as
-// it got only an API error or the session ended with no answer, is still a correction: it makes
-// a batch call, and the claim holds it as evidence.
+// AC #381 (2): a correction after the agent's work that the agent did not run, as it got only an
+// API error or the session ended with no answer, is still a correction: it makes a batch call,
+// and the claim holds it as evidence.
 func TestLastCorrectionKept(t *testing.T) {
 	for name, after := range map[string][]tr{
 		"error answer": {replied("API Error: Rate limit reached")},

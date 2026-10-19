@@ -814,7 +814,7 @@ func TestPlaceholderToolFreeName(t *testing.T) {
 }
 
 // #337: a known tool runs the chain only with values that its input schema takes, so a chain
-// that the tool cannot run still makes its own tool (Sol review of PR #342).
+// that the tool cannot run still makes its own tool (PR #342).
 func TestRunsTool(t *testing.T) {
 	text := "name = \"test-api\"\ndescription = \"Run the tests of one package\"\ncwd = \"/src/shop\"\ntimeout_s = 600\n" +
 		"effects = \"runs tests\"\nread_only = true\nsteps = [[\"pnpm\", \"install\"], [\"pnpm\", \"test\", \"--filter\", \"{package}\"]]\n\n" +

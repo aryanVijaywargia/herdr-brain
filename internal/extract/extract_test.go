@@ -199,7 +199,7 @@ func (f *fixture) count(query string) int {
 const pnpm = "no, use pnpm instead of npm here"
 
 // A crash before the commit: the batch stays active, the retry calls again and counts the
-// call, and its evidence counts once (S69).
+// call, and its evidence counts once.
 func TestCrashBeforeCommit(t *testing.T) {
 	f := newFixture(t)
 	sid, obs := f.session("a", true, line{"ws-A", pnpm, t0})
@@ -231,7 +231,7 @@ func TestCrashBeforeCommit(t *testing.T) {
 // A crash after the extractor returns a valid result and before the commit: a test trigger
 // aborts the watermark write, the last write of the commit transaction. The evidence links,
 // the candidate and the proposal of that transaction roll back with it, and the batch stays
-// active. The retry calls again, and its evidence and proposal count once (S69).
+// active. The retry calls again, and its evidence and proposal count once.
 func TestCrashAfterResultBeforeCommit(t *testing.T) {
 	f := newFixture(t)
 	sid, obs := f.session("z", true, line{"ws-A", pnpm, t0}, line{"ws-A", pnpm, t0.Add(time.Minute)})
@@ -271,7 +271,7 @@ func TestCrashAfterResultBeforeCommit(t *testing.T) {
 	}
 }
 
-// A crash after the commit: the commit again and a pass again add nothing (S69).
+// A crash after the commit: the commit again and a pass again add nothing.
 func TestCrashAfterCommit(t *testing.T) {
 	f := newFixture(t)
 	f.session("z", true, line{"ws-A", pnpm, t0})
@@ -303,7 +303,7 @@ func sameBatch(a, b store.Batch) bool {
 }
 
 // A forget during the extraction discards the whole result; a later batch extracts from the
-// evidence that stays (S69).
+// evidence that stays.
 func TestForgetDuringExtraction(t *testing.T) {
 	f := newFixture(t)
 	f.session("z", true, line{"ws-A", pnpm, t0})
@@ -365,7 +365,7 @@ func TestTombstoneStopsEvidence(t *testing.T) {
 }
 
 // A valid empty result moves the watermark; an invalid one does not, and the failed batches
-// show it (S70).
+// show it.
 func TestEmptyAndInvalidResults(t *testing.T) {
 	f := newFixture(t)
 	sid, obs := f.session("a", true, line{"ws-A", pnpm, t0})

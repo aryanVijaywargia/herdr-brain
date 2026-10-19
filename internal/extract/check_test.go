@@ -244,11 +244,10 @@ func TestKnownClaim(t *testing.T) {
 	}
 }
 
-// A same_as reply keeps a proposed link and both claim ids (S23). A link to an
-// open claim of the same kind in the same scope merges: the evidence goes to the known
-// candidate, marked with the new claim id, so the merge can be undone (#279). A link of two
-// permission rules merges nothing: the evidence goes to the candidate of the new claim, and
-// the known candidate keeps its count.
+// A same_as reply keeps a proposed link and both claim ids. A link to an open claim of the same
+// kind in the same scope merges: the evidence goes to the known candidate, marked with the new
+// claim id, so the merge can be undone (#279). A link of two permission rules merges nothing:
+// the evidence goes to the candidate of the new claim, and the known candidate keeps its count.
 func TestSameAsIsProposed(t *testing.T) {
 	for name, tc := range map[string]struct {
 		rules  [2]string
@@ -406,8 +405,8 @@ func TestCheckDropsBadClaim(t *testing.T) {
 
 // A result with claims that are all dropped stays invalid, so its batch waits for the retry of
 // #263 (AC 3). A result that does not match the schema stays invalid even with a good claim
-// (AC 2, S70): a field that is not in the schema, a missing field, a kind or a scope out of its
-// enum, or a field of the wrong type. A valid empty result has no claim and drops none.
+// (AC 2): a field that is not in the schema, a missing field, a kind or a scope out of its enum,
+// or a field of the wrong type. A valid empty result has no claim and drops none.
 func TestCheckInvalidResult(t *testing.T) {
 	j := job{refs: []ref{{id: "e1"}}}
 	good := replyOf(map[string]any{"evidence_refs": []string{"e1"}})
