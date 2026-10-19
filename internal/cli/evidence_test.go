@@ -210,7 +210,7 @@ func TestPaneEvidenceDisputeKeys(t *testing.T) {
 	}
 }
 
-// Sol review of PR #295: a tab shows as spaces, so the pane counts the rows of a line by its
+// Review of PR #295: a tab shows as spaces, so the pane counts the rows of a line by its
 // runes and the view stays in the pane height.
 func TestPaneEvidenceTabs(t *testing.T) {
 	f := newFixture(t)
@@ -226,7 +226,7 @@ func TestPaneEvidenceTabs(t *testing.T) {
 	}
 }
 
-// Sol review of PR #295: stored text that only another workspace sees is not called gone.
+// Review of PR #295: stored text that only another workspace sees is not called gone.
 func TestEvidenceElsewhere(t *testing.T) {
 	f := newFixture(t)
 	pid, _ := f.extractorProposal(t)

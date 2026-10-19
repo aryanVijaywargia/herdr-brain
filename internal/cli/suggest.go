@@ -82,10 +82,9 @@ func (sg suggester) run(ctx context.Context, d brained.Dispatch) (err error) {
 }
 
 // lockSuggestions takes the suggestion lock of the store in folder dir and returns its unlock.
-// [NEW] the lock file <store>/suggest.lock; the herdr deadlines bound how long a holder keeps
-// it.
+// The lock file is <store>/suggest.lock; the herdr deadlines bound how long a holder keeps it.
 func lockSuggestions(dir string) (func() error, error) {
-	f, err := os.OpenFile(filepath.Join(dir, "suggest.lock"), os.O_CREATE|os.O_RDWR, 0o600) // [NEW] 0o600, as the store
+	f, err := os.OpenFile(filepath.Join(dir, "suggest.lock"), os.O_CREATE|os.O_RDWR, 0o600) // 0o600, as the store
 	if err != nil {
 		return nil, err
 	}

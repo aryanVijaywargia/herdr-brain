@@ -29,11 +29,11 @@ import (
 
 const statusUsage = `usage: brain status`
 
-// retestDir is the folder of the retest markers in the data home, as in the hook (S14).
+// retestDir is the folder of the retest markers in the data home, as in the hook.
 const retestDir = "retest"
 
 // installedDir is the folder of the install times of the start entries in the data home
-// (harness.MarkInstalled, #249). Setup writes it too. [NEW] its place.
+// (harness.MarkInstalled, #249). Setup writes it too.
 const installedDir = "installed"
 
 // StatusHerdr is the part of a herdr client that brain status uses. *herdr.Client is one.
@@ -61,7 +61,7 @@ func adapterFiles(data string) (harness.Files, error) {
 // Status runs `brain status` (E9-S2): one screen of counts and short lines, never item text. It
 // opens the store as every store command does, so it runs the repair and the deferred session-id
 // check. In a session with no binding it explains, prints the setup command, and reads and writes
-// nothing (S84).
+// nothing.
 func Status(ctx context.Context, e Env, args []string) (err error) {
 	if len(args) != 0 {
 		return fmt.Errorf("unexpected argument %q\n%s", args[0], statusUsage)
@@ -79,7 +79,7 @@ func Status(ctx context.Context, e Env, args []string) (err error) {
 }
 
 // explainNoStore explains a call from an unbound session or from outside herdr, when err
-// says so, and prints the setup command (S84). It reads and writes nothing. cmd is the
+// says so, and prints the setup command. It reads and writes nothing. cmd is the
 // command name. It returns err when it is another error.
 func explainNoStore(w *lineWriter, e Env, err error, cmd string) (explained bool, _ error) {
 	var ns *noStoreError
@@ -196,7 +196,6 @@ const callWindow = 28 * 24 * time.Hour
 // contract or a tool file that changed after your approval stops the tool (E17-S4).
 // Then it shows the ran calls of the last 4 weeks, of any tool, and the active tools with none
 // (E17-S5).
-// [NEW] the calls line form.
 func (s *statusCall) tools(ctx context.Context) {
 	var ts []store.Tool
 	var calls map[int64]int
@@ -291,7 +290,7 @@ func (s *statusCall) automations(ctx context.Context) {
 // runLine is the status line of run r of automation a whose result is failed or unknown. An
 // unknown run with a launch mark may still run, or it ended in a crash. A failed run names its
 // cause: the failed step and its exit code (#352). The time is local, as review shows it (#254,
-// #367). [NEW] the line form.
+// #367).
 func runLine(a store.Automation, r store.AutomationRun) string {
 	l := fmt.Sprintf("  last run %s: automation %d (%s): run %d of pane %s, claimed %s", r.Result, a.ID, a.Folder, r.ID,
 		r.PaneID, localTime(r.Claimed))
@@ -360,7 +359,8 @@ func (s *statusCall) fail(err error) {
 	}
 }
 
-// herdr prints the herdr version with the S54 warning, and lists the panes of the session once.
+// herdr prints the herdr version with the untested version warning, and lists the panes of the
+// session once.
 func (s *statusCall) herdr(ctx context.Context) {
 	s.herdrState = readHerdr(ctx, s.Env, s.Binding)
 	switch {
@@ -662,7 +662,7 @@ func (s *statusCall) proposalQueue(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-// archiveShown is how many of the oldest archive candidates brain status names. [NEW] 3.
+// archiveShown is how many of the oldest archive candidates brain status names.
 const archiveShown = 3
 
 // archive prints the count of the archive candidates that the caller sees and the ids and idle
@@ -708,8 +708,8 @@ func (s *statusCall) archive(ctx context.Context, tx *sql.Tx) error {
 }
 
 // extraction prints the extractor and its switches, the use of the daily caps, the work of
-// this herdr session that waits with its oldest age and why by workspace key (S15), and
-// the batches that failed or gave an invalid response (S70). Their watermark stays, so their
+// this herdr session that waits with its oldest age and why by workspace key, and
+// the batches that failed or gave an invalid response. Their watermark stays, so their
 // evidence waits for a retry, or, with no try left, for new evidence of its session (#347).
 // The change requests that failed follow (failedChanges).
 func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
@@ -786,7 +786,7 @@ func (s *statusCall) signInHint(ctx context.Context, tx *sql.Tx) error {
 // historyScan prints the history scan of the store, when it has one: why it waits, its
 // progress line, the sessions that it skipped and each CLI with no file that parsed, then the
 // report from the observations that still exist. A forget takes its observations out of the
-// numbers, and a finding below its gate leaves the report (S92).
+// numbers, and a finding below its gate leaves the report.
 func (s *statusCall) historyScan(ctx context.Context, tx *sql.Tx) error {
 	sc, ok, err := store.HistoryScan(ctx, tx)
 	if err != nil || !ok {
@@ -964,13 +964,13 @@ func (s *statusCall) extractor(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-// measurementWeeks is the count of weeks that brain status shows, the current one first. [NEW]
+// measurementWeeks is the count of weeks that brain status shows, the current one first.
 const measurementWeeks = 4
 
-// maxExamples is the count of example observations for each item revision. [NEW]
+// maxExamples is the count of example observations for each item revision.
 const maxExamples = 3
 
-// measurement prints the M2 counts: raw counts with no score (R6). Each line of counts
+// measurement prints the M2 counts: raw counts with no score. Each line of counts
 // sits under the sessions observed and the capture gaps of its span. Brain shows no week
 // percentage and no target. The backlog, the switches, the delivery gaps and the block sizes
 // are on their own lines above.
@@ -1057,7 +1057,6 @@ func matchedLine(n map[store.SuggestionReason]int) string {
 }
 
 // weekStarts returns the starts of the n weeks up to now, the newest first: Monday 00:00 UTC.
-// [NEW] the week boundary.
 func weekStarts(now time.Time, n int) []time.Time {
 	now = now.UTC()
 	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
@@ -1096,7 +1095,7 @@ func examples(ids []int64) string {
 	return word + strings.Join(parts, ", ") + more
 }
 
-// age is a short age. [NEW] the units and their limits.
+// age is a short age.
 func age(d time.Duration) string {
 	switch {
 	case d < time.Minute:
@@ -1109,8 +1108,8 @@ func age(d time.Duration) string {
 	return fmt.Sprintf("%dd", int(d/(24*time.Hour)))
 }
 
-// output prints the brief size of each part against its budget, the output conflicts
-// (S66) and a pending forget (S77).
+// output prints the brief size of each part against its budget, the output conflicts and a
+// pending forget.
 func (s *statusCall) output(forgetPending bool) {
 	out := filepath.Join(s.Binding.Store, outDir)
 	b, err := output.Read(out, s.key)
@@ -1149,7 +1148,7 @@ func (s *statusCall) output(forgetPending bool) {
 	}
 }
 
-// relinks lists the old workspace keys whose items wait for a relink (S83), and the command
+// relinks lists the old workspace keys whose items wait for a relink, and the command
 // that links one.
 func (s *statusCall) relinks() {
 	rs, err := s.Workspace.Relinks()
@@ -1173,7 +1172,7 @@ func (s *statusCall) relinks() {
 		s.w.printf("  %s (%s %s): %s %s (%s %s)\n", r.Old.Key, r.Old.WorkspaceID, r.Old.Label, why,
 			r.New.Key, r.New.WorkspaceID, r.New.Label)
 	}
-	// [NEW] the hint: Brain never links by itself (S20); you link on request.
+	// Brain never links by itself; you link on request.
 	s.w.printf("  link on request, from a pane in the new workspace: brain workspace link <old> <new>\n")
 }
 

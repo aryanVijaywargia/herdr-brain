@@ -36,7 +36,7 @@ func anchor(ctx context.Context, tx *sql.Tx, r store.ItemRevision) error {
 // settle decides the dispute proposal id: keep makes the item active again with a new
 // revision of the same text, and stores its anchors as they are now: the new blob of a changed
 // path, no anchor for a path that is gone. Retire retires the item with a new revision, which
-// keeps the history: brain review --restore brings it back. [NEW] the keep action.
+// keeps the history: brain review --restore brings it back.
 func (cl caller) settle(ctx context.Context, id int64, keep bool) error {
 	var next store.ItemRevision
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {

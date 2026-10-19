@@ -139,7 +139,7 @@ func TestDoctorNoReceiptAfterInstall(t *testing.T) {
 	}
 }
 
-// AC 1 (S14): a hook input that the profile cannot parse fails doctor, with a fix that needs
+// AC 1: a hook input that the profile cannot parse fails doctor, with a fix that needs
 // no repo; a marker of an older profile, as after brain update, passes.
 func TestDoctorParseFailure(t *testing.T) {
 	f := newDoctorFixture(t)

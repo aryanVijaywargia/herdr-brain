@@ -28,12 +28,11 @@ type RunHerdr interface {
 }
 
 // originEnv tells a brain run in a tool of an automation run that Brain called it, so its call
-// is Brain-origin too and teaches nothing. [NEW] the name.
+// is Brain-origin too and teaches nothing.
 const originEnv = "BRAIN_CALL_ORIGIN"
 
 // The pane label of an automation run: a herdr metadata token of the triggering pane, whose
-// value is the tool and the result of its newest run. [NEW] the source, the token name and the
-// value form.
+// value is the tool and the result of its newest run.
 const (
 	labelSource = "brain"
 	labelToken  = "brain-automation"
@@ -116,7 +115,7 @@ func (ln launcher) run(ctx context.Context, l brained.Launch) (err error) {
 
 // runResult is the result of a tool run and its cause: for a failure, the failed step and its
 // exit code, or a fixed line for a refusal of the call (#352). The text of any other error can
-// hold herdr or store text, so it is no cause. [NEW] the refusal line.
+// hold herdr or store text, so it is no cause.
 func runResult(res ToolResult, err error) (store.RunResult, string) {
 	switch {
 	case err == nil:

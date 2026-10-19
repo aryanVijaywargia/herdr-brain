@@ -24,7 +24,7 @@ const (
 )
 
 // tabWidth is the spaces that the evidence view shows for a tab, so that the pane counts the
-// rows of a line by its runes (#254). [NEW] 4.
+// rows of a line by its runes (#254).
 const tabWidth = 4
 
 // view shows proposal r.id: its evidence view with --evidence, else the proposal.

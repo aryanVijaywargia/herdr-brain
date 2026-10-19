@@ -21,7 +21,7 @@ import (
 )
 
 // testProfiles is the Claude and Codex profiles of the embedded set. The status and doctor
-// tests run with it, so a new embedded profile (S60) changes none of their outputs.
+// tests run with it, so a new embedded profile changes none of their outputs.
 var testProfiles = func() fstest.MapFS {
 	fsys := fstest.MapFS{}
 	for _, k := range []string{"claude", "codex"} {

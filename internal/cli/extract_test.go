@@ -164,7 +164,7 @@ func (c *failingCLI) Run(context.Context, extract.Command) ([]byte, error) {
 	return nil, errors.New("claude: exit status 1")
 }
 
-// AC S15: a signed-out extractor CLI fails. The signals wait, and status and doctor say why
+// AC: a signed-out extractor CLI fails. The signals wait, and status and doctor say why
 // from the stored reason.
 func TestSignedOutExtractor(t *testing.T) {
 	f := newDoctorFixture(t)
@@ -296,7 +296,7 @@ func TestStatusQueueConfigGate(t *testing.T) {
 // cap full is a day old. With room left, none of them has the line.
 func TestCapFullLines(t *testing.T) {
 	inZone(t)
-	// [NEW] test limits: caps of 1 call and 1 proposal, so one of each fills them.
+	// Test limits: caps of 1 call and 1 proposal, so one of each fills them.
 	for _, tc := range []struct {
 		name, config, line string
 		call               bool // add an extractor call 3 hours before testNow

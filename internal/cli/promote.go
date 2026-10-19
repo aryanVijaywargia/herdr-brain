@@ -40,7 +40,7 @@ func (cl caller) promote(ctx context.Context, id int64) error {
 			return err
 		}
 		base := it.CurrentRevision
-		// [NEW] the diff of a promotion names the scope change; the text is the same until you
+		// The diff of a promotion names the scope change; the text is the same until you
 		// edit it in review.
 		pid, err = store.InsertProposal(ctx, tx, store.Proposal{ItemID: &it.ID, BaseRevision: &base, Text: cur.Text,
 			Scope: store.ScopeGlobal, Target: cl.target(store.ScopeGlobal),
@@ -66,7 +66,7 @@ func promotion(p store.Proposal, it store.Item) bool { return p.Scope != it.Scop
 func bar(ctx context.Context, tx *sql.Tx, it store.Item) error {
 	switch {
 	case it.Kind == store.KindHandoff:
-		// [NEW] check: a handoff is a plan for one workspace, not a lasting rule.
+		// Check: a handoff is a plan for one workspace, not a lasting rule.
 		return fmt.Errorf("item %d is a handoff: a plan for one workspace, not a lasting rule; it cannot go global; nothing was written", it.ID)
 	case it.State == store.StateDisputed:
 		return fmt.Errorf("item %d has an open dispute: decide it in brain review first; nothing was written", it.ID)
@@ -121,7 +121,7 @@ func hint(ctx context.Context, tx *sql.Tx, p store.Proposal, it store.Item) (int
 }
 
 // promotionLines are the lines of a promotion in show, with others from hint: none for -1.
-// [NEW] the lines: the hint is only a hint.
+// The hint is only a hint.
 func promotionLines(others int) string {
 	if others < 0 {
 		return ""

@@ -20,7 +20,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// [NEW] the subcommands, their flags and their output.
+// The subcommands, their flags and their output.
 const automationUsage = `usage:
   brain automation add <tool> --folder <dir> --cli claude|codex
                              propose to run an approved tool in a folder after each stop of the agent

@@ -17,7 +17,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// The keys of the recall popup (E20-S3). [NEW] keys: type words, Up and Down (or Ctrl+P and
+// The keys of the recall popup (E20-S3): type words, Up and Down (or Ctrl+P and
 // Ctrl+N) choose, Enter shows, Esc goes back or closes.
 const (
 	recallSearchKeys = "type words  Up/Down choose  Enter show  Esc close"
@@ -125,7 +125,7 @@ func (p *recallPane) run(ctx context.Context) error {
 	}
 }
 
-// arrow keys, as key returns them. [NEW] runes outside the keys that a terminal sends.
+// arrow keys, as key returns them: runes outside the keys that a terminal sends.
 const (
 	keyUp   = unicode.MaxRune + 1
 	keyDown = unicode.MaxRune + 2
@@ -394,7 +394,7 @@ func (p *recallPane) list(rows, cols int, foot string) string {
 }
 
 // line is result m on one line in the search list: the text of an item, or "skill" or "tool",
-// the name and the description. [NEW] the form.
+// the name and the description.
 func (m recallMatch) line() string {
 	switch m.kind {
 	case store.KindSkill:

@@ -100,7 +100,7 @@ func (f *fixture) addReviewPane(t *testing.T, p store.ReviewPane) {
 	})
 }
 
-// S52: an agent's `brain remember` opens the review pane beside that agent's pane, with no
+// An agent's `brain remember` opens the review pane beside that agent's pane, with no
 // focus, and records the pane with its binding and continuity identity.
 func TestRememberOpensReviewPane(t *testing.T) {
 	f := newFixture(t)
@@ -131,7 +131,7 @@ func TestRememberOpensReviewPane(t *testing.T) {
 	}
 }
 
-// S53: when the pane cannot open, the draft waits in `brain review`, one line says so, and
+// When the pane cannot open, the draft waits in `brain review`, one line says so, and
 // nothing goes live.
 func TestRememberOpenFails(t *testing.T) {
 	f := newFixture(t)
@@ -202,7 +202,7 @@ func (f *fixture) bindSession(t *testing.T, name string) *fakeHerdr {
 	return h
 }
 
-// S82: herdr session A has a review pane w14:p2. Session B ("default" here) has an agent at
+// herdr session A has a review pane w14:p2. Session B ("default" here) has an agent at
 // w14:p2. A decision in B closes A's pane through A's binding, and does not touch B's w14:p2.
 func TestReviewClosesPaneInOtherSession(t *testing.T) {
 	f := newFixture(t)

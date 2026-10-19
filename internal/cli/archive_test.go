@@ -49,7 +49,7 @@ func (f *fixture) archiveItems(t *testing.T) (own, other int64) {
 }
 
 // The list shows the candidates that the caller sees, with their text; it changes nothing.
-// A pinned item stays out after 6 months (S29), and so does an item of another workspace.
+// A pinned item stays out after 6 months, and so does an item of another workspace.
 func TestArchiveList(t *testing.T) {
 	f := newFixture(t)
 	own, _ := f.archiveItems(t)

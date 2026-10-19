@@ -151,7 +151,7 @@ func TestRetiredPopupClose(t *testing.T) {
 		t.Errorf("popup(qry) = %v,\n%s\nwant a close at q", err, out)
 	}
 	wantStates(t, f.states(t, ids), retired, retired, active, active)
-	// q at the confirm closes the popup too: the keys after it do nothing (Sol review).
+	// q at the confirm closes the popup too: the keys after it do nothing.
 	out, err = f.retiredPopup(t, f.popupEnviron("w14:p1", "w14"), "rqry")
 	if err != nil || strings.Count(out, "press y to confirm") != 1 || strings.Contains(out, "restored") {
 		t.Errorf("popup(rqry) = %v,\n%s\nwant a close at the q of the confirm", err, out)

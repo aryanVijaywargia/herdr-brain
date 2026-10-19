@@ -14,11 +14,11 @@ import (
 // The text of the history scan report. brain status, brain review and the brained notification show
 // it; brain setup shows the state line.
 
-// maxScanFindings is the most finding lines of the report. [NEW] 10.
+// maxScanFindings is the most finding lines of the report.
 const maxScanFindings = 10
 
-// maxScanExcerpt is the most characters of a finding excerpt on its one line. [NEW] 80, as the
-// failed command of the handoff lines.
+// maxScanExcerpt is the most characters of a finding excerpt on its one line, as the failed
+// command of the handoff lines.
 const maxScanExcerpt = 80
 
 // ScanState is the one state line of the scan s, for the setup plan and brain status:
@@ -140,7 +140,7 @@ func ScanSkipped(s store.Scan) string {
 }
 
 // ScanUnparsed are the lines of the CLIs of scan s with no session file that parsed: each file
-// that the scan tried had an unknown format, so the scan read no session of that CLI (S94).
+// that the scan tried had an unknown format, so the scan read no session of that CLI.
 // The other CLI continues.
 func ScanUnparsed(s store.Scan) []string {
 	var lines []string
@@ -156,13 +156,13 @@ func ScanUnparsed(s store.Scan) []string {
 
 // TokensRecorded is the tokens form of t: "48,200 tokens recorded; 2 turns with no usage".
 // The turns with no usage show apart, never as 0 tokens, and with no turn that has a usage
-// field it is "tokens: unknown" (S91).
+// field it is "tokens: unknown".
 func TokensRecorded(t store.TurnTokens) string {
 	return tokens(t, " tokens recorded")
 }
 
 // tokensUsed is the tokens form of t in a sentence about use: "48,200 tokens; 2 turns with no
-// usage", or "tokens: unknown" (S91).
+// usage", or "tokens: unknown".
 func tokensUsed(t store.TurnTokens) string {
 	return tokens(t, " tokens")
 }
@@ -222,8 +222,8 @@ func cliName(h string) string {
 	return h
 }
 
-// tokenCount is n with thousands commas, or in millions with one decimal from 1,000,000 on
-// [NEW]: "48,200", "12.4 M".
+// tokenCount is n with thousands commas, or in millions with one decimal from 1,000,000 on:
+// "48,200", "12.4 M".
 func tokenCount(n int64) string {
 	if n >= 1_000_000 {
 		return fmt.Sprintf("%.1f M", float64(n)/1_000_000)

@@ -27,9 +27,9 @@ import (
 
 const (
 	// busyTimeout is how long a command waits for the store lock of another Brain process.
-	// [NEW] 5 s, as `brain event`: a person waits for a command, not an agent start.
+	// 5 s, as `brain event`: a person waits for a command, not an agent start.
 	busyTimeout = 5 * time.Second
-	// herdrDeadline is the deadline of each herdr call of a command. [NEW]
+	// herdrDeadline is the deadline of each herdr call of a command.
 	herdrDeadline = 5 * time.Second
 	// outDir is the out folder of a store, as in the hook.
 	outDir = "out"
@@ -193,7 +193,7 @@ func (c *Call) Close() error { return c.Store.Close() }
 
 // Open resolves the store of the calling pane, syncs the workspace map and repairs the output.
 // A call that gets no store, or whose pane herdr does not confirm, opens nothing and writes
-// nothing (S64): Open returns an error. A failed repair is only a warning: the command's own
+// nothing: Open returns an error. A failed repair is only a warning: the command's own
 // write does not need it, and the next call retries it.
 func (e Env) Open(ctx context.Context) (*Call, error) {
 	return e.open(ctx, openRepair)

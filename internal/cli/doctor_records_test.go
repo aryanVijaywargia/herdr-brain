@@ -237,7 +237,7 @@ func entryBin(t *testing.T) string {
 	return bin
 }
 
-// AC #315 (Sol review of PR #324): a Codex hook record entry that you edited, here its
+// AC #315 (review of PR #324): a Codex hook record entry that you edited, here its
 // timeout, is not missing, and Brain keeps it. Codex needs trust again for it, so doctor
 // reports it as modified until you trust it in Codex.
 func TestDoctorEditedRecordTrust(t *testing.T) {

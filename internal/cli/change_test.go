@@ -73,7 +73,7 @@ func TestReviewShowFields(t *testing.T) {
 	}
 }
 
-// AC (S56): a change request is stored, the proposal is changed and not published, and the
+// AC: a change request is stored, the proposal is changed and not published, and the
 // request waits in the extraction queue for a new draft.
 func TestReviewChange(t *testing.T) {
 	f := newFixture(t)
@@ -138,7 +138,8 @@ func TestReviewChangeRefused(t *testing.T) {
 	}
 }
 
-// S56 in the review pane: c, a request and Enter ask for the change, with surface pane.
+// A change request in the review pane: c, a request and Enter ask for the change, with surface
+// pane.
 func TestPaneChange(t *testing.T) {
 	f := newFixture(t)
 	pid, _ := f.extractorProposal(t)

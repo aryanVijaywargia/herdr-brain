@@ -55,7 +55,7 @@ type review struct {
 	approve, reject, later bool
 	keep                   bool    // keep a disputed item (E16-S6)
 	edit                   *string // the new text; nil for none
-	change                 *string // your change request (S56); nil for none
+	change                 *string // your change request; nil for none
 	conflict               string  // replace, exception or keep-both: what approve does with a conflict
 	reason                 *string // your reason for a reject; nil for none
 	scope                  store.Scope
@@ -814,7 +814,7 @@ func (cl caller) bindingLines(ctx context.Context, tx *sql.Tx, p store.Proposal,
 	return s.String(), nil
 }
 
-// proposalText is the text line of p in show. A skill draft shows the whole file (S8). A
+// proposalText is the text line of p in show. A skill draft shows the whole file. A
 // skill patch shows no text: its diff holds the changed lines, and approve writes the whole
 // new file. A tool shows its whole contract text, a change too: your approval covers
 // all of it.
@@ -956,7 +956,7 @@ func actions(b *strings.Builder, p store.Proposal, changeable, conflict bool) {
 }
 
 // excerpts are the lines of up to excerptsShown source excerpts of p, the newest first, in a
-// scope that the caller sees [NEW], through the secret filter. changeable reports whether p has
+// scope that the caller sees, through the secret filter. changeable reports whether p has
 // evidence, so it takes a change request.
 func (cl caller) excerpts(ctx context.Context, tx *sql.Tx, p store.Proposal) (lines []string, changeable bool, err error) {
 	es, changeable, err := evidence(ctx, tx, p)
@@ -1648,7 +1648,6 @@ func (cl caller) listRejections(ctx context.Context) error {
 }
 
 // endRejection reopens rejection id, or resets it: it then counts its new evidence from now.
-// [NEW] the actions --reopen and --reset.
 func (cl caller) endRejection(ctx context.Context, id int64, reopen bool) error {
 	var r store.Rejection
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) (err error) {
@@ -1735,7 +1734,7 @@ func (cl caller) proposeChange(ctx context.Context, r review) error {
 			return fmt.Errorf("item %d is %s; --edit and --retire change an active item", it.ID, it.State)
 		}
 		base := it.CurrentRevision
-		// [NEW] a proposal with no text retires its item; its diff removes the text.
+		// A proposal with no text retires its item; its diff removes the text.
 		p := store.Proposal{ItemID: &it.ID, BaseRevision: &base, Scope: cur.Scope, Target: cl.target(cur.Scope),
 			Diff: "- " + cur.Text, Status: store.ProposalPending, Created: cl.Now()}
 		switch {
@@ -1769,7 +1768,7 @@ func (cl caller) proposeChange(ctx context.Context, r review) error {
 	return err
 }
 
-// The approve choices for a proposal that conflicts with an item [NEW flags].
+// The approve choices for a proposal that conflicts with an item.
 const (
 	conflictReplace   = "replace"   // retire the conflicting items
 	conflictException = "exception" // link the new workspace item as an exception to the global item
@@ -1844,9 +1843,9 @@ func itemList(ids []int64) string {
 	return "items " + strings.Join(s, ", ")
 }
 
-// askChange records your change request text on pending proposal id and queues it (S56): the
+// askChange records your change request text on pending proposal id and queues it: the
 // proposal becomes changed and is not published, and the extractor drafts a new proposal in
-// the background. runReview filtered the text for secrets. [NEW] only an extractor proposal,
+// the background. runReview filtered the text for secrets. Only an extractor proposal,
 // one with a candidate, takes a change request: its draft needs the evidence of the candidate.
 // The draft of an item revision takes one too: its request of that revision is queued again
 // (E15-S1).

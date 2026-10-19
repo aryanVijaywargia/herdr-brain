@@ -118,7 +118,7 @@ func TestRunTool(t *testing.T) {
 	}
 }
 
-// AC S58: an input of `; rm -rf ~` or `$(…)` fails the pattern, and a refused row logs the
+// AC: an input of `; rm -rf ~` or `$(…)` fails the pattern, and a refused row logs the
 // call. With a pattern that lets it pass, it stays one argv element: run.sh gets it as "$1",
 // and nothing runs it as shell text.
 func TestRunInjection(t *testing.T) {

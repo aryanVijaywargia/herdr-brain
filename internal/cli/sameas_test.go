@@ -302,7 +302,7 @@ func TestPaneLinkChanged(t *testing.T) {
 	}
 }
 
-// Sol review of #360 (AC #358 and 2): with no proposal, as in the run 4 shape, the popup of the
+// Review of #360 (AC #358 and 2): with no proposal, as in the run 4 shape, the popup of the
 // action brain.links lists the link of the focused pane's workspace; m and y merge it, and q
 // closes the popup.
 func TestLinksPopup(t *testing.T) {
@@ -401,7 +401,7 @@ func TestReviewStuckLink(t *testing.T) {
 	}
 }
 
-// Sol review of #370 (AC #361): the links popup and the review pane offer no merge for a link
+// Review of #370 (AC #361): the links popup and the review pane offer no merge for a link
 // that no merge can move: the keys line has no m, and m says why with no confirm.
 func TestLinksPopupStuck(t *testing.T) {
 	f := newFixture(t)

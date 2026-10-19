@@ -152,7 +152,7 @@ func (f *doctorFixture) pass(t *testing.T, now time.Time) {
 	}
 }
 
-// AC #428 (Sol round 3): a sign-in refusal of a failed change request alone gives the sign-in
+// AC #428: a sign-in refusal of a failed change request alone gives the sign-in
 // hint in brain status, and brain doctor fails the check with it.
 func TestChangeRequestSignInHint(t *testing.T) {
 	f := newDoctorFixture(t)

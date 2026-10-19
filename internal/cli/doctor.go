@@ -35,7 +35,7 @@ const noReceipt = "unknown: no receipt for its agent session"
 // deferred session-id check. The one fix that writes, a new hook entry, asks first and goes
 // through install with its guard. With --fix it applies that fix with no question (E19-S4: brain
 // update runs it); an entry that you edited still stays. In a session with no binding it
-// explains, prints the setup command, and reads and writes nothing (S84).
+// explains, prints the setup command, and reads and writes nothing.
 func Doctor(ctx context.Context, e Env, args []string) (err error) {
 	fix := len(args) == 1 && args[0] == "--fix"
 	if len(args) != 0 && !fix {
@@ -111,7 +111,7 @@ func (d *doctorCall) run(ctx context.Context) {
 	d.conflicts()
 }
 
-// historyScan reports each CLI whose session files the history scan could not parse (S94). It is a
+// historyScan reports each CLI whose session files the history scan could not parse. It is a
 // note, not a failed check: the scan runs once, and the other CLI and herdr capture still work.
 func (d *doctorCall) historyScan(ctx context.Context) error {
 	var sc store.Scan
@@ -130,7 +130,7 @@ func (d *doctorCall) historyScan(ctx context.Context) error {
 }
 
 // hooks checks the hook entry, the hook record entries of an installed CLI (#315), the CLI
-// version, a hook input that the profile could not parse (S14), the Codex trust of each Brain
+// version, a hook input that the profile could not parse, the Codex trust of each Brain
 // entry (hook_trust "codex") and the receipts of each profile.
 func (d *doctorCall) hooks(ctx context.Context, ps []*adapter.Profile) error {
 	inst, err := d.installer()
@@ -170,7 +170,7 @@ func (d *doctorCall) hooks(ctx context.Context, ps []*adapter.Profile) error {
 			d.w.printf("note: %s %s: %s; Brain keeps its hook records and learning on\n", p.Kind, st.CLIVersion, n)
 		}
 		if st.Retest {
-			d.fail("%s %s: the Brain profile could not parse a %s hook input, last at %s, so Brain dropped it (S14); "+
+			d.fail("%s %s: the Brain profile could not parse a %s hook input, last at %s, so Brain dropped it; "+
 				"herdr capture continues; fix: brain update, which may bring a profile for this input shape",
 				p.Kind, cmp.Or(st.CLIVersion, "(version unknown)"), p.Kind, st.RetestAt.Local().Format(time.DateTime))
 		}
@@ -437,7 +437,7 @@ func (d *doctorCall) receipts(ctx context.Context, p *adapter.Profile) error {
 	return nil
 }
 
-// conflicts checks the output generations against their manifests (S66).
+// conflicts checks the output generations against their manifests.
 func (d *doctorCall) conflicts() {
 	cs, err := output.Conflicts(filepath.Join(d.Binding.Store, outDir))
 	switch {
@@ -466,7 +466,7 @@ func (d *doctorCall) ask(question string) (bool, error) {
 	return a == "y" || a == "yes", nil
 }
 
-// extraction checks the extraction queue of this herdr session (S15): signals wait while no
+// extraction checks the extraction queue of this herdr session: signals wait while no
 // extractor CLI is chosen, or after a failed call. Brain never inspects credentials; the stored
 // reason is what the official CLI reported.
 func (d *doctorCall) extraction(ctx context.Context) error {

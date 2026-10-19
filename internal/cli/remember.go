@@ -29,7 +29,7 @@ type remember struct {
 
 // Remember runs `brain remember` with args after "remember" (E4-S2). It drafts one item
 // and one pending proposal, and prints the proposal id. The draft goes live only when you
-// approve it in review; an agent's call takes the same path and never approves (S52).
+// approve it in review; an agent's call takes the same path and never approves.
 func Remember(ctx context.Context, e Env, args []string) (err error) {
 	// The filter runs on the raw arguments before the parser and the store: a hit writes
 	// nothing, and no parse error can print a secret in a flag value (E4-S1).
@@ -62,8 +62,8 @@ func Remember(ctx context.Context, e Env, args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	// The review pane opens beside the caller, an agent too (S52). When it cannot open, the
-	// draft waits in `brain review`, and one line says why (S53).
+	// The review pane opens beside the caller, an agent too. When it cannot open, the
+	// draft waits in `brain review`, and one line says why.
 	pane, err := openReviewPane(ctx, e, c, id, func(*sql.Tx, string) error { return nil })
 	if err != nil {
 		_, err = fmt.Fprintf(e.Stdout, "proposal %d: %s draft, waiting for your review (brain review); the review pane did not open: %s\n",
@@ -80,7 +80,7 @@ func parseRemember(args []string) (remember, error) {
 	fs.SetOutput(io.Discard)
 	fs.BoolVar(&r.global, "global", false, "")
 	fs.StringVar(&r.workspace, "workspace", "", "")
-	kind := fs.String("kind", string(store.KindFact), "") // [NEW] the default kind
+	kind := fs.String("kind", string(store.KindFact), "")
 	// The text can come before the flags too, as in `brain remember "use pnpm" --global`.
 	var texts []string
 	for {
@@ -178,7 +178,7 @@ func saveDraft(ctx context.Context, s *store.Store, d draft, now time.Time) (int
 			return err
 		}
 		base := int64(1)
-		// [NEW] the target names the brief part, and the diff of a new item is its text with "+ ".
+		// The target names the brief part, and the diff of a new item is its text with "+ ".
 		pid, err = store.InsertProposal(ctx, tx, store.Proposal{ItemID: &item, BaseRevision: &base,
 			Text: d.text, Scope: d.scope, Target: d.target, Diff: "+ " + d.text,
 			PermissionWarning: permissionWords.MatchString(d.text), Status: store.ProposalPending, Created: now})
@@ -193,8 +193,8 @@ func saveDraft(ctx context.Context, s *store.Store, d draft, now time.Time) (int
 	return pid, err
 }
 
-// newClaimID returns a new opaque claim id with no text in it. [NEW] 8 random bytes, in
-// hex with a "cl_" prefix, as the workspace keys.
+// newClaimID returns a new opaque claim id with no text in it: 8 random bytes, in hex with a
+// "cl_" prefix, as the workspace keys.
 func newClaimID() (string, error) {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {

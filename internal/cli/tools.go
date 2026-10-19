@@ -30,7 +30,7 @@ func Tools(ctx context.Context, e Env, args []string) (err error) {
 	return newCaller(e, c).listTools(ctx)
 }
 
-// listTools prints each approved tool that the caller sees. [NEW] the output form:
+// listTools prints each approved tool that the caller sees. The output form:
 //
 //	<name> (item <id>, <scope>): <description>
 //	  brain run <name> --<input> <value> ...

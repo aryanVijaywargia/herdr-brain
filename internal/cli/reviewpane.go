@@ -27,7 +27,7 @@ type PaneHerdr interface {
 const (
 	pluginID         = "brain"  // the id in herdr-plugin.toml
 	reviewEntrypoint = "review" // the [[panes]] id of the review pane
-	// proposalEnv carries the proposal id to the review pane. [NEW] the name (E5-S1).
+	// proposalEnv carries the proposal id to the review pane (E5-S1).
 	proposalEnv = "BRAIN_PROPOSAL_ID"
 )
 
@@ -37,7 +37,7 @@ func target(b bindings.Binding) herdr.Target {
 }
 
 // openReviewPane opens the review pane of proposal id beside the calling pane, without focus,
-// and records it in review_panes (S52), with also in the same transaction. It returns
+// and records it in review_panes, with also in the same transaction. It returns
 // the new pane id.
 func openReviewPane(ctx context.Context, e Env, c *Call, id int64, also func(tx *sql.Tx, pane string) error) (string, error) {
 	// The split is in the workspace of the calling pane.
@@ -95,7 +95,7 @@ func continuity(s workspace.Session, ws string) (*string, error) {
 // closeReviewPanes closes the review panes of proposal id after a decision. A pane can be in any
 // herdr session that is bound to this store: the call targets the binding of the row. It closes
 // only a pane whose binding and pane id are in review_panes, whose workspace keeps its continuity
-// identity, and that herdr shows still runs the review pane of id (S82). A row that fails a check
+// identity, and that herdr shows still runs the review pane of id. A row that fails a check
 // is invalid and is marked closed with no herdr call. The review pane that made the decision exits
 // by itself: its row is only marked. The decision is done, so a failed herdr call is a warning.
 func (cl caller) closeReviewPanes(ctx context.Context, id int64) error {
@@ -159,8 +159,8 @@ func (cl caller) closeReviewPane(ctx context.Context, bs []bindings.Binding, p s
 
 // reviewPaneLive reports whether the pane of row p is still Brain's review pane: its binding is
 // in bs, its workspace keeps its continuity identity, and herdr shows that it still runs the
-// review pane of its proposal (S82). live is false when the row is invalid
-// or the pane is gone. h is the herdr of the pane's binding when live is true.
+// review pane of its proposal. live is false when the row is invalid or the pane is gone. h is
+// the herdr of the pane's binding when live is true.
 func (cl caller) reviewPaneLive(ctx context.Context, bs []bindings.Binding, p store.ReviewPane) (h PaneHerdr, live bool, err error) {
 	i := slices.IndexFunc(bs, func(b bindings.Binding) bool {
 		return b.Session == p.HerdrSession && b.Store == cl.Binding.Store

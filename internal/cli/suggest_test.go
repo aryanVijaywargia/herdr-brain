@@ -168,7 +168,7 @@ func (f *suggestFixture) reviewIn(t *testing.T, pane string, args ...string) {
 	}
 }
 
-// S55: a reserved suggestion shows a herdr notification and the review pane beside the agent,
+// A reserved suggestion shows a herdr notification and the review pane beside the agent,
 // with no focus (the client always passes --no-focus, TestOpenPluginPane), and no model call.
 // The child sends no key to the agent: PaneHerdr has no call that could.
 func TestSuggestShows(t *testing.T) {

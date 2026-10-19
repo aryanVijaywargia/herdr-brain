@@ -172,7 +172,7 @@ func TestPromoteOtherWorkspace(t *testing.T) {
 	}
 }
 
-// AC (S46): the review shows the global text and the "also seen" hint. Approve with an
+// AC: the review shows the global text and the "also seen" hint. Approve with an
 // edit makes a global revision; a promoted skill is in the global part and not in the
 // workspace part. Undo makes a revision with the old scope and workspace key, and the skill
 // goes back to its workspace part.

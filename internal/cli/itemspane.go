@@ -33,8 +33,8 @@ type itemRev struct{ id, rev int64 }
 // itemsPane is the list of the retired items and the archive candidates in the review pane
 // (E20-S7): the global items and those of the caller's workspace, as brain review
 // --retired and brain archive show them. You restore or archive the selected items, or the
-// item at the cursor, with one confirm, and u undoes the last such action. [NEW keys]. The
-// popup of the action brain.retired shows the same list with no proposal (E20-S11).
+// item at the cursor, with one confirm, and u undoes the last such action. The popup of the
+// action brain.retired shows the same list with no proposal (E20-S11).
 type itemsPane struct {
 	Env
 	popup  bool // the list is the popup: only q closes it, as i opens nothing
@@ -239,7 +239,7 @@ func (l *itemsPane) draw(prompt string) {
 }
 
 // maxWords is the most item ids that a message names; more ids show as a count, so the
-// message fits a short pane. [NEW] 5.
+// message fits a short pane.
 const maxWords = 5
 
 // itemWords is "item 3", "2 items (3, 5)", or "12 items" above maxWords.

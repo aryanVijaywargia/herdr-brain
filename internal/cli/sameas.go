@@ -164,8 +164,8 @@ const (
 
 // linksPane is the list of the same_as links that wait for review in the review pane, key m,
 // and in the popup of the action brain.links, with no proposal (#358), as brain review lists
-// them: m merges the link at the cursor, and n keeps it apart, each with one confirm. [NEW
-// keys]. A link whose merge would move no evidence offers no m, and m says why (#361).
+// them: m merges the link at the cursor, and n keeps it apart, each with one confirm. A link
+// whose merge would move no evidence offers no m, and m says why (#361).
 type linksPane struct {
 	Env
 	popup  bool // the list is the popup of brain.links

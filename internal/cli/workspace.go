@@ -22,7 +22,7 @@ var errDryRun = errors.New("dry run")
 
 // Workspace runs `brain workspace` with args after "workspace" (E16-S9). Its one
 // subcommand, link, moves the items of an old workspace key to a new one on your request:
-// Brain never links by itself and never asks (S20). With no --confirm it prints what moves and
+// Brain never links by itself and never asks. With no --confirm it prints what moves and
 // writes nothing.
 func Workspace(ctx context.Context, e Env, args []string) (err error) {
 	if len(args) == 0 || args[0] != "link" {
@@ -96,7 +96,7 @@ func (cl caller) linkWorkspace(ctx context.Context, oldKey, newKey string, confi
 	return errors.Join(err, cl.deliver(ctx, nil))
 }
 
-// linkScope checks the scope rule of a link (S83): the call comes from a
+// linkScope checks the scope rule of a link: the call comes from a
 // pane in new, and old is a relink entry of this herdr session that is not live. It returns the
 // map entry of old. An entry that is closed or replaced never becomes current again, so the
 // check holds until the transaction of the link.
@@ -136,7 +136,7 @@ func (cl caller) relinkEntry(key string) (workspace.Entry, bool, error) {
 	return workspace.Entry{}, false, nil
 }
 
-// live reports whether e is the current map entry of its herdr workspace (S83): checked by the
+// live reports whether e is the current map entry of its herdr workspace: checked by the
 // map entry, not by the herdr workspace id, which a later workspace can reuse.
 func live(e workspace.Entry) bool { return !e.Closed && e.ReplacedBy == "" }
 
@@ -180,7 +180,7 @@ func (cl caller) move(ctx context.Context, tx *sql.Tx, oldKey, newKey string) (m
 
 // endProposals ends the pending proposals of items as superseded, and returns their ids. A link
 // and its undo move an item to another key: the proposals are for a base revision that the move
-// replaces. [NEW] superseded, made in surface: the link is your action.
+// replaces. They end in surface: the link is your action.
 func endProposals(ctx context.Context, tx *sql.Tx, items []int64, surface store.Surface, now time.Time) ([]int64, error) {
 	pending, err := store.PendingProposalIDs(ctx, tx)
 	if err != nil {

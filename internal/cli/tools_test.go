@@ -121,7 +121,7 @@ func TestToolPermissionWarning(t *testing.T) {
 	f.mustReview(t, fmt.Sprint(p), "--approve", "--confirm")
 }
 
-// AC S21: a change to the command, the schema, the cwd, the timeout, the effects or the
+// AC: a change to the command, the schema, the cwd, the timeout, the effects or the
 // restriction does not run until you approve it: while the change waits, the tool keeps the
 // contract hash that you approved. After the approval it runs with the new hash only.
 func TestToolChangeNeedsApproval(t *testing.T) {
@@ -202,7 +202,7 @@ func TestApproveToolNameClash(t *testing.T) {
 	f.mustReview(t, fmt.Sprint(second), "--approve", "--edit", toolText("deploy-docs"))
 }
 
-// AC S11: a hand-edited tool.toml is a conflict: status shows it, the tool does not run, and
+// AC: a hand-edited tool.toml is a conflict: status shows it, the tool does not run, and
 // brain repair --confirm writes it again.
 func TestToolConflictRepair(t *testing.T) {
 	f := newStatusFixture(t)
@@ -387,7 +387,7 @@ func TestStatusToolCalls(t *testing.T) {
 		t.Errorf("Status() =\n%s\nwant 2 ran calls and idle with none", out)
 	}
 
-	// The calls of a tool that is no longer active still count (Sol review, PR #233).
+	// The calls of a tool that is no longer active still count (PR #233).
 	for _, id := range []int64{used, idle} {
 		f.retireTool(t, id)
 	}

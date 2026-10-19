@@ -483,7 +483,7 @@ func TestLearnedAutomationEvidence(t *testing.T) {
 }
 
 // #340: after each stop the agent runs two tools. Each tool gets its own learned automation
-// proposal, and the evidence of each shows the call of its own tool (Sol review of PR #342).
+// proposal, and the evidence of each shows the call of its own tool (review of PR #342).
 func TestLearnedAutomationEvidenceOwnTool(t *testing.T) {
 	f := newAutomationFixture(t)
 	f.approvedTool(t, bindTool(f.dir))

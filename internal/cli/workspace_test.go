@@ -22,8 +22,8 @@ import (
 )
 
 // addEntry adds the map entry key of herdr workspace id in herdr session session, with the
-// project of w14, and its store row. A closed entry waits for a relink to ws_a14 (S20); with
-// replacedBy, a remap replaced it (S83).
+// project of w14, and its store row. A closed entry waits for a relink to ws_a14; with
+// replacedBy, a remap replaced it.
 func (f *fixture) addEntry(t *testing.T, key, session, id string, closed bool, replacedBy ...string) {
 	t.Helper()
 	path := filepath.Join(f.store, "workspaces.json")
@@ -143,7 +143,7 @@ func dumpTable(ctx context.Context, tx *sql.Tx, table string, b *strings.Builder
 	return rows.Err()
 }
 
-// oldShop adds the closed key ws_a9 (S20) with an active fact, an active skill and a retired
+// oldShop adds the closed key ws_a9 with an active fact, an active skill and a retired
 // item, and an active item of ws_a14. It returns the ids of the fact, the skill, the retired
 // item and the ws_a14 item.
 func (f *fixture) oldShop(t *testing.T) (fact, skill, retired, own int64) {
@@ -164,7 +164,7 @@ func (f *fixture) oldShop(t *testing.T) (fact, skill, retired, own int64) {
 	return fact, skill, retired, f.addActive(t, ptr("ws_a14"), "own item")
 }
 
-// AC S20: the dry run lists what moves and writes nothing. The link moves the items of
+// AC: the dry run lists what moves and writes nothing. The link moves the items of
 // the closed old key, with a new revision each; a fresh hook in the new workspace gets the old
 // items and skills; the items of the new key stay. A second link of the same pair moves
 // nothing.
@@ -252,7 +252,7 @@ func (r rows) revisionOf(t *testing.T, id int64) int64 {
 	return it.CurrentRevision
 }
 
-// AC S83 link scope: a live old key, a call from a pane outside the new workspace, a key
+// AC (link scope): a live old key, a call from a pane outside the new workspace, a key
 // that is not in the relink list (unknown, the new key itself, or an entry of another herdr
 // session) and bad arguments are refused, and nothing is written.
 func TestWorkspaceLinkRefused(t *testing.T) {
@@ -453,7 +453,7 @@ func TestWorkspaceLinkUndoScope(t *testing.T) {
 	}
 }
 
-// AC S83: herdr lost the state of the session, and a remap gave the workspace a new key. The
+// AC: herdr lost the state of the session, and a remap gave the workspace a new key. The
 // replaced key waits for a relink, and the link moves its items.
 func TestWorkspaceLinkReplaced(t *testing.T) {
 	f := newFixture(t)

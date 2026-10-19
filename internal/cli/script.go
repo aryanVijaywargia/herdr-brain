@@ -29,7 +29,7 @@ func scriptText(p store.Proposal) string {
 }
 
 // siblings returns the other pending proposals of the candidate of p that you pick between
-// with p [NEW]: the script proposal of a tool draft, or the tool draft of a script proposal,
+// with p: the script proposal of a tool draft, or the tool draft of a script proposal,
 // from the same command chain (E17-S8).
 func siblings(ctx context.Context, tx *sql.Tx, p store.Proposal) ([]store.Proposal, error) {
 	if p.CandidateID == nil {
@@ -66,7 +66,7 @@ func pickLines(sibs []store.Proposal) string {
 }
 
 // supersede ends siblings sibs of an approved proposal as superseded: you picked the other
-// one. Their shown suggestions get result rejected [NEW]: you did not take them. It returns
+// one. Their shown suggestions get result rejected: you did not take them. It returns
 // their ids.
 func (cl caller) supersede(ctx context.Context, tx *sql.Tx, sibs []store.Proposal) ([]int64, error) {
 	ids := make([]int64, 0, len(sibs))

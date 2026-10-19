@@ -22,7 +22,7 @@ var errNotFound = errors.New("not found in this workspace")
 var errDecided = errors.New("conflict")
 
 // permissionWords finds text that may change a permission, an allow rule or a safety rule.
-// [NEW] the list is a guess (E4-S3); proposals.permission_warning records how often
+// The list is a guess (E4-S3); proposals.permission_warning records how often
 // it fires in M1.
 var permissionWords = regexp.MustCompile(`(?i)allow|permission|sandbox|--dangerously|\b(never|always)\s+run`)
 
@@ -41,7 +41,7 @@ type caller struct {
 func newCaller(e Env, c *Call) caller {
 	cl := caller{Env: e, Call: c, surface: store.SurfaceCLI}
 	// A workspace with no key has no items of its own: it sees the global items only, as the
-	// hook gives it the global part only (S48). keyErr says why, for --scope workspace.
+	// hook gives it the global part only. keyErr says why, for --scope workspace.
 	cl.key, cl.label, cl.keyErr = c.WorkspaceKey()
 	return cl
 }

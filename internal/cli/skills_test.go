@@ -153,7 +153,7 @@ func TestForgetSkill(t *testing.T) {
 	}
 }
 
-// AC: a kept conflict file keeps forget of a skill pending (S11); brain repair
+// AC: a kept conflict file keeps forget of a skill pending; brain repair
 // --confirm then lets forget report done.
 func TestForgetSkillPendingOnConflict(t *testing.T) {
 	f := newFixture(t)
@@ -183,7 +183,7 @@ func TestForgetSkillPendingOnConflict(t *testing.T) {
 	}
 }
 
-// AC S11 (skill part): a hand-edited listed SKILL.md stays, status and brain repair show the
+// AC (skill part): a hand-edited listed SKILL.md stays, status and brain repair show the
 // conflict, and brain repair --confirm writes it again.
 func TestSkillConflictRepair(t *testing.T) {
 	f := newStatusFixture(t)
@@ -218,7 +218,7 @@ func TestSkillConflictRepair(t *testing.T) {
 	}
 }
 
-// AC S61 (skill part), in a test home: after build, approve, retire and forget, Brain wrote no
+// AC (skill part), in a test home: after build, approve, retire and forget, Brain wrote no
 // file into ~/.claude/skills, ~/.codex or the repo; its skill files stay in the store.
 func TestSkillFilesStayInStore(t *testing.T) {
 	home := t.TempDir()

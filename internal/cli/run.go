@@ -24,7 +24,7 @@ const runUsage = `usage: brain run <tool> [--<input> <value>]...`
 var ErrRefused = errors.New("refused; nothing ran")
 
 // ExitError is the error of a tool run whose last step did not exit 0. brain run exits with
-// Code. [NEW] brain run exits with the tool's exit code.
+// Code.
 type ExitError struct {
 	Code int
 	Err  error
@@ -88,7 +88,7 @@ func Run(ctx context.Context, e Env, args []string) error {
 }
 
 // parseRun reads the tool name and the inputs: --<input> <value> or --<input>=<value>, each
-// input once. [NEW] the flag forms. On a bad input argument it still returns the name, so the
+// input once. On a bad input argument it still returns the name, so the
 // call of a known tool is logged as refused; the name is "" when there is none.
 func parseRun(args []string) (string, map[string]string, error) {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {

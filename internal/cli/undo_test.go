@@ -75,7 +75,7 @@ func (f *fixture) addEdited(t *testing.T) int64 {
 	return id
 }
 
-// AC (S46, edit): undo of an edit restores text, scope, pin and links in a new revision that
+// AC (edit): undo of an edit restores text, scope, pin and links in a new revision that
 // records the undone revision, and the post-commit build delivers it. A second undo does
 // nothing.
 func TestUndoEdit(t *testing.T) {
@@ -111,7 +111,7 @@ func TestUndoEdit(t *testing.T) {
 	}
 }
 
-// AC (S46, creation): undo of a creation retires the item, for an item made at once and for
+// AC (creation): undo of a creation retires the item, for an item made at once and for
 // one approved from a draft. Undo of a retirement restores it.
 func TestUndoCreationAndRetirement(t *testing.T) {
 	f := newFixture(t)

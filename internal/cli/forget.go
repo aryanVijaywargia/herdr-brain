@@ -20,7 +20,7 @@ const forgetUsage = `usage: brain forget <item> | --session <id>`
 
 // settle is how long forget waits after its build before it deletes the old generations: a
 // generation that the pointer left less than one hook time cap ago (300 ms) may still
-// have a reader. [NEW] 350 ms, the cap and a margin.
+// have a reader. 350 ms, the cap and a margin.
 const settle = 350 * time.Millisecond
 
 // Forget runs `brain forget` with args after "forget" (E4-S6). It removes the text of
@@ -37,7 +37,7 @@ func Forget(ctx context.Context, e Env, args []string) error {
 
 // forgetSession runs `brain forget --session <id>` (E11-S6). id is a capture session id
 // or an agent session id in the caller's herdr session. It lists the evidence of the session,
-// the candidates that use it and the proposals that used its prompts first (S68), then deletes
+// the candidates that use it and the proposals that used its prompts first, then deletes
 // its observations, command records, prompt index rows, outcomes and evidence links in one transaction that raises the capture generation, so a pane read or
 // hook record that collected the text before the forget stores nothing. The same transaction
 // clears the transcript paths of the receipts of id and of the agent sessions of those capture
@@ -219,8 +219,7 @@ func listCandidates(w io.Writer, cs []store.Candidate) error {
 	return nil
 }
 
-// listProposals prints the proposals that used the prompt index rows of a session to forget
-// (S68).
+// listProposals prints the proposals that used the prompt index rows of a session to forget.
 func listProposals(w io.Writer, ps []int64) error {
 	for _, id := range ps {
 		if _, err := fmt.Fprintf(w, "proposal %d used its prompts: it stays, and its prompt index rows go\n", id); err != nil {
