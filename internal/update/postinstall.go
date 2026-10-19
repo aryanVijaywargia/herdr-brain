@@ -26,14 +26,14 @@ const postInstallUsage = "usage: brain post-install --commit <sha> [--nonce <hex
 const nonceFile = ".install-nonce"
 
 // postInstallWait is the time from the end of the build to the deadline of post-install and
-// its child. [NEW] 60 s: after the build, an install only moves or registers the checkout.
+// its child. 60 s: after the build, an install only moves or registers the checkout.
 // BRAIN_AUTO_SETUP_WAIT (seconds) is for tests only.
 const postInstallWait = 60 * time.Second
 
 // freshWindow is the time around now in which an install of this commit that herdr lists for
 // this checkout before the build counts as the install of this build. herdr 0.9.1 and 0.9.5
 // register a plugin after its build, but a herdr that registers it before the build lists the
-// new entry already, and then no install signal changes. [NEW] 10 min (#427):
+// new entry already, and then no install signal changes. 10 min (#427):
 // a build by hand of the plugin root in that time starts brain once more, and a second
 // brain.start is safe.
 const freshWindow = 10 * time.Minute

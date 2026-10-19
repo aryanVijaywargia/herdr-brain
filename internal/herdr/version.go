@@ -42,7 +42,7 @@ func (c *Client) CheckServer(ctx context.Context) (version string, untested bool
 
 // checkVersion refuses a herdr version older than 0.9.1 with the fix. For a supported
 // version that is not in the tested list it returns untested = true: Brain keeps working
-// and `brain status` warns (S54).
+// and `brain status` warns.
 func checkVersion(v string) (untested bool, err error) {
 	got, gotPre, err := parseVersion(v)
 	if err != nil {

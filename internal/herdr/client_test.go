@@ -139,7 +139,7 @@ func fixture(t *testing.T, name string) string {
 	return string(data)
 }
 
-// deadline returns a context with a deadline that no passing test comes near [NEW].
+// deadline returns a context with a deadline that no passing test comes near.
 func deadline(t *testing.T) context.Context {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

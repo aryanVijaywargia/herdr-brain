@@ -247,7 +247,7 @@ func TestNotVerified(t *testing.T) {
 }
 
 // TestRetestMarker checks that hook input of an unknown shape sets retest on the tested CLI
-// version, and that only a pass that completed after the marker clears it (S14).
+// version, and that only a pass that completed after the marker clears it.
 func TestRetestMarker(t *testing.T) {
 	t0 := time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC)
 	at := func(m int) time.Time { return t0.Add(time.Duration(m) * time.Minute) }
@@ -306,7 +306,7 @@ func TestRetestMarker(t *testing.T) {
 	if s := check(t, e, fakeHerdr{}, p); s.Retest || s.State() != Verified {
 		t.Errorf("marker of another profile: %+v, want verified, no retest", s)
 	}
-	// A marker of an older writer has no profile hash: it stays (S14).
+	// A marker of an older writer has no profile hash: it stays.
 	if err := os.WriteFile(filepath.Join(e.files.Retest, "claude.json"),
 		[]byte(`{"at":"`+at(7).Add(time.Second).Format(time.RFC3339)+`"}`), 0o600); err != nil {
 		t.Fatal(err)

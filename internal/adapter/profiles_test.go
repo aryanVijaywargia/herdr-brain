@@ -15,7 +15,7 @@ import (
 )
 
 // The profile list is the embedded set by default, and any profile set in name order: the
-// entry points take it, so a new CLI needs only its profile file (E16-S10, S60).
+// entry points take it, so a new CLI needs only its profile file (E16-S10).
 func TestKinds(t *testing.T) {
 	names, err := fs.Glob(adapters.Profiles, "*.toml")
 	if err != nil {
@@ -138,7 +138,7 @@ func testStartInput(t *testing.T, p *Profile) {
 	}
 }
 
-// TestProfileCases (S60): each embedded profile has golden hook cases in
+// TestProfileCases: each embedded profile has golden hook cases in
 // testdata/profiles/<kind>/, so a new profile adds its tests as data, with no Go change.
 // <case>.json is a hook start input, and <case>.golden holds the exact bytes that the hook prints
 // for it with testdata/brief.txt: the brief in the output form, or output_none when the input is

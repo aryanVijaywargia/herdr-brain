@@ -17,7 +17,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/workspace"
 )
 
-// busyTimeout is how long the close waits for the store lock. [NEW] 5 s: the event runs
+// busyTimeout is how long the close waits for the store lock. 5 s: the event runs
 // after the close, so nobody waits for it.
 const busyTimeout = 5 * time.Second
 

@@ -35,7 +35,7 @@ type DenyReason string
 const (
 	PaneGone DenyReason = "pane not live" // herdr has no pane HERDR_PANE_ID
 	// NotMember: the pane is not HERDR_PANE_ID in HERDR_WORKSPACE_ID. herdr answers the old id
-	// of a pane that moved to another workspace with its new id and workspace (S49, S63).
+	// of a pane that moved to another workspace with its new id and workspace.
 	NotMember DenyReason = "not a member"
 )
 
@@ -45,7 +45,7 @@ type AgentCheck string
 
 // The agent checks.
 const (
-	// AgentPending: recorded, not checked yet. The next call for the pane checks it. [NEW] value.
+	// AgentPending: recorded, not checked yet. The next call for the pane checks it.
 	AgentPending      AgentCheck = "pending"
 	AgentUnknown      AgentCheck = "unknown" // at the next call herdr showed no agent session
 	AgentMatch        AgentCheck = "match"

@@ -224,7 +224,7 @@ func TestPostInstallGivesUp(t *testing.T) {
 	}
 }
 
-// slack is the time that a bound in these tests allows for the scheduler. [NEW] 300 ms: the
+// slack is the time that a bound in these tests allows for the scheduler. 300 ms: the
 // race detector and a busy CI machine slow each process start.
 const slack = 300 * time.Millisecond
 
@@ -250,7 +250,7 @@ func TestPostInstallDeadline(t *testing.T) {
 }
 
 // gone reports whether the process pid has exited, within 10 s. An orphan child is a zombie
-// until init takes it, so the test asks again until then. [NEW] 10 s: a loaded machine can be
+// until init takes it, so the test asks again until then. 10 s: a loaded machine can be
 // slow to reap; gone returns at once when the process is gone.
 func gone(pid int) bool {
 	tick := time.NewTicker(10 * time.Millisecond)

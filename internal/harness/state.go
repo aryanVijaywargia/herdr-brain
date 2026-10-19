@@ -34,18 +34,18 @@ const (
 	Detected   State = "detected"   // herdr reports the kind in some pane
 	Configured State = "configured" // the recorded Brain entry is in the hook file
 	Verified   State = "verified"   // a conformance pass matches the current values
-	Retest     State = "retest"     // hook input of an unknown shape that the profile cannot parse (S14)
+	Retest     State = "retest"     // hook input of an unknown shape that the profile cannot parse
 )
 
 // Status is the state of one harness, with each part apart, so `brain status` can show a
-// configured hook with no test as unverified (S28).
+// configured hook with no test as unverified.
 type Status struct {
 	Kind       string
 	Installed  bool // the CLI is on the PATH
 	Detected   bool
 	Configured bool
 	Verified   bool
-	Retest     bool      // the profile could not parse a hook input of the CLI (S14)
+	Retest     bool      // the profile could not parse a hook input of the CLI
 	RetestAt   time.Time // the time of the last such hook input
 	CLIVersion string    // empty when `<cli> --version` failed; VersionErr says why
 	VersionErr error
@@ -154,7 +154,7 @@ func Check(ctx context.Context, h Panes, f Files, profiles []*adapter.Profile) (
 		r, ok := last(results, p.Kind)
 		// A newer CLI version keeps the state, so the version is not a current value.
 		current := s.Configured && ok && r.Result == Pass && r.ProfileSHA256 == p.SHA256 && r.EntrySHA256 == e.SHA256
-		// Hook input of an unknown shape after the pass invalidates it (S14). Only a pass on
+		// Hook input of an unknown shape after the pass invalidates it. Only a pass on
 		// the current values that completed after the marker clears the marker.
 		if current && r.At.After(m.At) {
 			marked = false

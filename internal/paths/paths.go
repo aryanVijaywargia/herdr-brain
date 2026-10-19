@@ -31,7 +31,7 @@ func BindingsFile() (string, error) {
 }
 
 // MainStore returns ~/.local/share/brain/main, the folder of the main store that every real
-// herdr session shares. It sits beside the bindings file, not around it. [NEW] name.
+// herdr session shares. It sits beside the bindings file, not around it.
 func MainStore() (string, error) {
 	dir, err := DataHome()
 	if err != nil {
@@ -99,7 +99,7 @@ func PluginDirs() (config, state string, err error) {
 }
 
 // ConfigFile returns ~/.config/herdr/plugins/config/brain/config.toml, the Brain config file
-// in the plugin config folder. It holds the live_suggestions switch. [NEW] name.
+// in the plugin config folder. It holds the live_suggestions switch.
 func ConfigFile() (string, error) {
 	config, _, err := PluginDirs()
 	if err != nil {
@@ -146,14 +146,14 @@ func WorkspaceMap(store string) string {
 
 // EvalResults returns <store>/eval-results.json, the results of the last eval run in the test
 // store folder store (E10-S2). The eval runner writes it and keeps it through its
-// store reset; `brain status` reads it. [NEW] name.
+// store reset; `brain status` reads it.
 func EvalResults(store string) string {
 	return filepath.Join(store, "eval-results.json")
 }
 
 // EvalReport returns <store>/eval-report.md, the short report of the last eval run in the test
 // store folder store: its score, the UNSURE results for your review and the usefulness records
-// (E10-S3). The eval runner writes it and keeps it through its store reset. [NEW] name.
+// (E10-S3). The eval runner writes it and keeps it through its store reset.
 func EvalReport(store string) string {
 	return filepath.Join(store, "eval-report.md")
 }

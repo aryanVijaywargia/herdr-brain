@@ -225,7 +225,7 @@ func TestRootPaneCloseAndRenameKeepKey(t *testing.T) {
 
 // AC: root saved in another project folder: the workspace part is withheld ("withheld:
 // identity"); status offers a remap; a remap gives a new key; the old items are listed for
-// relink, not moved (S83).
+// relink, not moved.
 func TestOtherProjectWithheldAndRemap(t *testing.T) {
 	a, b := gitRepo(t), gitRepo(t)
 	s := newSession(t, "default")
@@ -331,7 +331,7 @@ func TestRefreshUnreadableRootStaysUnmapped(t *testing.T) {
 	}
 }
 
-// AC: w14 in session A and w14 in session B: two keys (S79). Both sessions share the main
+// AC: w14 in session A and w14 in session B: two keys. Both sessions share the main
 // store, so they share one map file.
 func TestSameIDInTwoSessions(t *testing.T) {
 	repo := gitRepo(t)
@@ -346,7 +346,7 @@ func TestSameIDInTwoSessions(t *testing.T) {
 	}
 }
 
-// AC: a new workspace not yet mapped: the hook sees "unmapped" (S48; the hook itself is E7).
+// AC: a new workspace not yet mapped: the hook sees "unmapped" (the hook itself is E7).
 func TestNewWorkspaceUnmapped(t *testing.T) {
 	repo := gitRepo(t)
 	s := newSession(t, "default")

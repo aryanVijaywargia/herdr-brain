@@ -221,7 +221,7 @@ type Server struct {
 	exit    error         // the exit of the server process; read it after done
 }
 
-// serverPoll is how often StartServer asks herdr whether the new server runs. [NEW]
+// serverPoll is how often StartServer asks herdr whether the new server runs.
 const serverPoll = 100 * time.Millisecond
 
 // StartServer starts a headless server of the named session, `herdr --session name server`,

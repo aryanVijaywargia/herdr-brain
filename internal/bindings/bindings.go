@@ -163,11 +163,11 @@ func Write(path string, bs []Binding) error {
 		return err
 	}
 	dir := filepath.Dir(path)
-	// [NEW] 0o700: the data home holds your items, so only you may list it.
+	// 0o700: the data home holds your items, so only you may list it.
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	// os.CreateTemp makes the file with mode 0o600 [NEW]; the rename keeps it.
+	// os.CreateTemp makes the file with mode 0o600; the rename keeps it.
 	tmp, err := os.CreateTemp(dir, ".bindings-*.tmp")
 	if err != nil {
 		return err
@@ -367,7 +367,7 @@ func samePath(a, b string) (bool, error) {
 
 // Nested reports whether the existing folders a and b are one folder, or one holds the
 // other, after links and aliases. `brain setup` checks a test store against the main store
-// folder with it, also before any main binding exists (E9-S1, S76).
+// folder with it, also before any main binding exists (E9-S1).
 func Nested(a, b string) (bool, error) {
 	return nested(a, b)
 }

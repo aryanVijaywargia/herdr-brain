@@ -41,7 +41,7 @@ var (
 	ErrNotStart = errors.New("hook input does not meet the start condition")
 	// ErrRetest says that the hook input has a shape that the profile does not know, for
 	// example after a CLI update. The hook prints nothing, and the caller sets the adapter
-	// state to retest (S14).
+	// state to retest.
 	ErrRetest = errors.New("unknown hook input shape: adapter needs retest")
 )
 
@@ -58,21 +58,21 @@ type Profile struct {
 		ToolMatcher string   `toml:"tool_matcher"` // the shell tool: the tool hook runs only for it
 		Stop        string   `toml:"stop"`
 	} `toml:"events"`
-	// StartCondition is one or more checks `<JSON path> == <JSON value>`, joined by "&&" [NEW],
+	// StartCondition is one or more checks `<JSON path> == <JSON value>`, joined by "&&",
 	// for example `invocationNum == 0 && initialNumSteps == 1` (E16-S11).
 	StartCondition string `toml:"start_condition"`
 	// OutputForm is the JSON path of the brief in the hook output, for example
 	// `injectSteps[0].ephemeralMessage` (E16-S11). A path is object keys joined by dots; a key
-	// may end in array steps such as "[0]" [NEW syntax].
+	// may end in array steps such as "[0]".
 	OutputForm string `toml:"output_form"`
-	// OutputNone [NEW] is the output of a run that delivers nothing, for a CLI that wants JSON
+	// OutputNone is the output of a run that delivers nothing, for a CLI that wants JSON
 	// on every hook run: agy reads "{}" (E16-S2 test). "" prints nothing.
 	OutputNone string `toml:"output_none"`
-	// HooksKey [NEW] is the root key of the object that holds the CLI events in the hook file:
+	// HooksKey is the root key of the object that holds the CLI events in the hook file:
 	// "hooks" when empty, as for Claude and Codex. agy keeps each named hook at its own root
 	// key, so its profile names Brain's key (E16-S2).
 	HooksKey string `toml:"hooks_key"`
-	// FlatHandlers [NEW]: the entry of each event but the tool events is the handler object
+	// FlatHandlers: the entry of each event but the tool events is the handler object
 	// itself, not a matcher group around it, as agy wants for PreInvocation and Stop (E16-S2).
 	FlatHandlers bool `toml:"flat_handlers"`
 	Input        struct {
@@ -89,7 +89,7 @@ type Profile struct {
 		// ExitPattern is a regular expression on the error text; its first group is the exit
 		// status. With no match the exit status is unknown.
 		ExitPattern string `toml:"exit_pattern"`
-		// QuestionReply [NEW] is the name of the tag around the answers when a prompt answers
+		// QuestionReply is the name of the tag around the answers when a prompt answers
 		// questions of the CLI (#341). "" for none.
 		QuestionReply string `toml:"question_reply"`
 	} `toml:"input"`
@@ -97,13 +97,13 @@ type Profile struct {
 	// AdditionalContextLimit goes into the hook entry when set. Codex sends a longer
 	// additionalContext to a file and not to the model; 0 turns the limit off (E8 epic).
 	AdditionalContextLimit *int `toml:"additional_context_limit"`
-	// HookTrust [NEW] names the trust step that the CLI needs before it runs a Brain hook entry:
+	// HookTrust names the trust step that the CLI needs before it runs a Brain hook entry:
 	// "" for none, or TrustCodex. Setup shows its steps, and doctor checks it (E16-S10).
 	HookTrust string `toml:"hook_trust"`
-	// AltScreen [NEW] says that the CLI draws in the alternate screen: the eval runner reads its
+	// AltScreen says that the CLI draws in the alternate screen: the eval runner reads its
 	// visible screen after idle (E11-S1). An inline CLI keeps its scrollback.
 	AltScreen bool `toml:"alt_screen"`
-	// Eval [NEW] holds the CLI arguments of a fresh CLI that the eval runner starts (E10-S3).
+	// Eval holds the CLI arguments of a fresh CLI that the eval runner starts (E10-S3).
 	Eval struct {
 		// Args go to each fresh CLI. "{{dir}}" in an argument is the real path of the
 		// runner's scratch folder, as a quoted string.
@@ -111,7 +111,7 @@ type Profile struct {
 		// SetupArgs also go to a CLI that runs a setup step, so that it may run
 		// `brain remember` with no ask: the runner never answers a permission dialog.
 		SetupArgs []string `toml:"setup_args"`
-		// Dir [NEW] is one fixed scratch folder for the cases that probe this CLI, for a CLI
+		// Dir is one fixed scratch folder for the cases that probe this CLI, for a CLI
 		// that trusts folders by path and asks again in each new folder, as agy 1.2.16 does
 		// (E16-S12). The runner empties it before each case. "" is a fresh temp folder.
 		Dir string `toml:"dir"`
@@ -119,23 +119,23 @@ type Profile struct {
 	// NoiseLines are optional regular expressions of screen lines that herdr capture drops,
 	// for example the input box (E11-S3). A line matches when a pattern matches all of it.
 	NoiseLines []string `toml:"noise_lines"`
-	// NoiseBlocks [NEW] are optional screen parts of more than one line that herdr capture
+	// NoiseBlocks are optional screen parts of more than one line that herdr capture
 	// drops, such as a tip that wraps or a start banner (#258). A block is a line that Start
 	// matches and each next line that Next matches; a blank line ends it, unless Next matches
 	// the empty line (#291). Patterns match a whole line.
 	NoiseBlocks []struct {
 		Start string `toml:"start"`
 		Next  string `toml:"next"`
-		// AfterBlank [NEW] makes the block start only under a blank line or at the top of
+		// AfterBlank makes the block start only under a blank line or at the top of
 		// the read: a prompt line with the same text is right under the prompt, so it stays
 		// (#316).
 		AfterBlank bool `toml:"after_blank"`
-		// UnderStart [NEW] drops the next lines only under the start line, so a read that
+		// UnderStart drops the next lines only under the start line, so a read that
 		// starts inside the block keeps them: its Next also matches real text, such as tool
 		// output at column 0 (#385).
 		UnderStart bool `toml:"under_start"`
 	} `toml:"noise_blocks"`
-	// NoiseAbove [NEW] are optional screen lines that herdr capture drops only when the next
+	// NoiseAbove are optional screen lines that herdr capture drops only when the next
 	// line that is not blank matches Below, such as the placeholder of the empty input box
 	// above the rule or the footer of the box (#316): a sent prompt with the same text has
 	// other text under it. Patterns match a whole line.
@@ -143,7 +143,7 @@ type Profile struct {
 		Line  string `toml:"line"`
 		Below string `toml:"below"`
 	} `toml:"noise_above"`
-	// NoiseLast [NEW] are optional screen lines that herdr capture drops only when no line
+	// NoiseLast are optional screen lines that herdr capture drops only when no line
 	// under them matches Unless, such as the placeholder of the empty input box, whatever box
 	// line is under it: a sent prompt with the same text has the input line, a reply or the
 	// spinner under it (#338). Patterns match a whole line.
@@ -151,7 +151,7 @@ type Profile struct {
 		Line   string `toml:"line"`
 		Unless string `toml:"unless"`
 	} `toml:"noise_last"`
-	// SidePanel [NEW] is an optional column that the CLI draws to the right of the main text,
+	// SidePanel is an optional column that the CLI draws to the right of the main text,
 	// such as the Claude diff panel (#258). Header is a regular expression of its header row;
 	// herdr capture cuts each line of a read at the column where the header starts.
 	SidePanel struct {
@@ -209,7 +209,7 @@ func Load(harness string) (*Profile, error) {
 
 // Kinds returns the kind of each profile of fsys, one for each <kind>.toml, in name order. A
 // nil fsys is the embedded set (E16-S10): the entry points take this list, so a new CLI needs
-// only its profile file (S60).
+// only its profile file.
 func Kinds(fsys fs.FS) []string {
 	// fs.Glob returns only a bad pattern error, and this pattern is good.
 	names, _ := fs.Glob(set(fsys), "*.toml")

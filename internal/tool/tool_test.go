@@ -126,7 +126,7 @@ func TestFiles(t *testing.T) {
 	}
 }
 
-// AC (S21 part): a change to the command, the schema, the cwd, the timeout, the effects, the
+// AC: a change to the command, the schema, the cwd, the timeout, the effects, the
 // restriction, the run.sh or the scope changes the contract hash, so the approval of the old
 // hash does not cover it.
 func TestHashCoversTheContract(t *testing.T) {

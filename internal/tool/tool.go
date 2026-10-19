@@ -23,9 +23,9 @@ const (
 	ScriptName = "run.sh"
 )
 
-// scriptLine starts the run.sh part of a tool text. [NEW] the text form: the text of a tool
-// revision is its tool.toml, then, only when a pipeline needs one, this line and the run.sh.
-// So the text holds the whole contract, and the files are the text in two parts.
+// scriptLine starts the run.sh part of a tool text. The text of a tool revision is its
+// tool.toml, then, only when a pipeline needs one, this line and the run.sh. So the text holds
+// the whole contract, and the files are the text in two parts.
 const scriptLine = "--- " + ScriptName + " ---\n"
 
 // Contract is a checked tool contract.
@@ -35,7 +35,7 @@ type Contract struct {
 	Cwd         string           `toml:"cwd"`
 	TimeoutS    int64            `toml:"timeout_s"`
 	Effects     string           `toml:"effects"`
-	ReadOnly    bool             `toml:"read_only"` // the reviewed read-only restriction [NEW name]
+	ReadOnly    bool             `toml:"read_only"` // the reviewed read-only restriction
 	Argv        []string         `toml:"argv"`
 	Steps       [][]string       `toml:"steps"`
 	Inputs      map[string]Input `toml:"inputs"`
@@ -49,19 +49,19 @@ type Input struct {
 	Pattern string `toml:"pattern"`
 }
 
-// The input types. [NEW] the set.
+// The input types.
 var inputTypes = []string{"string", "integer"}
 
 var (
-	// name is the form of a tool name, the same as a skill name. [NEW]
+	// name is the form of a tool name, the same as a skill name.
 	name = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
-	// inputName is the form of an input name. [NEW]
+	// inputName is the form of an input name.
 	inputName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-	// placeholder is an input in an argv element or in run.sh: {name}. [NEW] the form.
+	// placeholder is an input in an argv element or in run.sh: {name}.
 	placeholder = regexp.MustCompile(`\{([a-z][a-z0-9_]*)\}`)
 )
 
-// shells are the programs whose -c flag takes a command text. [NEW] the list.
+// shells are the programs whose -c flag takes a command text.
 var shells = []string{"sh", "bash", "zsh", "dash", "ksh"}
 
 // Split cuts a tool text into its tool.toml and its run.sh ("" when it has none).
@@ -86,7 +86,7 @@ func Files(text string) map[string]string {
 
 // Hash is the one hash of the whole contract of a tool revision: its text (the
 // command bytes, the input schema, the cwd, the timeout, the effects and the restriction)
-// and its scope. [NEW] the input: the lines "scope: <scope>" and "workspace: <key>", an empty
+// and its scope. The input: the lines "scope: <scope>" and "workspace: <key>", an empty
 // line, then the text.
 func Hash(text, scope, workspaceKey string) string {
 	sum := sha256.Sum256([]byte("scope: " + scope + "\nworkspace: " + workspaceKey + "\n\n" + text))

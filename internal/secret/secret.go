@@ -1,5 +1,5 @@
-// Package secret finds text that looks like a secret, with a fixed list of known patterns
-// (S12). It cannot find every secret: only the supported pattern classes below.
+// Package secret finds text that looks like a secret, with a fixed list of known patterns.
+// It cannot find every secret: only the supported pattern classes below.
 //
 // Nothing that this package returns holds the matched text. A Hit names its class and its
 // byte range, so an M1 text write can refuse with the class name, and a later caller can
@@ -20,7 +20,7 @@ type class struct {
 }
 
 // classes is the supported list. The prefixes are the public formats of each provider. The
-// minimum lengths after a prefix are [NEW]: long enough that ordinary words do not match.
+// minimum lengths after a prefix are long enough that ordinary words do not match.
 var classes = []class{
 	{"github-token", regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{36,}|\bgithub_pat_[A-Za-z0-9_]{22,}`)},
 	{"gitlab-token", regexp.MustCompile(`\bglpat-[A-Za-z0-9_-]{20,}`)},
@@ -37,7 +37,7 @@ var classes = []class{
 	{"private-key", regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\z)`)},
 	{"password-pair", regexp.MustCompile(`(?i)\b(?:password|passwd|pwd)\s*[:=]\s*\S+`)},
 	// An .env pair whose upper-case name has a secret-like word, at the line start or inside a
-	// line, for example in a quoted command (#392). The word list is [NEW].
+	// line, for example in a quoted command (#392).
 	{"env-secret", regexp.MustCompile(
 		`\b(?:export[ \t]+)?[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|ACCESS_KEY|PRIVATE_KEY|CREDENTIALS?)[A-Z0-9_]*[ \t]*=[ \t]*\S+`)},
 }

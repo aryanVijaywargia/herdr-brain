@@ -38,13 +38,13 @@ const Usage = `usage: brain update [--check | --records]
 const pluginID = "brain"
 
 // herdrDeadline is the deadline of one herdr call that only asks or invokes: `herdr plugin
-// list`, and the herdr calls of post-install. [NEW] 5 s, as the herdr deadline of the other
+// list`, and the herdr calls of post-install. 5 s, as the herdr deadline of the other
 // commands. The install, git and the build get none: a build can take minutes, and the user
 // can stop them.
 const herdrDeadline = 5 * time.Second
 
 // callWaitDelay is the part of the time of a herdr call that is kept for the kill of herdr and
-// the wait for its output pipes. [NEW] 500 ms: the kill of the process group closes them at
+// the wait for its output pipes. 500 ms: the kill of the process group closes them at
 // once in the usual case.
 const callWaitDelay = 500 * time.Millisecond
 

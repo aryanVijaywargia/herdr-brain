@@ -177,7 +177,7 @@ func environ(socket, session, paneID, workspaceID string) []string {
 
 func deadline(t *testing.T) context.Context {
 	t.Helper()
-	// [NEW] 5 s: no passing test comes near it; the fake herdr answers at once.
+	// 5 s: no passing test comes near it; the fake herdr answers at once.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
 	return ctx

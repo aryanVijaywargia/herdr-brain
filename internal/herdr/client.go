@@ -21,7 +21,7 @@ var ErrPaneNotFound = errors.New("pane not found")
 
 // waitDelay is how long run waits for herdr's output pipes after herdr exits or the
 // deadline kills it. A child of herdr that keeps a pipe open must not hold a Brain call
-// past its deadline. [NEW] 50 ms: well inside the 300 ms hook cap.
+// past its deadline. 50 ms: well inside the 300 ms hook cap.
 const waitDelay = 50 * time.Millisecond
 
 // Target is the one herdr session that every call of a Client goes to. The resolver gives
