@@ -202,7 +202,7 @@ func TestAddObservationOnce(t *testing.T) {
 
 // Forget of one session raises its capture generation, deletes its evidence and keeps the
 // capture identities: a write with the old generation fails, a replay of a deleted identity
-// stores nothing, and new evidence after the forget is stored (E11-S6, §6.7).
+// stores nothing, and new evidence after the forget is stored (E11-S6).
 func TestForgetSessionGeneration(t *testing.T) {
 	ctx := context.Background()
 	s := openM1(t)

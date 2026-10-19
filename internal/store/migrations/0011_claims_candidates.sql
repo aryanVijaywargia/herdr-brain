@@ -1,17 +1,17 @@
--- Claims and candidates (E12-S2, §7.2, §11).
+-- Claims and candidates (E12-S2).
 -- - claims: one claim key (situation, rule) from the extractor, in normal form. id is the claim
---   id: random, with no text (§7.2). situation and rule are the claim key text; forget of an
---   item sets them to NULL (§6.7), so they are nullable, and two forgotten keys never clash on
+--   id: random, with no text. situation and rule are the claim key text; forget of an
+--   item sets them to NULL, so they are nullable, and two forgotten keys never clash on
 --   the UNIQUE. same_as is the claim id that this key means the same as; same_as_status
---   'proposed' waits for review, 'confirmed' gives this key that claim id (§7.2).
+--   'proposed' waits for review, 'confirmed' gives this key that claim id.
 -- - candidates: one claim in one scope (a workspace, or global; workspace_key is NULL for
 --   global). Brain makes one with its first evidence link. kind is the candidate kind
---   of the §7.2 gate table. harnesses, count and sessions come from the evidence links; count
+--   of the gate table. harnesses, count and sessions come from the evidence links; count
 --   is the number of occurrences, sessions the number of distinct capture sessions [NEW].
 --   priority is 1 when the gate of the kind is reached, else 0 [NEW]: it orders the queue and
---   sets the label (§7.2). last_seen is the time of the newest occurrence; expiry reads it.
--- - evidence_links [NEW, not in §11]: one observation that supports one candidate. It records
---   the workspace, harness, sender and capture identity of the observation (§7.2), and its
+--   sets the label. last_seen is the time of the newest occurrence; expiry reads it.
+-- - evidence_links [NEW]: one observation that supports one candidate. It records
+--   the workspace, harness, sender and capture identity of the observation, and its
 --   session for the session gates and forget. It holds no text.
 CREATE TABLE claims (
 	id             TEXT PRIMARY KEY,

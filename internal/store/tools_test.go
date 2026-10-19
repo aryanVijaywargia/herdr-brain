@@ -118,7 +118,7 @@ func TestToolWriteRefusesContract(t *testing.T) {
 	}
 }
 
-// One active tool for each name in each scope (§10.1): the same name in another scope, or in a
+// One active tool for each name in each scope: the same name in another scope, or in a
 // draft, passes.
 func TestToolName(t *testing.T) {
 	_, add := toolStore(t)

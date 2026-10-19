@@ -8,15 +8,14 @@ import (
 )
 
 // ArchiveAge is how long an item can go with no relevant session before it is an archive
-// candidate (§9.2, D7).
+// candidate.
 const ArchiveAge = 90 * 24 * time.Hour
 
-// ArchiveCandidate is an active item with no relevant session since Since (§9.2).
+// ArchiveCandidate is an active item with no relevant session since Since.
 type ArchiveCandidate struct {
 	ItemID       int64
 	WorkspaceKey *string // nil for a global item
-	// Closed is true when the item's workspace is closed: no pane sees the item until a link
-	// (§9.4).
+	// Closed is true when the item's workspace is closed: no pane sees the item until a link.
 	Closed bool
 	// Since is the start of the current idle period: the newest of the last relevant session,
 	// the last keep (brain archive --keep), and the time the item began to age.
@@ -24,14 +23,13 @@ type ArchiveCandidate struct {
 }
 
 // ArchiveCandidates reads the archive candidates whose idle period started before before, the
-// oldest first, of every workspace (§9.2). A candidate is a live item: active, or disputed,
-// which the brief still delivers (§9.1). A relevant session is an emitted receipt that holds
-// a revision of the item [NEW rule], in the item's workspace, or in any workspace for a global
-// item. A tool ages by its real calls instead: a ran row in tool_calls (§9.2, §10.2); a
-// refused call does not count, and the brief catalog is no relevant session. A pinned item
-// never ages (S29), so it is no candidate. An item begins to age at the
-// revision that made it a live, unpinned item: an approval, a restore or an unpin. The caller
-// checks the scope of each candidate (E4).
+// oldest first, of every workspace. A candidate is a live item: active, or disputed, which the
+// brief still delivers. A relevant session is an emitted receipt that holds a revision of the
+// item [NEW rule], in the item's workspace, or in any workspace for a global item. A tool ages
+// by its real calls instead: a ran row in tool_calls; a refused call does not count, and the
+// brief catalog is no relevant session. A pinned item never ages (S29), so it is no candidate.
+// An item begins to age at the revision that made it a live, unpinned item: an approval, a
+// restore or an unpin. The caller checks the scope of each candidate (E4).
 func ArchiveCandidates(ctx context.Context, tx *sql.Tx, before time.Time) ([]ArchiveCandidate, error) {
 	var cs []ArchiveCandidate
 	err := eachRow(ctx, tx, `WITH seen AS (SELECT json_extract(j.value, '$.item') AS item_id, d.workspace_key AS key,
@@ -62,7 +60,7 @@ func ArchiveCandidates(ctx context.Context, tx *sql.Tx, before time.Time) ([]Arc
 }
 
 // KeepItem sets the keep time of item id to at, so a new idle period starts there (brain
-// archive --keep, §9.2). It writes no revision: the item and its text do not change.
+// archive --keep). It writes no revision: the item and its text do not change.
 func KeepItem(ctx context.Context, tx *sql.Tx, id int64, at time.Time) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE items SET kept_at = ? WHERE id = ?`, timeArg(at), id); err != nil {
 		return fmt.Errorf("keep item %d: %w", id, err)
@@ -70,14 +68,14 @@ func KeepItem(ctx context.Context, tx *sql.Tx, id int64, at time.Time) error {
 	return nil
 }
 
-// ClosedWorkspace is a closed workspace key and the count of its live items (§9.4).
+// ClosedWorkspace is a closed workspace key and the count of its live items.
 type ClosedWorkspace struct {
 	Key, Label string
 	Items      int
 }
 
 // ClosedWorkspaces reads the closed workspaces that hold live items (active or disputed), in key
-// order (§9.4). It reads keys, labels and counts only, never item text.
+// order. It reads keys, labels and counts only, never item text.
 func ClosedWorkspaces(ctx context.Context, tx *sql.Tx) ([]ClosedWorkspace, error) {
 	var ws []ClosedWorkspace
 	err := eachRow(ctx, tx, `SELECT w.key, w.label, count(*) FROM workspaces w JOIN items i ON i.workspace_key = w.key

@@ -11,13 +11,13 @@ import (
 	"time"
 )
 
-// ClaimKey is the claim key that the extractor gives (§7.2, §7.3): a situation and a rule, in
-// normal form. It is text; the claim id is not.
+// ClaimKey is the claim key that the extractor gives: a situation and a rule, in normal form.
+// It is text; the claim id is not.
 type ClaimKey struct {
 	Situation, Rule string
 }
 
-// SameAsStatus is the state of a same_as link of a claim (§7.2).
+// SameAsStatus is the state of a same_as link of a claim.
 type SameAsStatus string
 
 // The same_as states.
@@ -29,19 +29,19 @@ const (
 // Claim is one row of claims.
 type Claim struct {
 	ID           string
-	Key          ClaimKey // empty after a forget (§6.7)
+	Key          ClaimKey // empty after a forget
 	SameAs       string   // the claim id that the key means the same as; "" for none
 	SameAsStatus SameAsStatus
 	Created      time.Time
 	// Kind is the claim kind of the extractor (#279); "" for a claim made before it was kept.
 	Kind string
 	// TouchesPermission is true once the extractor or the Brain check flagged the claim as a
-	// permission or a safety rule (§7.3).
+	// permission or a safety rule.
 	TouchesPermission bool
 }
 
 // ClaimID returns the claim id of key. The same key gives the same id. A key with a confirmed
-// same_as link gives the id of that claim (§7.2). A new key gets a new random id with no text.
+// same_as link gives the id of that claim. A new key gets a new random id with no text.
 func ClaimID(ctx context.Context, tx *sql.Tx, key ClaimKey, now time.Time) (string, error) {
 	id, err := newClaimID()
 	if err != nil {
@@ -64,8 +64,8 @@ func ClaimID(ctx context.Context, tx *sql.Tx, key ClaimKey, now time.Time) (stri
 	return id, nil
 }
 
-// newClaimID returns a new opaque claim id (§7.2). [NEW] 8 random bytes in hex with a "cl_"
-// prefix, as brain remember makes them.
+// newClaimID returns a new opaque claim id. [NEW] 8 random bytes in hex with a "cl_" prefix, as
+// brain remember makes them.
 func newClaimID() (string, error) {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
@@ -90,7 +90,7 @@ func ClaimByID(ctx context.Context, tx *sql.Tx, id string) (Claim, error) {
 }
 
 // MarkClaim records the claim kind of claim id, if it has none yet, and a permission flag: once
-// set, the flag stays (#279). The merge check reads both (§7.2).
+// set, the flag stays (#279). The merge check reads both.
 func MarkClaim(ctx context.Context, tx *sql.Tx, id, kind string, permission bool) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE claims SET kind = COALESCE(kind, ?), touches_permission = MAX(touches_permission, ?)
 		WHERE id = ?`, kind, permission, id); err != nil {
@@ -100,8 +100,8 @@ func MarkClaim(ctx context.Context, tx *sql.Tx, id, kind string, permission bool
 }
 
 // ScopeClaims returns the claims with a key that are open, active or rejected in the scope of
-// workspaceKey, or active or rejected in global, by id: the claim keys of the extractor input
-// (§7.3). A claim is open with an open or proposed candidate, active with an active item, and
+// workspaceKey, or active or rejected in global, by id: the claim keys of the extractor input.
+// A claim is open with an open or proposed candidate, active with an active item, and
 // rejected while its rejection holds. A global candidate is not approved global context: it can
 // come from another workspace. A forgotten claim has no key and is not returned.
 //
@@ -133,7 +133,7 @@ func ScopeClaims(ctx context.Context, tx *sql.Tx, workspaceKey string) ([]Claim,
 // ClaimHeld reports whether claim claimID is proposed or approved in the scope of workspaceKey
 // ("" for global): an item of the claim in that scope or in global is active, or waits for
 // review with a pending proposal. A claim that means the same then adds no proposal of its own
-// (#312, §7.3 order for a known claim).
+// (#312).
 func ClaimHeld(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string) (bool, error) {
 	return claimHeld(ctx, tx, claimID, workspaceKey, "")
 }
@@ -146,8 +146,7 @@ func SkillHeld(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string) (b
 }
 
 // claimHeld is ClaimHeld for items of kind, or of any kind for "". An item whose claim has a
-// confirmed same_as link to claimID holds it too: a merge can keep the item of such a claim
-// (§9.5 approve).
+// confirmed same_as link to claimID holds it too: a merge can keep the item of such a claim.
 func claimHeld(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string, kind Kind) (bool, error) {
 	var held bool
 	err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM items i WHERE (i.claim_id = ?1
@@ -161,8 +160,8 @@ func claimHeld(ctx context.Context, tx *sql.Tx, claimID, workspaceKey string, ki
 	return held, nil
 }
 
-// ClaimText returns the key text of claim id for the permission check (§7.3): its situation and
-// rule. The claim of a brain remember item has no key: its text is the current text of its
+// ClaimText returns the key text of claim id for the permission check: its situation and rule.
+// The claim of a brain remember item has no key: its text is the current text of its
 // first item, as in ScopeClaims (#312). A forgotten claim gives "".
 func ClaimText(ctx context.Context, tx *sql.Tx, id string) (string, error) {
 	var text string
@@ -176,7 +175,7 @@ func ClaimText(ctx context.Context, tx *sql.Tx, id string) (string, error) {
 	return text, nil
 }
 
-// Match is what Brain knows about a same_as link that the extractor proposes (§7.3).
+// Match is what Brain knows about a same_as link that the extractor proposes.
 type Match struct {
 	Clear       bool // the extractor gives a clear match
 	Permissions bool // the extractor flags both claims as a permission or a safety rule
@@ -187,7 +186,7 @@ type Match struct {
 var permissionText = regexp.MustCompile(`(?i)allow|permission|sandbox|--dangerously|\b(never|always)\s+run`)
 
 // TouchesPermission reports whether text may change a permission or a safety rule. Brain checks
-// the permission flag outside the model with it (§7.3), so neither SameAs nor the extractor
+// the permission flag outside the model with it, so neither SameAs nor the extractor
 // trusts the model flag alone.
 func TouchesPermission(text string) bool { return permissionText.MatchString(text) }
 
@@ -195,7 +194,7 @@ func (k ClaimKey) touchesPermission() bool { return TouchesPermission(k.Situatio
 
 // SameAs links claim id to claim other: the key of id means the same as the key of other. A
 // clear match is confirmed. An unclear match, and any match of two permission or safety
-// rules, waits for review (§7.2). The link keeps both claim ids and their evidence links.
+// rules, waits for review. The link keeps both claim ids and their evidence links.
 // The claim of an item that brain remember made has no row yet: the link adds it, with no key
 // text, so the link has its target (#312). A pair that you keep apart in review gets no link
 // again, and the status is "" (#358).
@@ -238,7 +237,7 @@ func SameAs(ctx context.Context, tx *sql.Tx, id, other string, m Match) (SameAsS
 	return status, nil
 }
 
-// CandidateKind is the kind of a candidate: a kind of the §7.2 gate table. Its values are the
+// CandidateKind is the kind of a candidate: a kind of the gate table (DefaultGates). Its values are the
 // signal kinds of the same name (internal/signal).
 type CandidateKind string
 
@@ -251,7 +250,7 @@ const (
 	CandidateCommandChain CandidateKind = "command_chain"
 )
 
-// CandidateStatus is the status of a candidate (§11).
+// CandidateStatus is the status of a candidate.
 type CandidateStatus string
 
 // The candidate statuses.
@@ -261,7 +260,7 @@ const (
 	CandidateExpired  CandidateStatus = "expired"
 )
 
-// Candidate is one row of candidates: one claim in one scope (§7.2).
+// Candidate is one row of candidates: one claim in one scope.
 type Candidate struct {
 	ID           int64
 	ClaimID      string
@@ -280,7 +279,7 @@ type Candidate struct {
 	Via string
 }
 
-// Gate is the queue gate of one candidate kind (§7.2).
+// Gate is the queue gate of one candidate kind.
 type Gate struct {
 	Min      int
 	Sessions bool // Min counts distinct capture sessions, not occurrences
@@ -289,8 +288,7 @@ type Gate struct {
 // Gates holds the gate of each candidate kind.
 type Gates map[CandidateKind]Gate
 
-// DefaultGates returns the gate defaults of §7.2. The config can change them
-// (extract.ReadConfig).
+// DefaultGates returns the gate defaults. The config can change them (extract.ReadConfig).
 func DefaultGates() Gates {
 	return Gates{
 		CandidateCorrection:   {Min: 2},
@@ -310,14 +308,14 @@ func (g Gates) Support(c Candidate) int {
 }
 
 // Reached reports whether c reached the gate of its kind. The gate orders the queue and sets
-// the label; it is not a hard rule (§7.2).
+// the label; it is not a hard rule.
 func (g Gates) Reached(c Candidate) bool { return g.Support(c) >= g[c.Kind].Min }
 
 // ErrEvidenceRefused is the error of an evidence link that Brain does not attach: the
-// observation is from another scope, its sender cannot support the candidate kind (§6.5), or
-// it does not count (§6.4). A command record supports a command chain candidate even when its
-// pane read counts instead: the pane read holds no command record, and an assistant sender
-// cannot support a command chain, so the occurrence still counts once (E17-S6).
+// observation is from another scope, its sender cannot support the candidate kind, or it does
+// not count. A command record supports a command chain candidate even when its pane read counts
+// instead: the pane read holds no command record, and an assistant sender cannot support a
+// command chain, so the occurrence still counts once (E17-S6).
 var ErrEvidenceRefused = errors.New("evidence refused")
 
 // Attach adds observation obs as evidence of the candidate of c.ClaimID in the scope of c
@@ -402,7 +400,7 @@ func readEvidence(ctx context.Context, tx *sql.Tx, c Candidate, obs int64, suppo
 
 // CheckEvidence runs the checks of Attach for observation obs as evidence of c, and writes
 // nothing: an error that wraps ErrEvidenceRefused when Attach would refuse it. Evidence with no
-// candidate to attach to still counts for a comeback (#312, §5.4).
+// candidate to attach to still counts for a comeback (#312).
 func CheckEvidence(ctx context.Context, tx *sql.Tx, c Candidate, obs int64, supports func(CandidateKind, Sender) bool) error {
 	_, err := readEvidence(ctx, tx, c, obs, supports)
 	return err
@@ -421,9 +419,9 @@ func EvidenceElsewhere(ctx context.Context, tx *sql.Tx, obs, id int64) (bool, er
 }
 
 // SetCandidateKind sets the kind of candidate id and counts its gate again: the kind follows
-// the claim (#280, §7.2). Evidence that the new kind refuses stays linked, but it does not count
+// the claim (#280). Evidence that the new kind refuses stays linked, but it does not count
 // (recount): the agent's own commands are no tellings of a procedure (#361), and the exact tool
-// path still sees that the extractor made a skill of the chain (§10.3).
+// path still sees that the extractor made a skill of the chain.
 func SetCandidateKind(ctx context.Context, tx *sql.Tx, id int64, kind CandidateKind, gates Gates) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE candidates SET kind = ? WHERE id = ?`, kind, id); err != nil {
 		return fmt.Errorf("set kind of candidate %d: %w", id, err)
@@ -473,7 +471,7 @@ func recount(ctx context.Context, tx *sql.Tx, id int64, gates Gates) error {
 
 // counts is the SQL test of an evidence link of candidate ?1 that counts for its kind, with ?2
 // the tool sender and ?3 and ?4 the failure and command chain kinds: tool output counts only for
-// a failure or a command chain (§6.5). Attach checks the sender of each new link; a tool output
+// a failure or a command chain. Attach checks the sender of each new link; a tool output
 // link of a candidate that your text turned into its kind later stays, uncounted
 // (SetCandidateKind, #361).
 const counts = `(sender != ?2 OR (SELECT kind FROM candidates WHERE id = ?1) IN (?3, ?4))`
@@ -510,7 +508,7 @@ func CandidateByID(ctx context.Context, tx *sql.Tx, id int64) (Candidate, error)
 }
 
 // Candidates returns every candidate in queue order: the ones that reached their gate first,
-// then the newest occurrence first (§7.2).
+// then the newest occurrence first.
 func Candidates(ctx context.Context, tx *sql.Tx) ([]Candidate, error) {
 	return query(ctx, tx, `SELECT `+candidateColumns+` FROM candidates ORDER BY priority DESC, last_seen DESC, id`,
 		func(rows *sql.Rows) (Candidate, error) { return scanCandidate(rows) })
@@ -528,19 +526,19 @@ func PendingCandidateProposalIDs(ctx context.Context, tx *sql.Tx, id int64) ([]i
 }
 
 // SessionCandidates returns the candidates with evidence from session sessionID, by id: the
-// ones that brain forget --session lists (§6.7).
+// ones that brain forget --session lists.
 func SessionCandidates(ctx context.Context, tx *sql.Tx, sessionID int64) ([]Candidate, error) {
 	return query(ctx, tx, `SELECT `+candidateColumns+` FROM candidates
 		WHERE id IN (SELECT candidate_id FROM evidence_links WHERE session_id = ?) ORDER BY id`,
 		func(rows *sql.Rows) (Candidate, error) { return scanCandidate(rows) }, sessionID)
 }
 
-// expiry is how long an open candidate stays with no new occurrence (§7.2).
+// expiry is how long an open candidate stays with no new occurrence.
 const expiry = 30 * 24 * time.Hour
 
 // ExpireCandidates sets the open candidates with no new occurrence in 30 days to expired, and
 // returns how many. queued is how long evidence has waited in the extraction queue (E13): that
-// time does not count (§7.2). The evidence in the queue is not linked yet and can belong to
+// time does not count. The evidence in the queue is not linked yet and can belong to
 // any candidate, so one duration, the wait of the oldest queued evidence, applies to all.
 func ExpireCandidates(ctx context.Context, tx *sql.Tx, now time.Time, queued time.Duration) (int64, error) {
 	res, err := tx.ExecContext(ctx, `UPDATE candidates SET status = ? WHERE status = ? AND last_seen < ?`,
@@ -552,7 +550,7 @@ func ExpireCandidates(ctx context.Context, tx *sql.Tx, now time.Time, queued tim
 }
 
 // forgetEvidence deletes the evidence links of session sessionID and counts the candidates
-// that used them again. A candidate with no evidence left goes (§6.7).
+// that used them again. A candidate with no evidence left goes.
 func forgetEvidence(ctx context.Context, tx *sql.Tx, sessionID int64, gates Gates) error {
 	cs, err := SessionCandidates(ctx, tx, sessionID)
 	if err != nil {

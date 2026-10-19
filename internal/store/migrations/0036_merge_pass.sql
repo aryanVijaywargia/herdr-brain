@@ -1,4 +1,4 @@
--- The merge pass (E22-S1, §9.5).
+-- The merge pass (E22-S1).
 -- - proposals.merge: the items of a merge proposal, each with its base revision, as a JSON
 --   array of {"item": id, "revision": n}; the kept item is the item of the proposal and is in
 --   the list too. An empty array is a proposal of another kind. A rejected merge proposal

@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Recall is the record of one brain recall call (E20-S2, §8.6): the receipt of the agent
+// Recall is the record of one brain recall call (E20-S2): the receipt of the agent
 // session that called it, and the item revisions that it returned.
 type Recall struct {
 	DeliveryID    int64

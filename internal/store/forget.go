@@ -9,7 +9,7 @@ import (
 
 // ForgetPending reports whether an output generation still holds the text of an item with an
 // open forget. The forget flow marks such a generation with outputs.holds_forgotten_text, and
-// forget is done only when no generation holds the text (§6.7). Until then the hook withholds.
+// forget is done only when no generation holds the text. Until then the hook withholds.
 func ForgetPending(ctx context.Context, tx *sql.Tx) (bool, error) {
 	var pending bool
 	err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM outputs WHERE holds_forgotten_text = 1)`).
@@ -23,9 +23,9 @@ func ForgetPending(ctx context.Context, tx *sql.Tx) (bool, error) {
 // itemRows is the WHERE clause of the rows of item ?1 in each table of ItemTextFields: the
 // item, its revisions, its proposals and the script proposals of its claim (scriptsOfItem), the applied edits whose file held it at any revision
 // (AppliedEditsWithItem), its claim, the rejections of its claim in its scope, and the prompt
-// index rows that link a proposal of the item, and its tools and automations rows. Forget finds them by id, never by a text search (§6.7).
+// index rows that link a proposal of the item, and its tools and automations rows. Forget finds them by id, never by a text search.
 // The claim key is shared by the scopes: while another item, or a candidate in another scope,
-// uses the claim, that scope keeps its copy of the claim and its key text (§6.7, §7.2).
+// uses the claim, that scope keeps its copy of the claim and its key text.
 // The claims rows also hold the claims whose same_as link names the claim of the item: a
 // restatement (#312) or a merge (#279) keeps the key of the linked claim with no candidate of
 // its own. Such a claim goes with the item while no item has it, no candidate in another scope
@@ -102,7 +102,7 @@ func rowsOf(f Field) string {
 
 // EraseItem removes the text of item and of its derivatives from every field in
 // ItemTextFields, and supersedes its pending proposals, so no blank proposal waits in the
-// queue (§6.7). The rows and their ids stay, except the prompt index rows and the suggestions
+// queue. The rows and their ids stay, except the prompt index rows and the suggestions
 // of its proposals: they go with their hashes, so no prompt matches the item again. Its
 // outcomes go too. It raises the capture
 // generation of the sessions of those rows, so a pane read or a hook record of the same session
@@ -138,7 +138,7 @@ func EraseItem(ctx context.Context, tx *sql.Tx, item int64, now time.Time) error
 }
 
 // ItemTextLeft returns the fields of ItemTextFields that still hold text of item or of its
-// derivatives, in list order. Forget is done in the store when it is empty (§6.7).
+// derivatives, in list order. Forget is done in the store when it is empty.
 func ItemTextLeft(ctx context.Context, tx *sql.Tx, item int64) ([]Field, error) {
 	var left []Field
 	for _, f := range ItemTextFields() {
@@ -159,7 +159,7 @@ func ItemTextLeft(ctx context.Context, tx *sql.Tx, item int64) ([]Field, error) 
 }
 
 // ClaimCopies reads the other items with the same claim id as item, in id order: the copies
-// of the claim in other scopes, which forget lists and keeps (§6.7).
+// of the claim in other scopes, which forget lists and keeps.
 func ClaimCopies(ctx context.Context, tx *sql.Tx, item int64) ([]Item, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT c.id FROM items c JOIN items i ON c.claim_id = i.claim_id
 		WHERE i.id = ? AND c.id != i.id ORDER BY c.id`, item)
@@ -192,7 +192,7 @@ func ClaimCopies(ctx context.Context, tx *sql.Tx, item int64) ([]Item, error) {
 }
 
 // MarkForgotten sets outputs.holds_forgotten_text on each of generations: their folders hold
-// the text of an item that forget removed from the store (§6.7).
+// the text of an item that forget removed from the store.
 func MarkForgotten(ctx context.Context, tx *sql.Tx, generations []int64) error {
 	_, err := tx.ExecContext(ctx, `UPDATE outputs SET holds_forgotten_text = 1
 		WHERE generation IN (SELECT value FROM json_each(?))`, jsonList[int64](generations))

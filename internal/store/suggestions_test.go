@@ -87,7 +87,7 @@ func TestReserveSuggestionOneOccurrence(t *testing.T) {
 	}
 }
 
-// "Later" mutes a proposal for the rest of its session only (§5.5); extraction off and a
+// "Later" mutes a proposal for the rest of its session only; extraction off and a
 // rejected proposal stop new suggestions.
 func TestReserveSuggestionRules(t *testing.T) {
 	ctx := context.Background()
@@ -129,7 +129,7 @@ func TestReserveSuggestionRules(t *testing.T) {
 }
 
 // "Later" in one pane mutes the proposal in the session of that pane's suggestion only: a
-// shown suggestion of the same global proposal in another session waits on (§5.5).
+// shown suggestion of the same global proposal in another session waits on.
 func TestLaterSuggestions(t *testing.T) {
 	ctx := context.Background()
 	p := newPromptStore(t)
@@ -165,7 +165,7 @@ func TestLaterSuggestions(t *testing.T) {
 	})
 }
 
-// §6.7: brain forget --session and the item forget delete the suggestions, with their prompt
+// Forget: brain forget --session and the item forget delete the suggestions, with their prompt
 // hashes, as they delete the prompt index rows.
 func TestForgetSuggestions(t *testing.T) {
 	ctx := context.Background()

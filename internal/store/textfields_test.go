@@ -29,7 +29,7 @@ func unlistedTextFields(t *testing.T, s *Store) []Field {
 func TestEveryTextColumnIsListed(t *testing.T) {
 	s := openM1(t)
 	for _, f := range unlistedTextFields(t, s) {
-		t.Errorf("%s.%s is TEXT and in neither ItemTextFields nor noItemTextFields (§6.7)", f.Table, f.Column)
+		t.Errorf("%s.%s is TEXT and in neither ItemTextFields nor noItemTextFields", f.Table, f.Column)
 	}
 }
 

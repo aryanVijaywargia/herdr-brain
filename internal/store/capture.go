@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// KeyKind is the form of a session key (§6.2 step 6).
+// KeyKind is the form of a session key.
 type KeyKind string
 
 // The session key forms.
@@ -64,15 +64,15 @@ const (
 const (
 	SourceHerdr = "herdr" // a pane read
 	SourceHook  = "hook"  // a CLI hook (E11-S5)
-	SourceGit   = "git"   // a revert that git shows (#283, §7.1)
-	// SourceTranscript is a record of a past session file that the history scan read (§6.8).
+	SourceGit   = "git"   // a revert that git shows (#283)
+	// SourceTranscript is a record of a past session file that the history scan read.
 	SourceTranscript = "transcript"
 )
 
-// Sender says who wrote the text of an observation (§6.5).
+// Sender says who wrote the text of an observation.
 type Sender string
 
-// The senders. Capture never sets SenderYou: only a review approval does (§6.3).
+// The senders. Capture never sets SenderYou: only a review approval does.
 const (
 	SenderYou         Sender = "you"
 	SenderUnconfirmed Sender = "unconfirmed" // a captured message, or text with no known mark
@@ -83,7 +83,7 @@ const (
 // Observation is one row of observations.
 type Observation struct {
 	ID              int64
-	CaptureIdentity string // unique (§6.4)
+	CaptureIdentity string // unique
 	Source          string
 	SegmentID       int64
 	Event           string // the agent status of the read, or the gap reason
@@ -91,7 +91,7 @@ type Observation struct {
 	Truncated       bool
 	Status          ObservationStatus
 	Sender          Sender
-	Counts          bool // it can raise a support count (§6.4)
+	Counts          bool // it can raise a support count
 	BrainOrigin     bool // Brain caused the text; it never counts
 	At              time.Time
 	EnrichedBy      int64 // the hook observation that adds detail to it (S35); 0 when none
@@ -153,7 +153,7 @@ func EndSession(ctx context.Context, tx *sql.Tx, k SessionKey, at time.Time) err
 
 // ErrForgotten says that brain forget --session raised the capture generation of a session
 // after a pane read or a hook record noted it: the text may be forgotten text, so the write
-// stores nothing (§6.7).
+// stores nothing.
 var ErrForgotten = errors.New("the session was forgotten after the text was collected")
 
 // Generation returns the capture generation of session sessionID. A pane read and a hook
@@ -190,7 +190,7 @@ func CheckGeneration(ctx context.Context, tx *sql.Tx, sessionID, gen int64) erro
 
 // SessionsByID returns the sessions of binding herdrSession whose key id or agent session id
 // is id, by row id. One agent session can have two rows: a capture key that herdr enriched
-// later, and an agent key (§6.2 step 6).
+// later, and an agent key.
 func SessionsByID(ctx context.Context, tx *sql.Tx, herdrSession, id string) ([]Session, error) {
 	return sessions(ctx, tx, `WHERE herdr_session = ?1 AND (key_id = ?2 OR agent_session_id = ?2)`, herdrSession, id)
 }
@@ -223,14 +223,14 @@ func SessionEvidence(ctx context.Context, tx *sql.Tx, sessionID int64) (Evidence
 
 // ForgetSession deletes the evidence of session sessionID: its evidence links, observations,
 // command records, prompt index rows, suggestions, outcomes, cursors and extraction watermarks, and the change requests of the
-// proposals that used that evidence (§6.7). The candidates that used the links are counted again, with the default gates until a config sets them, and one with no
+// proposals that used that evidence. The candidates that used the links are counted again, with the default gates until a config sets them, and one with no
 // evidence left goes. It raises the capture generation, so a pane read or a hook record that noted the old value stores nothing, and it keeps the
 // capture identities of the deleted observations, so a replay stores nothing again. The
 // session row and its segments hold no text, and they stay: the counter must not go back,
 // and new text after the forget is captured as usual.
 func ForgetSession(ctx context.Context, tx *sql.Tx, sessionID int64) error {
 	// The change requests of the proposals that used the evidence go too, before the links
-	// that name those proposals go (§6.7).
+	// that name those proposals go.
 	if err := discardChanges(ctx, tx, `SELECT p.id FROM proposals p JOIN evidence_links l
 		ON l.candidate_id = p.candidate_id WHERE l.session_id = ?1`, `SELECT i.id FROM items i
 		JOIN candidates c ON c.claim_id = i.claim_id JOIN evidence_links l ON l.candidate_id = c.id
@@ -281,8 +281,8 @@ func StartSegment(ctx context.Context, tx *sql.Tx, sessionID int64, paneID, work
 }
 
 // AddObservation adds o and returns its id. An observation with a known capture identity is
-// a retry or a duplicate: it adds nothing, does not count again (§6.4), and the id is 0. So is
-// the identity of an observation that forget deleted: its replay stores nothing (§6.7).
+// a retry or a duplicate: it adds nothing, does not count again, and the id is 0. So is
+// the identity of an observation that forget deleted: its replay stores nothing.
 func AddObservation(ctx context.Context, tx *sql.Tx, o Observation) (int64, error) {
 	sender := o.Sender
 	if sender == "" {
@@ -318,7 +318,7 @@ func SeenExcerpt(ctx context.Context, tx *sql.Tx, segmentID int64, sender Sender
 
 // MoveCursor sets the cursor of session sessionID and source to position, the capture
 // identity of its last observation. The caller moves it in the transaction that stores the
-// observation (§6.4).
+// observation.
 func MoveCursor(ctx context.Context, tx *sql.Tx, sessionID int64, source, position string) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO cursors (session_id, source, position) VALUES (?, ?, ?)
 		ON CONFLICT (session_id, source) DO UPDATE SET position = excluded.position`, sessionID, source, position)

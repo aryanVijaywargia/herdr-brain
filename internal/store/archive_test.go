@@ -172,7 +172,7 @@ func TestClosedWorkspaces(t *testing.T) {
 	}
 }
 
-// A disputed item is still delivered (§9.1), so it ages like an active one. A candidate of a
+// A disputed item is still delivered, so it ages like an active one. A candidate of a
 // closed workspace says so, and ClosedWorkspaces counts its disputed items.
 func TestArchiveCandidatesDisputedClosed(t *testing.T) {
 	a := newArchiveStore(t)

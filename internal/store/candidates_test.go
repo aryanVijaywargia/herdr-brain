@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// supportsForTest is the §6.5 table of the gated kinds, as signal.Supports gives it: the store
+// supportsForTest is the sender table of the gated kinds, as signal.Supports gives it: the store
 // cannot import internal/signal. The signal tests check Attach with signal.Supports.
 func supportsForTest(k CandidateKind, s Sender) bool {
 	if k == CandidateFailure || k == CandidateCommandChain {
@@ -103,7 +103,7 @@ func (e *evidenceStore) links(t *testing.T) int {
 	return queryInt(t, e.Store, `SELECT count(*) FROM evidence_links`)
 }
 
-// The same claim key gives the same claim id, and the id holds no text (§7.2).
+// The same claim key gives the same claim id, and the id holds no text.
 func TestClaimID(t *testing.T) {
 	e := newEvidenceStore(t)
 	a, again, b := e.claim(t, "use pnpm"), e.claim(t, "use pnpm"), e.claim(t, "run go vet")
@@ -119,7 +119,7 @@ func TestClaimID(t *testing.T) {
 }
 
 // A same_as link is a proposal: only a clear match of claims that are not both permission or
-// safety rules is confirmed, and the old claim ids and their evidence stay (§7.2).
+// safety rules is confirmed, and the old claim ids and their evidence stay.
 func TestSameAs(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range []struct {
@@ -131,7 +131,7 @@ func TestSameAs(t *testing.T) {
 		{"clear", "use pnpm", "always use pnpm", Match{Clear: true}, SameAsConfirmed},
 		{"unclear goes to review", "use pnpm", "always use pnpm", Match{}, SameAsProposed},
 		{"two permission rules go to review", "use pnpm", "always use pnpm", Match{Clear: true, Permissions: true}, SameAsProposed},
-		// Brain checks the permission flag outside the model (§7.3).
+		// Brain checks the permission flag outside the model.
 		{"two permission rules with no flag go to review", "allow npm test", "always allow npm test",
 			Match{Clear: true}, SameAsProposed},
 		{"one permission rule", "use pnpm", "allow pnpm", Match{Clear: true}, SameAsConfirmed},
@@ -194,7 +194,7 @@ func TestCrossHarnessCount(t *testing.T) {
 		t.Errorf("seen %v to %v, status %s, want %v to %v, open", second.FirstSeen, second.LastSeen, second.Status,
 			testNow, testNow.Add(time.Hour))
 	}
-	// One observation counts once, also on a retry (§6.4).
+	// One observation counts once, also on a retry.
 	if again := e.mustAttach(t, c, 1); again.Count != 2 {
 		t.Errorf("a second attach of one observation gave count %d, want 2", again.Count)
 	}
@@ -278,7 +278,7 @@ func TestSessionGate(t *testing.T) {
 	}
 }
 
-// The §7.2 defaults: correction 2, plain-words lesson 1 (#253), failure 2 sessions,
+// The gate defaults: correction 2, plain-words lesson 1 (#253), failure 2 sessions,
 // procedure 3, command chain 3 sessions.
 func TestDefaultGates(t *testing.T) {
 	want := Gates{
@@ -337,7 +337,7 @@ func TestExpireCandidates(t *testing.T) {
 }
 
 // Forget of a session deletes its evidence links and counts the candidates again; a
-// candidate with no evidence left goes (§6.7).
+// candidate with no evidence left goes.
 func TestForgetSessionEvidence(t *testing.T) {
 	ctx := context.Background()
 	e := newEvidenceStore(t)
@@ -381,7 +381,7 @@ func TestForgetSessionEvidence(t *testing.T) {
 	}
 }
 
-// Forget of an item removes the claim key text of its claim, and the claim id stays (§6.7).
+// Forget of an item removes the claim key text of its claim, and the claim id stays.
 // While another scope uses the claim, through an item or a candidate, the key text stays: it is
 // that scope's kept copy, not text left of the item.
 func TestEraseItemClaimText(t *testing.T) {

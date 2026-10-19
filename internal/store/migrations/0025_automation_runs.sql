@@ -1,7 +1,7 @@
--- Automation runs (E17-S11, §10.4, §11): one row for each claimed stop event of an automation.
+-- Automation runs (E17-S11): one row for each claimed stop event of an automation.
 -- The pair (automation_id, event_key) is unique, so a second claim of one event inserts nothing
 -- (claim before run). event_key is (pane, terminal_id, agent session id, state_change_seq) from
--- the agent get answer that joined the event (M0 E17-S1 method P). pane_id and workspace_id
+-- the agent get answer that joined the event (E17-S1 test). pane_id and workspace_id
 -- are the herdr ids of the triggering pane; the run resolves that pane again. claimed_at is the
 -- claim, started_at the launch mark, finished_at the end. result starts as unknown, so a crash
 -- at any point leaves unknown; the run writes ok, failed or skipped, and brain automation

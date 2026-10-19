@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// ScanStatus is the status of the history scan (§6.8, §11).
+// ScanStatus is the status of the history scan.
 type ScanStatus string
 
 // The scan statuses.
@@ -24,7 +24,7 @@ const (
 	ScanDone       ScanStatus = "done"       // every scan batch is committed
 )
 
-// SkipReason says why the scan did not read a session file (§6.8 "Privacy and forget").
+// SkipReason says why the scan did not read a session file.
 type SkipReason string
 
 // The skip reasons.
@@ -46,11 +46,11 @@ type ScanCounts struct {
 }
 
 // FindingPrompt is the kind of a repeated-prompt finding. The other findings have the kind of
-// a candidate (§7.1).
+// a candidate.
 const FindingPrompt CandidateKind = "prompt"
 
 // ScanGates returns the gates of the scan findings: the live gates g, and a repeated prompt at
-// 2 times [NEW] (§6.8 "Repeats").
+// 2 times [NEW].
 func ScanGates(g Gates) Gates {
 	s := maps.Clone(g)
 	s[FindingPrompt] = Gate{Min: 2}
@@ -75,7 +75,7 @@ type ScanTurn struct {
 	Known  bool  // false for a turn with no usage field: its tokens are unknown, never 0
 }
 
-// Finding is one repeat of the scan, as ids only (§6.8 "Repeats"). ID is its place in the
+// Finding is one repeat of the scan, as ids only. ID is its place in the
 // list; Scope is the workspace key, "" for the global pool.
 type Finding struct {
 	ID    int           `json:"id"`
@@ -122,7 +122,7 @@ func HistoryScan(ctx context.Context, tx *sql.Tx) (Scan, bool, error) {
 }
 
 // RequestScan writes the pending scan row of the store, the yes of setup. A store with a row
-// keeps it: the scan runs once (§6.8 "Once").
+// keeps it: the scan runs once.
 func RequestScan(ctx context.Context, tx *sql.Tx, now time.Time) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO history_scans (id, status, requested) VALUES (1, ?, ?)
 		ON CONFLICT DO NOTHING`, ScanPending, timeArg(now))
@@ -133,8 +133,8 @@ func RequestScan(ctx context.Context, tx *sql.Tx, now time.Time) error {
 }
 
 // ClaimScan claims the scan for the brained of binding: a pending row, or a reading row of
-// the same binding, which a restart reads again with its first claim time (§6.8 "Where it
-// runs"). It returns false when there is nothing to claim. One caller wins.
+// the same binding, which a restart reads again with its first claim time. It returns
+// false when there is nothing to claim. One caller wins.
 func ClaimScan(ctx context.Context, tx *sql.Tx, binding string, now time.Time) (Scan, bool, error) {
 	s, err := scanScan(tx.QueryRowContext(ctx, `UPDATE history_scans SET status = ?1, binding = ?2,
 		claimed = COALESCE(claimed, ?3) WHERE status = ?4 OR status = ?1 AND binding = ?2 RETURNING `+scanColumns,
@@ -183,7 +183,7 @@ func AddScanTurns(ctx context.Context, tx *sql.Tx, id int64, turns []ScanTurn) e
 }
 
 // SetScanFindings replaces the findings of scan id, in finding order. The list is fixed at the
-// end of the read (§6.8 "Repeats").
+// end of the read.
 func SetScanFindings(ctx context.Context, tx *sql.Tx, id int64, findings []Finding) error {
 	if findings == nil {
 		findings = []Finding{}
@@ -198,8 +198,8 @@ func ScanProgress(ctx context.Context, tx *sql.Tx, id int64, scope string) (int,
 }
 
 // MoveScanProgress moves the last committed finding id of scope in scan id from from to to.
-// The caller moves it in the transaction that commits the scan batch (§6.8 "Proposals", G3).
-// It returns false and changes nothing when the progress is no longer from.
+// The caller moves it in the transaction that commits the scan batch. It returns false and
+// changes nothing when the progress is no longer from.
 func MoveScanProgress(ctx context.Context, tx *sql.Tx, id int64, scope string, from, to int) (bool, error) {
 	p, err := scanProgress(ctx, tx, id)
 	if err != nil || p[scope] != from {
@@ -251,7 +251,7 @@ func setScanJSON(ctx context.Context, tx *sql.Tx, id int64, column string, v any
 const scanReadSource = "visible"
 
 // ScanWorkspaces returns the live workspaces of the store that have a project folder, in every
-// bound herdr session, by key. The scan maps the cwd of a session to one of them (§6.8).
+// bound herdr session, by key. The scan maps the cwd of a session to one of them.
 func ScanWorkspaces(ctx context.Context, tx *sql.Tx) ([]Workspace, error) {
 	return query(ctx, tx, `SELECT key, herdr_session, herdr_workspace_id, label, root_folder, status, last_seen
 		FROM workspaces WHERE root_folder IS NOT NULL AND status = ? ORDER BY key`,
@@ -265,7 +265,7 @@ func ScanWorkspaces(ctx context.Context, tx *sql.Tx) ([]Workspace, error) {
 
 // KnownSession reports whether the store knows agent session id of harness from herdr capture
 // or hook records, in any binding: a session row of a pane. A session that the scan imported has
-// no pane, so it is not known in this sense (§6.8).
+// no pane, so it is not known in this sense.
 func KnownSession(ctx context.Context, tx *sql.Tx, harness, id string) (bool, error) {
 	var n int
 	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE harness = ?1 AND pane_id != ''
@@ -278,7 +278,7 @@ func KnownSession(ctx context.Context, tx *sql.Tx, harness, id string) (bool, er
 
 // ScanSession stores the session row of a scanned session with agent key k, in workspace
 // workspaceKey ("" for the global pool), from its first to its last record, and its one segment
-// with no pane. A second read of the session returns the same rows (§6.8).
+// with no pane. A second read of the session returns the same rows.
 func ScanSession(ctx context.Context, tx *sql.Tx, k SessionKey, workspaceKey string, first, last time.Time) (session, segment int64, err error) {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions
 		(herdr_session, harness, key_kind, key_id, agent_session_id, pane_id, workspace_key, started, ended)
@@ -319,8 +319,8 @@ func ObservationID(ctx context.Context, tx *sql.Tx, identity string) (int64, err
 	return id, nil
 }
 
-// ScanReport holds the report numbers of the scan, from the observations that still exist
-// (§6.8 "Repeats"). A forget removes its observations from the numbers.
+// ScanReport holds the report numbers of the scan, from the observations that still exist.
+// A forget removes its observations from the numbers.
 type ScanReport struct {
 	Scan      Scan
 	All       TurnTokens // every turn that the scan read

@@ -61,8 +61,8 @@ func TestConfirmAndKeepApart(t *testing.T) {
 }
 
 // Sol review of #360: a rejection of the merged claim in a scope holds for the claim it means
-// now, so a reworded telling there stays rejected (§7.2). Your reason stays on the first
-// rejection only.
+// now, so a reworded telling there stays rejected. Your reason stays on the first rejection
+// only.
 func TestConfirmLinkKeepsRejection(t *testing.T) {
 	ctx := context.Background()
 	e := newEvidenceStore(t)

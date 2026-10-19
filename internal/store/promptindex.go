@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// PromptEntry is one row of prompt_index (§11).
+// PromptEntry is one row of prompt_index.
 type PromptEntry struct {
 	ID            int64
 	Hash          string // the exact fingerprint of the full prompt (internal/fingerprint)
@@ -23,7 +23,7 @@ type PromptEntry struct {
 // IndexPrompt adds the prompt index row of prompt observation obs, with the exact fingerprint
 // hash of the full prompt and its filtered text. The caller writes it in the transaction that
 // stored obs, after the learning and capture generation checks, so a forget or a learn off
-// before the commit leaves no row (§6.7). The row links the ready proposals that hash matches
+// before the commit leaves no row. The row links the ready proposals that hash matches
 // now: a forgotten or rejected proposal is no longer ready, so it gets no link.
 func IndexPrompt(ctx context.Context, tx *sql.Tx, obs int64, hash, text string) error {
 	var key string
@@ -48,7 +48,7 @@ func IndexPrompt(ctx context.Context, tx *sql.Tx, obs int64, hash, text string) 
 }
 
 // MatchPrompt returns the ids of the ready proposals that prompt fingerprint hash matches
-// exactly, in the workspace with key workspaceKey ("" for none), by id (§5.5). A row of the
+// exactly, in the workspace with key workspaceKey ("" for none), by id. A row of the
 // index with hash links them: the trigger prompts of a proposal and the later prompts that
 // matched it. A proposal applies when it is global or its item is in that workspace, and its
 // item is still global or in that workspace: another proposal can move the item (the E4 scope
@@ -71,7 +71,7 @@ const candidatePrompts = `observation_id IN (SELECT o.id FROM evidence_links l
 	WHERE l.candidate_id = ?1 AND o.enriched_by IS NOT NULL)`
 
 // triggerPrompts returns the fingerprints of the prompts among the evidence of candidate id,
-// each once, sorted: the trigger prompts of its proposal (§11). They come from the index rows,
+// each once, sorted: the trigger prompts of its proposal. They come from the index rows,
 // so each is the fingerprint of the full prompt, not of its cut excerpt.
 func triggerPrompts(ctx context.Context, tx *sql.Tx, id int64) ([]string, error) {
 	hs, err := query(ctx, tx, `SELECT DISTINCT hash FROM prompt_index WHERE `+candidatePrompts+` ORDER BY hash`,

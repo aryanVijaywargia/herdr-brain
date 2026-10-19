@@ -1,4 +1,4 @@
--- Outcomes of the items (E15-S1, §5.4, §11).
+-- Outcomes of the items (E15-S1).
 -- - outcomes: one row for each new correction that is evidence for the claim of an active
 --   item: the item, the observation and its capture session. session_id is the sessions row,
 --   which holds the session key. kind is what the receipt of that session says:
@@ -8,7 +8,7 @@
 --   item revision that the receipt names, never the current revision (S24); it is NULL for a
 --   gap or an unknown delivery [NEW], as no receipt names a revision then. The row holds ids
 --   only. UNIQUE (item_id, observation_id) [NEW]: one observation is one outcome of an item,
---   so a retry adds nothing. The rows are written in the batch commit (§7.3). brain forget
+--   so a retry adds nothing. The rows are written in the batch commit. brain forget
 --   --session deletes the rows of the session, and an item forget the rows of the item.
 CREATE TABLE outcomes (
 	id             INTEGER PRIMARY KEY,

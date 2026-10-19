@@ -8,8 +8,7 @@ import (
 	"time"
 )
 
-// CommandRecord is one row of command_records: the command of one tool hook observation
-// (§6.7, §11).
+// CommandRecord is one row of command_records: the command of one tool hook observation.
 type CommandRecord struct {
 	ObservationID int64
 	Argv          string // the filtered command, at most 4 KB; "" when SecretFound
@@ -160,7 +159,7 @@ func HookPrompts(ctx context.Context, tx *sql.Tx, sessionID int64) ([]Observatio
 }
 
 // Enrich links hook observation hook to pane observation pane: the hook record adds detail to
-// the pane text and is not a second occurrence, so it does not count (§6.4, S35). Both rows
+// the pane text and is not a second occurrence, so it does not count (S35). Both rows
 // stay, so both references are kept.
 func Enrich(ctx context.Context, tx *sql.Tx, pane, hook int64) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE observations SET enriched_by = ? WHERE id = ?`, hook, pane); err != nil {

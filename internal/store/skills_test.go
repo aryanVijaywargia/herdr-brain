@@ -44,7 +44,7 @@ func TestParseSkill(t *testing.T) {
 	}
 }
 
-// One active skill for each name in each scope (§8.2): the same name in another scope passes.
+// One active skill for each name in each scope: the same name in another scope passes.
 func TestCheckSkill(t *testing.T) {
 	s := openM1(t)
 	ctx := context.Background()
@@ -113,7 +113,7 @@ func TestSkillText(t *testing.T) {
 	}
 }
 
-// The diff of a skill patch holds the changed lines only (§9.2).
+// The diff of a skill patch holds the changed lines only.
 func TestSkillDiff(t *testing.T) {
 	old := "---\nname: a\n---\n\n1. One.\n2. Two.\n3. Three.\n"
 	for _, c := range []struct {

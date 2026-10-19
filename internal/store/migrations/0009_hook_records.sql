@@ -1,4 +1,4 @@
--- Hook records and command records (E11-S5, §6.1, §6.4, §6.7, §11).
+-- Hook records and command records (E11-S5).
 -- - observations.enriched_by: the hook observation that adds detail to this pane observation
 --   (S35). The two rows keep both references; the hook row then does not count, because it is
 --   not a second occurrence.

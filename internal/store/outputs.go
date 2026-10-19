@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// The queries of the compiler (E6-S2, §7.5 steps 3-9).
+// The queries of the compiler (E6-S2).
 
 // NewestGeneration returns the newest output generation that a commit recorded, or 0 when
 // there is none.
@@ -31,10 +31,10 @@ func CurrentGeneration(ctx context.Context, tx *sql.Tx) (int64, error) {
 }
 
 // ActiveRevisions reads the current revision of each delivered item, in item id order: the
-// active items and the disputed ones, which stay delivered until you decide (§9.1). An
-// exception link counts only while it names the current revision of an active global item:
-// a new revision of that item sends the link back to review (§7.4), so ActiveRevisions drops
-// it, and the precedence line applies again (StaleExceptions lists it).
+// active items and the disputed ones, which stay delivered until you decide. An exception
+// link counts only while it names the current revision of an active global item: a new
+// revision of that item sends the link back to review, so ActiveRevisions drops it, and
+// the precedence line applies again (StaleExceptions lists it).
 func ActiveRevisions(ctx context.Context, tx *sql.Tx) ([]ItemRevision, error) {
 	rs, err := activeRevisions(ctx, tx)
 	if err != nil {
@@ -47,7 +47,7 @@ func ActiveRevisions(ctx context.Context, tx *sql.Tx) ([]ItemRevision, error) {
 }
 
 // StaleExceptions reads the current revision of each active item whose exception link does
-// not name the current revision of an active global item, in item id order (§7.4).
+// not name the current revision of an active global item, in item id order.
 func StaleExceptions(ctx context.Context, tx *sql.Tx) ([]ItemRevision, error) {
 	rs, err := activeRevisions(ctx, tx)
 	if err != nil {
@@ -122,7 +122,7 @@ func WorkspaceKeys(ctx context.Context, tx *sql.Tx) ([]string, error) {
 }
 
 // PublishOutput records that generation is built and current. The pointer file is the
-// authority; this row is its copy (§7.5 step 9), so every other row stops being current.
+// authority; this row is its copy, so every other row stops being current.
 func PublishOutput(ctx context.Context, tx *sql.Tx, generation int64, manifestHash string, builtAt time.Time) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE outputs SET current = (generation = ?)`, generation); err != nil {
 		return fmt.Errorf("publish output generation %d: %w", generation, err)
@@ -142,8 +142,8 @@ const appliedEditsWithItem = `EXISTS (
 	SELECT 1 FROM json_each(revisions_after) WHERE json_extract(value, '$.item') = ?1)`
 
 // AppliedEditsWithItem returns the ids of the applied edits whose file held item, at any
-// revision, before or after the edit, in id order. The forget flow clears their content
-// (§6.7). It finds them by the (item id, revision) pairs, never by a text search, so it finds
+// revision, before or after the edit, in id order. The forget flow clears their content.
+// It finds them by the (item id, revision) pairs, never by a text search, so it finds
 // the rows that a later proposal made from a file that still held the item.
 func AppliedEditsWithItem(ctx context.Context, tx *sql.Tx, item int64) ([]int64, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT id FROM applied_edits WHERE `+appliedEditsWithItem+` ORDER BY id`, item)

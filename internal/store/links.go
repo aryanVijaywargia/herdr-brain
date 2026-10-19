@@ -34,11 +34,10 @@ func ClaimDraft(ctx context.Context, tx *sql.Tx, id string) (string, time.Time, 
 	return draft.String, at, nil
 }
 
-// LinkCandidates returns the candidates of the same_as links that wait for review (#358, §7.2):
+// LinkCandidates returns the candidates of the same_as links that wait for review (#358):
 // the candidates of the claims with a proposed link that wait for evidence or for your review
 // (LinkWaits), by id. A link whose evidence Brain merged leaves no candidate of its claim: the
-// evidence is in the candidate of the other claim. A forgotten claim at either end gives none
-// (§6.7).
+// evidence is in the candidate of the other claim. A forgotten claim at either end gives none.
 func LinkCandidates(ctx context.Context, tx *sql.Tx) ([]Candidate, error) {
 	return query(ctx, tx, `SELECT `+candidateColumns+` FROM candidates c WHERE `+linkWaits+` AND claim_id IN
 		(SELECT id FROM claims k WHERE same_as_status = ?3
@@ -107,7 +106,7 @@ func proposedLink(ctx context.Context, tx *sql.Tx, id string) (Claim, error) {
 // id that the other claim has (SameAs), and so do the links that pointed at id: a key never
 // needs two hops. A link of the other claim back to id ends: the two claims are one now. A
 // rejection of id in a scope holds for that claim too, so a reworded telling stays rejected
-// there (§7.2); your reason stays on the rejection of id only, so a forget of its item finds it.
+// there; your reason stays on the rejection of id only, so a forget of its item finds it.
 func ConfirmLink(ctx context.Context, tx *sql.Tx, id string) (string, error) {
 	c, err := proposedLink(ctx, tx, id)
 	if err != nil {
@@ -177,7 +176,7 @@ func CandidateEvidence(ctx context.Context, tx *sql.Tx, id int64) ([]EvidenceLin
 // CopyEvidence copies the evidence links of the observations obs of candidate from to candidate
 // to, in the same scope, with no sender check, and counts to again. A merge carries tool output
 // that counts for neither kind (recount) with it: the agent's own commands of a skill claim stay
-// the evidence of the claim, so the exact tool path still sees the skill (§10.3, #361). Each link
+// the evidence of the claim, so the exact tool path still sees the skill (#361). Each link
 // keeps the claim that brought it, else via.
 func CopyEvidence(ctx context.Context, tx *sql.Tx, from, to int64, obs []int64, via string, gates Gates) error {
 	ids, err := json.Marshal(obs)

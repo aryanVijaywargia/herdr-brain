@@ -1,5 +1,5 @@
 // Package store opens the SQLite store, one file brain.db per store folder, and brings it to
-// the latest schema version (HLD §7.5, §11). SQLite is the only source of truth.
+// the latest schema version. SQLite is the only source of truth.
 package store
 
 import (

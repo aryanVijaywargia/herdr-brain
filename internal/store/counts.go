@@ -8,17 +8,17 @@ import (
 	"time"
 )
 
-// The M2 counts of brain status (E15-S2, §12). Each one is a raw count with no score (R6), and
+// The M2 counts of brain status (E15-S2). Each one is a raw count with no score (R6), and
 // each one comes with the sessions observed and the capture gaps of the same span. They read
 // ids, kinds and times only, never text.
 
 // Coverage is what capture saw in a span: the sessions with an observation, and the gap
-// observations (§6.2). [NEW] A partial read is not a gap: it holds text.
+// observations. [NEW] A partial read is not a gap: it holds text.
 type Coverage struct {
 	Sessions, Gaps int
 }
 
-// Week is the counts of one week (§12).
+// Week is the counts of one week.
 type Week struct {
 	Start time.Time
 	Coverage
@@ -209,7 +209,7 @@ func Observed(ctx context.Context, tx *sql.Tx) (Coverage, error) {
 	return c, nil
 }
 
-// OutcomeCount is the outcomes of one kind on one item revision (§12 "Comebacks").
+// OutcomeCount is the outcomes of one kind on one item revision.
 type OutcomeCount struct {
 	ItemID, Revision int64
 	Kind             OutcomeKind
@@ -243,8 +243,8 @@ func RevisionOutcomes(ctx context.Context, tx *sql.Tx) ([]OutcomeCount, error) {
 	return cs, nil
 }
 
-// DeliveryGap is the delivery of the observed sessions of one adapter in one binding (§12
-// "Delivery gaps"). Each count is a count of sessions.
+// DeliveryGap is the delivery of the observed sessions of one adapter in one binding.
+// Each count is a count of sessions.
 type DeliveryGap struct {
 	Coverage
 	// NoID: herdr gave no agent session id, and no single receipt ties by the capture row of
@@ -252,7 +252,7 @@ type DeliveryGap struct {
 	NoID int
 	// NoReceipt: no receipt of the agent session id. Withheld: its newest receipt is withheld.
 	NoReceipt, Withheld int
-	// Gap and Unknown: sessions with a delivery_gap or a delivery_unknown outcome (§5.4).
+	// Gap and Unknown: sessions with a delivery_gap or a delivery_unknown outcome.
 	Gap, Unknown int
 }
 

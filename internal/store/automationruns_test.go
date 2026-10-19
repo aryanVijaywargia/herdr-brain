@@ -53,7 +53,7 @@ func TestClaimRun(t *testing.T) {
 	if got := claim(t, s, a, "w1:p1|term_1|s1|6"); got != 0 {
 		t.Errorf("ClaimRun(duplicate) = %d, want 0", got)
 	}
-	// The same seq after a herdr server restart has a new terminal id: a new stop (M0 E17-S1).
+	// The same seq after a herdr server restart has a new terminal id: a new stop (E17-S1 test).
 	if got := claim(t, s, a, "w1:p1|term_2|s1|6"); got == 0 || got == first {
 		t.Errorf("ClaimRun(new terminal id) = %d, want a new claim", got)
 	}
@@ -195,7 +195,7 @@ func TestAutomationIn(t *testing.T) {
 }
 
 // A failed run keeps its cause; a cancel keeps none (#352). The cause names a program of the
-// tool contract, so forget of the tool or of the automation clears it (§6.7).
+// tool contract, so forget of the tool or of the automation clears it.
 func TestRunCause(t *testing.T) {
 	ctx := context.Background()
 	at := time.Date(2026, 10, 9, 10, 0, 0, 0, time.UTC)

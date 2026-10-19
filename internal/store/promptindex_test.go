@@ -266,7 +266,7 @@ func TestTriggerPromptsEnriched(t *testing.T) {
 }
 
 // An item forget deletes the prompt index rows of its proposals, with their text and hashes,
-// so its prompt matches nothing (§6.7). Other rows stay.
+// so its prompt matches nothing. Other rows stay.
 func TestEraseItemPromptIndex(t *testing.T) {
 	p := newPromptStore(t)
 	_, item := p.propose(t, "run make Foo", ScopeWorkspace)
@@ -350,7 +350,7 @@ func fillIndex(t testing.TB, p *promptStore) string {
 	return last
 }
 
-// AC: an exact match on 10,000 index rows takes under 50 ms (§5.5) [NEW]. The median of 11
+// AC: an exact match on 10,000 index rows takes under 50 ms [NEW]. The median of 11
 // runs counts, so one slow run of a loaded machine does not fail it.
 func TestMatchPromptSpeed(t *testing.T) {
 	p := newPromptStore(t)

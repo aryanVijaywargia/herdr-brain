@@ -8,18 +8,18 @@ import (
 )
 
 // ErrConflict means that the item's current revision is not the expected one: another write
-// came first (§3.1, §7.5 step 2).
+// came first.
 var ErrConflict = errors.New("revision conflict")
 
 // WriteRevision makes r the next revision of item r.ItemID, when the item's current revision
-// is still expected (§7.5 steps 1-2). It sets r.Revision to expected+1, copies the fields that
-// items also holds from r, and records a new output generation, which it returns. A stale
-// expected revision returns ErrConflict before it writes anything. An active skill whose text
-// does not parse, or whose name another active skill of its scope has, returns an error
-// (CheckSkill; ErrSkillName for the name). A tool writes its tools row; a contract that breaks
-// a §10.1 rule, or an active tool name that its scope has, returns an error (syncTool). An
-// automation writes its automations row (syncAutomation). Run it inside Store.Write, so all of it is one
-// transaction and an error writes nothing.
+// is still expected. It sets r.Revision to expected+1, copies the fields that items also holds
+// from r, and records a new output generation, which it returns. A stale expected revision
+// returns ErrConflict before it writes anything. An active skill whose text does not parse, or
+// whose name another active skill of its scope has, returns an error (CheckSkill; ErrSkillName
+// for the name). A tool writes its tools row; a contract that breaks a tool form rule, or an
+// active tool name that its scope has, returns an error (syncTool). An automation writes its
+// automations row (syncAutomation). Run it inside Store.Write, so all of it is one transaction
+// and an error writes nothing.
 func WriteRevision(ctx context.Context, tx *sql.Tx, expected int64, r ItemRevision) (int64, error) {
 	r.Revision = expected + 1
 	// The WHERE clause is the revision check, so the check and the write cannot come apart.
@@ -41,7 +41,7 @@ func WriteRevision(ctx context.Context, tx *sql.Tx, expected int64, r ItemRevisi
 		return 0, err
 	}
 	// Every path that makes a skill or a tool active writes a revision here (approve, restore,
-	// undo, promotion and link), so the name check runs in the same transaction (§8.2, §10.1).
+	// undo, promotion and link), so the name check runs in the same transaction.
 	if err := CheckSkill(ctx, tx, r.ItemID); err != nil {
 		return 0, err
 	}
@@ -80,14 +80,14 @@ func commitRevision(ctx context.Context, tx *sql.Tx, r ItemRevision) (int64, err
 	return nextGeneration(ctx, tx)
 }
 
-// nextGeneration records the output generation after the newest one (§7.5 step 2). The
-// compiler builds it later and fills in its manifest hash and build time (step 3).
+// nextGeneration records the output generation after the newest one. The compiler
+// builds it later and fills in its manifest hash and build time (step 3).
 func nextGeneration(ctx context.Context, tx *sql.Tx) (int64, error) {
 	var g int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(generation), 0) + 1 FROM outputs`).Scan(&g); err != nil {
 		return 0, fmt.Errorf("read newest output generation: %w", err)
 	}
-	// [NEW] the folder form: gen-<n> in the out folder (§7.5 step 3).
+	// [NEW] the folder form: gen-<n> in the out folder.
 	o := Output{Generation: g, Folder: fmt.Sprintf("gen-%d", g)}
 	if err := InsertOutput(ctx, tx, o); err != nil {
 		return 0, err

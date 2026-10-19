@@ -132,7 +132,7 @@ func TestM1Tables(t *testing.T) {
 	}
 }
 
-// E3 left out the M2 column proposals.conflicts_with; E13-S5 adds it (§11).
+// E3 left out the M2 column proposals.conflicts_with; E13-S5 adds it.
 func TestProposalConflictsColumn(t *testing.T) {
 	s := openM1(t)
 	if !slices.ContainsFunc(columns(t, s, "proposals"), func(c column) bool { return c.name == "conflicts_with" }) {
@@ -140,7 +140,7 @@ func TestProposalConflictsColumn(t *testing.T) {
 	}
 }
 
-// AC: tombstones has no text column (§11). Its columns are the claim id, the source keys and
+// AC: tombstones has no text column. Its columns are the claim id, the source keys and
 // the time; none of them holds item text.
 func TestTombstonesHoldNoText(t *testing.T) {
 	s := openM1(t)

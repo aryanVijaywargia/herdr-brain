@@ -14,9 +14,9 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/tool"
 )
 
-// Binding is the text of an automation item (§10.4): one approved tool, pinned to its contract
-// hash, on the stop trigger of the CLI of the bound agent, in one pinned folder. The workspace
-// key is the item's own. [NEW] the text form: TOML with these keys.
+// Binding is the text of an automation item: one approved tool, pinned to its contract hash, on
+// the stop trigger of the CLI of the bound agent, in one pinned folder. The workspace key is the
+// item's own. [NEW] the text form: TOML with these keys.
 type Binding struct {
 	Tool         string `toml:"tool"`    // the tool name, for you to read
 	ToolID       int64  `toml:"tool_id"` // the tools row
@@ -31,8 +31,8 @@ type Binding struct {
 const stopTrigger = "working → idle or working → done"
 
 // StopTrigger returns the tested "agent stopped working" condition of CLI kind cli, and false
-// when it has none (§10.4, M0 E17-S1 "Stop condition per CLI"). Focus decides which of the two
-// changes comes. A CLI with no tested condition (agy now) cannot get a binding.
+// when it has none (E17-S1 test). Focus decides which of the two changes comes. A CLI with no
+// tested condition (agy now) cannot get a binding.
 func StopTrigger(cli string) (string, bool) {
 	switch cli {
 	case "claude", "codex":
@@ -72,8 +72,8 @@ func (b Binding) Benefit() string {
 	return fmt.Sprintf("runs tool %s in %s after each stop of a %s agent, with no prompt", b.Tool, b.Folder, b.CLI)
 }
 
-// ErrBindingRefused means that the approval refuses a binding (§10.4): its tool has a required
-// input, the approved cwd of the tool is not the pinned folder, the tool is not an approved tool
+// ErrBindingRefused means that the approval refuses a binding: its tool has a required input,
+// the approved cwd of the tool is not the pinned folder, the tool is not an approved tool
 // that the workspace can call at the pinned hash, or the CLI has no tested stop condition.
 var ErrBindingRefused = errors.New("the binding is refused")
 
@@ -114,7 +114,7 @@ func CheckBinding(ctx context.Context, tx *sql.Tx, b Binding, workspaceKey, home
 	return nil
 }
 
-// Automation is the automations row of an automation item (§11).
+// Automation is the automations row of an automation item.
 type Automation struct {
 	ID           int64
 	WorkspaceKey string
@@ -129,9 +129,9 @@ type Automation struct {
 	LastRun      time.Time
 }
 
-// syncAutomation writes the automations row of item, when it is an automation, from its
-// current revision (§11). An active revision is your approval of its exact binding, so it
-// records the approval time; a new row starts enabled, and an existing row keeps its pause.
+// syncAutomation writes the automations row of item, when it is an automation, from its current
+// revision. An active revision is your approval of its exact binding, so it records the
+// approval time; a new row starts enabled, and an existing row keeps its pause.
 // Any other state clears the approval, so the binding does not run. Any other item passes.
 func syncAutomation(ctx context.Context, tx *sql.Tx, item int64) error {
 	it, err := ItemByID(ctx, tx, item)
@@ -195,7 +195,7 @@ func ActiveAutomations(ctx context.Context, tx *sql.Tx) ([]Automation, error) {
 }
 
 // SetAutomationEnabled turns automation id on or pauses it. Pause and resume are one
-// transaction each, so the launch mark of a run (E17-S11) sees them (§10.4).
+// transaction each, so the launch mark of a run (E17-S11) sees them.
 func SetAutomationEnabled(ctx context.Context, tx *sql.Tx, id int64, on bool) error {
 	res, err := tx.ExecContext(ctx, `UPDATE automations SET enabled = ? WHERE id = ?`, on, id)
 	if err != nil {
@@ -211,12 +211,12 @@ func SetAutomationEnabled(ctx context.Context, tx *sql.Tx, id int64, on bool) er
 	return nil
 }
 
-// StopCall is one occurrence of the minimal learned automation case (§10.4, E17-S10) [NEW]: a
+// StopCall is one occurrence of the minimal learned automation case (E17-S10) [NEW]: a
 // ran tool call from the agent's pane (origin agent: a Brain-origin run never counts), whose
 // newest stop mark of its capture session at the call is a stop of the agent. A stop mark is a
 // hook stop record, or a pane read whose agent status differs from the status of the pane read
 // before it (a status change). The mark is a stop when it is the hook record, or a change from
-// working to idle or done: the tested working → idle or working → done (M0 E17-S1). A denied
+// working to idle or done: the tested working → idle or working → done (E17-S1 test). A denied
 // approval (blocked → idle) and a change to working are no stop. The first pane read of a
 // session is a change only when it shows working. A pane read with no status change is no
 // mark, so the read of the final screen after a hook stop does not hide the stop (#311).

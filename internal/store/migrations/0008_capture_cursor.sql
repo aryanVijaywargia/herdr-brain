@@ -1,11 +1,11 @@
--- Sender mark, counts and cursor (E11-S4, §6.3, §6.4, §6.5, §11).
--- - observations.sender: who wrote the text (§6.5). Pane text never has 'you': only a review
+-- Sender mark, counts and cursor (E11-S4).
+-- - observations.sender: who wrote the text. Pane text never has 'you': only a review
 --   approval sets it. 'unconfirmed' is a captured message and every text with no known mark.
 -- - observations.counts: 0 when the observation must not raise a support count: a gap, a
 --   replay that Brain cannot tell apart from new evidence (S34), or Brain-origin text.
 -- - observations.brain_origin: 1 for text that Brain itself caused. It never counts.
 -- - cursors: the last capture identity of each session and source. The transaction that
---   stores an observation moves it, so a crash leaves both or neither (§6.4).
+--   stores an observation moves it, so a crash leaves both or neither.
 ALTER TABLE observations ADD COLUMN sender TEXT NOT NULL DEFAULT 'unconfirmed'
 	CHECK (sender IN ('you', 'unconfirmed', 'assistant', 'tool'));
 ALTER TABLE observations ADD COLUMN counts INTEGER NOT NULL DEFAULT 1 CHECK (counts IN (0, 1));
