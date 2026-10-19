@@ -1,19 +1,19 @@
-# agy profile, from the agy 1.2.16 facts (E16-S2 test) and the live E16-S12 check. The base
-# adapter runs it with no Go code of its own.
+# agy profile (HLD §8.5), from the agy 1.2.16 facts (M0 test "E16-S2") and the
+# live E16-S12 check. The base adapter runs it with no Go code of its own (S60).
 kind = "agy"
-# The user hooks file. Each named hook is one root key of the file; Brain's key is
+# The user hooks file (§8.2). Each named hook is one root key of the file; Brain's key is
 # "brain". PreInvocation is a flat handler, and PostToolUse a matcher group around its handlers.
 install_target = "~/.gemini/config/hooks.json"
 hooks_key = "brain"
 flat_handlers = true
 # agy has no pure start event: it runs PreInvocation before each model call (E16-S2).
 events.start = "PreInvocation"
-# Hook records (E11-S5): the shell tool only. The input has the command line and no exit
+# Hook records (E11-S5, §6.1): the shell tool only. The input has the command line and no exit
 # status. agy's Stop input has no reply text, so the stop record stays off (E16-S2).
 events.tool = ["PostToolUse"]
 events.tool_matcher = "run_command"
 # invocationNum is 0 at the start of each turn, and initialNumSteps is 1 only at the first turn
-# of a conversation.
+# of a conversation (§8.3 step 2, owner 2026-10-03) [NEW].
 start_condition = "invocationNum == 0 && initialNumSteps == 1"
 output_form = "injectSteps[0].ephemeralMessage"
 # agy reads JSON on each hook run, so a run that delivers nothing prints "{}" (E16-S2).
@@ -25,11 +25,11 @@ input.transcript_path = "transcriptPath"
 input.command = "toolCall.args.CommandLine"
 # agy trusts folders by exact path and asks again in each new folder, with no flag to skip that
 # (agy --help, 1.2.16). The eval runner runs agy cases in this one fixed folder, emptied before
-# each case; the M3 exit run (#165) trusts it once by hand.
+# each case; the M3 exit run (#165) trusts it once by hand (owner 2026-10-03) [NEW] folder.
 eval.dir = "/tmp/brain-eval-agy"
 # The version of the E16-S12 check (`agy --version`). agy updates itself.
 tested_version = "1.2.16"
-# The agy screen lines that change on each read and that herdr capture drops (E11-S4):
+# The agy screen lines that change on each read and that herdr capture drops (§6.2, E11-S4):
 # the braille spinner, the tip, the empty prompt, the rules, the footer, the cancel line and the
 # thought summary. From the live E16-S12 check (agy 1.2.16). agy draws inline, not in the
 # alternate screen.

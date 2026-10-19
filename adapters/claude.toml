@@ -1,12 +1,12 @@
-# Claude Code profile. M1 fields only.
+# Claude Code profile (HLD §8.5). M1 fields only.
 kind = "claude"
-# The user settings file (E8 epic).
+# The user settings file (E8 epic, M0 item 1).
 install_target = "~/.claude/settings.json"
-# Claude also runs SessionStart after resume, clear and compact; Brain delivers then too.
+# Claude also runs SessionStart after resume, clear and compact; Brain delivers then too (§8.3).
 events.start = "SessionStart"
-# Hook records (E11-S5): on after the E11-S1 live hook test on Claude Code 2.1.284. A failed
-# command comes in PostToolUseFailure, so both tool events run `brain hook --event tool`, only
-# for the shell tool.
+# Hook records (E11-S5, §6.1): on after the E11-S1 live hook test on Claude Code 2.1.284
+# (M0 test E11-S1). A failed command comes in PostToolUseFailure, so both
+# tool events run `brain hook --event tool`, only for the shell tool.
 events.prompt = "UserPromptSubmit"
 events.tool = ["PostToolUse", "PostToolUseFailure"]
 events.tool_matcher = "Bash"
@@ -16,7 +16,7 @@ output_form = "hookSpecificOutput.additionalContext"
 input.session_id = "session_id"
 input.cwd = "cwd"
 # The start input names the CLI's transcript file; Brain stores the path in the receipt and
-# never reads the file (E15-S4, E11-S1 test).
+# never reads the file (E15-S4, M0 test E11-S1).
 input.transcript_path = "transcript_path"
 input.prompt = "prompt"
 input.command = "tool_input.command"
@@ -28,9 +28,9 @@ input.reply = "last_assistant_message"
 alt_screen = true
 # A setup agent of the eval runner may run `brain remember` with no ask (E10-S3).
 eval.setup_args = ["--allowedTools", "Bash(brain remember:*)"]
-# The tested CLI version.
+# The version of the M0 test.
 tested_version = "2.1.283"
-# The Claude screen lines that change on each read and that herdr capture drops (E11-S4):
+# The Claude screen lines that change on each read and that herdr capture drops (§6.2, E11-S4):
 # the spinner, the done line of a turn, the empty prompt box, the rules, the status
 # line and the mode line.
 # From the recorded reads in internal/brained/testdata (Claude Code 2.1.284). The status line
@@ -44,15 +44,16 @@ noise_lines = ['[·✢✳✶✻✽*] \S+….*', '[·✢✳✶✻✽*] \S+ for .*
 # output. Under a prompt it was stored as user text. The folded tool calls are a block below.
   '\s{4,}\.\.\.',
 # Claude Code 2.1.292 (#291, M2 eval run): an announcement line, and the effort line at the
-# right of the prompt box (E17-S2 test) for each effort. They were stored as user text.
+# right of the prompt box (M0 test E17-S2) for each effort. They were stored
+# as user text.
   '\s*▎ .*', '\s*[○◔◐◑◕●] \S+ · /effort',
 # Claude Code 2.1.293 (#316, M2 eval rerun 2026-10-08): the MCP warning at the top of the
 # screen (also in the recorded reads of Claude Code 2.1.287), the footer line of the model with
 # its context size (more footer text only after two spaces), and the shell prompt line that
 # started Claude, also a bare "$ claude", which the screen shows before Claude draws and after
 # it ends. They were stored as user text. A prompt line starts with ❯ and a bash mode line
-# with !, so they stay. (The eval report gives the text of the lines, not the whole
-# screen.)
+# with !, so they stay. [NEW: the eval report gives the text of the lines, not the whole
+# screen]
   '⚠ \d+ MCP servers? .* · run /mcp', '\s*(?:Opus|Sonnet|Haiku|Fable) \d+(?:\.\d+)* \(\d+[KM] context\)(?:\s{2,}\S.*)?',
   '(?:[^\s❯⏺!].*[%$#>❯]|[$%]) (?:\S+/)?claude(?: .*)?',
 # Claude Code 2.1.295 (#368, M2 eval run 5 2026-10-09): the end of the spinner tip of the
@@ -61,12 +62,12 @@ noise_lines = ['[·✢✳✶✻✽*] \S+….*', '[·✢✳✶✻✽*] \S+ for .*
 # come from the source of Claude Code 2.1.296: "You can control how big a workflow is just by
 # prompting. ... or set a default with Dynamic workflow size in /config." So a line that ends so
 # is noise at any indent. A prompt line starts with ❯, so a prompt with the same words stays.
-# (The eval report gives the line, not the screen.)
+# [NEW: the eval report gives the line, not the screen]
   '(?:[^❯⏺!].*)?Dynamic workflow size in /config\.',
 # Claude Code 2.1.296 (#379, M2 eval run 6 2026-10-10): the usage limit line under a prompt, as
 # "  ⎿  You've hit your weekly limit · resets Oct 12 at 9:30am (UTC)". It was stored as tool
 # output. A prompt line starts with ❯ and a reply line with ⏺, so text with the same words stays.
-# Other limits ("5-hour", "Opus") take the same form; the run gives the weekly one only.
+# [NEW: other limits ("5-hour", "Opus") take the same form; the run gives the weekly one only]
   '\s*⎿\s+You(?:\x{27}|’)ve hit your .*limit(?: · resets .*)?']
 # The screen parts of more than one line (#258): a tip, also when it wraps in a narrow column,
 # and the welcome box with its two columns. Claude 2.1.284 puts a no-break space before "Tip:"
@@ -80,7 +81,7 @@ noise_blocks = [
   { start = '─+', next = '❯ Try "[^"]*"' },
   # The lines of a code diff in the agent output (#281): a line number, then +, - or a space.
   # A long diff line wraps onto a line with no number (#291); its text, such as "error:", made
-  # a failure signal under the tool mark (no wrap is recorded). The number takes at least
+  # a failure signal under the tool mark. [NEW: no wrap is recorded] The number takes at least
   # 8 columns before the +, so a wrapped line starts at column 8 or more; the tool output
   # under ⎿ starts at column 5. A cut mark keeps the block open, and a blank line ends it.
   { start = '\s{4,}\d+ [-+ ].*', next = '\s{8,}\S.*|\s{4,}\.\.\.' },
@@ -88,19 +89,19 @@ noise_blocks = [
   # The usage limit dialog (#379, M2 eval run 6, Claude Code 2.1.296): a rule of ▔, the question
   # and the three choices of the limit. It was stored as user text, and "Stop" made a correction
   # signal. The choices are named, so the lines of another dialog under such a rule stay. A blank
-  # line keeps the block open (the run gives the dialog with no blank line).
+  # line keeps the block open [NEW: the run gives the dialog with no blank line].
   { start = '▔+', next = '\s+(?:What do you want to do\?|(?:❯ |  )\d+\. (?:Stop and wait for limit to reset|Wait here, then continue automatically .*|Upgrade your plan.*)|Enter to confirm · Esc to cancel)|' },
   # The folder trust dialog of Claude Code 2.1.292 (#281, M2 eval run): its lines start with
   # one space, and its choices come after the ❯ cursor or under it. A wrapped line starts in
   # lower case. The lines are named, so the question of an approval dialog at the top of a
-  # read stays.
+  # read stays (§7.1).
   { start = '\s*Accessing workspace:', next = ''' (?:[~/]\S*|Quick safety check: .*|Claude Code'll be able to .*|Security guide|Enter to confirm · Esc to cancel|[a-z(].*)| ?(?:❯| ) +(?:No, exit|Yes, I trust this folder)|''' },
   # The fold line of the tool calls of a turn (Claude Code 2.1.292, #281), in each form of the
   # M2 eval rerun (#316): "Read 1 file, ran 2 shell commands", "Listed 1 directory, ran 1 shell
   # command", "Searched for 1 pattern", and the same forms while they run. Under a prompt line
   # it was stored as user text. The lines under it that start deeper than it and have no tool
-  # mark are its tool output, as "M test/helpers.js" and "lint: ok" (the eval report gives
-  # the lines, not their place on the screen). A blank line keeps the block open: tool output
+  # mark are its tool output, as "M test/helpers.js" and "lint: ok" [NEW: the eval report gives
+  # the lines, not their place on the screen]. A blank line keeps the block open: tool output
   # can hold one. Claude puts a blank line above the fold line (testdata/claude-s31-2-blocked
   # .txt), and a prompt line with the same words is right under the prompt, so it stays.
   # Claude Code 2.1.294 (#338, M2 eval run 3 2026-10-09): the parts of the memory tools, as in
@@ -122,13 +123,13 @@ noise_above = [
 # placeholder is noise when no prompt line, reply, tool output or spinner is under it, whatever
 # box line is there, also as the last line of a read. A sent prompt with the same text has the
 # input line ❯ of the box under it, or a reply or the spinner, so it stays. Claude puts a
-# no-break space before "Tip:", so the rule takes one after ❯ too (no screen of 2.1.294 is
-# recorded).
+# no-break space before "Tip:", so the rule takes one after ❯ too. [NEW: no screen of 2.1.294
+# is recorded]
 noise_last = [
   { line = '❯[ \x{a0}]Try "(?:fix lint errors|fix typecheck errors|how does [^"]+ work\?|refactor [^"]+|how do I log an error\?|edit [^"]+ to\.\.\.|write a test for [^"]+|create a util logging\.py that\.\.\.)"', unless = '(?:❯|⏺ |[·✢✳✶✻✽*] |\s*⎿).*' },
 ]
 # The diff panel (/diff, Claude Code 2.1.260 and later) opens beside the conversation in a
 # terminal at least 110 columns wide; its header is "N files changed +A -D" (#258). The header
-# takes a divider glyph before it too, so the cut drops the divider (the divider is not
-# recorded). The conversation keeps at least 40 columns.
+# takes a divider glyph before it too, so the cut drops the divider [NEW: the divider is not
+# recorded]. [NEW] The conversation keeps at least 40 columns.
 side_panel = { header = '(?:[│┃] +)?\d+ files? changed \+\d+ [-−]\d+', min_column = 40 }
