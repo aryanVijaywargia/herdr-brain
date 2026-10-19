@@ -851,9 +851,15 @@ const startCalls = "session list --json\n" +
 // changes a signal of an install in the entry (the commit, the install time, also to a lower
 // one, or the source kind), so the child invokes brain.start. A build by hand of the plugin
 // root or of a linked checkout changes nothing, and a change of metadata only (owner case,
-// subdir, an extra field) is no install, so the child invokes nothing.
+// subdir, an extra field) is no install, so the child invokes nothing. A herdr that registers
+// before the build lists the new entry already, with an install time from the last 10 min:
+// the child invokes brain.start with no change. An install time older than 10 min, more than
+// 10 min ahead, or none is a build by hand of an install, so the child invokes nothing.
 func TestBuildSameRoot(t *testing.T) {
 	other := strings.Repeat("0", 40)
+	// at is the install time d from now in Unix milliseconds. [NEW] 15 min, so the few seconds
+	// of a test cannot move an install time across the 10 min window.
+	at := func(d time.Duration) uint64 { return uint64(time.Now().Add(d).UnixMilli()) }
 	metadata := func(s string) string {
 		s = strings.Replace(s, `"owner":"aryanVijaywargia"`, `"owner":"AryanVijaywargia","subdir":"x"`, 1)
 		return strings.Replace(s, `"plugins":[{`, `"plugins":[{"extra":1,`, 1)
@@ -884,6 +890,14 @@ func TestBuildSameRoot(t *testing.T) {
 			func(dir, _ string) entry { return entry{"local", dir, "", 0} }, none, nil, false},
 		{"rebuild, then a change of metadata only",
 			func(dir, commit string) entry { return entry{"github", dir, commit, 1000} }, none, metadata, false},
+		{"herdr registers before the build",
+			func(dir, commit string) entry { return entry{"github", dir, commit, at(0)} }, none, nil, true},
+		{"rebuild of an install older than 10 min",
+			func(dir, commit string) entry { return entry{"github", dir, commit, at(-15 * time.Minute)} }, none, nil, false},
+		{"rebuild of an install with no install time",
+			func(dir, commit string) entry { return entry{"github", dir, commit, 0} }, none, nil, false},
+		{"rebuild of an install more than 10 min ahead",
+			func(dir, commit string) entry { return entry{"github", dir, commit, at(15 * time.Minute)} }, none, nil, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			assetName(t)
