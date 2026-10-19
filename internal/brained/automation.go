@@ -59,8 +59,7 @@ func StartLaunch(ctx context.Context, environ []string, l Launch) error {
 
 // eventKey is the event key of a stop that joined agent state a (method P of the E17-S1
 // test). state_change_seq starts again at a herdr server restart, and herdr resumes the
-// same agent session in the same pane, so the key holds terminal_id, which changes then. [NEW]
-// the text form.
+// same agent session in the same pane, so the key holds terminal_id, which changes then.
 func eventKey(a herdr.Agent) string {
 	return fmt.Sprintf("%s|%s|%s|%d", a.PaneID, a.TerminalID, a.Session, a.Seq)
 }

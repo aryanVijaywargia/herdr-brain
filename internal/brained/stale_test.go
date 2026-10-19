@@ -137,7 +137,7 @@ func staleRows(t *testing.T, dir string, id int64) (it store.Item, revisions int
 	return it, revisions, ps
 }
 
-// AC S9 and S72 in brained: a renamed file makes its item disputed, with the anchor diff in
+// AC in brained: a renamed file makes its item disputed, with the anchor diff in
 // the queue and the mark in the built brief. Brain does not change the item: no new revision,
 // and the next check adds no second proposal.
 func TestStale(t *testing.T) {
@@ -181,7 +181,7 @@ func TestStale(t *testing.T) {
 	}
 }
 
-// AC S72 (#252): the anchor file of one item is deleted, and the anchor file of another item
+// AC (#252): the anchor file of one item is deleted, and the anchor file of another item
 // gets a normal edit. The first item is disputed with the deleted mark until you decide. The
 // second stays active with no mark and no review task, and its anchor gets the new blob, so
 // the next check finds nothing to do.

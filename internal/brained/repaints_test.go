@@ -147,7 +147,7 @@ func TestCaptureQuoteRepaint(t *testing.T) {
 	}
 }
 
-// #349, S40: with hook records, a cut copy and a full repaint of a sent prompt are no new
+// #349: with hook records, a cut copy and a full repaint of a sent prompt are no new
 // occurrence, and the same prompt sent again in a new turn is: its own hook record enriches its
 // pane read, also when the hook comes after the read. A resend with no hook record of its own
 // still counts (#349 review): a hook can fail, and an old hook record does not hold the new

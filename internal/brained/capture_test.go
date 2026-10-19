@@ -189,7 +189,7 @@ type s31 struct {
 	noise            []string // screen text that the excerpts drop
 }
 
-// S31: working, blocked, working, idle in one task. Each read keeps its new part, the prompt
+// Working, blocked, working, idle in one task. Each read keeps its new part, the prompt
 // is kept once, and every excerpt line is text of a read: Brain invents no text.
 func TestCaptureS31(t *testing.T) {
 	for _, tc := range []s31{
@@ -264,7 +264,7 @@ func testS31(t *testing.T, tc s31) {
 	}
 }
 
-// S32: an agent already works when brained attaches. The baseline at start stores no text of
+// An agent already works when brained attaches. The baseline at start stores no text of
 // the screen, only the start gap, so the prompt of the running task is not invented as a
 // start message. The next read keeps only its new part.
 func TestCaptureS32(t *testing.T) {
@@ -291,7 +291,7 @@ func TestCaptureS32(t *testing.T) {
 	}
 }
 
-// S33: the pane exits before the read returns. The read is dropped with a gap, and a new
+// The pane exits before the read returns. The read is dropped with a gap, and a new
 // agent in a pane with the same id gets none of its text.
 func TestCaptureS33(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
@@ -328,7 +328,7 @@ func TestCaptureS33(t *testing.T) {
 	}
 }
 
-// S36: the pane moves to another workspace while a read is pending. The read is dropped
+// The pane moves to another workspace while a read is pending. The read is dropped
 // with a gap in the old segment, and the pane's next baseline starts a new segment in the
 // new workspace.
 func TestCaptureS36(t *testing.T) {
@@ -364,7 +364,7 @@ func TestCaptureS36(t *testing.T) {
 }
 
 // The end of the old pane id after a move does not end the session and segment of the pane
-// with the new id (S36).
+// with the new id.
 func TestCaptureMovedEnd(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
 	k.pane("w1:p1", "codex", codexRun2)
@@ -404,7 +404,7 @@ func TestCaptureEndRetry(t *testing.T) {
 	}
 }
 
-// S38: a repaint gives no observation. A screen that scrolled the old text away is partial.
+// A repaint gives no observation. A screen that scrolled the old text away is partial.
 // TestCaptureS38Resize has the recorded resize reads.
 func TestCaptureS38(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
@@ -425,7 +425,7 @@ func TestCaptureS38(t *testing.T) {
 	}
 }
 
-// S38: a screen that lost the old text and shows nothing new is a gap.
+// A screen that lost the old text and shows nothing new is a gap.
 func TestCaptureScreenLost(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
 	k.pane("w1:p1", "claude", "")
@@ -437,7 +437,7 @@ func TestCaptureScreenLost(t *testing.T) {
 	}
 }
 
-// S38: recorded reads of a pane that a herdr client resized (bugs #199, #203). A rewrap to a
+// Recorded reads of a pane that a herdr client resized (bugs #199, #203). A rewrap to a
 // narrower pane and back gives no observation, and a screen too small for the old text is a
 // gap. A screen that grows again shows the old text with no count. A new turn after a resize
 // or at the same width keeps only the new turn.
@@ -495,7 +495,7 @@ func TestCaptureS38Resize(t *testing.T) {
 }
 
 // newPart keeps new lines that only look like a rewrap: a line that is only the start of an
-// old line, and a new turn after the last old line that repeats a rewrapped old prompt (S40).
+// old line, and a new turn after the last old line that repeats a rewrapped old prompt.
 func TestNewPartRewrap(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -516,7 +516,7 @@ func TestNewPartRewrap(t *testing.T) {
 	}
 }
 
-// S40: the same text in two real turns gives two occurrences.
+// The same text in two real turns gives two occurrences.
 func TestCaptureS40(t *testing.T) {
 	for _, tc := range []struct{ harness, session, prefix, prompt, reply, status string }{
 		{"codex", codexRun2, "codex-s40", "› Reply with only the word ready.", "• ready", "done"},
@@ -585,7 +585,7 @@ func TestCapturePromptIndex(t *testing.T) {
 	}
 }
 
-// newPart keeps a repeat above the old text when the last old line stays (S40), and drops
+// newPart keeps a repeat above the old text when the last old line stays, and drops
 // text that a closed dialog hid.
 func TestNewPartRepeatAbove(t *testing.T) {
 	for _, tc := range []struct {

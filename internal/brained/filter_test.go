@@ -82,7 +82,7 @@ func TestCaptureSenders(t *testing.T) {
 	}
 }
 
-// S37: an assistant quote looks like your correction. It stays assistant text: no owner mark,
+// An assistant quote looks like your correction. It stays assistant text: no owner mark,
 // and capture makes no item and no proposal.
 func TestCaptureS37(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
@@ -100,7 +100,7 @@ func TestCaptureS37(t *testing.T) {
 	}
 }
 
-// S41: Brain blocks, CLI scaffolding and compaction summaries are dropped before
+// Brain blocks, CLI scaffolding and compaction summaries are dropped before
 // storage. The rest of a Brain block's screen block is Brain-origin and never counts. Text that looks
 // injected but has no marker is kept, and its sender stays not confirmed. After a compaction,
 // capture starts again from the new screen.
@@ -295,8 +295,7 @@ func TestCaptureCursorAtomic(t *testing.T) {
 	}
 }
 
-// S34: a duplicate event, a crash before the cursor commit, then a restart give one
-// occurrence.
+// A duplicate event, a crash before the cursor commit, then a restart give one occurrence.
 func TestCaptureS34(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())
 	k.pane("w1:p1", "codex", codexRun2)
@@ -324,7 +323,7 @@ func TestCaptureS34(t *testing.T) {
 	}
 }
 
-// S34: a partial read shows a text that the segment holds. Brain cannot tell a replay from
+// A partial read shows a text that the segment holds. Brain cannot tell a replay from
 // new evidence, so it stores the text and does not count it.
 func TestCaptureReplay(t *testing.T) {
 	k := newCapture(t, "s1", t.TempDir())

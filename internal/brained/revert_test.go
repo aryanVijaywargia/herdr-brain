@@ -122,7 +122,7 @@ func TestRevertCommit(t *testing.T) {
 	}
 }
 
-// AC #283 2, 3 and 4, the S7 shape: codex changes src/notes.js, you put it back with git
+// AC #283 2, 3 and 4: codex changes src/notes.js, you put it back with git
 // checkout and say why. The revert is a git observation, and it reaches the extractor beside
 // your reason as evidence of the same correction: 2 occurrences, the correction gate.
 func TestRevertCheckoutS7(t *testing.T) {
@@ -272,7 +272,7 @@ func (c *revertCLI) Run(_ context.Context, cmd extract.Command) ([]byte, error) 
 			"touches_permission": false, "expected_benefit": "no cache that you revert"}}}})
 }
 
-// Sol review of #283: a file that goes back goes into the segment of the agent whose change it
+// Review of #283: a file that goes back goes into the segment of the agent whose change it
 // was, also when a newer agent started in the workspace since.
 func TestRevertBackOwner(t *testing.T) {
 	gitEnv(t)
@@ -307,7 +307,7 @@ func TestRevertBackOwner(t *testing.T) {
 	}
 }
 
-// Sol review of #283: a change that is committed and then reverted with a revert commit
+// Review of #283: a change that is committed and then reverted with a revert commit
 // between two passes is one revert, not two.
 func TestRevertCommitThenRevert(t *testing.T) {
 	gitEnv(t)
@@ -329,7 +329,7 @@ func TestRevertCommitThenRevert(t *testing.T) {
 	}
 }
 
-// Sol review of #283: a revert commit made while learning is off never comes back, and the
+// Review of #283: a revert commit made while learning is off never comes back, and the
 // work tree starts from a baseline after learning is on again.
 func TestRevertLearningOffDropped(t *testing.T) {
 	gitEnv(t)
@@ -353,7 +353,7 @@ func TestRevertLearningOffDropped(t *testing.T) {
 	}
 }
 
-// Sol review of #283: git keeps whole seconds, so a commit in the start second of a segment
+// Review of #283: git keeps whole seconds, so a commit in the start second of a segment
 // belongs to it.
 func TestSegmentAtSecond(t *testing.T) {
 	start := revertNow.Add(300 * time.Millisecond)

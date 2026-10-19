@@ -18,11 +18,11 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// S13, S32: on start, brained follows every live pane and gives each live agent a baseline
+// On start, brained follows every live pane and gives each live agent a baseline
 // with a gap, also an agent that works already. It invents no text: a baseline writes none.
 func TestStartReconcile(t *testing.T) {
 	h := newHarness(t, bindings.KindMain)
-	h.f.addPane("w1:p1", "claude") // works already (S32)
+	h.f.addPane("w1:p1", "claude") // works already
 	h.f.addPane("w1:p2", "")
 	h.f.addPane("w2:p1", "codex")
 	h.start(t)
@@ -45,7 +45,7 @@ func TestStartReconcile(t *testing.T) {
 	}
 }
 
-// S39: when brained falls behind, it drops the waiting events and reconciles: a baseline
+// When brained falls behind, it drops the waiting events and reconciles: a baseline
 // with a gap, not the missed changes.
 func TestBehind(t *testing.T) {
 	h := newHarness(t, bindings.KindMain)

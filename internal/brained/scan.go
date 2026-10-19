@@ -30,12 +30,12 @@ import (
 
 const (
 	// scanFiles and scanWindow pick the files: the newest 300 that changed in the 30 days before
-	// the claim time, Claude and Codex together. [NEW] 300 and 30 days.
+	// the claim time, Claude and Codex together. 300 and 30 days.
 	scanFiles  = 300
 	scanWindow = 30 * 24 * time.Hour
 	// argvLimit is the longest stored command in bytes, as for a hook record.
 	argvLimit = 4096
-	// scanTitle is the title of the notification at the end of the read. [NEW]
+	// scanTitle is the title of the notification at the end of the read.
 	scanTitle = "Brain history scan"
 	// promptWords is the least count of words of a repeated prompt in the scan: "continue" and
 	// "go on" are no repeat.
@@ -86,7 +86,7 @@ func readFile(f transcript.File, limit int64) (transcript.Session, error) {
 }
 
 // run claims the scan of the store of g and reads it, at a tick. Only a
-// main binding scans: a test binding never does (S87). With learning off for the store, the row
+// main binding scans: a test binding never does. With learning off for the store, the row
 // waits. done says that this brained has nothing more to scan: the read ended, or the row is
 // not one that it can claim. err alone leaves done false, so a later tick reads again from the
 // start; a known capture identity adds nothing then.
@@ -605,7 +605,7 @@ type group struct {
 //   - text that repeats earlier text joins its earlier text. The correction rule and the
 //     repeated-prompt rule find the same repeats there, so a repeat is a correction when one of
 //     its texts holds a correction marker, a lesson when one gives a lesson in plain words, else
-//     a repeated prompt [NEW] with at least promptWords words. A correction marker with no
+//     a repeated prompt with at least promptWords words. A correction marker with no
 //     repeat stays one occurrence, below its gate;
 //   - a procedure joins the earlier procedures that it is like. A procedure whose texts are all
 //     in one text repeat is that repeat, and a lesson in a text repeat is part of it.

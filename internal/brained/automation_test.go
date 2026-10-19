@@ -190,7 +190,7 @@ func (h *autoHarness) startPane(t *testing.T, status string) *fakeSub {
 
 // Method P (the E17-S1 test): a joined working, then a joined idle, is one stop. It claims
 // one run and starts one launch process with the pane of the event. A duplicate of the stop
-// joins at rest and claims nothing (S51). A user stop (Esc) gives the same change, so it runs.
+// joins at rest and claims nothing. A user stop (Esc) gives the same change, so it runs.
 func TestAutomationStop(t *testing.T) {
 	h := newAutoHarness(t, bindings.KindMain)
 	st := h.startPane(t, "idle")
@@ -298,7 +298,7 @@ func TestAutomationSkip(t *testing.T) {
 	}
 }
 
-// AC S59: no backfill. At a brained start the current state is a baseline: a stop that came
+// AC: no backfill. At a brained start the current state is a baseline: a stop that came
 // while brained was down never runs, but the stop of an agent that works at the start runs.
 func TestAutomationBaseline(t *testing.T) {
 	h := newAutoHarness(t, bindings.KindMain)
@@ -361,7 +361,7 @@ func TestAutomationTestBinding(t *testing.T) {
 	}
 }
 
-// AC S59: after a reconnect of brained, the current agent state is a baseline. A stop in the
+// AC: after a reconnect of brained, the current agent state is a baseline. A stop in the
 // time between, and a duplicate of it, never run; the next live stop runs.
 func TestAutomationReconnect(t *testing.T) {
 	h := newAutoHarness(t, bindings.KindMain)

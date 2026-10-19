@@ -34,9 +34,9 @@ var inline = map[string]bool{"codex": true}
 // The events of a gap observation, beside the Gap of a baseline.
 const (
 	gapNoBase  = "no base"        // a change came without a usable last read
-	gapGone    = "pane gone"      // the pane went away before the read returned (S33)
+	gapGone    = "pane gone"      // the pane went away before the read returned
 	gapFailed  = "read failed"    // the read failed
-	gapMoved   = "pane moved"     // the pane is in another workspace or has a new id (S36)
+	gapMoved   = "pane moved"     // the pane is in another workspace or has a new id
 	gapUnsure  = "unstable read"  // the pane changed during the read
 	gapSession = "session change" // another agent or agent session holds the pane
 	gapLost    = "screen lost"    // the screen lost the old text, with nothing new
@@ -235,7 +235,7 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 	}
 	native := nativeID(r.pane)
 	if r.agent != cp.agent || !sameSession(cp.native, native) {
-		// Another agent or another run: its text never joins the old session (S33).
+		// Another agent or another run: its text never joins the old session.
 		return c.baseline(ctx, s, gapSession)
 	}
 	added, status := newPart(cp.lines, cp.back, r)
@@ -284,11 +284,11 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 		if len(added) == 0 {
 			if status == store.ObservationPartial && len(cp.lines) > 0 {
 				// The screen lost the old text and shows nothing new, as an alternate screen
-				// that closes: the lost text shows as a gap (S38).
+				// that closes: the lost text shows as a gap.
 				return record(ctx, tx, cp, store.Observation{CaptureIdentity: identity(s, cp.segment, now),
 					Source: store.SourceHerdr, SegmentID: cp.segment, Event: gapLost, Status: store.ObservationGap, At: now}, "")
 			}
-			return nil // a repaint or a resize: nothing new (S38)
+			return nil // a repaint or a resize: nothing new
 		}
 		for i, p := range ps {
 			if p.unsure && inMarks[cp.agent] {
@@ -311,14 +311,14 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 			if status == store.ObservationPartial {
 				// A partial read does not start inside the old text, so a text that the segment
 				// holds can be old text shown again: Brain cannot tell a replay from new
-				// evidence, so it stores it and does not count it (S34). A complete read
-				// that repeats a text is a real repeat (S40).
+				// evidence, so it stores it and does not count it. A complete read
+				// that repeats a text is a real repeat.
 				seen, err := store.SeenExcerpt(ctx, tx, cp.segment, p.sender, excerpt)
 				if err != nil {
 					return err
 				}
 				// A screen that grows after a resize shows the text of the last reads again,
-				// with other line breaks (S38).
+				// with other line breaks.
 				shown := strings.Contains(squash(strings.Join(cp.back, "")+strings.Join(cp.lines, "")),
 					squash(strings.Join(p.lines, "")))
 				o.Counts = !seen && !shown
@@ -342,7 +342,7 @@ func (c *Capture) change(ctx context.Context, s Step, cp *capturePane) error {
 	}
 	if !slices.Equal(r.lines, cp.lines) {
 		// A read of the same screen keeps back, the screen before it, for a screen that
-		// grows again (S38).
+		// grows again.
 		cp.back = cp.lines
 	}
 	cp.native, cp.lines, cp.open = native, r.lines, open
@@ -372,7 +372,7 @@ func busy(status string) bool {
 // A prompt that the session shows is a copy when its first line starts the text of a known
 // prompt, or the known first line starts it, and its other lines are text of that prompt. A
 // copy is a new send only when it is the last prompt of the read and a new turn started since,
-// or it has the same text and the read shows the known one too, above it (S40). In a new turn
+// or it has the same text and the read shows the known one too, above it. In a new turn
 // the last prompt is the prompt of the turn, also when it is only the start of a known one,
 // unless its first line is cut (cp.cut): Codex shows a long prompt again as its first line and
 // "…", and a prompt that you send is shown in full (#338, testdata/codex-i278-2-blocked.txt).
@@ -476,8 +476,8 @@ func (cp *capturePane) cut(harness, l string, hooks []hookPrompt) bool {
 // lines after it are yours. At a later read the question view is gone, and Codex may show the
 // quote and the answer again: then the quote ends where the rest of the part shows a prompt
 // hook record, the answer that Codex sent (#349). A quote of text that the reads did not show
-// is your prompt, and it stays. [NEW: the Codex source, tui/src/async_question_reply.rs and the
-// question views]
+// is your prompt, and it stays (the Codex source, tui/src/async_question_reply.rs and the
+// question views).
 func (cp *capturePane) quotes(r read, ps []part, hooks []hookPrompt) []part {
 	if !inMarks[r.agent] {
 		return ps
@@ -568,7 +568,7 @@ func (cp *capturePane) hookPrompts(ctx context.Context, tx *sql.Tx) ([]hookPromp
 // hookCopy reports whether prompt part p, to be stored as observation o of the session of cp,
 // is a copy of a sent prompt that a prompt hook record of hooks holds: one send is one
 // occurrence (#349). The first read of a sent prompt is the pane counterpart of its hook
-// record (S35), and it stays. A cut copy (copies) is a copy. Any other read that shows the text
+// record, and it stays. A cut copy (copies) is a copy. Any other read that shows the text
 // of a hook record, or a start of it, is a copy too: a repaint, or the prompt after the read at
 // its send failed, when its hook record counts alone. Only the last prompt of the read, last,
 // in a turn after the turn in which capture saw each such hook record, is a new send without a
@@ -706,7 +706,7 @@ func (c *Capture) begin(ctx context.Context, tx *sql.Tx, s Step, cp *capturePane
 // so a crash leaves both or neither. tx has run the exclusion check (Capture.write), and
 // the caller writes only when the learning state is the one of its base. A known capture
 // identity is a retry or a duplicate: it adds nothing and moves no cursor. A gap has no text,
-// so it never counts. A hook record with the same text enriches the new observation (S35).
+// so it never counts. A hook record with the same text enriches the new observation.
 // A prompt gets its prompt index row from full, its full text (E14-S1), and a prompt that
 // matches a ready proposal reserves its suggestion in cp.reserved (E14-S3). A forget of the
 // session since the baseline fails the write with store.ErrForgotten.
@@ -728,8 +728,7 @@ func record(ctx context.Context, tx *sql.Tx, cp *capturePane, o store.Observatio
 	if err := Match(ctx, tx, cp.agent, cp.session, o); err != nil {
 		return err
 	}
-	// The reservation comes after Match: a hook record of the same prompt has reserved it then
-	// (S57).
+	// The reservation comes after Match: a hook record of the same prompt has reserved it then.
 	d, err := Reserve(ctx, tx, o, full, o.At)
 	if err != nil {
 		return err
@@ -809,7 +808,7 @@ func (c *Capture) end(ctx context.Context, s Step, cp *capturePane) error {
 }
 
 // held says whether a pane other than paneID holds session key k. After a move, the pane
-// with the new id holds the session, and the end of the old id must not end it (S36). Its
+// with the new id holds the session, and the end of the old id must not end it. Its
 // new segment has ended the old one.
 func (c *Capture) held(k store.SessionKey, paneID string) bool {
 	for id, cp := range c.panes {
@@ -878,7 +877,7 @@ func (c *Capture) read(ctx context.Context, id string) (read, error) {
 		full: source == herdr.ReadRecentUnwrapped && raw < lines && !rd.Truncated}, nil
 }
 
-// shell reports whether name is the name of a shell that a pane runs [NEW]: a shell is no
+// shell reports whether name is the name of a shell that a pane runs: a shell is no
 // agent run.
 func shell(name string) bool {
 	switch name {
@@ -972,15 +971,15 @@ func (c *Capture) lines(harness, text string) []string {
 
 // newPart returns the indexes of the lines of r that the last read old does not hold, and the status of the
 // new part. A line diff keeps each new line, also one with the same text as
-// an old line (S40). Old text with other line breaks is a resize or a rewrap, so it is not new
-// (S38) [NEW, design choice]. The part is complete when the read starts inside the old text or
+// an old line. Old text with other line breaks is a resize or a rewrap, so it is not new
+// (design choice). The part is complete when the read starts inside the old text or
 // holds the whole history; else text may be lost between the reads, and it is partial.
 //
 // A dialog at the bottom of a screen hides the top, and the text comes back when the dialog
 // closes. So when the last old line is gone, the lines above the first old line are not new
-// if the read back, before old, holds them all [NEW, real Claude read,
-// testdata/claude-s31-3-working.txt]. When the last old line stays, the lines above are a
-// repeat (S40).
+// if the read back, before old, holds them all (real Claude read,
+// testdata/claude-s31-3-working.txt). When the last old line stays, the lines above are a
+// repeat.
 func newPart(old, back []string, r read) ([]int, store.ObservationStatus) {
 	const hidden = -2 // a line that a closed dialog hid
 	pair := lcs(old, r.lines)
@@ -993,8 +992,8 @@ func newPart(old, back []string, r read) ([]int, store.ObservationStatus) {
 	// A rewrap splits lines anew, so lines from the start of a block with text of the old lines
 	// that the block replaces, up to the end of an old line, and with a line that old does not
 	// hold, are a rewrap: the rest of the block is new, as a new turn after a resize. A block
-	// after the last old line is new, also when it repeats old text (S40). A block of old lines
-	// only is a repeat (S40).
+	// after the last old line is new, also when it repeats old text. A block of old lines
+	// only is a repeat.
 	prev := -1 // the old line of the last matched line
 	rewrap := func(b []int, span squashed) bool {
 		var text strings.Builder
@@ -1028,7 +1027,7 @@ func newPart(old, back []string, r read) ([]int, store.ObservationStatus) {
 	}
 	flush(len(old))
 	// A read that starts with a rewrap of the first old lines starts inside the old text too,
-	// also when no line at the top of the screen stays the same over a resize (S38, #316).
+	// also when no line at the top of the screen stays the same over a resize (#316).
 	start := len(r.lines) > 0 && (pair[0] != -1 ||
 		!slices.Contains(added, 0) && strings.HasPrefix(squashLines(old).text, squash(r.lines[0])))
 	status := store.ObservationPartial
@@ -1152,7 +1151,7 @@ func sameLearning(a, b Learning) bool {
 
 // captureID returns a new local capture id.
 func captureID() (string, error) {
-	b := make([]byte, 16) // [NEW] 128 random bits
+	b := make([]byte, 16) // 128 random bits
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("capture id: %w", err)
 	}

@@ -74,7 +74,7 @@ func TestCaptureCodexPromptCopies(t *testing.T) {
 	}
 }
 
-// #278, S40: a prompt sent again in a new turn is a second occurrence, also when the first
+// #278: a prompt sent again in a new turn is a second occurrence, also when the first
 // copy is gone from the read; a read of the same turn that shows it again is not.
 func TestCapturePromptNewTurn(t *testing.T) {
 	const (
@@ -129,7 +129,7 @@ func TestCaptureClaudePromptCopies(t *testing.T) {
 	}
 }
 
-// #368 (M2 eval run 5, R5-9): the end of a Claude spinner tip under a sent prompt was stored as
+// #368 (M2 eval run 5): the end of a Claude spinner tip under a sent prompt was stored as
 // part of the prompt (observation 2326). The eval report gives the line with no indent, so the
 // screen is made twice: the end of the tip at column 6, which the tip block does not take, and
 // at column 0. Each time the prompt is stored without it, once, and it counts.

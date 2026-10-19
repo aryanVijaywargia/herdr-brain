@@ -12,8 +12,8 @@ import (
 )
 
 // hookRecord stores a hook record of the agent of pane w1:p1 in binding s1 as `brain hook`
-// does: one observation in the open segment, then the S35 match. It returns the observation
-// id.
+// does: one observation in the open segment, then the match to a pane observation. It
+// returns the observation id.
 func (k *capHarness) hookRecord(t *testing.T, event string, sender store.Sender, text string, at time.Time) int64 {
 	t.Helper()
 	ctx := context.Background()
@@ -62,7 +62,7 @@ func hookRow(t *testing.T, obs []store.Observation, id int64) store.Observation 
 	return store.Observation{}
 }
 
-// S35: a hook record that matches a pane observation (the session, the time window and the
+// A hook record that matches a pane observation (the session, the time window and the
 // normalized text) enriches it and is not a second occurrence. The order of the two does not
 // matter. A hook record with other text, or outside the window, stays a separate occurrence.
 func TestCaptureS35(t *testing.T) {

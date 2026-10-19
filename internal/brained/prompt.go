@@ -19,7 +19,7 @@ func HookPrompt(harness, text string) string {
 
 // panePrompt returns the full prompt of the filtered lines of one part of a pane read of
 // harness: the lines without their sender mark, so the prompt "❯ run make foo" in the pane and
-// the hook prompt "run make foo" give one fingerprint [NEW]. The read has no blank lines.
+// the hook prompt "run make foo" give one fingerprint. The read has no blank lines.
 func panePrompt(harness string, lines []string) string {
 	ls := make([]string, len(lines))
 	for i, l := range lines {

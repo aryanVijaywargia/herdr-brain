@@ -126,7 +126,7 @@ func (d *daemon) run(ctx context.Context) error {
 			}
 			l.retry(ctx, GapBehind)
 		case <-d.tick:
-			// [NEW] The binary check runs at each tick (checkEvery), so a new binary runs within
+			// The binary check runs at each tick (checkEvery), so a new binary runs within
 			// about 2 s of its install.
 			if d.moved != nil && d.moved() {
 				return errRestart

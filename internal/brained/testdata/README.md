@@ -38,35 +38,35 @@ The files are the text of real `pane.read` replies, as herdr gives it with `form
 
 The test Claude loads the global Claude hooks of the machine. One hook asked it to run a
 progress-report command. The answer to that approval was 3 (No), and the next prompt said
-"Skip any progress report." That turn is in the history above the Claude S31 reads.
+"Skip any progress report." That turn is in the history above the `claude-s31-*.txt` reads.
 
 ## Files
 
 Codex, `recent_unwrapped`:
 
-- `codex-s31-*.txt` (S31): prompt "Run touch made.txt and request escalated permissions for
+- `codex-s31-*.txt`: prompt "Run touch made.txt and request escalated permissions for
   it.", after the turn "Delete blob.bin with rm, then list the files with ls -la.". The reads
   in status order: `0-base` (the end of the first turn), `1-working`, `2-blocked` (the
   approval dialog), `3-working` (after `y`), `4-done`. Codex gives the status `done`, not
   `idle`. The dialog goes away after the approval, and "• Running" becomes "• Ran".
-- `codex-s40-*.txt` (S40): the prompt "Reply with only the word ready." two times. `0-base`
+- `codex-s40-*.txt`: the prompt "Reply with only the word ready." two times. `0-base`
   is the first turn at work; `1-done` and `2-done` are the ends of the two turns.
 
 Claude, `visible` (40 rows):
 
-- `claude-s31-*.txt` (S31): prompt "Skip any progress report. Only create the file hi.txt
+- `claude-s31-*.txt`: prompt "Skip any progress report. Only create the file hi.txt
   with the text hi.". `0-base`, `1-working` (only the spinner changes), `2-blocked` (the
   "Do you want to create hi.txt?" dialog hides the top of the screen), `3-working` (after
   `1`; the hidden text shows again), `4-idle`.
-- `claude-s38-*.txt` (S38): prompt "Write the numbers 1 to 50, one per line, and nothing
+- `claude-s38-*.txt`: prompt "Write the numbers 1 to 50, one per line, and nothing
   else.". `0-base` (the turn at work), `1-idle` (the answer pushed the prompt and the numbers
   1 to 18 off the screen), `2-repaint` (a later read of the same screen, byte for byte).
-- `claude-s40-*.txt` (S40): the prompt "Reply with only the word ready." two times, as for
+- `claude-s40-*.txt`: the prompt "Reply with only the word ready." two times, as for
   Codex. The time lines differ ("Sautéed for 1s", "Crunched for 1s").
 - `claude-e14s3-3-idle.txt` (E14-S3): made for the test from `claude-s40-2-idle.txt`, not
   recorded. The screen scrolled 6 lines, and the prompt "Reply with only the word ready."
   comes a third time, after a proposal exists.
-- `claude-visible-empty.txt` (S38): made for the test, not recorded. It is an empty screen,
+- `claude-visible-empty.txt`: made for the test, not recorded. It is an empty screen,
   as after an alternate screen closes.
 
 A headless herdr (no client) does not resize the pane terminal: after `herdr pane split w1:p1

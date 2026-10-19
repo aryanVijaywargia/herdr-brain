@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	// mergeEvery is the pause between two merge passes: once a day. [NEW] 24 h from the
+	// mergeEvery is the pause between two merge passes: once a day. 24 h from the
 	// start of brained, as staleEvery.
 	mergeEvery = 24 * time.Hour
 	// mergeFull is the share of its budget, in percent, that a brief part fills before the merge

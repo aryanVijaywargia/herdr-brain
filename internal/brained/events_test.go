@@ -231,7 +231,7 @@ func TestEventsLost(t *testing.T) {
 	}
 }
 
-// AC 1, S39: brained falls behind and drops events. It records a gap, takes a new baseline
+// AC 1: brained falls behind and drops events. It records a gap, takes a new baseline
 // and keeps the text after it. No line is stored twice, and status counts the gap.
 func TestEventsDropped(t *testing.T) {
 	h := newHarness(t, bindings.KindMain)
@@ -377,7 +377,7 @@ func TestPaneSplit(t *testing.T) {
 	}
 }
 
-// AC 2, S36: a pane moves to another workspace during a session, and gets a new id. The read
+// AC 2: a pane moves to another workspace during a session, and gets a new id. The read
 // of the old id records a gap in the old segment. The session goes on in a new segment of the
 // new id, and new text never goes to the old workspace. The close of the old id comes before
 // or after the new id.
@@ -527,7 +527,7 @@ func TestEventsRepeatedNoID(t *testing.T) {
 }
 
 // AC 1, AC 3: a repeated agent_detected starts no turn. A prompt that the screen still
-// shows is one occurrence; the same prompt sent again in a new turn is a real repeat (S40).
+// shows is one occurrence; the same prompt sent again in a new turn is a real repeat.
 func TestEventsRepeatedPrompt(t *testing.T) {
 	l := newLive(t, map[string]string{"w1:p1": codexRun1})
 	l.screen("w1:p1", "• start of w1:p1", "› fix the bug", "• fixing")

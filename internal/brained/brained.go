@@ -24,22 +24,22 @@ import (
 
 const (
 	// connectTries and connectPause retry the first connect. herdr starts brained after its
-	// socket is ready, so one try is enough; the rest cover a slow start. [NEW] 20 × 250 ms.
+	// socket is ready, so one try is enough; the rest cover a slow start. 20 × 250 ms.
 	connectTries = 20
 	connectPause = 250 * time.Millisecond
 	// checkEvery is the pause between two checks of the plugin, the binding and the learning
 	// switches. A switch takes effect in brained at the next check; the handler checks it
-	// again before it writes. [NEW] 2 s.
+	// again before it writes. 2 s.
 	checkEvery = 2 * time.Second
 	// queueSize is the number of events that can wait for the handler. When it is full,
-	// brained drops events and reconciles (S39). [NEW] 256: half of herdr's ring of 512.
+	// brained drops events and reconciles. 256: half of herdr's ring of 512.
 	queueSize = 256
-	// callTimeout is the deadline of one herdr request or one store transaction. [NEW] 5 s.
+	// callTimeout is the deadline of one herdr request or one store transaction. 5 s.
 	callTimeout = 5 * time.Second
-	// busyTimeout is how long a store transaction waits for the lock. [NEW] 5 s, as brain
+	// busyTimeout is how long a store transaction waits for the lock. 5 s, as brain
 	// event: nobody waits for brained.
 	busyTimeout = 5 * time.Second
-	// extractEvery is the least pause between the starts of two extraction passes. [NEW] 1
+	// extractEvery is the least pause between the starts of two extraction passes. 1
 	// minute: a session is finished after 10 minutes idle, so a pass each minute is soon enough.
 	extractEvery = time.Minute
 )
@@ -75,7 +75,7 @@ func Main(ctx context.Context, environ []string, log io.Writer, text ScanText) e
 		return err
 	}
 	_, _ = fmt.Fprintf(log, "brained: %s changed; brained runs it again\n", bin) // a failed log write has no other place to go
-	// [NEW] The method: exec in place keeps the pid and the environment. The lock file closes
+	// The method: exec in place keeps the pid and the environment. The lock file closes
 	// on exec (O_CLOEXEC), and the new binary takes the brained lock again at its start.
 	return syscall.Exec(bin, []string{bin, "brained"}, environ)
 }
@@ -207,11 +207,11 @@ func parseEnv(environ []string) (env, error) {
 // lock takes the brained lock of session in dir, so one brained runs for each herdr session.
 // The lock stays until unlock, or until the process ends.
 func lock(dir, session string) (unlock func(), err error) {
-	if err := os.MkdirAll(dir, 0o700); err != nil { // [NEW] 0o700, as the data home
+	if err := os.MkdirAll(dir, 0o700); err != nil { // 0o700, as the data home
 		return nil, err
 	}
 	path := filepath.Join(dir, "brained-"+session+".lock")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) // [NEW] 0o600, as the data home files
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) // 0o600, as the data home files
 	if err != nil {
 		return nil, err
 	}

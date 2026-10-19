@@ -12,7 +12,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// shortCommit is the length of a commit hash in a revert excerpt [NEW], as git's short hashes.
+// shortCommit is the length of a commit hash in a revert excerpt, as git's short hashes.
 const shortCommit = 7
 
 // Reverts is the revert rule of one brained (#283): before each extraction pass it

@@ -205,7 +205,7 @@ func (p pipeline) learned(t *testing.T) store.Proposal {
 // approval, a stop of the agent claims nothing and runs nothing. After the approval, one stop
 // event through brained claims one run, and the launch process (the code of
 // `brain automation launch`) runs the tool once. A duplicate of the event does
-// not run it again. The Brain-origin run triggers nothing and teaches nothing (S51 "no chain").
+// not run it again. The Brain-origin run triggers nothing and teaches nothing.
 // A rejection stops a new proposal in that scope.
 func TestM4LearnedAutomation(t *testing.T) {
 	t.Run("approve", func(t *testing.T) {

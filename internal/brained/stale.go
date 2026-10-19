@@ -16,10 +16,10 @@ import (
 
 const (
 	// staleEvery is the pause between two stale checks of every workspace: once a day.
-	// [NEW] 24 h from the start of brained: any time of day.
+	// 24 h from the start of brained: any time of day.
 	staleEvery = 24 * time.Hour
 	// staleTimeout is the deadline of one stale check: its git reads, its write and the build.
-	// [NEW] 1 minute.
+	// 1 minute.
 	staleTimeout = time.Minute
 	// outDir is the out folder of a store, as in the hook.
 	outDir = "out"

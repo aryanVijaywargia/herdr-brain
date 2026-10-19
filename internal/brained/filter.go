@@ -22,7 +22,7 @@ var (
 		{"<skills_instructions>", "</skills_instructions>"}}
 	// compaction lists text that starts a compaction summary. Capture drops that line and the
 	// rest of the read, and the read is the new base: capture starts again from the new screen.
-	// [NEW, not recorded] Claude Code: the first words of its summary and its screen line;
+	// (not recorded) Claude Code: the first words of its summary and its screen line;
 	// Codex: its screen line.
 	compaction = []string{"This session is being continued from a previous conversation", "Conversation compacted",
 		"Context compacted"}
@@ -34,7 +34,7 @@ type mark struct {
 	sender store.Sender
 }
 
-// marks lists the sender marks of each harness [NEW, the recorded reads in testdata]: the
+// marks lists the sender marks of each harness (the recorded reads in testdata): the
 // prompt, the reply and the tool output. A line at column 0 starts a block: its mark gives the
 // sender, and with no mark the sender is not confirmed. A line that starts with a space
 // continues the block above it, unless it starts with a mark. The prompt mark gives no owner
@@ -45,7 +45,7 @@ var marks = map[string][]mark{
 }
 
 // inMarks lists the harnesses that draw each prompt that you send with the prompt mark, and
-// each other line of a prompt with an indent [NEW, #338, M2 eval run 3]. A line at column 0
+// each other line of a prompt with an indent (#338, M2 eval run 3). A line at column 0
 // with no mark there is no prompt: it is the rest of a line that the terminal wrapped, or text
 // that the CLI did not indent, as a line of tool output whose └ is above the read. So it
 // continues the block above it, as an indented line does. The head of a read holds no prompt
@@ -135,7 +135,7 @@ type part struct {
 // runs over the whole read from it, so a block that opened in old text or in an earlier read
 // still drops its lines. parts returns the block that r ends in. Pane text has no reliable
 // tags: a marker can be lost, and other text can copy it. So the filters lower noise; they do
-// not prove clean text (S41).
+// not prove clean text.
 func parts(r read, idx []int, open *block) ([]part, *block) {
 	added := make(map[int]bool, len(idx))
 	for _, i := range idx {
@@ -206,9 +206,9 @@ func compacted(l string) bool {
 // redact is the secret filter for the lines of one read of harness. It runs on the
 // whole read, before the split into parts, so a secret over two senders still matches. It
 // puts the mark [secret] in place of each hit, and a line that only the rest of a hit fills
-// becomes "". A secret never refuses the whole read: there is no user to edit and retry
-// [NEW]. The search sees each sender mark as spaces, so a secret line after a mark, as
-// "› TOKEN=x", matches as it does at the line start.
+// becomes "". A secret never refuses the whole read: there is no user to edit and retry.
+// The search sees each sender mark as spaces, so a secret line after a mark, as "› TOKEN=x",
+// matches as it does at the line start.
 func redact(harness string, lines []string) []string {
 	text := strings.Join(lines, "\n")
 	hits := secret.Find(unmarked(harness, text))
