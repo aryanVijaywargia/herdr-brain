@@ -30,6 +30,14 @@ const nonceFile = ".install-nonce"
 // BRAIN_AUTO_SETUP_WAIT (seconds) is for tests only.
 const postInstallWait = 60 * time.Second
 
+// freshWindow is the time around now in which an install of this commit that herdr lists for
+// this checkout before the build counts as the install of this build. herdr 0.9.1 and 0.9.5
+// register a plugin after its build, but a herdr that registers it before the build lists the
+// new entry already, and then no install signal changes. [NEW] 10 min, owner decision (#427):
+// a build by hand of the plugin root in that time starts brain once more, and a second
+// brain.start is safe.
+const freshWindow = 10 * time.Minute
+
 // PostInstall is the hidden command `brain post-install --commit <sha>` (#427). scripts/build.sh
 // runs it in the checkout at the end of a good build: herdr runs [[startup]] only after a
 // session restore, so after an install nothing would start brained or setup (E19-S3). It uses
@@ -44,9 +52,11 @@ const postInstallWait = 60 * time.Second
 // the child started, the parent writes that registration to the stdin of the child, and the
 // child also needs a change in a signal of an install (see reinstalled): a build by hand in the
 // plugin root changes none, and an install in place changes at least the install time or the
-// commit. Then the child invokes brain.start in each running herdr
-// session, because the build cannot know the session of the install. Each herdr call ends by
-// the deadline, also when its own 5 s are not over.
+// commit. A herdr that registers the plugin before the build lists the new entry already: when
+// that entry is fresh (see fresh), the parent writes nothing, and the nonce is enough. Then the
+// child invokes brain.start in each running herdr session, because the build cannot know the
+// session of the install. Each herdr call ends by the deadline, also when its own 5 s are not
+// over.
 // In the child, stdin holds that registration as JSON, or nothing.
 func PostInstall(ctx context.Context, args, environ []string, stdin io.Reader) error {
 	fs := flag.NewFlagSet("post-install", flag.ContinueOnError)
@@ -98,7 +108,7 @@ func (u *updater) watch(ctx context.Context, commit string) error {
 		return err
 	}
 	var old []byte
-	if ok && sameDir(p.Root, root) {
+	if ok && sameDir(p.Root, root) && !fresh(p.Source, commit, time.Now()) {
 		if old, err = json.Marshal(p.Source); err != nil {
 			return err
 		}
@@ -165,6 +175,17 @@ func ours(p plugin, commit, nonce string, old *source) bool {
 // fields, such as the owner, the repo or the subdir, are metadata: a change there is no install.
 func reinstalled(old, now source) bool {
 	return now.Commit != old.Commit || now.Installed != old.Installed || now.Ref != old.Ref || old.Kind != "github"
+}
+
+// fresh reports whether s, the registration of this checkout before the build, is a GitHub
+// install of commit with an install time at most freshWindow from now, before or after it.
+// Both times are from the clock of this machine. No install time means no.
+func fresh(s source, commit string, now time.Time) bool {
+	if s.Kind != "github" || s.Commit != commit || s.Installed == 0 {
+		return false
+	}
+	n := uint64(now.UnixMilli()) // a clock before 1970 wraps to far from any install time
+	return max(n, s.Installed)-min(n, s.Installed) <= uint64(freshWindow.Milliseconds())
 }
 
 // awaitInstall polls `herdr plugin list` each second until herdr lists the install of this

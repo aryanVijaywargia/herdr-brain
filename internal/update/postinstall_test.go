@@ -73,6 +73,37 @@ func TestOurs(t *testing.T) {
 	}
 }
 
+// #427: an install of this commit that herdr lists for this checkout before the build is the
+// install of this build when its install time is at most freshWindow from now, before or
+// after. A herdr that registers before the build lists it so.
+func TestFresh(t *testing.T) {
+	const commit = "c1"
+	now := time.UnixMilli(1_000_000_000_000)
+	at := func(d time.Duration) uint64 { return uint64(now.Add(d).UnixMilli()) }
+	for _, c := range []struct {
+		name         string
+		kind, commit string
+		ms           uint64
+		want         bool
+	}{
+		{"install now", "github", commit, at(0), true},
+		{"install 10 min ago", "github", commit, at(-freshWindow), true},
+		{"install 10 min ahead", "github", commit, at(freshWindow), true},
+		{"install 10 min and 1 ms ago", "github", commit, at(-freshWindow - time.Millisecond), false},
+		{"install 10 min and 1 ms ahead", "github", commit, at(freshWindow + time.Millisecond), false},
+		{"no install time", "github", commit, 0, false},
+		{"other commit", "github", "d2", at(0), false},
+		{"linked checkout", "local", commit, at(0), false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := source{Kind: c.kind, Commit: c.commit, Installed: c.ms}
+			if got := fresh(s, commit, now); got != c.want {
+				t.Errorf("fresh(%s %s %d, %s, %d) = %v, want %v", c.kind, c.commit, c.ms, commit, now.UnixMilli(), got, c.want)
+			}
+		})
+	}
+}
+
 // postInstallHerdr writes a fake herdr that logs each call to the returned log and returns the
 // environment that uses it. plugin list lists a GitHub install of commit c1 at root. session
 // list has sessions running sessions s0, s1, ... and one stopped session, old. With stall, each
