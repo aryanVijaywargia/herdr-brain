@@ -26,56 +26,21 @@ die() {
 	exit 1
 }
 
-# auto_start runs at the end of a good build (E19-S3): herdr runs [[startup]] only after a
-# session restore, so after an install nothing would start brained or setup. [NEW] The signal
-# of an install build: herdr 0.9.1 builds in <herdr config>/plugins/.tmp-install-<pid>-<ms>/checkout
-# and removes that folder when the install ends (src/cli/plugin.rs, create_plugin_temp_dir).
-# A detached child waits for that end and for herdr to list brain, then invokes brain.start in
-# each running herdr session: herdr removes HERDR_SESSION from the build environment, so the
-# build cannot know the session of the install. herdr reads the build output until EOF, so the
-# child gets /dev/null for stdin, stdout and stderr. BRAIN_NO_AUTO_SETUP=1 turns it off.
+# auto_start runs at the end of a good build (E19-S3, #427): herdr runs [[startup]] only after
+# a session restore, so after an install nothing would start brained or setup. The new
+# bin/brain post-install reads the Brain entry of `herdr plugin list --json` before the install,
+# then a detached child of it waits up to 60 s for herdr to list a GitHub install of this HEAD
+# with a later install time, and invokes brain.start in each running herdr session. It uses no
+# herdr folder layout (internal/update/postinstall.go). herdr gives a build no HERDR_ variable
+# (herdr plugin docs), so with HERDR_ENV set this is a build by hand in a herdr pane, and it
+# starts nothing. Each herdr call has a 5 s deadline. The child gets /dev/null for stdin, stdout
+# and stderr: herdr reads the build output until EOF. BRAIN_NO_AUTO_SETUP=1 turns it off.
 auto_start() {
 	[ "${BRAIN_NO_AUTO_SETUP:-}" != 1 ] || return 0
-	case "$(pwd -P)" in
-	*/plugins/.tmp-install-*/checkout) ;;
-	*) return 0 ;;
-	esac
+	[ -z "${HERDR_ENV:-}" ] || return 0
 	command -v herdr >/dev/null 2>&1 || return 0
-	staging=$(dirname "$(pwd -P)")
-	# [NEW] 60 s: after the build, the install only moves the checkout and links the plugin.
-	# BRAIN_AUTO_SETUP_WAIT is for tests only.
-	left=${BRAIN_AUTO_SETUP_WAIT:-60}
-	(
-		trap '' HUP
-		cd /
-		while [ -d "$staging" ] || ! bounded plugin list --plugin brain |
-			awk '$1 == "-" && $2 == "brain" { f = 1 } END { exit !f }'; do
-			[ "$left" -gt 0 ] || exit 0
-			left=$((left - 1))
-			sleep 1
-		done
-		bounded session list | awk 'NR > 1 && $2 == "running" { print $1 }' | while read -r s; do
-			bounded --session "$s" plugin action invoke brain.start || :
-		done
-	) </dev/null >/dev/null 2>&1 &
-}
-
-# bounded runs herdr "$@" and kills it after 5 s: a herdr request has no deadline, and a
-# server that does not answer would hold the child forever. [NEW] 5 s, as setupHerdrDeadline.
-bounded() {
-	herdr "$@" &
-	p=$!
-	(
-		sleep 5 &
-		s=$!
-		trap 'kill $s; exit 0' TERM
-		wait $s
-		kill "$p"
-	) >/dev/null 2>&1 &
-	k=$!
-	wait "$p" && r=0 || r=$?
-	kill "$k" 2>/dev/null || :
-	return $r
+	commit=$(git rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null) || return 0
+	bin/brain post-install --commit "$commit" </dev/null >/dev/null || :
 }
 
 # from_source builds this checkout. Callers in a `||` list turn off set -e, so check go build.

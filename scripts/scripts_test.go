@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -22,13 +23,16 @@ import (
 // GIT_CONFIG_COUNT for upload-pack, but upload-pack starts no auto maintenance.
 // Since Git 2.47, git commit and git fetch run auto maintenance detached, and the
 // background process can still write in a repo when t.TempDir removes it (#224).
+// BRAIN_NO_AUTO_SETUP=1 keeps the builds of the other tests away from a real herdr on PATH;
+// buildDetached clears it.
 func TestMain(m *testing.M) {
 	for k, v := range map[string]string{
-		"GIT_CONFIG_COUNT":   "2",
-		"GIT_CONFIG_KEY_0":   "maintenance.auto",
-		"GIT_CONFIG_VALUE_0": "false",
-		"GIT_CONFIG_KEY_1":   "gc.auto",
-		"GIT_CONFIG_VALUE_1": "0",
+		"BRAIN_NO_AUTO_SETUP": "1",
+		"GIT_CONFIG_COUNT":    "2",
+		"GIT_CONFIG_KEY_0":    "maintenance.auto",
+		"GIT_CONFIG_VALUE_0":  "false",
+		"GIT_CONFIG_KEY_1":    "gc.auto",
+		"GIT_CONFIG_VALUE_1":  "0",
 	} {
 		if err := os.Setenv(k, v); err != nil {
 			panic(err)
@@ -501,52 +505,107 @@ func TestGitAutoMaintenanceOff(t *testing.T) {
 	}
 }
 
-// fakeHerdr is a herdr that appends each command line to $HERDR_LOG. It lists the brain
-// plugin, or no plugin when HERDR_NO_BRAIN is set, and three herdr sessions: default and work
-// run, old is stopped. With HERDR_HANG set, plugin list never answers.
+// fakeHerdr is a herdr that appends each command line to $HERDR_DIR/log. plugin list prints
+// $HERDR_DIR/list.json, or no plugin when that file is missing, and does not answer while
+// $HERDR_DIR/hang exists. session list has four sessions: default and work run, old is
+// stopped, and herdr cannot reach gone.
 const fakeHerdr = `#!/bin/sh
-echo "$*" >> "$HERDR_LOG"
-[ "$*" = "plugin list --plugin brain" ] && [ -n "${HERDR_HANG:-}" ] && exec sleep 60
+echo "$*" >> "$HERDR_DIR/log"
 case "$*" in
-"plugin list --plugin brain")
-	if [ -n "${HERDR_NO_BRAIN:-}" ]; then echo "No plugins installed."; else
-		printf '1 plugin installed:\n- brain (Herdr Brain) enabled [github]\n'; fi ;;
-"session list") printf 'name status directory socket\ndefault running /d /d.sock\nwork running /w /w.sock\nold stopped /o /o.sock\n' ;;
+"plugin list --json --plugin brain")
+	[ -e "$HERDR_DIR/hang" ] && exec /bin/sleep 60
+	if [ -f "$HERDR_DIR/list.json" ]; then /bin/cat "$HERDR_DIR/list.json"
+	else echo '{"id":"cli:plugin","result":{"plugins":[],"type":"plugin_list"}}'; fi ;;
+"session list --json")
+	echo '{"sessions":[{"name":"default","running":true},{"name":"work","running":true},' \
+		'{"name":"old","running":false},{"name":"gone","running":true,"connection_error":"refused"}]}' ;;
 esac
 `
 
-// withFakeHerdr returns path with a folder that holds fakeHerdr in front.
-func withFakeHerdr(t *testing.T, path string) string {
+// herdrDir returns a new folder for the files of fakeHerdr and a path with fakeHerdr in front
+// of path.
+func herdrDir(t *testing.T, path string) (dir, withHerdr string) {
 	t.Helper()
-	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "herdr"), fakeHerdr)
-	if err := os.Chmod(filepath.Join(dir, "herdr"), 0o755); err != nil {
+	dir = t.TempDir()
+	bin := t.TempDir()
+	writeFile(t, filepath.Join(bin, "herdr"), fakeHerdr)
+	if err := os.Chmod(filepath.Join(bin, "herdr"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return dir + string(os.PathListSeparator) + path
+	return dir, bin + string(os.PathListSeparator) + path
 }
 
-// installCheckout puts a release checkout where herdr 0.9.1 builds an install:
-// <herdr config>/plugins/.tmp-install-<pid>-<ms>/checkout. It returns the checkout and the
-// staging folder.
-func installCheckout(t *testing.T) (dir, staging string) {
+// entry is the Brain entry of `herdr plugin list --json` (herdr v0.9.1 and v0.9.5) with source
+// kind kind, plugin root root, commit commit and install time ms (0 for none).
+type entry struct {
+	kind, root, commit string
+	ms                 uint64
+}
+
+// list writes the reply of `herdr plugin list` with e for fakeHerdr in dir. It writes a new
+// file and renames it, so herdr never prints half a file.
+func list(t *testing.T, dir string, e entry) {
 	t.Helper()
-	staging = filepath.Join(t.TempDir(), "plugins", ".tmp-install-123-456")
-	if err := os.MkdirAll(staging, 0o755); err != nil {
+	src := `{"kind":"local"}`
+	if e.kind == "github" {
+		ms := "" // herdr leaves out a field with no value
+		if e.ms != 0 {
+			ms = fmt.Sprintf(`,"installed_unix_ms":%d`, e.ms)
+		}
+		src = fmt.Sprintf(`{"kind":"github","owner":"aryanVijaywargia","repo":"herdr-brain","managed_path":%q,`+
+			`"resolved_commit":%q%s}`, e.root, e.commit, ms)
+	}
+	writeFile(t, filepath.Join(dir, "list.new"), fmt.Sprintf(`{"id":"cli:plugin","result":{"type":"plugin_list",`+
+		`"plugins":[{"plugin_id":"brain","version":"0.1.0","plugin_root":%q,"enabled":true,"source":%s}]}}`, e.root, src))
+	if err := os.Rename(filepath.Join(dir, "list.new"), filepath.Join(dir, "list.json")); err != nil {
 		t.Fatal(err)
 	}
-	dir = filepath.Join(staging, "checkout")
+}
+
+// installCheckout puts a release checkout at rel in a new herdr config folder and returns it.
+func installCheckout(t *testing.T, rel string) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), rel)
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Rename(newRepo(t), dir); err != nil {
 		t.Fatal(err)
 	}
-	return dir, staging
+	return dir
+}
+
+// head is the commit of HEAD in dir.
+func head(t *testing.T, dir string) string {
+	t.Helper()
+	return strings.TrimSpace(gitOut(t, dir, "rev-parse", "HEAD"))
+}
+
+// brainRelease is fakeRelease with a real brain of this checkout as the asset, so the
+// post-install of the asset runs.
+func brainRelease(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go is not on PATH")
+	}
+	bin := filepath.Join(t.TempDir(), "brain")
+	cmd := exec.Command("go", "build", "-ldflags", "-X main.version="+manifestVersion(t), "-o", bin, "./cmd/brain")
+	cmd.Dir = ".."
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, out)
+	}
+	b, err := os.ReadFile(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fakeReleaseOf(t, string(b), "")
 }
 
 // buildDetached runs build.sh in dir with PATH path and returns when build.sh exits. Its
 // stdout and stderr are pipes, so the return also means that no child holds them. done
 // closes when every process that holds fd 3, which build.sh and any child of it inherit, has
-// exited. The fake herdr logs to log.
-func buildDetached(t *testing.T, dir, path, log string, env ...string) (done <-chan struct{}) {
+// exited. fakeHerdr uses the folder herdr.
+func buildDetached(t *testing.T, dir, path, herdr string, env ...string) (done <-chan struct{}) {
 	t.Helper()
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -554,8 +613,9 @@ func buildDetached(t *testing.T, dir, path, log string, env ...string) (done <-c
 	}
 	cmd := exec.Command("/bin/sh", "scripts/build.sh")
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), append([]string{"PATH=" + path, "HERDR_LOG=" + log,
-		"BRAIN_NO_AUTO_SETUP=", "BRAIN_RELEASE_BASE_URL=" + fakeRelease(t, "")}, env...)...)
+	// herdr gives a build no HERDR_ variable, so the test clears those of a herdr pane.
+	cmd.Env = append(os.Environ(), append([]string{"PATH=" + path, "HERDR_DIR=" + herdr, "HERDR_ENV=",
+		"HERDR_BIN_PATH=", "BRAIN_NO_AUTO_SETUP=", "BRAIN_RELEASE_BASE_URL=" + brainRelease(t)}, env...)...)
 	cmd.ExtraFiles = []*os.File{w}
 	out, err := cmd.CombinedOutput()
 	_ = w.Close() // the build has its own copy; the read end gets EOF when all copies close
@@ -581,122 +641,157 @@ func waitDone(t *testing.T, done <-chan struct{}) {
 	}
 }
 
-func readLog(t *testing.T, log string) string {
+// calls returns the herdr calls in the log of fakeHerdr in dir, with no `plugin list` calls:
+// the child polls it a number of times. polls is the number of those.
+func calls(t *testing.T, dir string) (rest string, polls int) {
 	t.Helper()
-	b, err := os.ReadFile(log)
+	b, err := os.ReadFile(filepath.Join(dir, "log"))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		t.Fatal(err)
 	}
-	return string(b)
+	var keep []string
+	for _, l := range strings.SplitAfter(string(b), "\n") {
+		if l == "plugin list --json --plugin brain\n" {
+			polls++
+		} else if l != "" {
+			keep = append(keep, l)
+		}
+	}
+	return strings.Join(keep, ""), polls
 }
 
-// #239 AC: an install build returns while its child still runs, and the child keeps no build
-// output open. When the install ends, the child invokes brain.start in each running session.
+// #427 AC: on herdr 0.9.1 and on 0.9.5, an install build returns while its child still runs,
+// and the child keeps no build output open. When herdr lists the install of this commit, the
+// child invokes brain.start in each running session. herdr 0.9.1 builds in a temp folder and
+// moves the checkout to plugins/github/<id>; herdr 0.9.5 builds in place, and herdr lists the
+// old install until the build ends.
 func TestBuildInstallStartsBrain(t *testing.T) {
+	type layout struct {
+		name, rel string
+		old       bool // herdr lists an older install of the same commit during the build
+		inPlace   bool // the new plugin root is the build folder
+	}
+	for _, l := range []layout{
+		{"herdr 0.9.1 first install", "plugins/.tmp-install-123-456/checkout", false, false},
+		{"herdr 0.9.1 reinstall", "plugins/.tmp-install-123-456/checkout", true, false},
+		{"herdr 0.9.5 first install", "plugins/github-installations/brain-0123/123-0/checkout", false, true},
+		{"herdr 0.9.5 reinstall", "plugins/github-installations/brain-0123/123-0/checkout", true, true},
+	} {
+		for _, b := range []struct {
+			name string
+			path func(t *testing.T, dir string) string
+		}{
+			{"release asset", func(t *testing.T, _ string) string { return noGoPath(t) }},
+			{"source build", func(t *testing.T, dir string) string {
+				if _, err := exec.LookPath("go"); err != nil {
+					t.Skip("go is not on PATH")
+				}
+				changeVersionText(t, dir) // local changes: build.sh builds from source
+				return os.Getenv("PATH")
+			}},
+		} {
+			t.Run(l.name+"/"+b.name, func(t *testing.T) {
+				assetName(t)
+				dir := installCheckout(t, l.rel)
+				commit := head(t, dir)
+				hd, path := herdrDir(t, b.path(t, dir))
+				if l.old {
+					list(t, hd, entry{"github", filepath.Join(t.TempDir(), "old"), commit, 1000})
+				}
+				done := buildDetached(t, dir, path, hd)
+				select {
+				case <-done:
+					t.Fatal("no child runs after the install build, want one that waits for the install")
+				default:
+				}
+				if got, polls := calls(t, hd); got != "" || polls == 0 {
+					t.Errorf("herdr calls before herdr lists the install = %q and %d plugin lists, want only plugin lists", got, polls)
+				}
+				root := filepath.Join(t.TempDir(), "plugins", "github", "brain-0123")
+				if l.inPlace {
+					root = dir
+				}
+				list(t, hd, entry{"github", root, commit, 2000})
+				waitDone(t, done)
+				want := "session list --json\n" +
+					"--session default plugin action invoke brain.start\n--session work plugin action invoke brain.start\n"
+				if got, _ := calls(t, hd); got != want {
+					t.Errorf("herdr calls = %q, want %q", got, want)
+				}
+			})
+		}
+	}
+}
+
+// #427 AC: a build with BRAIN_NO_AUTO_SETUP=1, a build with no herdr on PATH, a build by hand in
+// a herdr pane (HERDR_ENV is set) and a build when herdr does not answer start no child.
+func TestBuildStartsNoChild(t *testing.T) {
 	for _, c := range []struct {
-		name string
-		path func(t *testing.T, dir string) string
+		name  string
+		herdr bool
+		hang  bool
+		env   []string
+		polls int // the plugin list calls of the build
 	}{
-		{"release asset", func(t *testing.T, _ string) string { return noGoPath(t) }},
-		{"source build", func(t *testing.T, dir string) string {
-			if _, err := exec.LookPath("go"); err != nil {
-				t.Skip("go is not on PATH")
-			}
-			changeVersionText(t, dir) // local changes: build.sh builds from source
-			return os.Getenv("PATH")
-		}},
+		{"BRAIN_NO_AUTO_SETUP=1", true, false, []string{"BRAIN_NO_AUTO_SETUP=1"}, 0},
+		{"no herdr on PATH", false, false, nil, 0},
+		{"in a herdr pane", true, false, []string{"HERDR_ENV=1"}, 0},
+		{"herdr does not answer", true, true, nil, 1},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			assetName(t)
-			dir, staging := installCheckout(t)
-			log := filepath.Join(t.TempDir(), "herdr.log")
-			done := buildDetached(t, dir, withFakeHerdr(t, c.path(t, dir)), log)
+			dir := installCheckout(t, "plugins/github-installations/brain-0123/123-0/checkout")
+			hd, path := herdrDir(t, noGoPath(t))
+			if !c.herdr {
+				path = noGoPath(t)
+			}
+			if c.hang {
+				writeFile(t, filepath.Join(hd, "hang"), "")
+			}
 			select {
-			case <-done:
-				t.Fatal("no child runs after the install build, want one that waits for the install")
-			default:
+			case <-buildDetached(t, dir, path, hd, c.env...):
+			case <-time.After(15 * time.Second): // [NEW] above the 5 s deadline of one herdr call
+				t.Fatal("a child of the build still runs, want none")
 			}
-			if got := readLog(t, log); got != "" {
-				t.Errorf("herdr calls before the install ends = %q, want none", got)
-			}
-			// herdr moves the checkout away and removes the staging folder at the end.
-			if err := os.RemoveAll(staging); err != nil {
-				t.Fatal(err)
-			}
-			waitDone(t, done)
-			want := "plugin list --plugin brain\nsession list\n" +
-				"--session default plugin action invoke brain.start\n--session work plugin action invoke brain.start\n"
-			if got := readLog(t, log); got != want {
-				t.Errorf("herdr calls = %q, want %q", got, want)
+			if got, polls := calls(t, hd); got != "" || polls != c.polls {
+				t.Errorf("herdr calls = %q and %d plugin lists, want none and %d", got, polls, c.polls)
 			}
 		})
 	}
 }
 
-// #239 AC: a build outside a herdr install, a build with BRAIN_NO_AUTO_SETUP=1 and an install
-// build with no herdr on PATH start no child and call no herdr.
-func TestBuildStartsNoChild(t *testing.T) {
+// #427 AC: a plain build, a linked checkout, an entry that herdr listed before the build, an
+// install of another commit, an entry with no install time and a herdr that does not answer
+// after the build invoke nothing: the child stops after BRAIN_AUTO_SETUP_WAIT.
+func TestBuildChildGivesUp(t *testing.T) {
+	none := func(*testing.T, string, string, string) {}
 	for _, c := range []struct {
-		name    string
-		install bool
-		herdr   bool
-		env     []string
+		name   string
+		before bool                                       // herdr lists an install of this commit before the build
+		after  func(t *testing.T, hd, dir, commit string) // the change of herdr after the build
 	}{
-		{"not an install", false, true, nil},
-		{"BRAIN_NO_AUTO_SETUP=1", true, true, []string{"BRAIN_NO_AUTO_SETUP=1"}},
-		{"no herdr on PATH", true, false, nil},
+		{"plain build", false, none},
+		{"linked checkout", false, func(t *testing.T, hd, dir, _ string) { list(t, hd, entry{"local", dir, "", 0}) }},
+		{"entry from before the build", true, none},
+		{"other commit", false, func(t *testing.T, hd, dir, _ string) {
+			list(t, hd, entry{"github", dir, strings.Repeat("0", 40), 2000})
+		}},
+		{"no install time", false, func(t *testing.T, hd, dir, commit string) { list(t, hd, entry{"github", dir, commit, 0}) }},
+		{"herdr stops answering", false, func(t *testing.T, hd, _, _ string) { writeFile(t, filepath.Join(hd, "hang"), "") }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			assetName(t)
 			dir := newRepo(t)
-			if c.install {
-				dir, _ = installCheckout(t)
+			commit := head(t, dir)
+			hd, path := herdrDir(t, noGoPath(t))
+			if c.before {
+				list(t, hd, entry{"github", dir, commit, 1000})
 			}
-			path := noGoPath(t)
-			if c.herdr {
-				path = withFakeHerdr(t, path)
-			}
-			log := filepath.Join(t.TempDir(), "herdr.log")
-			select {
-			case <-buildDetached(t, dir, path, log, c.env...):
-			case <-time.After(5 * time.Second): // [NEW] a build with no child closes fd 3 at its exit
-				t.Fatal("a child of the build still runs, want none")
-			}
-			if got := readLog(t, log); got != "" {
-				t.Errorf("herdr calls = %q, want none", got)
-			}
-		})
-	}
-}
-
-// #239: when the install does not end in time, herdr does not list brain or herdr does not
-// answer, the child stops and invokes nothing.
-func TestBuildChildGivesUp(t *testing.T) {
-	for _, c := range []struct {
-		name       string
-		endInstall bool
-		calls      string // the herdr calls of the child, each line once or more
-		env        string
-	}{
-		{"install does not end", false, "", "HERDR_NO_BRAIN=1"},
-		{"brain not listed", true, "plugin list --plugin brain\n", "HERDR_NO_BRAIN=1"},
-		{"herdr does not answer", true, "plugin list --plugin brain\n", "HERDR_HANG=1"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			assetName(t)
-			dir, staging := installCheckout(t)
-			log := filepath.Join(t.TempDir(), "herdr.log")
-			done := buildDetached(t, dir, withFakeHerdr(t, noGoPath(t)), log,
-				"BRAIN_AUTO_SETUP_WAIT=1", c.env)
-			if c.endInstall {
-				if err := os.RemoveAll(staging); err != nil {
-					t.Fatal(err)
-				}
-			}
+			done := buildDetached(t, dir, path, hd, "BRAIN_AUTO_SETUP_WAIT=1")
+			c.after(t, hd, dir, commit)
 			waitDone(t, done)
-			got := readLog(t, log)
-			if strings.ReplaceAll(got, c.calls, "") != "" || (c.calls != "" && got == "") {
-				t.Errorf("herdr calls = %q, want only %q", got, c.calls)
+			if got, polls := calls(t, hd); got != "" || polls == 0 {
+				t.Errorf("herdr calls = %q and %d plugin lists, want only plugin lists", got, polls)
 			}
 		})
 	}

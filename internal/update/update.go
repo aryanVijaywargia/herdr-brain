@@ -37,15 +37,16 @@ const Usage = `usage: brain update [--check | --records]
 // pluginID is the id in herdr-plugin.toml.
 const pluginID = "brain"
 
-// listDeadline is the deadline of `herdr plugin list`. [NEW] 5 s, as the herdr deadline of
-// the other commands. The install, git and the build get none: a build can take minutes, and
-// the user can stop them.
-const listDeadline = 5 * time.Second
+// herdrDeadline is the deadline of one herdr call that only asks or invokes: `herdr plugin
+// list`, and the herdr calls of post-install. [NEW] 5 s, as the herdr deadline of the other
+// commands. The install, git and the build get none: a build can take minutes, and the user
+// can stop them.
+const herdrDeadline = 5 * time.Second
 
 // releaseTag is the form of a release tag, v<major>.<minor>.<patch> (scripts/check-tag.sh).
 var releaseTag = regexp.MustCompile(`^v([0-9]+)\.([0-9]+)\.([0-9]+)$`)
 
-// plugin is the Brain entry of `herdr plugin list --json` (herdr v0.9.1
+// plugin is the Brain entry of `herdr plugin list --json` (herdr v0.9.1 and v0.9.5
 // src/api/schema/plugins.rs, InstalledPluginInfo and PluginSourceInfo).
 type plugin struct {
 	ID      string `json:"plugin_id"`
@@ -58,6 +59,8 @@ type plugin struct {
 		Subdir string `json:"subdir"`
 		Ref    string `json:"requested_ref"`
 		Commit string `json:"resolved_commit"`
+		// Installed is the time of the install in Unix milliseconds, 0 when herdr gives none.
+		Installed uint64 `json:"installed_unix_ms"`
 	} `json:"source"`
 }
 
@@ -151,11 +154,24 @@ func Main(ctx context.Context, args, environ []string, stdin io.Reader, stdout, 
 // plugin returns the Brain entry of `herdr plugin list`. herdr answers from its registry file
 // when no server runs, so update works outside herdr too.
 func (u *updater) plugin(ctx context.Context) (plugin, error) {
-	ctx, cancel := context.WithTimeout(ctx, listDeadline)
-	defer cancel()
-	out, err := u.output(ctx, "", u.herdr, "plugin", "list", "--json", "--plugin", pluginID)
+	p, ok, err := u.listed(ctx)
 	if err != nil {
 		return plugin{}, err
+	}
+	if !ok {
+		return plugin{}, fmt.Errorf("herdr lists no %s plugin, so there is nothing to update", pluginID)
+	}
+	if !filepath.IsAbs(p.Root) {
+		return plugin{}, fmt.Errorf("herdr plugin list: plugin root %q is not an absolute path", p.Root)
+	}
+	return p, nil
+}
+
+// listed returns the Brain entry of `herdr plugin list`; ok is false when herdr lists none.
+func (u *updater) listed(ctx context.Context) (p plugin, ok bool, err error) {
+	out, err := u.call(ctx, "plugin", "list", "--json", "--plugin", pluginID)
+	if err != nil {
+		return plugin{}, false, err
 	}
 	var r struct {
 		Result struct {
@@ -164,20 +180,16 @@ func (u *updater) plugin(ctx context.Context) (plugin, error) {
 		} `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(out), &r); err != nil {
-		return plugin{}, fmt.Errorf("herdr plugin list: %w", err)
+		return plugin{}, false, fmt.Errorf("herdr plugin list: %w", err)
 	}
 	if r.Result.Type != "plugin_list" {
-		return plugin{}, fmt.Errorf("herdr plugin list: reply type %q, want plugin_list", r.Result.Type)
+		return plugin{}, false, fmt.Errorf("herdr plugin list: reply type %q, want plugin_list", r.Result.Type)
 	}
 	i := slices.IndexFunc(r.Result.Plugins, func(p plugin) bool { return p.ID == pluginID })
 	if i < 0 {
-		return plugin{}, fmt.Errorf("herdr lists no %s plugin, so there is nothing to update", pluginID)
+		return plugin{}, false, nil
 	}
-	p := r.Result.Plugins[i]
-	if !filepath.IsAbs(p.Root) {
-		return plugin{}, fmt.Errorf("herdr plugin list: plugin root %q is not an absolute path", p.Root)
-	}
-	return p, nil
+	return r.Result.Plugins[i], true, nil
 }
 
 // state is the state of the install kind of p.
@@ -371,6 +383,13 @@ func (u *updater) run(ctx context.Context, dir string, stdin io.Reader, name str
 		return fmt.Errorf("%s %s: %w", filepath.Base(name), args[0], err)
 	}
 	return nil
+}
+
+// call runs herdr with args and the deadline herdrDeadline, and returns its stdout.
+func (u *updater) call(ctx context.Context, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, herdrDeadline)
+	defer cancel()
+	return u.output(ctx, "", u.herdr, args...)
 }
 
 // output runs name with args in dir and returns its stdout with no space at the ends.

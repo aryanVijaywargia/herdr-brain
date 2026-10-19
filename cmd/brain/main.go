@@ -81,6 +81,13 @@ var commands = map[string]func(context.Context, cli.Env, []string) error{
 	"automation": cli.Automation,
 }
 
+// herdrCommands are the commands that herdr or its build runs with the process environment.
+// post-install is hidden: only scripts/build.sh runs it (#427), so the usage does not list it.
+var herdrCommands = map[string]func(context.Context, []string, []string) error{
+	"event":        event.Main,
+	"post-install": update.PostInstall,
+}
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
@@ -111,8 +118,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = command(commands[args[0]], args[1:], in, stdout, stderr)
 	case "update":
 		err = updateMain(args[1:], stdin, stdout, stderr)
-	case "event":
-		err = event.Main(context.Background(), args[1:], os.Environ())
+	case "event", "post-install":
+		err = herdrCommands[args[0]](context.Background(), args[1:], os.Environ())
 	case "start":
 		err = start(context.Background(), osStartDeps(os.Environ()))
 	case "brained":
