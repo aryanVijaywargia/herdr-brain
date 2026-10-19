@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -37,28 +38,39 @@ const Usage = `usage: brain update [--check | --records]
 // pluginID is the id in herdr-plugin.toml.
 const pluginID = "brain"
 
-// listDeadline is the deadline of `herdr plugin list`. [NEW] 5 s, as the herdr deadline of
-// the other commands. The install, git and the build get none: a build can take minutes, and
-// the user can stop them.
-const listDeadline = 5 * time.Second
+// herdrDeadline is the deadline of one herdr call that only asks or invokes: `herdr plugin
+// list`, and the herdr calls of post-install. [NEW] 5 s, as the herdr deadline of the other
+// commands. The install, git and the build get none: a build can take minutes, and the user
+// can stop them.
+const herdrDeadline = 5 * time.Second
+
+// callWaitDelay is the part of the time of a herdr call that is kept for the kill of herdr and
+// the wait for its output pipes. [NEW] 500 ms: the kill of the process group closes them at
+// once in the usual case.
+const callWaitDelay = 500 * time.Millisecond
 
 // releaseTag is the form of a release tag, v<major>.<minor>.<patch> (scripts/check-tag.sh).
 var releaseTag = regexp.MustCompile(`^v([0-9]+)\.([0-9]+)\.([0-9]+)$`)
 
-// plugin is the Brain entry of `herdr plugin list --json` (herdr v0.9.1
+// plugin is the Brain entry of `herdr plugin list --json` (herdr v0.9.1 and v0.9.5
 // src/api/schema/plugins.rs, InstalledPluginInfo and PluginSourceInfo).
 type plugin struct {
 	ID      string `json:"plugin_id"`
 	Version string `json:"version"`
 	Root    string `json:"plugin_root"`
-	Source  struct {
-		Kind   string `json:"kind"` // "github" or "local"
-		Owner  string `json:"owner"`
-		Repo   string `json:"repo"`
-		Subdir string `json:"subdir"`
-		Ref    string `json:"requested_ref"`
-		Commit string `json:"resolved_commit"`
-	} `json:"source"`
+	Source  source `json:"source"`
+}
+
+// source is the registration of a plugin in herdr: PluginSourceInfo.
+type source struct {
+	Kind   string `json:"kind"` // "github" or "local"
+	Owner  string `json:"owner"`
+	Repo   string `json:"repo"`
+	Subdir string `json:"subdir"`
+	Ref    string `json:"requested_ref"`
+	Commit string `json:"resolved_commit"`
+	// Installed is the time of the install in Unix milliseconds, 0 when herdr gives none.
+	Installed uint64 `json:"installed_unix_ms"`
 }
 
 // Records is the hook record step of brain update (#315, §8.5): it shows the hook record
@@ -151,11 +163,24 @@ func Main(ctx context.Context, args, environ []string, stdin io.Reader, stdout, 
 // plugin returns the Brain entry of `herdr plugin list`. herdr answers from its registry file
 // when no server runs, so update works outside herdr too.
 func (u *updater) plugin(ctx context.Context) (plugin, error) {
-	ctx, cancel := context.WithTimeout(ctx, listDeadline)
-	defer cancel()
-	out, err := u.output(ctx, "", u.herdr, "plugin", "list", "--json", "--plugin", pluginID)
+	p, ok, err := u.listed(ctx)
 	if err != nil {
 		return plugin{}, err
+	}
+	if !ok {
+		return plugin{}, fmt.Errorf("herdr lists no %s plugin, so there is nothing to update", pluginID)
+	}
+	if !filepath.IsAbs(p.Root) {
+		return plugin{}, fmt.Errorf("herdr plugin list: plugin root %q is not an absolute path", p.Root)
+	}
+	return p, nil
+}
+
+// listed returns the Brain entry of `herdr plugin list`; ok is false when herdr lists none.
+func (u *updater) listed(ctx context.Context) (p plugin, ok bool, err error) {
+	out, err := u.call(ctx, "plugin", "list", "--json", "--plugin", pluginID)
+	if err != nil {
+		return plugin{}, false, err
 	}
 	var r struct {
 		Result struct {
@@ -164,20 +189,16 @@ func (u *updater) plugin(ctx context.Context) (plugin, error) {
 		} `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(out), &r); err != nil {
-		return plugin{}, fmt.Errorf("herdr plugin list: %w", err)
+		return plugin{}, false, fmt.Errorf("herdr plugin list: %w", err)
 	}
 	if r.Result.Type != "plugin_list" {
-		return plugin{}, fmt.Errorf("herdr plugin list: reply type %q, want plugin_list", r.Result.Type)
+		return plugin{}, false, fmt.Errorf("herdr plugin list: reply type %q, want plugin_list", r.Result.Type)
 	}
 	i := slices.IndexFunc(r.Result.Plugins, func(p plugin) bool { return p.ID == pluginID })
 	if i < 0 {
-		return plugin{}, fmt.Errorf("herdr lists no %s plugin, so there is nothing to update", pluginID)
+		return plugin{}, false, nil
 	}
-	p := r.Result.Plugins[i]
-	if !filepath.IsAbs(p.Root) {
-		return plugin{}, fmt.Errorf("herdr plugin list: plugin root %q is not an absolute path", p.Root)
-	}
-	return p, nil
+	return r.Result.Plugins[i], true, nil
 }
 
 // state is the state of the install kind of p.
@@ -248,11 +269,11 @@ func (u *updater) install(ctx context.Context, commit string, args ...string) er
 // with no local changes; else it stops and changes nothing.
 func (u *updater) linked(ctx context.Context, p plugin) (state, error) {
 	root := p.Root
-	installed, err := u.output(ctx, root, "git", "rev-parse", "HEAD")
+	installed, err := u.git(ctx, root, "rev-parse", "HEAD")
 	if err != nil {
 		return state{}, err
 	}
-	remote, err := u.output(ctx, root, "git", "remote", "get-url", "origin")
+	remote, err := u.git(ctx, root, "remote", "get-url", "origin")
 	if err != nil {
 		return state{}, err
 	}
@@ -261,7 +282,7 @@ func (u *updater) linked(ctx context.Context, p plugin) (state, error) {
 		return state{}, err
 	}
 	guard := func(ctx context.Context) error {
-		branch, err := u.output(ctx, root, "git", "branch", "--show-current")
+		branch, err := u.git(ctx, root, "branch", "--show-current")
 		if err != nil {
 			return err
 		}
@@ -269,7 +290,7 @@ func (u *updater) linked(ctx context.Context, p plugin) (state, error) {
 			return fmt.Errorf("the linked checkout %s is on %s, not main; brain update changes nothing", root,
 				cmp.Or(branch, "a detached HEAD"))
 		}
-		changes, err := u.output(ctx, root, "git", "status", "--porcelain")
+		changes, err := u.git(ctx, root, "status", "--porcelain")
 		if err != nil {
 			return err
 		}
@@ -291,7 +312,7 @@ func (u *updater) linked(ctx context.Context, p plugin) (state, error) {
 
 // head is the commit of the default branch (HEAD) of remote.
 func (u *updater) head(ctx context.Context, dir, remote string) (string, error) {
-	out, err := u.output(ctx, dir, "git", "ls-remote", remote, "HEAD")
+	out, err := u.git(ctx, dir, "ls-remote", remote, "HEAD")
 	if err != nil {
 		return "", err
 	}
@@ -305,7 +326,7 @@ func (u *updater) head(ctx context.Context, dir, remote string) (string, error) 
 // newestTag is the highest release tag of remote, or installed when remote has no higher one.
 // It ignores the tags that are not release tags.
 func (u *updater) newestTag(ctx context.Context, remote, installed string) (string, error) {
-	out, err := u.output(ctx, "", "git", "ls-remote", "--tags", "--refs", remote)
+	out, err := u.git(ctx, "", "ls-remote", "--tags", "--refs", remote)
 	if err != nil {
 		return "", err
 	}
@@ -373,15 +394,50 @@ func (u *updater) run(ctx context.Context, dir string, stdin io.Reader, name str
 	return nil
 }
 
-// output runs name with args in dir and returns its stdout with no space at the ends.
-func (u *updater) output(ctx context.Context, dir, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+// call runs herdr with args and returns its stdout. The call ends by herdrDeadline from now, or
+// by the deadline of ctx when that is earlier: herdr gets that time less callWaitDelay, and the
+// kill and the wait for the output pipes use the rest. herdr runs in its own process group. The
+// deadline kills the group, and after each call a second kill of the group stops the children
+// that herdr left, also after a good answer: a child that holds the output pipes would else keep
+// the call open. A process that leaves the group on purpose (setsid) is out of scope; WaitDelay
+// only closes the pipes that it holds, so the call still ends in time.
+func (u *updater) call(ctx context.Context, args ...string) (string, error) {
+	end := time.Now().Add(herdrDeadline)
+	if d, ok := ctx.Deadline(); ok && d.Before(end) {
+		end = d
+	}
+	ctx, cancel := context.WithDeadline(ctx, end.Add(-callWaitDelay))
+	defer cancel()
+	cmd := exec.CommandContext(ctx, u.herdr, args...)
+	cmd.Env = u.environ
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = callWaitDelay
+	out, err := capture(cmd)
+	if cmd.Process != nil {
+		// While a child is left in the group, the group id stays in use, so this kill reaches
+		// only that group. With no child left, it finds no group (ESRCH): the error does not count.
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	return out, err
+}
+
+// git runs git with args in dir and returns its stdout with no space at the ends.
+func (u *updater) git(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir, cmd.Env = dir, u.environ
+	return capture(cmd)
+}
+
+// capture runs cmd and returns its stdout with no space at the ends. The error has the
+// command line and the stderr of cmd.
+func capture(cmd *exec.Cmd) (string, error) {
+	name, args := filepath.Base(cmd.Args[0]), cmd.Args[1:]
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("%s %s: %s: %w", filepath.Base(name), strings.Join(args, " "), bytes.TrimSpace(stderr.Bytes()), err)
+		return "", fmt.Errorf("%s %s: %s: %w", name, strings.Join(args, " "), bytes.TrimSpace(stderr.Bytes()), err)
 	}
 	return string(bytes.TrimSpace(out)), nil
 }
