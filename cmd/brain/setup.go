@@ -523,7 +523,8 @@ func planBind(d setupDeps, sess herdr.Session, test string, p *plan, stdout io.W
 		}
 	}
 
-	p.say("- Binding: bind session %q to the %s store %s.\n  Setup writes it to %s.\n", want.Session, want.Kind, want.Store, file)
+	p.say("- Binding: bind session %q to the %s store %s.\n  Socket: %s\n  Setup writes it to %s.\n",
+		want.Session, want.Kind, want.Store, want.Socket, file)
 	showReplaced(&p.text, sess.Name, cur, dropped)
 	p.add(func() error {
 		if err := writeBinding(file, before, next, want); err != nil {
@@ -733,7 +734,7 @@ func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, tr
 // spaces before each line, so that they sit under the line of the CLI in the "Hooks" bullet.
 func planRecordsUnder(inst *install.Installer, pr *adapter.Profile, p *plan) ([]adapter.Hook, error) {
 	var sub plan
-	records, err := planRecords(inst, pr, &sub)
+	records, err := planRecords(inst, pr, &sub, setupRecordsHead)
 	if text := strings.TrimSuffix(sub.text.String(), "\n"); text != "" {
 		p.say("  %s\n", strings.ReplaceAll(text, "\n", "\n  "))
 	}
@@ -753,10 +754,18 @@ func installer(bin string) (*install.Installer, error) {
 	return &install.Installer{Home: home, Record: record, Binary: bin}, nil
 }
 
+// The heads of the hook record entries of a CLI, with its kind and its hook file: brain update
+// keeps its one line, and setup shows two short lines.
+const (
+	updateRecordsHead = "  Brain also stores hook records of %s: prompts, commands and replies. Add these entries to %s:\n"
+	setupRecordsHead  = "  Hook records of %s: Brain stores its prompts, commands and replies.\n  Add these entries to %s:\n"
+)
+
 // planRecords plans the hook record entries of p (E11-S5, §6.1), which setup adds after its
-// start entry. It plans them only when the profile turns them on, after the E11-S1 test. A
-// CLI version that no test passed does not stop them (D13). It returns the hooks to add.
-func planRecords(inst *install.Installer, p *adapter.Profile, pl *plan) ([]adapter.Hook, error) {
+// start entry, under the line head. It plans them only when the profile turns them on, after
+// the E11-S1 test. A CLI version that no test passed does not stop them (D13). It returns the
+// hooks to add.
+func planRecords(inst *install.Installer, p *adapter.Profile, pl *plan, head string) ([]adapter.Hook, error) {
 	hs := p.Hooks()[1:]
 	if len(hs) == 0 {
 		return nil, nil
@@ -781,7 +790,7 @@ func planRecords(inst *install.Installer, p *adapter.Profile, pl *plan) ([]adapt
 	if len(add) == 0 {
 		return nil, nil
 	}
-	pl.say("  Hook records of %s: Brain stores its prompts, commands and replies.\n  Add these entries to %s:\n", p.Kind, target)
+	pl.say(head, p.Kind, target)
 	for _, t := range texts {
 		pl.say("%s", t)
 	}

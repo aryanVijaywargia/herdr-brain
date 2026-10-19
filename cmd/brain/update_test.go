@@ -82,12 +82,24 @@ func TestUpdateHookRecords(t *testing.T) {
 	}
 	for _, want := range []string{"up to date\n",
 		"Hook records: the profiles of this Brain turn on hook records, and these entries are missing.\n",
-		"  Hook records of claude: Brain stores its prompts, commands and replies.\n  Add these entries to " + settings + ":\n",
+		"Brain also stores hook records of claude: prompts, commands and replies. Add these entries to " + settings + ":\n",
 		"    PostToolUseFailure: {", "Add these entries to " + codex + ":\n", "Apply all of this? [y/N] ",
 		"brain update wrote no hook record entry. To add them later, run brain update again.\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("update (no):\n%s\nwant %q", out, want)
 		}
+	}
+	// The text of brain update stays as it was before the short setup text (#430): one head line
+	// for each CLI, then its entries, and none of the setup lines.
+	for _, kind := range []string{"claude", "codex"} {
+		file := map[string]string{"claude": settings, "codex": codex}[kind]
+		head := "\n  Brain also stores hook records of " + kind + ": prompts, commands and replies. Add these entries to " + file + ":\n    "
+		if !strings.Contains(out, head) {
+			t.Errorf("update (no):\n%s\nwant the head line %q", out, head)
+		}
+	}
+	if strings.Contains(out, "Hook records of ") || strings.Contains(out, "- Hooks:") {
+		t.Errorf("update (no) shows the setup text:\n%s", out)
 	}
 	if n := strings.Count(out, "[y/N]"); n != 1 {
 		t.Errorf("update (no) asked %d questions, want 1:\n%s", n, out)

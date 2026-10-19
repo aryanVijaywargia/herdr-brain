@@ -210,7 +210,9 @@ func TestSetupOneYes(t *testing.T) {
 	if x := extractorOf(t, home); x.CLI != store.ExtractorClaude {
 		t.Errorf("extractor = %+v, want claude", x)
 	}
-	for _, want := range []string{"Step 4: plan\n", "- Binding: bind session \"default\" to the main store ", "Make the symlink ",
+	socket := filepath.Join(home, ".config", "herdr", "sessions", "default", "herdr.sock")
+	for _, want := range []string{"Step 4: plan\n", "- Binding: bind session \"default\" to the main store ",
+		"\n  Socket: " + socket + "\n", "Make the symlink ",
 		"- Hooks:\n", "  agy is not installed. Setup skips it.\n", "  claude: add this entry to the SessionStart array of ",
 		"  codex: add this entry to the SessionStart array of ", "    Add these entries to ", "brain uninstall --apply",
 		"Setup lists each hook entry it adds in " + filepath.Join(home, ".local", "share", "brain", "install.json"),
