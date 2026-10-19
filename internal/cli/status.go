@@ -761,9 +761,14 @@ func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
 		s.w.printf("  failed batches: %d; their evidence waits for a retry, or with no try left for new evidence of its session\n",
 			len(bs))
 	}
+	hint := ""
 	for _, b := range bs {
 		s.w.printf("    batch %d, session %d, workspace %s: %s, %s, %s ago\n", b.ID, b.SessionID, b.WorkspaceKey,
 			b.Status, b.Reason, age(s.Now().Sub(b.At)))
+		hint = cmp.Or(hint, extract.SignInHint(b.Reason))
+	}
+	if hint != "" {
+		s.w.printf("    fix: %s; Brain tries again later\n", hint)
 	}
 	return s.failedChanges(ctx, tx)
 }

@@ -335,7 +335,7 @@ func (p Pass) retries(b store.Batch, worked, newest time.Time) bool {
 	if spent(b) {
 		return newest.After(b.At)
 	}
-	return p.tryAgain(b.ModelCalls, b.At, worked, atLimit(b.Reason))
+	return p.tryAgain(b.ModelCalls, b.At, worked, refused(b.Reason))
 }
 
 // tryAgain reports whether a failed or invalid batch or change request with a try left gets its
@@ -343,18 +343,34 @@ func (p Pass) retries(b store.Batch, worked, newest time.Time) bool {
 // call that worked. It gets one after a later call works, or retryAfter after its own (waits).
 // The last call of a failed one, the one after maxTries, waits for a later call that works: that
 // call shows that the CLI is back, so a failure after it is its own. A last call that the CLI
-// refused at a usage or rate limit (limit, #377) used no try, and the limit is no failure of its
-// own: it gets the call again as any try does.
-func (p Pass) tryAgain(calls int, at, worked time.Time, limit bool) bool {
-	if calls >= maxTries && !limit {
+// refused before it ran a model (refused: at a usage or rate limit, #377, or with no sign-in,
+// #428) used no try, and that is no failure of its own: it gets the call again as any try does.
+func (p Pass) tryAgain(calls int, at, worked time.Time, refused bool) bool {
+	if calls >= maxTries && !refused {
 		return worked.After(at)
 	}
 	return !p.waits(at, worked)
 }
 
-// atLimit reports whether reason, the stored reason of a failed batch or change request, says
-// that the CLI refused its last call at a usage or rate limit (ErrLimit).
-func atLimit(reason string) bool { return strings.HasSuffix(reason, ErrLimit.Error()) }
+// refused reports whether reason, the stored reason of a failed batch or change request, says
+// that the CLI refused its last call before it ran a model: at a usage or rate limit (ErrLimit)
+// or with no sign-in (ErrSignIn, #428).
+func refused(reason string) bool {
+	return strings.HasSuffix(reason, ErrLimit.Error()) || strings.HasSuffix(reason, ErrSignIn.Error())
+}
+
+// SignInHint returns what to do about a failed call whose stored reason is reason, when the
+// extractor CLI could not sign in (ErrSignIn, #428); "" for any other reason. The reason starts
+// with the name of the CLI (failure).
+func SignInHint(reason string) string {
+	switch {
+	case !strings.HasSuffix(reason, ErrSignIn.Error()):
+		return ""
+	case strings.HasPrefix(reason, string(store.ExtractorCodex)):
+		return "sign in again: run codex login, or set OPENAI_API_KEY in the herdr server env"
+	}
+	return "sign in again: run claude, then /login, or set ANTHROPIC_API_KEY in the herdr server env"
+}
 
 // allowed reports whether batch j may call the extractor: extraction is on for its workspace
 // key, a CLI is chosen, and learning is on for its session, key and pane (§7.3).
@@ -534,7 +550,7 @@ func (p Pass) commit(ctx context.Context, j job, id int64, claims []Claim, dropp
 			if _, err := store.EndBatch(ctx, tx, id, status, callErr.Error(), now); err != nil {
 				return err
 			}
-			if errors.Is(callErr, ErrLimit) {
+			if uncounted(callErr) {
 				return store.UncountBatchCall(ctx, tx, id)
 			}
 			return nil

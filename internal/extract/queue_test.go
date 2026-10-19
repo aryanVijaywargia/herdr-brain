@@ -227,8 +227,9 @@ func TestNoChosenCLI(t *testing.T) {
 	}
 }
 
-// AC S15: a signed-out extractor CLI fails. The signals wait with the stored reason, and the
-// next pass within the retry wait makes no call.
+// AC S15 and #428: a signed-out extractor CLI fails. The signals wait with the stored reason,
+// which says why, and the next pass within the retry wait makes no call. The call ran no model,
+// so it uses no try.
 func TestSignedOutCLI(t *testing.T) {
 	f := newFixture(t)
 	sid, _ := f.session("a", true, line{"ws-A", pnpm, t0})
@@ -240,9 +241,12 @@ func TestSignedOutCLI(t *testing.T) {
 	if f.cli.calls() != 1 || f.watermark(sid, "ws-A") != 0 {
 		t.Fatalf("calls %d, watermark %d, want 1 call and no watermark", f.cli.calls(), f.watermark(sid, "ws-A"))
 	}
-	want := "the last claude call failed: claude reported an error"
-	if ws := f.waiting(); len(ws) != 1 || ws[0].Why != want || ws[0].Failed != "claude reported an error" {
-		t.Errorf("waiting = %+v, want %q", ws, want)
+	reason := "claude: Not logged in. Please run /login: sign-in failed"
+	if ws := f.waiting(); len(ws) != 1 || ws[0].Why != "the last claude call failed: "+reason || ws[0].Failed != reason {
+		t.Errorf("waiting = %+v, want %q", ws, reason)
+	}
+	if b := f.batches()[0]; b.ModelCalls != 0 {
+		t.Errorf("model calls = %d, want 0: a sign-in failure uses no try", b.ModelCalls)
 	}
 	f.cli.reply = func(context.Context, string) ([]byte, error) { return nil, errors.New("claude: exit status 1") }
 	f.now = f.now.Add(retryAfter)

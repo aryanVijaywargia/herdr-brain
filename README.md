@@ -101,7 +101,7 @@ If something doesn't work, run `brain doctor`. It checks the setup and prints a 
 
 **Where is my data?** On your machine, in `~/.local/share/brain`. Brain has no cloud service and no account.
 
-**What leaves my machine?** Two things. If you chose a learning CLI in setup, Brain sends it short excerpts of your sessions, each at most 500 characters and run through a filter that replaces secrets such as passwords and tokens. A command that could become a tool goes whole, up to 4 KB. That CLI sends the excerpts to its model provider. Also, the approved items that a session gets at start are part of that agent's context, so the agent can send them to its own provider like any other text it reads.
+**What leaves my machine?** Two things. If you chose a learning CLI in setup, Brain sends it short excerpts of your sessions, each at most 500 characters and run through a filter that replaces secrets such as passwords and tokens. A command that could become a tool goes whole, up to 4 KB. That CLI sends the excerpts to its model provider, or to the proxy or gateway that you set for it, such as `ANTHROPIC_BASE_URL`. It signs in with its own stored sign-in, or with the API key or token in the env of the herdr server. Brain only passes them on: it never shows, logs or stores them. Also, the approved items that a session gets at start are part of that agent's context, so the agent can send them to its own provider like any other text it reads.
 
 **What does Brain change on my machine?** Outside its own folders, it touches the hook files of your agent CLIs, such as `~/.claude/settings.json` and `~/.codex/hooks.json`, and the optional `~/.local/bin/brain` link. It adds its hook entries only after you say yes, and it removes only its own entries.
 

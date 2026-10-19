@@ -88,7 +88,7 @@ func (p Pass) Merge(ctx context.Context, part MergePart) error {
 	}
 	if err != nil {
 		return errors.Join(err, p.Store.Write(ctx, func(tx *sql.Tx) error {
-			if errors.Is(err, ErrLimit) {
+			if uncounted(err) {
 				if err := store.UncountMergeCall(ctx, tx, callID); err != nil {
 					return err
 				}

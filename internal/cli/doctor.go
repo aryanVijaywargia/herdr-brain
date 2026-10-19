@@ -496,11 +496,15 @@ func (d *doctorCall) extraction(ctx context.Context) error {
 		d.fail("extraction: signals wait, and no extractor CLI is chosen; fix: brain setup")
 	}
 	for _, w := range ws {
-		if w.Failed != "" {
-			d.fail("extraction: the last extractor call for workspace %s failed (%s), so its signals wait; "+
-				"fix: run %s in a terminal and check that it works and is signed in; Brain tries again later",
-				w.WorkspaceKey, w.Failed, cli)
+		if w.Failed == "" {
+			continue
 		}
+		fix := extract.SignInHint(w.Failed)
+		if fix == "" {
+			fix = fmt.Sprintf("run %s in a terminal and check that it works and is signed in", cli)
+		}
+		d.fail("extraction: the last extractor call for workspace %s failed (%s), so its signals wait; fix: %s; "+
+			"Brain tries again later", w.WorkspaceKey, w.Failed, fix)
 	}
 	return nil
 }

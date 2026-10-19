@@ -515,9 +515,12 @@ func TestProposal(t *testing.T) {
 	}
 }
 
-// The claude call has the E13-S1 argv and a clean environment.
+// The claude call has the E13-S1 argv and a clean environment: the sign-in variables of claude
+// pass (#428), and no HERDR_*, other CLAUDE_CODE_* or codex variable does.
 func TestClaudeCall(t *testing.T) {
 	t.Setenv("HERDR_SESSION", "x")
+	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+	t.Setenv("OPENAI_API_KEY", "x")
 	t.Setenv("ANTHROPIC_API_KEY", "x")
 	f := newFixture(t)
 	f.session("a", true, line{"ws-A", pnpm, t0})
@@ -526,10 +529,15 @@ func TestClaudeCall(t *testing.T) {
 	if c.Argv[0] != "claude" || !slices.Contains(c.Argv, "--no-session-persistence") || c.Dir == "" {
 		t.Errorf("argv %q in %q", c.Argv, c.Dir)
 	}
+	// The messages name a variable, never its value: the test environment can hold a real one.
 	for _, e := range c.Env {
-		if strings.HasPrefix(e, "HERDR_") || strings.HasPrefix(e, "ANTHROPIC_") {
-			t.Errorf("env has %s", e)
+		if name, _, _ := strings.Cut(e, "="); strings.HasPrefix(name, "HERDR_") || strings.HasPrefix(name, "CLAUDE_CODE_") ||
+			strings.HasPrefix(name, "OPENAI_") {
+			t.Errorf("env has %s", name)
 		}
+	}
+	if !slices.Contains(c.Env, "ANTHROPIC_API_KEY=x") {
+		t.Errorf("env has no ANTHROPIC_API_KEY=x")
 	}
 }
 
@@ -561,11 +569,11 @@ func TestCheck(t *testing.T) {
 func TestCodexResult(t *testing.T) {
 	dir := t.TempDir()
 	last := dir + "/last.json"
-	if _, err := codexResult([]byte(`{"type":"item.completed","item":{"type":"agent_message"}}`), last); err == nil ||
+	if _, err := codexResult([]byte(`{"type":"item.completed","item":{"type":"agent_message"}}`), nil, last); err == nil ||
 		errors.Is(err, ErrInvalid) {
 		t.Errorf("no last file: %v, want a failure", err)
 	}
-	if _, err := codexResult([]byte(`{"type":"item.started","item":{"type":"command_execution"}}`), last); !errors.Is(err, ErrInvalid) {
+	if _, err := codexResult([]byte(`{"type":"item.started","item":{"type":"command_execution"}}`), nil, last); !errors.Is(err, ErrInvalid) {
 		t.Errorf("tool item: %v, want ErrInvalid", err)
 	}
 	servers, err := enabledServers([]byte(`[{"name":"a"},{"name":"b","enabled":false},{"name":"c","enabled":true}]`))

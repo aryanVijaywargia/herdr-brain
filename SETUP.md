@@ -120,6 +120,7 @@ If it fails:
 - herdr older than 0.9.1: setup stops and prints the version. Update herdr.
 - `Setup wrote nothing.`: the answer was not y. Run setup again when the user wants to apply.
 - `<cli> is not on PATH`: each extractor call fails until that CLI is on `PATH`. `brain doctor` says why.
+- The extractor CLI fails to sign in: `brain status` and `brain doctor` show its error and say how to sign in again. The call sees the stored sign-in of the CLI, and only these variables of the herdr server env: `HOME`, `PATH`, `USER`, `TMPDIR`, the proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`, in either case), the CA bundle variables (`SSL_CERT_FILE`, `SSL_CERT_DIR`, `NODE_EXTRA_CA_CERTS`), and the Amazon Bedrock variables (`AWS_REGION`, `AWS_PROFILE`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`). claude also gets `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `ANTHROPIC_VERTEX_PROJECT_ID`, `CLOUD_ML_REGION` and `GOOGLE_APPLICATION_CREDENTIALS`. codex also gets `OPENAI_API_KEY`, `CODEX_API_KEY`, `CODEX_ACCESS_TOKEN`, `OPENAI_BASE_URL`, `CODEX_HOME` and `CODEX_CA_CERTIFICATE`. Brain only passes them on: it never shows, logs or stores their values. The call loads no settings file of the CLI, so a variable in the `env` block of `~/.claude/settings.json` does not reach it: set it in the herdr server env.
 - The plan says `~/.local/bin/brain` exists and points elsewhere, or is broken: Brain does not change it. Use the binary path that setup prints.
 
 Brain needs `~/.local/bin` on `PATH` to run as `brain`. Setup never edits the shell config. If the folder is not on `PATH`, tell the user and use the full binary path.
@@ -190,7 +191,7 @@ The next Claude Code or Codex session in that workspace gets the item at start. 
 | `hook records off for <cli>` | A newer Brain has hook record entries that are missing | `brain update` |
 | `hook not trusted or not firing: <n> live agent(s) with no Brain receipt` | A session started before setup, or the hook does not run | Start a new session. If it gets no receipt either, the CLI sandbox may block the herdr socket. |
 | `extraction: signals wait, and no extractor CLI is chosen` | No extractor | `brain setup --extractor` |
-| `extraction: the last extractor call for workspace <key> failed` | The extractor CLI fails | Run that CLI in a terminal and check that it works and is signed in. Brain tries again later. |
+| `extraction: the last extractor call for workspace <key> failed` | The extractor CLI fails. The reason in parentheses is the error of the CLI. | Do what the fix says. For a sign-in failure: run `claude`, then `/login` (or `codex login`), or set `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) in the herdr server env. Else run that CLI in a terminal and check that it works. Brain tries again later. |
 | `extraction: ..., so Brain makes no extractor call` | A bad `[gates]` or `[caps]` key in the Brain config | Correct or remove the `[gates]` and `[caps]` keys |
 | `fix: brain repair --confirm deletes them` | Output conflicts | `brain repair` lists them. `brain repair --confirm` deletes them. |
 
