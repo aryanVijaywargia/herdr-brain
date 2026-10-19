@@ -11,14 +11,17 @@ import (
 // minVersion is the oldest herdr that Brain supports (D6).
 const minVersion = "0.9.1"
 
-// tested reports whether herdr v passed the conformance test and the eval delivery and
-// exclusion stages (D6). Add a release to the list only after those pass.
-func tested(v string) bool {
-	return slices.Contains([]string{
+// TestedVersions returns the herdr releases that passed the conformance test and the eval
+// delivery and exclusion stages (D6). Add a release to the list only after those pass.
+func TestedVersions() []string {
+	return []string{
 		"0.9.1",
 		"0.9.3", // #256, PR #297
-	}, v)
+	}
 }
+
+// tested reports whether herdr v is one of the TestedVersions.
+func tested(v string) bool { return slices.Contains(TestedVersions(), v) }
 
 var versionRe = regexp.MustCompile(`^([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`)
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
+	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
@@ -149,7 +150,8 @@ func TestSetupTwice(t *testing.T) {
 			t.Errorf("%s has no Brain hook entry:\n%s", f, b)
 		}
 	}
-	for _, want := range []string{"herdr 0.9.1: OK", "brain uninstall --apply", "Press t to trust it", "First use:", "brain status"} {
+	for _, want := range []string{"- Session \"default\" runs herdr 0.9.1.\n", "- Brain is tested with this version. OK.\n",
+		"brain uninstall --apply", "press t on the Brain hook", "\nFirst use\n", "brain status"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not contain %q:\n%s", want, out)
 		}
@@ -208,11 +210,14 @@ func TestSetupOneYes(t *testing.T) {
 	if x := extractorOf(t, home); x.CLI != store.ExtractorClaude {
 		t.Errorf("extractor = %+v, want claude", x)
 	}
-	for _, want := range []string{"Step 3: the changes.", "- Binding: write ", "Make the symlink ",
-		"Add this entry to the SessionStart array of ", "Add these entries to ", "brain uninstall --apply",
-		"Brain records each hook entry it adds in " + filepath.Join(home, ".local", "share", "brain", "install.json"),
+	socket := filepath.Join(home, ".config", "herdr", "sessions", "default", "herdr.sock")
+	for _, want := range []string{"Step 4: plan\n", "- Binding: bind session \"default\" to the main store ",
+		"\n  Socket: " + socket + "\n", "Make the symlink ",
+		"- Hooks:\n", "  agy is not installed. Setup skips it.\n", "  claude: add this entry to the SessionStart array of ",
+		"  codex: add this entry to the SessionStart array of ", "    Add these entries to ", "brain uninstall --apply",
+		"Setup lists each hook entry it adds in " + filepath.Join(home, ".local", "share", "brain", "install.json"),
 		"- Extractor: record claude", "Bound session", "Linked ", "Added the Brain hook for codex",
-		"Added the hook record entries for claude", "Step 4: trust the hook in Codex."} {
+		"Added the hook record entries for claude", "Step 5: trust the Codex hook\n", "every other new or changed hook"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not contain %q:\n%s", want, out)
 		}
@@ -281,7 +286,7 @@ func TestSetupKeepsEditedEntry(t *testing.T) {
 		t.Errorf("setup did not apply its plan: no link: %v\n%s", err, out)
 	}
 	if !strings.Contains(out, file+" holds a Brain hook entry for codex that you edited. Brain keeps it.") ||
-		strings.Contains(out, "Add this entry to the SessionStart array of "+file) {
+		strings.Contains(out, "add this entry to the SessionStart array of "+file) {
 		t.Errorf("the plan does not keep the edited entry:\n%s", out)
 	}
 	if now := mustRead(t, file); !bytes.Equal(now, edited) {
@@ -315,6 +320,25 @@ func TestSetupS81(t *testing.T) {
 	input := `{"session_id":"s1","cwd":"/tmp","hook_event_name":"SessionStart","source":"startup"}`
 	if code := run([]string{"hook", "--profile", "claude", "--event", "start"}, strings.NewReader(input), &hookOut, &hookErr); code != 0 || hookOut.Len() != 0 {
 		t.Errorf("hook = %d, stdout %q, want 0 and nothing", code, hookOut.String())
+	}
+}
+
+// S54: a herdr version that is not tested shows the tested versions and the warning, and
+// setup goes on.
+func TestSetupUntestedHerdr(t *testing.T) {
+	// 0.9.2 came before a tested release, so it stays untested.
+	setupHome(t, "0.9.2")
+	code, out, errOut := runSetup(t, "\nn\nn\n")
+	if code != 0 {
+		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
+	}
+	tested := strings.Join(herdr.TestedVersions(), ", ")
+	for _, want := range []string{"Step 1: herdr version\n- Session \"default\" runs herdr 0.9.2.\n",
+		"- 0.9.2 is not one of the tested versions: " + tested + ".\n", "- Brain works. brain status shows a warning.\n",
+		"Apply all of this? [y/N] "} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output does not contain %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -434,7 +458,7 @@ func TestSetupSkipsMissingCLI(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 	}
-	if !strings.Contains(out, "codex is not installed") || strings.Contains(out, "Press t to trust it") {
+	if !strings.Contains(out, "codex is not installed") || strings.Contains(out, "press t on the Brain hook") {
 		t.Errorf("output:\n%s", out)
 	}
 	if after := mustRead(t, filepath.Join(home, ".codex", "hooks.json")); !bytes.Equal(before, after) {
@@ -513,5 +537,63 @@ func TestSetupOverlap(t *testing.T) {
 	}
 	if bs := readBindings(t, home); len(bs) != 2 {
 		t.Errorf("bindings = %+v, want 2", bs)
+	}
+}
+
+// bullets returns the count of bullet lines in out between the line start and the line end,
+// and that text.
+func bullets(out, start, end string) (int, string) {
+	_, text, _ := strings.Cut(out, start)
+	text, _, _ = strings.Cut(text, end)
+	return strings.Count("\n"+text, "\n- "), text
+}
+
+// The plan has at most 5 bullets with every CLI installed: the binding and link, the hooks,
+// the install record and the undo, and the extractor and history scan. Each hook entry still
+// shows in full.
+func TestSetupPlanBullets(t *testing.T) {
+	home := setupHome(t, "0.9.1")
+	if err := os.WriteFile(filepath.Join(home, "path", "agy"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := runSetup(t, "claude\n\ny\nn\n")
+	if code != 0 {
+		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
+	}
+	if n, text := bullets(out, "Step 4: plan\n", "Apply all of this?"); n > 5 {
+		t.Errorf("the plan has %d bullets, want 5 or fewer:\n%s", n, text)
+	}
+	for _, kind := range []string{"agy", "claude", "codex"} {
+		if want := " hook --profile " + kind + " --event start"; !strings.Contains(out, "  "+kind+": add this entry to the ") ||
+			!strings.Contains(out, want) {
+			t.Errorf("the plan does not show the %s hook entry %q:\n%s", kind, want, out)
+		}
+	}
+}
+
+// An unknown extractor answer and a CLI that is not on PATH are plain lines, so step 2 keeps
+// its 5 bullets.
+func TestSetupExtractorAnswerLines(t *testing.T) {
+	for name, c := range map[string]struct {
+		answers, missing, line string
+	}{
+		"unknown":     {"gemini\n\nn\n", "", "\nUnknown answer \"gemini\". The extractor choice does not change."},
+		"not on PATH": {"codex\n\nn\nn\n", "codex", "\ncodex is not on PATH. Each extractor call fails until it is."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := setupHome(t, "0.9.1")
+			if c.missing != "" {
+				if err := os.Remove(filepath.Join(home, "path", c.missing)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			code, out, errOut := runSetup(t, c.answers)
+			if code != 0 || !strings.Contains(out, c.line) {
+				t.Fatalf("setup = %d, want the line %q: %s\n%s", code, c.line, errOut, out)
+			}
+			if n, text := bullets(out, "Step 2: extractor CLI\n", "\nStep 3: "); n > 5 {
+				t.Errorf("step 2 has %d bullets, want 5 or fewer:\n%s", n, text)
+			}
+		})
 	}
 }

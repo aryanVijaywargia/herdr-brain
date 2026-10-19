@@ -39,9 +39,10 @@ func TestSetupScanYes(t *testing.T) {
 	if extractor < 0 || question < extractor {
 		t.Errorf("setup did not ask the history question after the extractor choice:\n%s", out)
 	}
-	for _, want := range []string{"~/.claude and ~/.codex", "It keeps short excerpts", "token counts",
-		"It keeps no whole transcript", "Only the excerpts of extractor calls leave this machine",
-		"- History scan: record your yes in the store " + mainStoreOf(home),
+	for _, want := range []string{"Step 3: past sessions\n", "~/.claude and ~/.codex", "newest 300 files of the last 30 days",
+		"It keeps short excerpts", "token counts", "secret filter", "no whole transcript and no file path",
+		"Only extractor calls send excerpts off this machine", "brain forget --session <id>",
+		"  History scan: record your yes in the store " + mainStoreOf(home),
 		"History scan: brained reads your past sessions at its next tick."} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not contain %q:\n%s", want, out)
@@ -60,7 +61,7 @@ func TestSetupScanYes(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("setup %v = %d: %s\n%s", args, code, errOut, out)
 		}
-		if strings.Contains(out, scanQuestion) || !strings.Contains(out, "- History scan: you said yes on ") {
+		if strings.Contains(out, scanQuestion) || !strings.Contains(out, "  History scan: you said yes on ") {
 			t.Errorf("setup %v asked the history question, or did not show the state:\n%s", args, out)
 		}
 	}
@@ -79,7 +80,7 @@ func TestSetupScanYes(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, out, errOut = runSetup(t, "")
-	want := "- History scan: done on " + finished.Local().Format(time.DateOnly) + "."
+	want := "  History scan: done on " + finished.Local().Format(time.DateOnly) + "."
 	if code != 0 || strings.Contains(out, "[y/N]") || !strings.Contains(out, want) {
 		t.Errorf("setup after a done scan = %d, want no question and %q: %s\n%s", code, want, errOut, out)
 	}
@@ -91,8 +92,8 @@ func TestSetupScanNo(t *testing.T) {
 	for name, c := range map[string]struct {
 		answers, line string
 	}{
-		"no to the question": {"\nn\ny\n", "- History scan: not now. The next brain setup asks again."},
-		"no to the plan":     {"\ny\nn\n", "- History scan: record your yes"},
+		"no to the question": {"\nn\ny\n", "  History scan: not now. The next brain setup asks again."},
+		"no to the plan":     {"\ny\nn\n", "  History scan: record your yes"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := setupHome(t, "0.9.1")

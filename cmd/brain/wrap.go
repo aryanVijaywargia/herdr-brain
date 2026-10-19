@@ -26,7 +26,8 @@ func termWidth(w io.Writer) int {
 
 // wrapWriter breaks the lines that it writes to w at word ends, so that no line is wider than
 // width columns (#255). A pane breaks a long line at its edge, in the middle of a word. A
-// continuation line keeps the indent of its line when the word fits with it. A double-quoted
+// continuation line keeps the indent of its line when the word fits with it; for a bullet
+// line, which starts with "- ", the indent goes on to the text after the dash. A double-quoted
 // string is one word, so a hook entry that setup shows stays valid JSON. A word wider than
 // width stays whole on its own line. Each Write must end at a word end, as each fmt.Fprint
 // call of setup does.
@@ -78,6 +79,9 @@ func (x *wrapWriter) Write(p []byte) (int, error) {
 			b.WriteString(strings.Repeat(" ", x.spaces))
 			b.WriteString(word)
 			x.col += x.spaces + wide
+			if x.start && word == "-" {
+				x.indent = x.col + 1
+			}
 			x.spaces, x.start = 0, false
 			s = s[n:]
 		}

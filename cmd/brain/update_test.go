@@ -89,6 +89,18 @@ func TestUpdateHookRecords(t *testing.T) {
 			t.Errorf("update (no):\n%s\nwant %q", out, want)
 		}
 	}
+	// The text of brain update stays as it was before the short setup text (#430): one head line
+	// for each CLI, then its entries, and none of the setup lines.
+	for _, kind := range []string{"claude", "codex"} {
+		file := map[string]string{"claude": settings, "codex": codex}[kind]
+		head := "\n  Brain also stores hook records of " + kind + ": prompts, commands and replies. Add these entries to " + file + ":\n    "
+		if !strings.Contains(out, head) {
+			t.Errorf("update (no):\n%s\nwant the head line %q", out, head)
+		}
+	}
+	if strings.Contains(out, "Hook records of ") || strings.Contains(out, "- Hooks:") {
+		t.Errorf("update (no) shows the setup text:\n%s", out)
+	}
 	if n := strings.Count(out, "[y/N]"); n != 1 {
 		t.Errorf("update (no) asked %d questions, want 1:\n%s", n, out)
 	}

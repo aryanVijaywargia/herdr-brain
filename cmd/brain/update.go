@@ -41,7 +41,7 @@ func updateRecords(d setupDeps, in *bufio.Reader, stdout io.Writer) error {
 		if st != install.Present {
 			continue
 		}
-		records, err := planRecords(inst, pr, &p)
+		records, err := planRecords(inst, pr, &p, updateRecordsHead)
 		if err != nil {
 			return err
 		}
