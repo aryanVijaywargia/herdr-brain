@@ -214,10 +214,17 @@ func TestSetupOneYes(t *testing.T) {
 		"Add this entry to the SessionStart array of ", "Add these entries to ", "brain uninstall --apply",
 		"Setup lists each hook entry it adds in " + filepath.Join(home, ".local", "share", "brain", "install.json"),
 		"- Extractor: record claude", "Bound session", "Linked ", "Added the Brain hook for codex",
-		"Added the hook record entries for claude", "Step 5: trust the Codex hook\n"} {
+		"Added the hook record entries for claude", "Step 5: trust the Codex hook\n", "every other new or changed hook"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not contain %q:\n%s", want, out)
 		}
+	}
+	// The plan groups its lines: the binding and link, the hooks of each CLI, the install record
+	// and the undo, and the extractor and history scan.
+	_, planText, _ := strings.Cut(out, "Step 4: plan\n")
+	planText, _, _ = strings.Cut(planText, "Apply all of this?")
+	if n := strings.Count("\n"+planText, "\n- "); n > 5 {
+		t.Errorf("the plan has %d bullets, want 5 or fewer:\n%s", n, planText)
 	}
 
 	before := snapshot(t, home)
@@ -534,5 +541,23 @@ func TestSetupOverlap(t *testing.T) {
 	}
 	if bs := readBindings(t, home); len(bs) != 2 {
 		t.Errorf("bindings = %+v, want 2", bs)
+	}
+}
+
+// A CLI that is not installed is a line under the hook bullet before it. With no CLI installed,
+// the first of those lines is the bullet.
+func TestSaySkipped(t *testing.T) {
+	for _, c := range []struct {
+		none bool
+		want string
+	}{
+		{false, "  agy is not installed. Setup skips it.\n  codex is not installed. Setup skips it.\n"},
+		{true, "- agy is not installed. Setup skips it.\n  codex is not installed. Setup skips it.\n"},
+	} {
+		var p plan
+		saySkipped(&p, []string{"agy", "codex"}, c.none)
+		if got := p.text.String(); got != c.want {
+			t.Errorf("saySkipped(none=%t) = %q, want %q", c.none, got, c.want)
+		}
 	}
 }

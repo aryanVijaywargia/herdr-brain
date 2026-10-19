@@ -42,18 +42,19 @@ const setupBusyTimeout = 5 * time.Second
 // codexTrust are the trust steps of the M0 test "E8-S3: trust check", for a profile
 // with hook_trust "codex". Setup shows them under the step title "trust the Codex hook".
 const codexTrust = `- Start codex. Choose "Review hooks", then press t on the Brain hook.
-- "Trust all and continue" also trusts every other new hook.
+- "Trust all and continue" also trusts every other new or changed hook.
 - Do not choose "Continue without trusting": Brain then gets no context.
 - codex exec skips an untrusted hook with no warning. To check: brain doctor
 - Trust again after a new or changed Brain hook entry: /hooks in Codex, then t.
 `
 
 // locality says where the excerpts of an extractor call go (§7.3 D9, D4).
-const locality = `- Brain learns from your finished sessions with claude -p or codex exec.
-- Each call has no tools. It sends short excerpts, after the secret filter.
-- The excerpts go to the provider of that CLI, with the CLI's own sign-in.
-- Brain never reads the CLI's tokens, and never picks the CLI by itself.
-- Extraction is on after setup. To stop it: brain extract off [--workspace <id>]
+const locality = `- Brain calls claude -p or codex exec, with no tools, to learn from finished sessions.
+- Each call sends short excerpts, after the secret filter, to the provider of that CLI.
+- The CLI uses its own sign-in. Brain never reads its tokens or picks the CLI itself.
+- Extraction is on by default. An off switch that you set stays off.
+- To stop the calls: brain extract off [--workspace <id>]
+  Capture and the signal rules keep running.
 `
 
 // historyScan says what the history scan reads, what it keeps and what leaves the machine
@@ -291,6 +292,7 @@ func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, p
 	default:
 		fmt.Fprintf(stdout, "- Unknown answer %q. The extractor choice does not change.\n"+
 			"- To choose one later: brain setup --extractor\n", answer)
+		p.say("- Extractor: no change. To choose one: brain setup --extractor\n")
 		return nil
 	}
 	if _, err := d.lookPath(string(cli)); err != nil {
@@ -373,10 +375,11 @@ func readExtractor(ctx context.Context, dir string) (store.ExtractorSetting, err
 }
 
 // askScan asks whether Brain may read your past Claude and Codex sessions once, for the main
-// store in folder dir (§6.8), as the next step of st, and adds the answer to p as one line. A
-// yes adds the write of the pending scan row; setup itself reads no transcript. A "no" writes
-// nothing, so the next setup asks again (S85). A store with a scan row shows its state and asks nothing. A test binding
-// (test is its folder) never gets the question, so evals never read your history (S87).
+// store in folder dir (§6.8), as the next step of st. It adds the answer to p as one line under
+// the extractor bullet. A yes adds the write of the pending scan row; setup itself reads no
+// transcript. A "no" writes nothing, so the next setup asks again (S85). A store with a scan
+// row shows its state and asks nothing. A test binding (test is its folder) never gets the
+// question, so evals never read your history (S87).
 func askScan(ctx context.Context, d setupDeps, dir, test string, st *stepper, p *plan, in *bufio.Reader, stdout io.Writer) error {
 	if test != "" {
 		return nil
@@ -386,7 +389,7 @@ func askScan(ctx context.Context, d setupDeps, dir, test string, st *stepper, p 
 		return err
 	}
 	if ok {
-		p.say("- %s\n", cli.ScanState(sc))
+		p.say("  %s\n", cli.ScanState(sc))
 		return nil
 	}
 	st.next("past sessions")
@@ -396,10 +399,10 @@ func askScan(ctx context.Context, d setupDeps, dir, test string, st *stepper, p 
 		return err
 	}
 	if !yes {
-		p.say("- History scan: not now. The next brain setup asks again.\n")
+		p.say("  History scan: not now. The next brain setup asks again.\n")
 		return nil
 	}
-	p.say("- History scan: record your yes in the store %s.\n  brained reads your past sessions once, after setup.\n", dir)
+	p.say("  History scan: record your yes in the store %s.\n  brained reads your past sessions once, after setup.\n", dir)
 	p.add(func() error {
 		if err := writeScan(ctx, dir, d.now()); err != nil {
 			return err
@@ -684,10 +687,11 @@ func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, tr
 		return false, false, err
 	}
 	var hooked bool
+	var skipped []string
 	for _, pr := range ps {
 		kind := pr.Kind
 		if _, err := d.lookPath(kind); err != nil {
-			p.say("- %s is not installed. Setup skips it.\n", kind)
+			skipped = append(skipped, kind)
 			continue
 		}
 		e, st, err := inst.WouldInstall(pr)
@@ -717,12 +721,26 @@ func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, tr
 			p.add(func() error { return applyHooks(inst, pr, e.Target, start, records, d.now(), stdout) })
 		}
 	}
+	saySkipped(p, skipped, len(skipped) == len(ps))
 	if hooked {
 		p.say("- Setup lists each hook entry it adds in %s.\n  It saves a copy of each hook file before the first change.\n", inst.Record)
-		p.say("- To remove the hook entries later: brain uninstall, then brain uninstall --apply\n" +
+		p.say("  To remove the hook entries later: brain uninstall, then brain uninstall --apply\n" +
 			"  The first command is a dry run. Brain removes only its own entries.\n")
 	}
 	return trustNow, trustAdded, nil
+}
+
+// saySkipped shows the CLIs that are not installed as lines under the hook bullet before them,
+// so that the plan keeps few bullets. With no hook bullet (none is installed), the first line
+// is a bullet.
+func saySkipped(p *plan, skipped []string, none bool) {
+	for i, kind := range skipped {
+		lead := "  "
+		if i == 0 && none {
+			lead = "- "
+		}
+		p.say("%s%s is not installed. Setup skips it.\n", lead, kind)
+	}
 }
 
 // installer is the hook installer of the user's home and install record, for binary bin.
@@ -803,10 +821,10 @@ func applyHooks(inst *install.Installer, p *adapter.Profile, target string, star
 	return nil
 }
 
-// planLink shows the binary path and plans the link -> bin.
+// planLink shows the binary path and plans the link -> bin, as lines under the binding bullet.
 // It never replaces a file that it did not make (D3).
 func planLink(bin, link string, p *plan, stdout io.Writer) error {
-	p.say("- Brain binary: %s\n", bin)
+	p.say("  Brain binary: %s\n", bin)
 	target, err := filepath.EvalSymlinks(link)
 	switch {
 	case err == nil && target == bin:

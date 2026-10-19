@@ -45,8 +45,9 @@ func TestSetupExtractor(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 	}
-	for _, want := range []string{"Step 2: extractor CLI\n", "sends short excerpts, after the secret filter",
-		"go to the provider of that CLI", "brain extract off [--workspace <id>]", "Which model? [the default model of the CLI] ",
+	for _, want := range []string{"Step 2: extractor CLI\n", "with no tools", "sends short excerpts, after the secret filter",
+		"to the provider of that CLI", "Brain never reads its tokens", "Extraction is on by default. An off switch that you set stays off.",
+		"brain extract off [--workspace <id>]\n  Capture and the signal rules keep running.", "Which model? [the default model of the CLI] ",
 		"Extractor: claude, sonnet.", "Step 5: trust the Codex hook\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not contain %q:\n%s", want, out)
