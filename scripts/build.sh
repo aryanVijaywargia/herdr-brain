@@ -28,13 +28,14 @@ die() {
 
 # auto_start runs at the end of a good build (E19-S3, #427): herdr runs [[startup]] only after
 # a session restore, so after an install nothing would start brained or setup. The new
-# bin/brain post-install reads the Brain entry of `herdr plugin list --json` before the install,
-# then a detached child of it waits up to 60 s for herdr to list a GitHub install of this HEAD
-# with a later install time, and invokes brain.start in each running herdr session. It uses no
-# herdr folder layout (internal/update/postinstall.go). herdr gives a build no HERDR_ variable
-# (herdr plugin docs), so with HERDR_ENV set this is a build by hand in a herdr pane, and it
-# starts nothing. Each herdr call has a 5 s deadline. The child gets /dev/null for stdin, stdout
-# and stderr: herdr reads the build output until EOF. BRAIN_NO_AUTO_SETUP=1 turns it off.
+# bin/brain post-install writes a random nonce to bin/.install-nonce. Then a detached child of
+# it waits up to 60 s for `herdr plugin list --json` to list a GitHub install of this HEAD whose
+# plugin root holds that nonce, and invokes brain.start in each running herdr session. It uses
+# no herdr folder layout (internal/update/postinstall.go). herdr gives a build no HERDR_
+# variable (herdr plugin docs), so with HERDR_ENV set this is a build by hand in a herdr pane,
+# and it starts nothing. One 60 s deadline covers all herdr calls, and each herdr call also
+# has a 5 s deadline. The child gets /dev/null for stdin, stdout and stderr: herdr reads the
+# build output until EOF. BRAIN_NO_AUTO_SETUP=1 turns it off.
 auto_start() {
 	[ "${BRAIN_NO_AUTO_SETUP:-}" != 1 ] || return 0
 	[ -z "${HERDR_ENV:-}" ] || return 0

@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -43,6 +44,10 @@ const pluginID = "brain"
 // can stop them.
 const herdrDeadline = 5 * time.Second
 
+// callWaitDelay is how long a herdr call waits for its output pipes after its deadline kills
+// it. [NEW] 500 ms: the kill of the process group closes them at once in the usual case.
+const callWaitDelay = 500 * time.Millisecond
+
 // releaseTag is the form of a release tag, v<major>.<minor>.<patch> (scripts/check-tag.sh).
 var releaseTag = regexp.MustCompile(`^v([0-9]+)\.([0-9]+)\.([0-9]+)$`)
 
@@ -59,8 +64,6 @@ type plugin struct {
 		Subdir string `json:"subdir"`
 		Ref    string `json:"requested_ref"`
 		Commit string `json:"resolved_commit"`
-		// Installed is the time of the install in Unix milliseconds, 0 when herdr gives none.
-		Installed uint64 `json:"installed_unix_ms"`
 	} `json:"source"`
 }
 
@@ -260,11 +263,11 @@ func (u *updater) install(ctx context.Context, commit string, args ...string) er
 // with no local changes; else it stops and changes nothing.
 func (u *updater) linked(ctx context.Context, p plugin) (state, error) {
 	root := p.Root
-	installed, err := u.output(ctx, root, "git", "rev-parse", "HEAD")
+	installed, err := u.git(ctx, root, "rev-parse", "HEAD")
 	if err != nil {
 		return state{}, err
 	}
-	remote, err := u.output(ctx, root, "git", "remote", "get-url", "origin")
+	remote, err := u.git(ctx, root, "remote", "get-url", "origin")
 	if err != nil {
 		return state{}, err
 	}
@@ -273,7 +276,7 @@ func (u *updater) linked(ctx context.Context, p plugin) (state, error) {
 		return state{}, err
 	}
 	guard := func(ctx context.Context) error {
-		branch, err := u.output(ctx, root, "git", "branch", "--show-current")
+		branch, err := u.git(ctx, root, "branch", "--show-current")
 		if err != nil {
 			return err
 		}
@@ -281,7 +284,7 @@ func (u *updater) linked(ctx context.Context, p plugin) (state, error) {
 			return fmt.Errorf("the linked checkout %s is on %s, not main; brain update changes nothing", root,
 				cmp.Or(branch, "a detached HEAD"))
 		}
-		changes, err := u.output(ctx, root, "git", "status", "--porcelain")
+		changes, err := u.git(ctx, root, "status", "--porcelain")
 		if err != nil {
 			return err
 		}
@@ -303,7 +306,7 @@ func (u *updater) linked(ctx context.Context, p plugin) (state, error) {
 
 // head is the commit of the default branch (HEAD) of remote.
 func (u *updater) head(ctx context.Context, dir, remote string) (string, error) {
-	out, err := u.output(ctx, dir, "git", "ls-remote", remote, "HEAD")
+	out, err := u.git(ctx, dir, "ls-remote", remote, "HEAD")
 	if err != nil {
 		return "", err
 	}
@@ -317,7 +320,7 @@ func (u *updater) head(ctx context.Context, dir, remote string) (string, error) 
 // newestTag is the highest release tag of remote, or installed when remote has no higher one.
 // It ignores the tags that are not release tags.
 func (u *updater) newestTag(ctx context.Context, remote, installed string) (string, error) {
-	out, err := u.output(ctx, "", "git", "ls-remote", "--tags", "--refs", remote)
+	out, err := u.git(ctx, "", "ls-remote", "--tags", "--refs", remote)
 	if err != nil {
 		return "", err
 	}
@@ -385,22 +388,37 @@ func (u *updater) run(ctx context.Context, dir string, stdin io.Reader, name str
 	return nil
 }
 
-// call runs herdr with args and the deadline herdrDeadline, and returns its stdout.
+// call runs herdr with args and the deadline herdrDeadline, or the earlier deadline of ctx, and
+// returns its stdout. herdr runs in its own process group, and the deadline kills the group:
+// a child of herdr that holds the output pipes would else keep the call open. A process that
+// leaves the group can still hold the pipes, so WaitDelay closes them after callWaitDelay.
 func (u *updater) call(ctx context.Context, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, herdrDeadline)
 	defer cancel()
-	return u.output(ctx, "", u.herdr, args...)
+	cmd := exec.CommandContext(ctx, u.herdr, args...)
+	cmd.Env = u.environ
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = callWaitDelay
+	return capture(cmd)
 }
 
-// output runs name with args in dir and returns its stdout with no space at the ends.
-func (u *updater) output(ctx context.Context, dir, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+// git runs git with args in dir and returns its stdout with no space at the ends.
+func (u *updater) git(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir, cmd.Env = dir, u.environ
+	return capture(cmd)
+}
+
+// capture runs cmd and returns its stdout with no space at the ends. The error has the
+// command line and the stderr of cmd.
+func capture(cmd *exec.Cmd) (string, error) {
+	name, args := filepath.Base(cmd.Args[0]), cmd.Args[1:]
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("%s %s: %s: %w", filepath.Base(name), strings.Join(args, " "), bytes.TrimSpace(stderr.Bytes()), err)
+		return "", fmt.Errorf("%s %s: %s: %w", name, strings.Join(args, " "), bytes.TrimSpace(stderr.Bytes()), err)
 	}
 	return string(bytes.TrimSpace(out)), nil
 }

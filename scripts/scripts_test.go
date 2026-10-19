@@ -660,11 +660,29 @@ func calls(t *testing.T, dir string) (rest string, polls int) {
 	return strings.Join(keep, ""), polls
 }
 
+// nonce writes a nonce file with text n to the bin folder of the plugin root root, as a build
+// of post-install does.
+func nonce(t *testing.T, root, n string) {
+	t.Helper()
+	writeFile(t, filepath.Join(root, "bin", ".install-nonce"), n)
+}
+
+func rename(t *testing.T, from, to string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(from, to); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // #427 AC: on herdr 0.9.1 and on 0.9.5, an install build returns while its child still runs,
-// and the child keeps no build output open. When herdr lists the install of this commit, the
+// and the child keeps no build output open. When herdr lists the install of this build, the
 // child invokes brain.start in each running session. herdr 0.9.1 builds in a temp folder and
-// moves the checkout to plugins/github/<id>; herdr 0.9.5 builds in place, and herdr lists the
-// old install until the build ends.
+// then moves the checkout to plugins/github/<id>, the root of the old install; herdr 0.9.5
+// builds in place. herdr lists the old install until the build ends. The install time of the
+// new entry can be lower than the old one, or absent: it does not count.
 func TestBuildInstallStartsBrain(t *testing.T) {
 	type layout struct {
 		name, rel string
@@ -695,8 +713,13 @@ func TestBuildInstallStartsBrain(t *testing.T) {
 				dir := installCheckout(t, l.rel)
 				commit := head(t, dir)
 				hd, path := herdrDir(t, b.path(t, dir))
+				old := filepath.Join(t.TempDir(), "plugins", "github", "brain-0123")
+				if l.inPlace {
+					old = filepath.Join(t.TempDir(), "plugins", "github-installations", "brain-0123", "99-0", "checkout")
+				}
 				if l.old {
-					list(t, hd, entry{"github", filepath.Join(t.TempDir(), "old"), commit, 1000})
+					nonce(t, old, "old")
+					list(t, hd, entry{"github", old, commit, 2000})
 				}
 				done := buildDetached(t, dir, path, hd)
 				select {
@@ -707,11 +730,19 @@ func TestBuildInstallStartsBrain(t *testing.T) {
 				if got, polls := calls(t, hd); got != "" || polls == 0 {
 					t.Errorf("herdr calls before herdr lists the install = %q and %d plugin lists, want only plugin lists", got, polls)
 				}
-				root := filepath.Join(t.TempDir(), "plugins", "github", "brain-0123")
-				if l.inPlace {
-					root = dir
+				root := dir
+				if !l.inPlace {
+					if l.old {
+						rename(t, old, old+".previous")
+					}
+					rename(t, dir, old)
+					root = old
 				}
-				list(t, hd, entry{"github", root, commit, 2000})
+				var ms uint64 // a first install with no install time
+				if l.old {
+					ms = 1000 // lower than the old entry
+				}
+				list(t, hd, entry{"github", root, commit, ms})
 				waitDone(t, done)
 				want := "session list --json\n" +
 					"--session default plugin action invoke brain.start\n--session work plugin action invoke brain.start\n"
@@ -724,19 +755,23 @@ func TestBuildInstallStartsBrain(t *testing.T) {
 }
 
 // #427 AC: a build with BRAIN_NO_AUTO_SETUP=1, a build with no herdr on PATH, a build by hand in
-// a herdr pane (HERDR_ENV is set) and a build when herdr does not answer start no child.
+// a herdr pane (HERDR_ENV is set), a build when herdr does not answer, and a build by hand of
+// the checkout that herdr lists as the plugin root start no child.
 func TestBuildStartsNoChild(t *testing.T) {
 	for _, c := range []struct {
-		name  string
-		herdr bool
-		hang  bool
-		env   []string
-		polls int // the plugin list calls of the build
+		name   string
+		herdr  bool
+		hang   bool
+		listed string // the source kind of an entry that herdr lists with this checkout as root
+		env    []string
+		polls  int // the plugin list calls of the build
 	}{
-		{"BRAIN_NO_AUTO_SETUP=1", true, false, []string{"BRAIN_NO_AUTO_SETUP=1"}, 0},
-		{"no herdr on PATH", false, false, nil, 0},
-		{"in a herdr pane", true, false, []string{"HERDR_ENV=1"}, 0},
-		{"herdr does not answer", true, true, nil, 1},
+		{"BRAIN_NO_AUTO_SETUP=1", true, false, "", []string{"BRAIN_NO_AUTO_SETUP=1"}, 0},
+		{"no herdr on PATH", false, false, "", nil, 0},
+		{"in a herdr pane", true, false, "", []string{"HERDR_ENV=1"}, 0},
+		{"herdr does not answer", true, true, "", nil, 1},
+		{"rebuild of the plugin root", true, false, "github", nil, 1},
+		{"rebuild of a linked checkout", true, false, "local", nil, 1},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			assetName(t)
@@ -747,6 +782,9 @@ func TestBuildStartsNoChild(t *testing.T) {
 			}
 			if c.hang {
 				writeFile(t, filepath.Join(hd, "hang"), "")
+			}
+			if c.listed != "" {
+				list(t, hd, entry{c.listed, dir, head(t, dir), 1000})
 			}
 			select {
 			case <-buildDetached(t, dir, path, hd, c.env...):
@@ -760,24 +798,38 @@ func TestBuildStartsNoChild(t *testing.T) {
 	}
 }
 
-// #427 AC: a plain build, a linked checkout, an entry that herdr listed before the build, an
-// install of another commit, an entry with no install time and a herdr that does not answer
-// after the build invoke nothing: the child stops after BRAIN_AUTO_SETUP_WAIT.
+// #427 AC: the child invokes nothing and stops after BRAIN_AUTO_SETUP_WAIT for a plain build, a
+// linked checkout, an install of another commit, an old install of this commit, an install of
+// this commit from another checkout (a build by hand, then `herdr plugin install` of the same
+// ref), and a herdr that does not answer after the build.
 func TestBuildChildGivesUp(t *testing.T) {
-	none := func(*testing.T, string, string, string) {}
 	for _, c := range []struct {
 		name   string
-		before bool                                       // herdr lists an install of this commit before the build
-		after  func(t *testing.T, hd, dir, commit string) // the change of herdr after the build
+		before bool // herdr lists an old install of this commit before the build
+		hang   bool // herdr does not answer after the build
+		// after returns the entry that herdr lists after the build; a zero entry for none. It
+		// runs before the build, so the child sees the entry before its deadline.
+		after func(t *testing.T, dir, commit string) entry
 	}{
-		{"plain build", false, none},
-		{"linked checkout", false, func(t *testing.T, hd, dir, _ string) { list(t, hd, entry{"local", dir, "", 0}) }},
-		{"entry from before the build", true, none},
-		{"other commit", false, func(t *testing.T, hd, dir, _ string) {
-			list(t, hd, entry{"github", dir, strings.Repeat("0", 40), 2000})
+		{"plain build", false, false, nil},
+		{"linked checkout", false, false, func(_ *testing.T, dir, _ string) entry { return entry{"local", dir, "", 0} }},
+		{"other commit", false, false, func(_ *testing.T, dir, _ string) entry {
+			return entry{"github", dir, strings.Repeat("0", 40), 2000}
 		}},
-		{"no install time", false, func(t *testing.T, hd, dir, commit string) { list(t, hd, entry{"github", dir, commit, 0}) }},
-		{"herdr stops answering", false, func(t *testing.T, hd, _, _ string) { writeFile(t, filepath.Join(hd, "hang"), "") }},
+		{"old install of this commit", true, false, nil},
+		{"install with BRAIN_NO_AUTO_SETUP=1 of this commit", false, false, func(t *testing.T, dir, commit string) entry {
+			other := herdrCheckout(t, dir, "v"+manifestVersion(t))
+			if out, err := buildNoGo(t, other, fakeRelease(t, "")); err != nil { // TestMain sets BRAIN_NO_AUTO_SETUP=1
+				t.Fatalf("build.sh of the install: %v\n%s", err, out)
+			}
+			return entry{"github", other, commit, 3000}
+		}},
+		{"install of this commit by another build", false, false, func(t *testing.T, _, commit string) entry {
+			other := t.TempDir()
+			nonce(t, other, "another build")
+			return entry{"github", other, commit, 3000}
+		}},
+		{"herdr stops answering", false, true, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			assetName(t)
@@ -785,13 +837,27 @@ func TestBuildChildGivesUp(t *testing.T) {
 			commit := head(t, dir)
 			hd, path := herdrDir(t, noGoPath(t))
 			if c.before {
-				list(t, hd, entry{"github", dir, commit, 1000})
+				old := t.TempDir()
+				nonce(t, old, "old")
+				list(t, hd, entry{"github", old, commit, 1000})
 			}
-			done := buildDetached(t, dir, path, hd, "BRAIN_AUTO_SETUP_WAIT=1")
-			c.after(t, hd, dir, commit)
+			var e entry
+			if c.after != nil {
+				e = c.after(t, dir, commit)
+			}
+			done := buildDetached(t, dir, path, hd, "BRAIN_AUTO_SETUP_WAIT=2")
+			if e.kind != "" {
+				list(t, hd, e)
+			}
+			if c.hang {
+				writeFile(t, filepath.Join(hd, "hang"), "")
+			}
+			_, early := calls(t, hd)
 			waitDone(t, done)
-			if got, polls := calls(t, hd); got != "" || polls == 0 {
-				t.Errorf("herdr calls = %q and %d plugin lists, want only plugin lists", got, polls)
+			// The child asks herdr again after the change, so it sees the change.
+			if got, polls := calls(t, hd); got != "" || polls <= early {
+				t.Errorf("herdr calls = %q and %d plugin lists (%d before the change), want only plugin lists, "+
+					"also after the change", got, polls, early)
 			}
 		})
 	}
