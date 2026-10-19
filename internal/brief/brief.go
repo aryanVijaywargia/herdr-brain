@@ -1,6 +1,6 @@
-// Package brief renders the text of the brief that the hook gives an agent at session start
-// (HLD §8.1): the global part, the workspace part and the whole brief. It reads no store and
-// writes no file; the compiler (E6-S2) gives it the active items.
+// Package brief renders the text of the brief that the hook gives an agent at session start:
+// the global part, the workspace part and the whole brief. It reads no store and writes no
+// file; the compiler (E6-S2) gives it the active items.
 package brief
 
 import (
@@ -13,19 +13,19 @@ import (
 	"unicode/utf8"
 )
 
-// The frame of every brief (§8.1). The marker text is a Brain choice [NEW] (§8.1).
+// The frame of every brief. The marker text is a Brain choice [NEW].
 const (
 	beginMarker = "<!-- brain:begin v1 -->"
 	endMarker   = "<!-- brain:end -->"
 	precedence  = `Precedence: for ordinary preferences, a workspace item wins over a global item. ` +
 		`It never relaxes a global permission or safety rule. A "conflicts with" mark wins over this line.`
-	// remember tells agents how to save a lesson; the call makes a draft (§8.1, #253).
+	// remember tells agents how to save a lesson; the call makes a draft (#253).
 	remember = `When the user asks you to remember something for later, run: brain remember "<lesson>"`
-	// recall tells agents how to find more approved items during work (§8.6, E20-S2). [NEW]
+	// recall tells agents how to find more approved items during work (E20-S2). [NEW]
 	// the line text.
 	recall = `To find more Brain items on a topic during work, run: brain recall <words>`
 	// skillFix tells agents that a correction of a skill step needs no remember call: Brain
-	// patches the skill (§8.1, #373). It sits after the remember line, in a brief that lists a
+	// patches the skill (#373). It sits after the remember line, in a brief that lists a
 	// skill only.
 	skillFix       = `When the user corrects a step of a skill, do not run brain remember; Brain patches the skill.`
 	header         = precedence + "\n" + remember + "\n" + recall + "\n"
@@ -35,15 +35,15 @@ const (
 	frame = beginMarker + "\n" + header + endMarker
 )
 
-// The budgets of §8.1, in bytes of UTF-8. A byte count is never below the character count that
-// Claude Code limits, so the byte count is the simple safe choice [NEW]. The frame counts
-// against the global part, and each part counts its own label, so the two part budgets add up
-// to the whole budget [NEW]: a brief whose parts fit is never over 9,500.
+// The budgets of the brief, in bytes of UTF-8. A byte count is never below the character
+// count that Claude Code limits, so the byte count is the simple safe choice [NEW]. The frame
+// counts against the global part, and each part counts its own label, so the two part budgets
+// add up to the whole budget [NEW]: a brief whose parts fit is never over 9,500.
 const (
 	briefBudget     = 9500
 	globalBudget    = 3800
 	workspaceBudget = 5700
-	// maxItemLines is the limit for one item of the brief (§8.1).
+	// maxItemLines is the limit for one item of the brief.
 	maxItemLines = 3
 )
 
@@ -52,19 +52,19 @@ const (
 type Item struct {
 	ID   int64
 	Text string
-	// ExceptionTo is the global item that this workspace item is an exception to (§7.4), or 0.
+	// ExceptionTo is the global item that this workspace item is an exception to, or 0.
 	ExceptionTo int64
-	// ConflictsWith are the items that this item has an unresolved conflict with (§7.4).
+	// ConflictsWith are the items that this item has an unresolved conflict with.
 	ConflictsWith []int64
-	// Dispute marks an item whose anchor moved or was deleted, until you decide (§9.1).
+	// Dispute marks an item whose anchor moved or was deleted, until you decide.
 	Dispute Dispute
 	// Anchors are the paths of the item's anchors. The part keeps room for their mark.
 	Anchors []string
 }
 
-// Dispute is the mark of a disputed item or skill (§9.1, G7): the paths of the anchors that
-// moved or were deleted, the paths of those that moved, and the time of the check that found
-// them. A Dispute with no anchors is no mark.
+// Dispute is the mark of a disputed item or skill: the paths of the anchors that moved or
+// were deleted, the paths of those that moved, and the time of the check that found them. A
+// Dispute with no anchors is no mark.
 type Dispute struct {
 	Anchors []string
 	Moved   []string
@@ -93,8 +93,8 @@ func (d Dispute) mark() string {
 	return " (disputed: " + d.Gone() + " on " + d.At.UTC().Format("2006-01-02") + ")"
 }
 
-// Skill is one active skill as the brief lists it (§8.2): its name, its one-line description,
-// the absolute path of the file of its revision, and the note on a required tool that a CLI
+// Skill is one active skill as the brief lists it: its name, its one-line description, the
+// absolute path of the file of its revision, and the note on a required tool that a CLI
 // does not have ("" for none). The agent reads the file when the skill is relevant.
 type Skill struct {
 	Name        string
@@ -102,13 +102,13 @@ type Skill struct {
 	Path        string
 	// NotAvailable comes from the reviewed text, for example "gh in codex".
 	NotAvailable string
-	// Dispute marks a skill whose anchor moved or was deleted, until you decide (§9.1).
+	// Dispute marks a skill whose anchor moved or was deleted, until you decide.
 	Dispute Dispute
 	// Anchors are the paths of the skill's anchors. The part keeps room for their mark.
 	Anchors []string
 	// Tools are the Brain tools that the skill requires. The part keeps room for their note.
 	Tools []string
-	// Stopped are the required Brain tools that are not approved or are stopped (§8.2, E17-S5).
+	// Stopped are the required Brain tools that are not approved or are stopped (E17-S5).
 	Stopped []string
 }
 
@@ -121,7 +121,7 @@ func toolNote(stopped []string) string {
 	return " (Brain tool not approved or stopped: " + strings.Join(stopped, ", ") + ")"
 }
 
-// Tool is one approved tool as the brief catalog lists it (§10.1): its name, its one-line
+// Tool is one approved tool as the brief catalog lists it: its name, its one-line
 // description and the names of its inputs.
 type Tool struct {
 	Name        string
@@ -129,8 +129,8 @@ type Tool struct {
 	Inputs      []string
 }
 
-// The tool catalog at the end of the workspace part (§10.1, E17-S5). catalogSize is the §10.1
-// default. [NEW] the heading, the instruction line and the entry form
+// The tool catalog at the end of the workspace part (E17-S5). catalogSize is the default
+// number of tools in the catalog. [NEW] the heading, the instruction line and the entry form
 // "- <name>: <description> Inputs: <input>, <input>".
 const (
 	catalogSize  = 10
@@ -159,7 +159,7 @@ func (e *BudgetError) Error() string {
 }
 
 // Global renders the global part from the active global items and global skills. Its size,
-// with the frame of the brief, must fit the global budget; the skill list counts in it (§8.1).
+// with the frame of the brief, must fit the global budget; the skill list counts in it.
 func Global(items []Item, skills ...Skill) (string, error) {
 	return part("global", globalLabel, len(frame), globalBudget, items, skills, nil)
 }
@@ -171,19 +171,19 @@ func Workspace(items []Item, skills ...Skill) (string, error) {
 }
 
 // WorkspaceCatalog is Workspace with the catalog of the tools that the workspace's panes can
-// run: the first catalogSize of tools, in the order given (§10.1). The catalog counts in the
-// part budget (§8.1).
+// run: the first catalogSize of tools, in the order given. The catalog counts in the part
+// budget.
 func WorkspaceCatalog(items []Item, tools []Tool, skills ...Skill) (string, error) {
 	return part("workspace", workspaceLabel, 0, workspaceBudget, items, skills, tools[:min(len(tools), catalogSize)])
 }
 
 // GlobalSize returns the size of a rendered global part as its budget counts it, with the
-// frame, and the budget (§8.1).
+// frame, and the budget.
 func GlobalSize(global string) (size, limit int) {
 	return len(frame) + fixRoom(global) + len(global), globalBudget
 }
 
-// WorkspaceSize returns the size of a rendered workspace part and its budget (§8.1).
+// WorkspaceSize returns the size of a rendered workspace part and its budget.
 func WorkspaceSize(workspace string) (size, limit int) {
 	return fixRoom(workspace) + len(workspace), workspaceBudget
 }
@@ -212,9 +212,9 @@ func fixRoom(part string) int {
 }
 
 // LastSession adds the line that names the last session of the workspace at the end of the
-// workspace part (E15-S4, §8.1). The hook adds it at print time, so it is in no built part and
-// in no manifest. A workspace part that the generation does not hold yet gets its label first.
-// The time is in the zone of at, to the minute. [NEW] the line form.
+// workspace part (E15-S4). The hook adds it at print time, so it is in no built part and in no
+// manifest. A workspace part that the generation does not hold yet gets its label first. The
+// time is in the zone of at, to the minute. [NEW] the line form.
 func LastSession(workspace, harness string, at time.Time, transcript string) string {
 	if workspace == "" {
 		workspace = workspaceLabel
@@ -223,7 +223,7 @@ func LastSession(workspace, harness string, at time.Time, transcript string) str
 		", transcript " + transcript + "\n"
 }
 
-// The handoff lines below the last session line (E20-S8, §8.3). [NEW] the line forms,
+// The handoff lines below the last session line (E20-S8). [NEW] the line forms,
 // maxApproved, maxCommand and the cut mark.
 const (
 	approvedLine = "Approved since that session started: "
@@ -241,13 +241,13 @@ type Failure struct {
 	Exit    int
 }
 
-// Handoff adds the handoff lines of the last session (E20-S8, §8.3) to workspace, the workspace
-// part that ends with the last session line: the line of the items and the skills that you
-// approved since that session started, then one line for each failed command, in the order
-// given. A line goes in only
-// while the whole brief, with the global part global, stays within the brief budget; the first
-// line that does not fit stays out, with the lines after it. As the last session line, the lines
-// are in no built part and no manifest, so a full part never fails to build for them.
+// Handoff adds the handoff lines of the last session (E20-S8) to workspace, the workspace part
+// that ends with the last session line: the line of the items and the skills that you approved
+// since that session started, then one line for each failed command, in the order given. A line
+// goes in only while the whole brief, with the global part global, stays within the brief
+// budget; the first line that does not fit stays out, with the lines after it. As the last
+// session line, the lines are in no built part and no manifest, so a full part never fails to
+// build for them.
 func Handoff(global, workspace string, approved []int64, skills []string, failed []Failure) string {
 	var lines []string
 	if len(approved)+len(skills) > 0 {
@@ -268,8 +268,7 @@ func Handoff(global, workspace string, approved []int64, skills []string, failed
 
 // approvedText is the approved line of the items ids and the skills names: the items in the
 // "[id]" form of the item entries, then the skills as "skill <name>", because a skill entry has
-// no id (owner decision 2026-10-08). It names the first maxApproved of them, then the count of
-// the rest.
+// no id. It names the first maxApproved of them, then the count of the rest.
 func approvedText(ids []int64, names []string) string {
 	words := make([]string, 0, len(ids)+len(names))
 	for _, id := range ids {
@@ -298,9 +297,9 @@ func oneCommand(c string) string {
 // part renders a label, the items in id order, the skills in name order and the tools in the
 // order given, so the same items give the same bytes. extra is the size that counts against the
 // budget beyond the part text. The budget counts the room for the dispute mark of every anchor
-// too, so a later dispute always fits (§9.1 "inside the budget"): the build that marks an item
-// never fails. In the same way it counts the room for the note on every required Brain tool of
-// a skill, so a tool that stops later does not fail the build.
+// too, so a later dispute always fits: the build that marks an item never fails. In the same
+// way it counts the room for the note on every required Brain tool of a skill, so a tool that
+// stops later does not fail the build.
 func part(name, label string, extra, limit int, items []Item, skills []Skill, tools []Tool) (string, error) {
 	items = slices.SortedFunc(slices.Values(items), func(a, b Item) int { return cmp.Compare(a.ID, b.ID) })
 	var b strings.Builder
@@ -332,7 +331,7 @@ func markRoom(anchors []string, d Dispute) int {
 }
 
 // Entries renders items as the brief shows them, with the same marks, in the order given:
-// brain recall prints them best match first (§8.6, E20-S2).
+// brain recall prints them best match first (E20-S2).
 func Entries(items []Item) (string, error) {
 	var b strings.Builder
 	for _, it := range items {
@@ -345,7 +344,7 @@ func Entries(items []Item) (string, error) {
 
 // Skills renders skills as the skill list of the brief shows them, with its heading and its
 // instruction line, in the order given; "" for none. brain recall prints them best match first
-// (§8.6, #344).
+// (#344).
 func Skills(skills []Skill) string {
 	var b strings.Builder
 	writeSkills(&b, skills)
@@ -353,7 +352,7 @@ func Skills(skills []Skill) string {
 }
 
 // Tools renders tools as the tool catalog of the brief shows them, with its heading and its
-// instruction line, in the order given; "" for none (§8.6, #344).
+// instruction line, in the order given; "" for none (#344).
 func Tools(tools []Tool) string {
 	var b strings.Builder
 	writeCatalog(&b, tools)

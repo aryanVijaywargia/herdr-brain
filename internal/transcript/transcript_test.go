@@ -91,7 +91,7 @@ func TestReadCodex(t *testing.T) {
 					Failure: &Text{ID: id(`"Exit code: 2`), At: ts("00:06"),
 						Text: "Exit code: 2\nWall time: 1.2 seconds\nOutput:\nFAIL api_test"}},
 				{ID: id(`"cmd\": \"make lint`), At: ts("00:07"), Command: "make lint", Exit: exit(0)},
-				// No known exit line: the exit status stays unknown (§17 item 34).
+				// No known exit line: the exit status stays unknown.
 				{ID: id(`"local_shell_call"`), At: ts("00:09"), Command: "ls -la"},
 			},
 			Reply: Text{ID: id("make test fails"), At: ts("00:13"), Text: "make test fails in api_test."},
@@ -111,8 +111,8 @@ func TestReadCodex(t *testing.T) {
 	}
 }
 
-// TestDrops checks the filters of §6.8 "What Brain drops": each fixture holds one line of each
-// kind, and only the kept prompt and reply reach a turn (S88).
+// TestDrops checks the filters of the text that Brain drops: each fixture holds one line of
+// each kind, and only the kept prompt and reply reach a turn (S88).
 func TestDrops(t *testing.T) {
 	for _, tc := range []struct {
 		file   string

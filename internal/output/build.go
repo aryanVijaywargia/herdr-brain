@@ -20,12 +20,12 @@ import (
 )
 
 // ErrStale means that a commit recorded a newer generation while this build ran. The build
-// stops before the switch, so the pointer never goes back (§7.5 step 4, S43). The build of the
-// newer generation publishes it.
+// stops before the switch, so the pointer never goes back (S43). The build of the newer
+// generation publishes it.
 var ErrStale = errors.New("a newer output generation exists")
 
 // ConflictError means that files of the current generation no longer match its manifest: you
-// edited them by hand, or they are gone. The build stops before the switch (§7.5 step 5).
+// edited them by hand, or they are gone. The build stops before the switch.
 type ConflictError struct {
 	Generation int64
 	Files      []string
@@ -36,10 +36,10 @@ func (e *ConflictError) Error() string {
 }
 
 // Build builds the newest generation that the store recorded into the out folder and makes it
-// current (§7.5 steps 3-4, 7, 9). E4 calls it right after a commit, and repair calls it too.
-// proposalID is the proposal whose approval made the generation, or nil. It returns the current
-// generation, or 0 when the store has none yet. A build that a newer commit overtook returns
-// ErrStale; a hand-edited current generation returns a *ConflictError. now is the clock.
+// current. E4 calls it right after a commit, and repair calls it too. proposalID is the
+// proposal whose approval made the generation, or nil. It returns the current generation, or 0
+// when the store has none yet. A build that a newer commit overtook returns ErrStale; a
+// hand-edited current generation returns a *ConflictError. now is the clock.
 func Build(ctx context.Context, s *store.Store, out string, proposalID *int64, now func() time.Time) (int64, error) {
 	b := builder{out: out, now: now, writeFile: writeFile, afterRender: func() {}}
 	return b.build(ctx, s, proposalID)
@@ -79,8 +79,8 @@ func (b builder) buildLocked(ctx context.Context, s *store.Store, proposalID *in
 	if err != nil {
 		return 0, err
 	}
-	// The first check of the current generation (§7.5 step 5): a hand edit stops the build
-	// before it writes anything. publish checks again just before the switch.
+	// The first check of the current generation: a hand edit stops the build before it
+	// writes anything. publish checks again just before the switch.
 	src, err := b.source(cur)
 	if err != nil {
 		return 0, err
@@ -141,7 +141,7 @@ func (b builder) publish(ctx context.Context, tx *sql.Tx, gen int64, g generatio
 		return err
 	}
 	// The clock is read after the switch: cleanup counts the reader grace period from this
-	// time, and a slow build must not shorten it (§7.5 step 8).
+	// time, and a slow build must not shorten it.
 	return record(ctx, tx, src, g, o.HoldsForgottenText, proposalID, b.now())
 }
 
@@ -169,11 +169,11 @@ func current(out string) (int64, error) {
 
 // publishFolder writes the skill and tool files of gen first, then the parts and the manifest
 // of gen into out/staging-<gen>/, checks them against the manifest, and renames the folder to
-// out/gen-<gen>/ (§7.5 step 3). It returns the generation as read back. A build that stops
-// before the rename leaves only the staging folder, which the next build of gen replaces
-// (S65), and skill and tool files that no generation lists yet, which the next build uses. src
-// is the manifest of the source generation, the current one: a skill or tool file that it
-// lists is never written over (§7.5 step 5).
+// out/gen-<gen>/. It returns the generation as read back. A build that stops before the rename
+// leaves only the staging folder, which the next build of gen replaces (S65), and skill and
+// tool files that no generation lists yet, which the next build uses. src is the manifest of
+// the source generation, the current one: a skill or tool file that it lists is never written
+// over.
 func (b builder) publishFolder(gen int64, parts []part, rfs files, src Manifest, now time.Time) (generation, error) {
 	m := Manifest{Generation: gen, BuiltAt: now.UTC(), Files: make(map[string]File, len(parts)),
 		Skills: make([]RevisionFile, 0, len(rfs.skills)), Tools: make([]RevisionFile, 0, len(rfs.tools))}
@@ -228,8 +228,8 @@ func (b builder) publishFolder(gen int64, parts []part, rfs files, src Manifest,
 
 // writeFileOf makes the file of skill or tool revision f hold its text. A file that matches is
 // used as it is. A file that is missing, or that does not match, is written with a temp file
-// and a rename (§7.5 step 3). When the current generation cur lists the file (listed), a mismatch
-// is your edit since the source check: it stays, as a conflict (§7.5 step 5, S11).
+// and a rename. When the current generation cur lists the file (listed), a mismatch is your
+// edit since the source check: it stays, as a conflict (S11).
 func (b builder) writeFileOf(f revFile, listed bool, cur int64) error {
 	data, err := os.ReadFile(f.path)
 	switch {
@@ -316,8 +316,8 @@ func readGeneration(dir string) (generation, error) {
 }
 
 // readSource reads generation cur and checks its files against its manifest: the generation
-// folder and the skill files that the manifest lists (§7.5 step 5). It returns a zero
-// generation for cur 0, before the first build.
+// folder and the skill files that the manifest lists. It returns a zero generation for cur
+// 0, before the first build.
 func readSource(out string, cur int64) (generation, error) {
 	if cur == 0 {
 		return generation{}, nil
@@ -327,7 +327,7 @@ func readSource(out string, cur int64) (generation, error) {
 
 // checkCurrent checks generation gen as checkGeneration does, and also the skill files that
 // its manifest lists. Only the current generation counts its skill files: an older generation
-// that lists an edited file is no conflict (§7.5 step 5).
+// that lists an edited file is no conflict.
 func checkCurrent(out string, gen int64) (generation, error) {
 	g, err := checkGeneration(out, gen)
 	if err != nil {
@@ -372,8 +372,8 @@ func checkGeneration(out string, gen int64) (generation, error) {
 }
 
 // switchPointer makes gen current: it writes the pointer to a temp file and renames it over
-// out/current, so a reader sees the old pointer or the new one (§7.5 step 3). Only the lock
-// holder writes the temp file.
+// out/current, so a reader sees the old pointer or the new one. Only the lock holder writes
+// the temp file.
 func switchPointer(out string, gen int64) error {
 	tmp := filepath.Join(out, pointerName+".tmp")
 	if err := writeFile(tmp, []byte(folder(gen)+"\n")); err != nil {
@@ -383,8 +383,8 @@ func switchPointer(out string, gen int64) error {
 }
 
 // record copies the switch into the outputs rows and logs one applied edit for each file that
-// changed from src to the new generation g (§7.5 steps 7, 9). forgetAfter reports whether g
-// holds the text of an item with an open forget.
+// changed from src to the new generation g. forgetAfter reports whether g holds the text of
+// an item with an open forget.
 func record(ctx context.Context, tx *sql.Tx, src, g generation, forgetAfter bool, proposalID *int64,
 	now time.Time) error {
 	forgetBefore, err := openForget(ctx, tx, src)
@@ -401,7 +401,7 @@ func record(ctx context.Context, tx *sql.Tx, src, g generation, forgetAfter bool
 }
 
 // openForget reports whether the source generation holds the text of an item with an open
-// forget. The forget flow marks such a generation with outputs.holds_forgotten_text (§6.7).
+// forget. The forget flow marks such a generation with outputs.holds_forgotten_text.
 func openForget(ctx context.Context, tx *sql.Tx, src generation) (bool, error) {
 	if src.manifest.Generation == 0 {
 		return false, nil
@@ -416,7 +416,7 @@ func openForget(ctx context.Context, tx *sql.Tx, src generation) (bool, error) {
 // edits lists one applied edit for each file that the new generation g adds, changes or
 // removes from src, in name order. With an open forget on a side, a file that holds items on
 // that side keeps those bytes out of the log: the row has the file, the generation, the hash
-// and the revisions only (§6.7). The content hash is the hash of the new bytes.
+// and the revisions only. The content hash is the hash of the new bytes.
 func edits(src, g generation, forgetBefore, forgetAfter bool) []store.AppliedEdit {
 	names := slices.Sorted(maps.Keys(g.manifest.Files))
 	for _, name := range slices.Sorted(maps.Keys(src.manifest.Files)) {

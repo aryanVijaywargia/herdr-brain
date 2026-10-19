@@ -18,18 +18,18 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// argvLimit is the longest stored command in bytes (§6.7, §11: ≤ 4 KB).
+// argvLimit is the longest stored command in bytes (≤ 4 KB).
 const argvLimit = 4096
 
-// The senders of the hook records (§6.1, §6.5). A submitted prompt keeps the sender
-// unconfirmed: a script or another agent can submit text too.
+// The senders of the hook records. A submitted prompt keeps the sender unconfirmed: a
+// script or another agent can submit text too.
 var senders = map[string]store.Sender{
 	adapter.EventPrompt: store.SenderUnconfirmed,
 	adapter.EventTool:   store.SenderTool,
 	adapter.EventStop:   store.SenderAssistant,
 }
 
-// record stores one hook record of h.Event from the hook input stdin (E11-S5, §6.1): one
+// record stores one hook record of h.Event from the hook input stdin (E11-S5): one
 // observation and, for a tool, one command record. It uses the same resolver and live check
 // as the start hook, and it prints nothing. It stores nothing when the profile does not turn
 // the event on, when learning is off, or when capture has no open segment of the pane: a hook
@@ -70,7 +70,7 @@ func (h Hook) record(ctx context.Context, stdin io.Reader) (err error) {
 		return ignoreForgotten(err)
 	}
 	// A prompt that matches a ready proposal: a detached process shows the suggestion, and
-	// the hook does not wait for it (§5.5). It inherits the pane's environment.
+	// the hook does not wait for it. It inherits the pane's environment.
 	d.Store = r.Binding.Store
 	return h.Dispatch(ctx, h.Environ, d)
 }
@@ -85,10 +85,9 @@ func ignoreForgotten(err error) error {
 
 // note resolves the pane of the hook and notes the capture session of the pane and its
 // generation, before the record reads its text: the write refuses a newer generation, as a
-// brain forget --session between the two deleted the evidence (§6.7). r is nil when no store
-// is open or the pane failed the live check, and session is 0 when capture has no open
-// segment of the pane; a hook record writes nothing then. rs is the store of r, and the caller
-// closes it.
+// brain forget --session between the two deleted the evidence. r is nil when no store is open
+// or the pane failed the live check, and session is 0 when capture has no open segment of the
+// pane; a hook record writes nothing then. rs is the store of r, and the caller closes it.
 func (h Hook) note(ctx context.Context) (r *resolver.Resolved, rs records, session, gen int64, err error) {
 	open := func(ctx context.Context, dir string) (resolver.Store, error) {
 		s, err := store.Open(ctx, dir, busyTimeout)
@@ -136,7 +135,7 @@ func (h Hook) write(ctx context.Context, tx *sql.Tx, r *resolver.Resolved, in ad
 		return brained.Dispatch{}, err
 	}
 	o := store.Observation{
-		// A hook has no event id: the identity is the binding, the segment and the time (§6.4).
+		// A hook has no event id: the identity is the binding, the segment and the time.
 		CaptureIdentity: fmt.Sprintf("%s/%d/hook/%s/%s", r.Binding.Session, segment, h.Event, now.Format(time.RFC3339Nano)),
 		Source:          store.SourceHook, SegmentID: segment, Event: h.Event,
 		Status: store.ObservationComplete, Sender: senders[h.Event], Counts: true, At: now,
@@ -170,8 +169,8 @@ func (h Hook) write(ctx context.Context, tx *sql.Tx, r *resolver.Resolved, in ad
 	if err := brained.Match(ctx, tx, kind, session, o); err != nil {
 		return brained.Dispatch{}, err
 	}
-	// The match is a local store read, inside the hook cap (§8.3). After Match, so a pane read
-	// of the same prompt that reserved its suggestion first blocks this one (S57).
+	// The match is a local store read, inside the hook cap. After Match, so a pane read of
+	// the same prompt that reserved its suggestion first blocks this one (S57).
 	d, err := brained.Reserve(ctx, tx, o, prompt, now)
 	if err != nil {
 		return brained.Dispatch{}, err
@@ -179,7 +178,7 @@ func (h Hook) write(ctx context.Context, tx *sql.Tx, r *resolver.Resolved, in ad
 	return d, store.MoveCursor(ctx, tx, session, o.Source, o.CaptureIdentity)
 }
 
-// command is the command record of tool input in (§6.7). A command in which the secret filter
+// command is the command record of tool input in. A command in which the secret filter
 // finds a secret is not stored at all: the record says only that it had one.
 func command(in adapter.Record) store.CommandRecord {
 	c := store.CommandRecord{CWD: in.CWD, ExitStatus: in.ExitStatus}

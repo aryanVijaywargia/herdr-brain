@@ -1,6 +1,6 @@
 // Package transcript reads past Claude Code and Codex session files for the history scan at
-// setup (§6.8, D16). It parses only: it stores nothing and calls no secret filter. The formats
-// come from HLD §17 items 32-34 [TX]; no real transcript was read to write it.
+// setup. It parses only: it stores nothing and calls no secret filter. The formats come
+// from the CLI docs and source code; no real transcript was read to write it.
 package transcript
 
 import (
@@ -17,7 +17,7 @@ import (
 )
 
 // ErrUnknownFormat says that a line of a file has a shape the reader does not know. The reader
-// fails closed: the scan skips the whole file and counts it (§6.6, §6.8).
+// fails closed: the scan skips the whole file and counts it.
 var ErrUnknownFormat = errors.New("unknown format")
 
 // Session is one past session of one file.
@@ -25,8 +25,8 @@ type Session struct {
 	ID  string // the agent session id
 	CWD string // the cwd of the first record that has one
 	// Interactive says the session is one that you ran: a Codex session with the source cli or
-	// vscode. Claude files have no known mark of a claude -p run (§17 item 32), so it is always
-	// true for Claude.
+	// vscode. Claude files have no known mark of a claude -p run, so it is always true for
+	// Claude.
 	Interactive bool
 	Fork        bool // a Codex fork (forked_from_id): it copies its parent's records and tokens
 	SideChain   bool // a Codex sub-agent session (parent_thread_id)
@@ -34,7 +34,7 @@ type Session struct {
 	Turns       []Turn
 }
 
-// Turn is a prompt and everything up to the next prompt (§6.8).
+// Turn is a prompt and everything up to the next prompt.
 type Turn struct {
 	Prompt   Text
 	Commands []Command
@@ -45,7 +45,7 @@ type Turn struct {
 	TokensKnown bool
 }
 
-// Text is the text of one record. ID is the record id of the capture identity (§6.8).
+// Text is the text of one record. ID is the record id of the capture identity.
 type Text struct {
 	ID   string
 	At   time.Time
@@ -165,10 +165,9 @@ func parseTime(s string) (time.Time, error) {
 	return t, nil
 }
 
-// injected lists the text blocks that Brain or the CLI injected, by start and end mark (§6.3,
-// §6.8 "What Brain drops"). A block with no end runs to the end of the text. Claude saves the
-// additionalContext of start hooks in a system reminder, so this drops other start hooks'
-// output too.
+// injected lists the text blocks that Brain or the CLI injected, by start and end mark. A
+// block with no end runs to the end of the text. Claude saves the additionalContext of
+// start hooks in a system reminder, so this drops other start hooks' output too.
 var injected = [][2]string{
 	{"<!-- brain:begin", "<!-- brain:end -->"},
 	{"<system-reminder>", "</system-reminder>"},
@@ -178,9 +177,9 @@ var injected = [][2]string{
 }
 
 // scaffold lists marks of a whole text that the CLI wrote, not you: a slash command, its local
-// output, an interrupt note and Codex AGENTS.md text (§6.8). Claude also writes a task
-// notification, a local command caveat and a ! shell command with its output (owner decision
-// 2026-10-13, S5 gap HS-G4); Codex writes a ! shell command too (S5 gap HS-G4b).
+// output, an interrupt note and Codex AGENTS.md text. Claude also writes a task notification,
+// a local command caveat and a ! shell command with its output; Codex writes a ! shell command
+// too.
 var scaffold = []string{"<command-name>", "<local-command-stdout>", "<task-notification>", "<local-command-caveat>",
 	"<bash-input>", "<bash-stdout>", "<user_shell_command>"}
 
@@ -233,8 +232,8 @@ type Listing struct {
 
 // List lists the candidate session files under the Claude home claudeHome and the Codex home
 // codexHome: Claude <claude home>/projects/<folder>/<id>.jsonl and Codex
-// <codex home>/sessions/YYYY/MM/DD/rollout-*.jsonl, by change time, newest first (§6.8). The
-// fixed depths leave out the Claude subagents/ and tool-results/ folders and Codex
+// <codex home>/sessions/YYYY/MM/DD/rollout-*.jsonl, by change time, newest first. The fixed
+// depths leave out the Claude subagents/ and tool-results/ folders and Codex
 // archived_sessions/. It skips Claude set-aside copies and counts Codex *.jsonl.zst files.
 func List(claudeHome, codexHome string) (Listing, error) {
 	var l Listing

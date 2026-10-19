@@ -1,5 +1,5 @@
-// Package output is the compiler (HLD §7.5, §8.1): it builds the store's active items into one
-// output generation, a folder with the brief parts and a manifest, and publishes it with one
+// Package output is the compiler: it builds the store's active items into one output
+// generation, a folder with the brief parts and a manifest, and publishes it with one
 // pointer file. A reader follows the pointer once and sees a whole generation or nothing.
 package output
 
@@ -25,7 +25,7 @@ import (
 )
 
 // The names in the out folder and in each generation folder. [NEW] all names except
-// out/gen-<n>/ and out/current, which come from §7.5 step 3.
+// out/gen-<n>/ and out/current.
 const (
 	pointerName   = "current"
 	lockName      = "lock"
@@ -33,15 +33,15 @@ const (
 	manifestName  = "manifest.json"
 	globalName    = "global.md"
 	workspaceDir  = "workspaces"
-	// skillsName is the skills folder beside the out folder: <store>/skills (§8.2).
+	// skillsName is the skills folder beside the out folder: <store>/skills.
 	skillsName    = "skills"
 	skillFileName = "SKILL.md"
-	// toolsName is the tools folder beside the out folder: <store>/tools (§10.1).
+	// toolsName is the tools folder beside the out folder: <store>/tools.
 	toolsName = "tools"
 )
 
 // ErrInconsistent means that a file of a generation is missing or does not match the hash in
-// the generation's manifest. The hook withholds the brief then ("withheld: inconsistent", §8.3).
+// the generation's manifest. The hook withholds the brief then ("withheld: inconsistent").
 var ErrInconsistent = errors.New("output files do not match their manifest")
 
 // Manifest describes one generation. Its file names use "/" and are relative to the
@@ -50,11 +50,11 @@ type Manifest struct {
 	Generation int64           `json:"generation"`
 	BuiltAt    time.Time       `json:"built_at"`
 	Files      map[string]File `json:"files"`
-	// Skills lists each skill file that the parts name (§7.5 step 3). A generation built
-	// before E16-S3 has none.
+	// Skills lists each skill file that the parts name. A generation built before E16-S3
+	// has none.
 	Skills []RevisionFile `json:"skills"`
-	// Tools lists each file of each active tool (§7.5 step 3, §10.1). A generation built before
-	// E17-S3 has none. [NEW] the field.
+	// Tools lists each file of each active tool. A generation built before E17-S3 has none.
+	// [NEW] the field.
 	Tools []RevisionFile `json:"tools"`
 }
 
@@ -78,7 +78,7 @@ type File struct {
 type Brief struct {
 	Generation int64
 	Global     string
-	// Workspace is empty when Read got no workspace key (an unmapped workspace, §8.3 step 4).
+	// Workspace is empty when Read got no workspace key (an unmapped workspace).
 	Workspace string
 	// Revisions are the (item id, revision) pairs of both parts, from the manifest. E7 records
 	// these in the receipt, never the store's current revisions.
@@ -145,7 +145,7 @@ func skillsDir(out string) string {
 }
 
 // skillPath is the file of revision rev of skill item in the skills folder dir:
-// <dir>/<item id>/r<revision>/SKILL.md (§8.2).
+// <dir>/<item id>/r<revision>/SKILL.md.
 func skillPath(dir string, item, rev int64) string {
 	return revisionPath(dir, item, rev, skillFileName)
 }
@@ -156,13 +156,13 @@ func toolsDir(out string) string {
 }
 
 // revisionPath is the file name of revision rev of item in the skills or tools folder dir:
-// <dir>/<item id>/r<revision>/<name> (§8.2, §10.1).
+// <dir>/<item id>/r<revision>/<name>.
 func revisionPath(dir string, item, rev int64, name string) string {
 	return filepath.Join(dir, strconv.FormatInt(item, 10), "r"+strconv.FormatInt(rev, 10), name)
 }
 
 // fileKind is one kind of revision files that a generation lists: the skill files or the
-// tool files (§7.5 steps 3, 5 and 8).
+// tool files.
 type fileKind struct {
 	dir    func(out string) string
 	listed func(m Manifest) []RevisionFile
@@ -187,8 +187,8 @@ func (k fileKind) path(out string, item, rev int64, name string) string {
 }
 
 // changedFiles returns the skill and tool files that m lists and that are missing or no
-// longer match their hash, in list order: each is a conflict (§7.5 step 5, S11). A listed path
-// that is not a path of its pair counts too: the manifest is damaged.
+// longer match their hash, in list order: each is a conflict (S11). A listed path that is
+// not a path of its pair counts too: the manifest is damaged.
 func changedFiles(out string, m Manifest) ([]string, error) {
 	var changed []string
 	for _, k := range fileKinds {
@@ -294,8 +294,8 @@ type Part struct {
 }
 
 // Parts reads the pointer in out once and returns the brief parts of that generation, each
-// checked against its manifest: the global part, then the workspace parts by key (§9.5). With
-// no pointer yet, the error wraps fs.ErrNotExist.
+// checked against its manifest: the global part, then the workspace parts by key. With no
+// pointer yet, the error wraps fs.ErrNotExist.
 func Parts(out string) ([]Part, error) {
 	gen, err := readPointer(out)
 	if err != nil {

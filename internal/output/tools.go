@@ -16,7 +16,7 @@ import (
 )
 
 // ErrMayNotRun means that a tool may not run now: it is not active, its contract is not the
-// one that you approved, or its files on disk are missing or changed (§10.1, S11, S21).
+// one that you approved, or its files on disk are missing or changed (S11, S21).
 var ErrMayNotRun = errors.New("the tool may not run")
 
 // MayRun says whether tool item id in the store whose out folder is out may run, and returns
@@ -82,11 +82,11 @@ func runnable(ctx context.Context, tx *sql.Tx, out string, id int64) (store.Tool
 }
 
 // AutomationMayRun says whether automation item id in tx, in the store whose out folder is out,
-// may run now, and returns its automations row when it may (§10.4). It may run only when the
-// item is an active automation, the binding is on (not paused), its tool is approved at the
-// pinned contract hash, and the tool may run (the checks of MayRun, the tool files too). Any
-// other state wraps ErrMayNotRun, with the reason. It takes the transaction of its caller, so
-// the claim and the launch mark of a run (E17-S11) check in the transaction that writes them.
+// may run now, and returns its automations row when it may. It may run only when the item is an
+// active automation, the binding is on (not paused), its tool is approved at the pinned
+// contract hash, and the tool may run (the checks of MayRun, the tool files too). Any other
+// state wraps ErrMayNotRun, with the reason. It takes the transaction of its caller, so the
+// claim and the launch mark of a run (E17-S11) check in the transaction that writes them.
 func AutomationMayRun(ctx context.Context, tx *sql.Tx, out string, id int64) (store.Automation, error) {
 	it, err := store.ItemByID(ctx, tx, id)
 	if err != nil {

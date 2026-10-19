@@ -120,9 +120,9 @@ func TestCorrection(t *testing.T) {
 const m2Lesson = "Remember this for this project only: every exported function in src/math.js gets a one-line " +
 	"JSDoc comment above it."
 
-// AC #253: the plain-words lesson rule (§7.1) finds each lesson word from its first
-// occurrence. It is wide: the extractor drops "never mind". A correction with no lesson word
-// gives no lesson.
+// AC #253: the plain-words lesson rule finds each lesson word from its first occurrence. It
+// is wide: the extractor drops "never mind". A correction with no lesson word gives no
+// lesson.
 func TestLesson(t *testing.T) {
 	runRule(t, Lesson, []ruleCase{
 		{"m2 prompt", []store.SignalInput{obs(1, 1, unconf, m2Lesson)}, [][]int64{{1}}},
@@ -392,7 +392,7 @@ func TestAssistantQuote(t *testing.T) {
 
 // The same correction-like text from each sender starts a correction only for the
 // unconfirmed sender. A real tool error still starts a failure, and command records still
-// give a command chain (§6.5).
+// give a command chain.
 func TestSenders(t *testing.T) {
 	const text = "No, that's wrong. I said use pnpm instead."
 	for _, tc := range []struct {
@@ -441,7 +441,7 @@ func TestEligible(t *testing.T) {
 }
 
 // Each candidate kind is a signal kind, and a sender supports a candidate as it supports a
-// signal of that kind (§6.5).
+// signal of that kind.
 func TestSupports(t *testing.T) {
 	for _, k := range []store.CandidateKind{store.CandidateCorrection, store.CandidateLesson, store.CandidateFailure,
 		store.CandidateProcedure, store.CandidateCommandChain} {
@@ -455,7 +455,7 @@ func TestSupports(t *testing.T) {
 		t.Error("Supports: want no correction from assistant text, and failures from tool records")
 	}
 	if !Supports(store.CandidateLesson, unconf) || Supports(store.CandidateLesson, assistant) {
-		t.Error("Supports: want lessons from unconfirmed text, and none from assistant text (§6.5)")
+		t.Error("Supports: want lessons from unconfirmed text, and none from assistant text")
 	}
 }
 

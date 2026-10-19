@@ -40,7 +40,7 @@ var searches = []string{"egrep", "fgrep", "grep", "rg"}
 const brainProgram = "brain"
 
 // brainRuns reports whether brain with args runs a tool of the project and prints its output:
-// brain run (§10.1) and brain automation launch (§10.4).
+// brain run and brain automation launch.
 func brainRuns(args []string) bool {
 	return len(args) > 0 && (args[0] == "run" || args[0] == "automation" && len(args) > 1 && args[1] == "launch")
 }
@@ -64,9 +64,9 @@ var linePrint = regexp.MustCompile(`^(?:(?:\d+|\$)(?:,(?:\d+|\$))?p;?)+$`)
 //   - every program is brain or a reader, and at least one is brain: out is Brain's own text,
 //     also a refusal with status 1 (#376).
 //
-// Such text starts no failure (§6.5, §7.1). A cut call, a cut command (…), a shell expansion, a
-// program that is not a reader, or a reader that runs another program keeps out as tool output
-// that can fail. A run that exits with status 0 can still hide a failure, as find -exec does.
+// Such text starts no failure. A cut call, a cut command (…), a shell expansion, a program
+// that is not a reader, or a reader that runs another program keeps out as tool output that
+// can fail. A run that exits with status 0 can still hide a failure, as find -exec does.
 func noFailure(call string, cut bool, out string) bool {
 	lines := strings.Split(call, "\n")
 	i := len(lines) - 1

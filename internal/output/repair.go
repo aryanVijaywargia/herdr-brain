@@ -15,16 +15,15 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-// hookCap is the total time cap of the hook (§8.3). A reader that read the old pointer is done
-// within one cap, so a generation that the pointer left more than one cap ago has no reader
-// (§7.5 step 8).
+// hookCap is the total time cap of the hook. A reader that read the old pointer is done
+// within one cap, so a generation that the pointer left more than one cap ago has no reader.
 const hookCap = 300 * time.Millisecond
 
-// Repair builds the output when it is behind the store, and then cleans the out folder (§7.5
-// steps 6, 8, 9): it deletes every staging folder, and each old generation that no reader can
-// still use. Every brain call except the hook runs it, and so do brain doctor and forget. A
-// hand-edited current generation stops the build with a *ConflictError; the cleanup still
-// runs, so a forget can finish once you resolve the conflict. now is the clock.
+// Repair builds the output when it is behind the store, and then cleans the out folder: it
+// deletes every staging folder, and each old generation that no reader can still use. Every
+// brain call except the hook runs it, and so do brain doctor and forget. A hand-edited
+// current generation stops the build with a *ConflictError; the cleanup still runs, so a
+// forget can finish once you resolve the conflict. now is the clock.
 func Repair(ctx context.Context, s *store.Store, out string, now func() time.Time) (err error) {
 	b := builder{out: out, now: now, writeFile: writeFile, afterRender: func() {}}
 	unlock, err := b.lock()
@@ -55,8 +54,8 @@ func (b builder) catchUp(ctx context.Context, s *store.Store) error {
 }
 
 // RepairConflicts runs brain repair: it repairs as Repair does, and then returns the open
-// output conflicts under the same lock, so no build changes the folders between the two
-// (§7.5 step 5). A conflict is not an error here: it is in the list. now is the clock.
+// output conflicts under the same lock, so no build changes the folders between the two. A
+// conflict is not an error here: it is in the list. now is the clock.
 func RepairConflicts(ctx context.Context, s *store.Store, out string, now func() time.Time) (_ []ConflictError, err error) {
 	b := builder{out: out, now: now, writeFile: writeFile, afterRender: func() {}}
 	unlock, err := b.lock()
@@ -81,12 +80,12 @@ func RepairConflicts(ctx context.Context, s *store.Store, out string, now func()
 var beforeScan = func() {}
 
 // Confirm resolves the open output conflicts in out: you confirm them with brain repair
-// --confirm (§7.5 step 5, D5). Under the lock, it builds a new generation in place of a
-// hand-edited current generation, deletes every conflict folder (the current one and the
-// retired ones that cleanup kept), and then repairs as Repair does. Before the deletes, it
-// waits until the pointer left them more than one hookCap ago, so a hook that read the old
-// pointer still reads its folder (§7.5 step 8). It returns the conflicts that it deleted, in generation
-// order. now is the clock.
+// --confirm. Under the lock, it builds a new generation in place of a hand-edited current
+// generation, deletes every conflict folder (the current one and the retired ones that
+// cleanup kept), and then repairs as Repair does. Before the deletes, it waits until the
+// pointer left them more than one hookCap ago, so a hook that read the old pointer still
+// reads its folder. It returns the conflicts that it deleted, in generation order. now is
+// the clock.
 func Confirm(ctx context.Context, s *store.Store, out string, now func() time.Time) (_ []ConflictError, err error) {
 	b := builder{out: out, now: now, writeFile: writeFile, afterRender: func() {}}
 	unlock, err := b.lock()
@@ -112,7 +111,7 @@ func Confirm(ctx context.Context, s *store.Store, out string, now func() time.Ti
 		return nil, err
 	}
 	// The pointer leaves the hand-edited generation before its folder goes, so it never names
-	// a folder that is not there (§7.5 step 9).
+	// a folder that is not there.
 	if slices.Contains(b.replace, cur) {
 		if err := s.Write(ctx, func(tx *sql.Tx) error { return newGeneration(ctx, tx, cur) }); err != nil {
 			return nil, err
@@ -135,10 +134,10 @@ func Confirm(ctx context.Context, s *store.Store, out string, now func() time.Ti
 }
 
 // restoreFiles writes each skill and tool file of the current generation cur that you
-// confirmed in cs again, from the text of its revision in the store (§7.5 step 5). A running
-// session may still read an older revision, so this covers every listed revision, not only the
-// newest. A revision whose stored text no longer has the listed hash (forget erased it) is not
-// written: its item is no active skill or tool, so cleanup removes the file.
+// confirmed in cs again, from the text of its revision in the store. A running session may
+// still read an older revision, so this covers every listed revision, not only the newest. A
+// revision whose stored text no longer has the listed hash (forget erased it) is not written:
+// its item is no active skill or tool, so cleanup removes the file.
 func restoreFiles(ctx context.Context, s *store.Store, out string, cur int64, cs []ConflictError) error {
 	if !slices.ContainsFunc(cs, func(c ConflictError) bool { return c.Generation == cur }) {
 		return nil
@@ -187,8 +186,8 @@ func restoreFiles(ctx context.Context, s *store.Store, out string, cur int64, cs
 var sleep = time.Sleep
 
 // waitReaders waits until the pointer left every generation that is not current more than
-// hookCap ago, so no hook still reads their folders (§7.5 step 8). With no record of the last
-// switch it waits one full hookCap.
+// hookCap ago, so no hook still reads their folders. With no record of the last switch it
+// waits one full hookCap.
 func waitReaders(ctx context.Context, s *store.Store, out string, now func() time.Time) error {
 	cur, err := current(out)
 	if err != nil {
@@ -210,7 +209,7 @@ func waitReaders(ctx context.Context, s *store.Store, out string, now func() tim
 
 // newGeneration records one more output generation when the store has none newer than cur, so
 // that the build that replaces generation cur has a new number. Only commits record one
-// otherwise (§7.5 step 2).
+// otherwise.
 func newGeneration(ctx context.Context, tx *sql.Tx, cur int64) error {
 	newest, err := store.NewestGeneration(ctx, tx)
 	if err != nil || newest > cur {
@@ -276,15 +275,15 @@ func cleanup(ctx context.Context, s *store.Store, out string, now func() time.Ti
 		return err
 	}
 	// A deleted generation holds no forgotten text any more, so the hook stops withholding for
-	// it (§6.7).
+	// it.
 	return s.Write(ctx, func(tx *sql.Tx) error { return store.ClearForgotten(ctx, tx, kept) })
 }
 
 // cleanFiles deletes the skill and tool files of each item that is not an active skill or
 // tool, when the current generation cur lists none of them and the pointer switched to cur
-// more than hookCap ago, the time left (§7.5 step 8). All revision files of an active skill or
-// tool stay, so a running session can still read the path in its brief (§5.5). A folder name
-// that is no item id stays. The caller holds the lock, so no build writes such a file now.
+// more than hookCap ago, the time left. All revision files of an active skill or tool stay,
+// so a running session can still read the path in its brief. A folder name that is no item
+// id stays. The caller holds the lock, so no build writes such a file now.
 func cleanFiles(ctx context.Context, s *store.Store, out string, cur int64, left time.Time, now func() time.Time) error {
 	if cur == 0 || left.IsZero() || now().Sub(left) <= hookCap {
 		return nil
@@ -394,12 +393,13 @@ func Conflicts(out string) ([]ConflictError, error) {
 	return cs, nil
 }
 
-// Holds reports whether any folder in out may still hold the text of item, at any revision
-// (§6.7), or a skill or tool file of item is still there. The forget flow reports "done" only when it
-// is false. A generation counts by the (item id, revision) pairs in its manifest, never by a text search. A staging folder, a
-// generation with a missing or invalid manifest, or a file that the manifest does not name may
-// hold anything, so it counts too, until cleanup removes it. A kept conflict folder counts
-// too: a file that fails its hash may hold any text, whatever its manifest names.
+// Holds reports whether any folder in out may still hold the text of item, at any revision, or
+// a skill or tool file of item is still there. The forget flow reports "done" only when it is
+// false. A generation counts by the (item id, revision) pairs in its manifest, never by a text
+// search. A staging folder, a generation with a missing or invalid manifest, or a file that the
+// manifest does not name may hold anything, so it counts too, until cleanup removes it. A kept
+// conflict folder counts too: a file that fails its hash may hold any text, whatever its
+// manifest names.
 func Holds(out string, item int64) (bool, error) {
 	gens, staging, err := holding(out, item)
 	if err != nil || staging || len(gens) > 0 {
@@ -408,8 +408,8 @@ func Holds(out string, item int64) (bool, error) {
 	return revisionFiles(out, item)
 }
 
-// revisionFiles reports whether a skill or tool file of item, of any revision, is still on disk
-// (§7.5 step 8): forget of a skill or tool stays pending until every revision file is gone.
+// revisionFiles reports whether a skill or tool file of item, of any revision, is still on
+// disk: forget of a skill or tool stays pending until every revision file is gone.
 func revisionFiles(out string, item int64) (bool, error) {
 	for _, k := range fileKinds {
 		_, err := os.Stat(filepath.Join(k.dir(out), strconv.FormatInt(item, 10)))
@@ -453,9 +453,9 @@ func holdsItem(m Manifest, item int64) bool {
 // Forget runs erase, the store write that forgets item, under the build lock. The same write
 // marks each generation in out that holds item with outputs.holds_forgotten_text, so the hook
 // withholds the brief until cleanup deletes them, and a build from one of them logs no old
-// bytes (§6.7). With the lock held, no build writes a generation between the check and the
-// mark. Forget first deletes the staging folders: no outputs row can mark them, so a
-// staging folder left after the commit would hold the text while the hook delivers.
+// bytes. With the lock held, no build writes a generation between the check and the mark.
+// Forget first deletes the staging folders: no outputs row can mark them, so a staging folder
+// left after the commit would hold the text while the hook delivers.
 func Forget(ctx context.Context, s *store.Store, out string, item int64, erase func(tx *sql.Tx) error) (err error) {
 	b := builder{out: out}
 	unlock, err := b.lock()

@@ -343,7 +343,7 @@ func claude(t *testing.T) *adapter.Profile {
 
 func ptr[T any](v T) *T { return &v }
 
-// TestRun has one case per step of §8.3 with a store. The brief holds the named texts and
+// TestRun has one case per step of the hook with a store. The brief holds the named texts and
 // none of the other item texts; the receipt, if any, lands in the named store only.
 func TestRun(t *testing.T) {
 	all := []string{mainGlobal, mainA14, testGlobal}
@@ -542,8 +542,8 @@ func show(d store.Delivery) string {
 }
 
 // TestForgetDuringRead: a forget that starts while the hook reads the output waits for the
-// receipt, so the hook never prints text after forget became pending (§6.7). The global part
-// is a FIFO, so the hook stops in its read until the test writes the checked bytes.
+// receipt, so the hook never prints text after forget became pending. The global part is a
+// FIFO, so the hook stops in its read until the test writes the checked bytes.
 func TestForgetDuringRead(t *testing.T) {
 	f := newFixture(t)
 	name := filepath.Join(f.mainStore, outDir, fmt.Sprintf("gen-%d", f.gen), "global.md")
@@ -741,9 +741,9 @@ func (w *blockedWriter) Write([]byte) (int, error) {
 	return 0, errors.New("stalled output")
 }
 
-// TestCap (S50, E7-S4 FINDINGS): stdin held open, a stalled lookup and a stalled output each
-// end Run by the cap. The stalled step goes on after Run returns, as it would until the
-// process exits: it prints nothing late and writes no receipt.
+// TestCap (S50, E7-S4): stdin held open, a stalled lookup and a stalled output each end Run
+// by the cap. The stalled step goes on after Run returns, as it would until the process
+// exits: it prints nothing late and writes no receipt.
 func TestCap(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -871,7 +871,7 @@ func TestBudget(t *testing.T) {
 // timingRuns is the number of hook runs that TestTiming times. [NEW]
 const timingRuns = 200
 
-// timingTarget is the hook time target of §8.3.
+// timingTarget is the hook time target.
 const timingTarget = 100 * time.Millisecond
 
 // timingRounds is the number of rounds of timingRuns runs that TestTiming times before it

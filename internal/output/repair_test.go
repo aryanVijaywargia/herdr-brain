@@ -176,7 +176,7 @@ func TestHandEditToRetiredGeneration(t *testing.T) {
 	}
 }
 
-// §7.5 step 8: a generation goes only when the pointer left it more than one hook cap ago.
+// A generation goes only when the pointer left it more than one hook cap ago.
 func TestCleanupWaitsOneHookCap(t *testing.T) {
 	s, out := newStore(t)
 	id := addItem(t, s, "", "one")

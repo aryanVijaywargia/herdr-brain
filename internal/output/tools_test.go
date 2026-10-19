@@ -102,7 +102,7 @@ func TestToolFiles(t *testing.T) {
 }
 
 // A tool file that no generation lists yet is no conflict: a stopped build leaves it, and the
-// next build writes it again (§7.5 step 5).
+// next build writes it again.
 func TestToolUnlistedFile(t *testing.T) {
 	s, out := newStore(t)
 	id := addTool(t, s, toolText("m1"))
@@ -217,9 +217,9 @@ func TestToolApproval(t *testing.T) {
 	}
 }
 
-// §7.5 step 8: all revision files of an active tool stay; the files of a retired tool go when
-// no current generation lists them and the pointer moved more than one hook cap ago. Holds
-// counts them until then, so forget stays pending.
+// All revision files of an active tool stay; the files of a retired tool go when no current
+// generation lists them and the pointer moved more than one hook cap ago. Holds counts them
+// until then, so forget stays pending.
 func TestToolRetireCleanup(t *testing.T) {
 	s, out := newStore(t)
 	id := addTool(t, s, toolText("r1"))
@@ -292,7 +292,7 @@ func TestCatalog(t *testing.T) {
 }
 
 // AC E17-S5: a skill entry says so when a Brain tool that it requires is not approved or is
-// stopped (§8.2). A required tool that is no Brain tool (gh) gets no note.
+// stopped. A required tool that is no Brain tool (gh) gets no note.
 func TestSkillStoppedTool(t *testing.T) {
 	s, out := newStore(t)
 	run := addTool(t, s, namedTool("test-package"))
