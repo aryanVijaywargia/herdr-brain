@@ -480,9 +480,13 @@ func (d *doctorCall) extraction(ctx context.Context) error {
 	p := extract.Pass{HerdrSession: d.Binding.Session, DefaultOn: learningDefault(d.Binding), Now: d.Now,
 		Gates: gates, Caps: caps}
 	var ws []extract.Waiting
+	var rs []store.ChangeRequest
 	var cli store.ExtractorCLI
 	err = d.Store.Write(ctx, func(tx *sql.Tx) (err error) {
 		if ws, err = p.Waiting(ctx, tx); err != nil {
+			return err
+		}
+		if rs, err = store.OpenChangeRequests(ctx, tx); err != nil {
 			return err
 		}
 		s, err := store.Extractor(ctx, tx)
@@ -497,10 +501,25 @@ func (d *doctorCall) extraction(ctx context.Context) error {
 	}
 	for _, w := range ws {
 		if w.Failed != "" {
-			d.fail("extraction: the last extractor call for workspace %s failed (%s), so its signals wait; "+
-				"fix: run %s in a terminal and check that it works and is signed in; Brain tries again later",
-				w.WorkspaceKey, w.Failed, cli)
+			d.fail("extraction: the last extractor call for workspace %s failed (%s), so its signals wait; fix: %s; "+
+				"Brain tries again later", w.WorkspaceKey, w.Failed, failFix(cli, w.Refusal))
+		}
+	}
+	// A failed change request that waits for its retry fails the check too (#428).
+	for _, r := range rs {
+		if r.Status == store.ChangeFailed && !extract.ChangeSpent(r) {
+			d.fail("extraction: the last extractor call for change request %d failed (%s), so its draft waits; fix: %s; "+
+				"Brain tries again later", r.ID, r.Reason, failFix(cli, r.Refusal))
 		}
 	}
 	return nil
+}
+
+// failFix is the fix of a failed extractor call of cli whose refusal is refusal: the sign-in hint
+// when the CLI could not sign in (#428).
+func failFix(cli store.ExtractorCLI, refusal store.Refusal) string {
+	if refusal == store.RefusalSignIn {
+		return extract.SignInHint(cli)
+	}
+	return fmt.Sprintf("run %s in a terminal and check that it works and is signed in", cli)
 }

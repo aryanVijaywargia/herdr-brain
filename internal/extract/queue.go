@@ -179,8 +179,9 @@ type Waiting struct {
 	NoCLI        bool      // no extractor CLI is chosen
 	// Failed is the stored reason of a failed or invalid last call that still waits for its
 	// retry; "" for none, and for a batch with no try left (#347). A later call that works
-	// clears it (#263).
-	Failed string
+	// clears it (#263). Refusal is the stored refusal of that call (#428).
+	Failed  string
+	Refusal store.Refusal
 }
 
 // Waiting returns the work that waits for extraction, by workspace key: the batches with a
@@ -225,7 +226,9 @@ func (p Pass) Waiting(ctx context.Context, tx *sql.Tx) ([]Waiting, error) {
 		w := &ws[i]
 		w.Batches++
 		w.NoCLI = why == noCLI
-		w.Failed = cmp.Or(w.Failed, failed)
+		if w.Failed == "" {
+			w.Failed, w.Refusal = failed.Reason, failed.Refusal
+		}
 		if at := byID[j.refs[0].obs].At; w.Oldest.IsZero() || at.Before(w.Oldest) {
 			w.Oldest = at
 		}
@@ -245,42 +248,42 @@ const noTry = "no try left: it waits for new evidence of its session"
 
 // why returns why the next pass makes no call for batch j, or "": the switches and the CLI of
 // allowed, a failure of its last call that still waits for its retry or has no try left, a call
-// that runs, or the caps (S15, §7.3). failed is the reason that a failed batch stored, while it
-// waits for its retry: the official CLI reports its own sign-in failures.
-func (p Pass) why(ctx context.Context, tx *sql.Tx, j job, d Day) (why, failed string, err error) {
+// that runs, or the caps (S15, §7.3). failed is the failed batch, while it waits for its retry;
+// the zero Batch for none. Its reason is what the official CLI reported.
+func (p Pass) why(ctx context.Context, tx *sql.Tx, j job, d Day) (why string, failed store.Batch, err error) {
 	s, err := store.Extractor(ctx, tx)
 	if err != nil {
-		return "", "", err
+		return "", failed, err
 	}
 	if s.CLI == "" {
-		return noCLI, "", nil
+		return noCLI, failed, nil
 	}
 	if on, err := store.ExtractionOn(ctx, tx, j.batch.WorkspaceKey); err != nil || !on {
-		return "extraction is off", "", err
+		return "extraction is off", failed, err
 	}
 	if on, err := store.LearningOn(ctx, tx, p.DefaultOn, j.session.Key.HerdrSession, j.batch.WorkspaceKey,
 		j.session.PaneID); err != nil || !on {
-		return "learning is off", "", err
+		return "learning is off", failed, err
 	}
 	b, err := store.FindBatch(ctx, tx, j.batch)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 	case err != nil:
-		return "", "", err
+		return "", failed, err
 	case b.Status == store.BatchFailed || b.Status == store.BatchInvalid:
 		worked, err := store.LastWorkedCall(ctx, tx)
 		if err != nil || p.retries(b, worked, j.newest) {
-			return d.Full(), "", err
+			return d.Full(), failed, err
 		}
 		last := fmt.Sprintf("the last %s call %s: %s", s.CLI, b.Status, b.Reason)
-		if spent(b) {
-			return last + "; " + noTry, "", nil
+		if spent(b) && b.Refusal == store.RefusalNone {
+			return last + "; " + noTry, failed, nil
 		}
-		return last, b.Reason, nil
+		return last, b, nil
 	case b.Status == store.BatchActive:
-		return "a call runs, or a crash stopped it and the next pass tries again", "", nil
+		return "a call runs, or a crash stopped it and the next pass tries again", failed, nil
 	}
-	return d.Full(), "", nil
+	return d.Full(), failed, nil
 }
 
 // roundRobin orders xs as order orders the extraction jobs (§7.3 queue): the first of each

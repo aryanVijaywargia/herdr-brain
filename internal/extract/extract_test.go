@@ -515,9 +515,12 @@ func TestProposal(t *testing.T) {
 	}
 }
 
-// The claude call has the E13-S1 argv and a clean environment.
+// The claude call has the E13-S1 argv and the environment of brained with no variable of the
+// denylist (#428): a sign-in variable passes, and HERDR_* and the session markers do not.
 func TestClaudeCall(t *testing.T) {
 	t.Setenv("HERDR_SESSION", "x")
+	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+	t.Setenv("CLAUDECODE", "1")
 	t.Setenv("ANTHROPIC_API_KEY", "x")
 	f := newFixture(t)
 	f.session("a", true, line{"ws-A", pnpm, t0})
@@ -526,10 +529,15 @@ func TestClaudeCall(t *testing.T) {
 	if c.Argv[0] != "claude" || !slices.Contains(c.Argv, "--no-session-persistence") || c.Dir == "" {
 		t.Errorf("argv %q in %q", c.Argv, c.Dir)
 	}
+	// The messages name a variable, never its value: the test environment can hold a real one.
 	for _, e := range c.Env {
-		if strings.HasPrefix(e, "HERDR_") || strings.HasPrefix(e, "ANTHROPIC_") {
-			t.Errorf("env has %s", e)
+		if name, _, _ := strings.Cut(e, "="); strings.HasPrefix(name, "HERDR_") || name == "CLAUDE_CODE_ENTRYPOINT" ||
+			name == "CLAUDECODE" {
+			t.Errorf("env has %s", name)
 		}
+	}
+	if !slices.Contains(c.Env, "ANTHROPIC_API_KEY=x") {
+		t.Errorf("env has no ANTHROPIC_API_KEY=x")
 	}
 }
 

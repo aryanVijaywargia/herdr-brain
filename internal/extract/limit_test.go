@@ -159,7 +159,8 @@ func TestLimitUsesNoCall(t *testing.T) {
 			return []byte(`{"is_error":true,"result":"API Error: Request timed out"}`), exit("claude", "")
 		}
 		f.mustRun()
-		if b := f.batches()[0]; b.Status != store.BatchFailed || b.ModelCalls != 1 || b.Reason != "claude: exit status 1" {
+		if b := f.batches()[0]; b.Status != store.BatchFailed || b.ModelCalls != 1 ||
+			b.Reason != "claude: exit status 1: API Error: Request timed out" {
 			t.Errorf("batch = %+v, want failed after 1 counted call", b)
 		}
 		if d := f.day(); d.Calls != 1 {
@@ -259,7 +260,7 @@ func TestLimitAtLastTry(t *testing.T) {
 		f.worked("b0")
 		f.worked("b1")
 		b := f.batches()[0]
-		if b.Status != store.BatchFailed || b.ModelCalls != maxTries || !atLimit(b.Reason) {
+		if b.Status != store.BatchFailed || b.ModelCalls != maxTries || b.Refusal != store.RefusalLimit {
 			t.Fatalf("batch = %+v, want failed at the limit with %d counted calls", b, maxTries)
 		}
 		f.now = f.now.Add(retryAfter)
@@ -280,7 +281,7 @@ func TestLimitAtLastTry(t *testing.T) {
 		f.cli.reply = redraft(func(context.Context, string) ([]byte, error) { return []byte(claudeWeekly), exit("claude", "") })
 		f.worked("b0")
 		f.worked("b1")
-		if got := f.request(cr.ID); got.Status != store.ChangeFailed || got.ModelCalls != maxTries || !atLimit(got.Reason) {
+		if got := f.request(cr.ID); got.Status != store.ChangeFailed || got.ModelCalls != maxTries || got.Refusal != store.RefusalLimit {
 			t.Fatalf("request = %+v, want failed at the limit with %d counted calls", got, maxTries)
 		}
 		f.now = f.now.Add(retryAfter)

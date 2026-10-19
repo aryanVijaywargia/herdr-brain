@@ -48,7 +48,7 @@ func (p Pass) requests(ctx context.Context, tx *sql.Tx) ([]job, error) {
 	var jobs []job
 	for _, r := range rs {
 		spent, failed := ChangeSpent(r), r.Status == store.ChangeFailed || r.Status == store.ChangeInvalid
-		if failed && !spent && !p.tryAgain(r.ModelCalls, r.At, worked, atLimit(r.Reason)) ||
+		if failed && !spent && !p.tryAgain(r.ModelCalls, r.At, worked, r.Refusal != store.RefusalNone) ||
 			r.Status == store.ChangeActive && p.Now().Sub(r.At) < changeStale {
 			continue
 		}
@@ -106,7 +106,7 @@ func (p Pass) changeJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) 
 	if err != nil {
 		return job{}, "", err
 	}
-	if pr.Status != requestStatus(r) || pr.ChangeRequest == nil || pr.CandidateID == nil || pr.ItemID == nil {
+	if !requestCurrent(r, pr.Status) || pr.ChangeRequest == nil || pr.CandidateID == nil || pr.ItemID == nil {
 		return job{}, "the request is no longer current", nil
 	}
 	it, err := store.ItemByID(ctx, tx, *pr.ItemID)
@@ -143,19 +143,43 @@ func (p Pass) changeJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) 
 
 // ChangeSpent reports whether change request r failed or was invalid with no try left
 // (noTryLeft, #359): it gets no more calls and stays so, and its proposal is back in review
-// (store.ReturnChanged). A new request of the item starts with new tries.
+// (store.ReturnChanged). A new request of the item starts with new tries. A request whose last
+// call the CLI refused (r.Refusal, #428) is not spent: that call used no try.
 func ChangeSpent(r store.ChangeRequest) bool {
-	return (r.Status == store.ChangeFailed || r.Status == store.ChangeInvalid) &&
+	return (r.Status == store.ChangeFailed || r.Status == store.ChangeInvalid) && r.Refusal == store.RefusalNone &&
 		noTryLeft(r.Status == store.ChangeFailed, r.ModelCalls)
 }
 
-// requestStatus is the status of the proposal of change request r while r is current: changed,
-// or pending when r has no try left and gave it back to review (#359).
-func requestStatus(r store.ChangeRequest) store.ProposalStatus {
-	if ChangeSpent(r) {
-		return store.ProposalPending
+// recovering reports whether failed change request r has no try left by its count, but the CLI
+// refused its last call (r.Refusal, #428): r is not spent and gets its call again. An older
+// Brain gave its proposal back to review; retake takes it back when r runs.
+func recovering(r store.ChangeRequest) bool {
+	return r.Status == store.ChangeFailed && r.Refusal != store.RefusalNone && noTryLeft(true, r.ModelCalls)
+}
+
+// retake takes back the proposal of recovering change request r from review at now, when you
+// did not decide it yet (#428). A proposal that you decided stays as it is.
+func retake(ctx context.Context, tx *sql.Tx, r store.ChangeRequest, now time.Time) error {
+	switch {
+	case r.Source == store.ChangeProposal:
+		return store.RetakeChanged(ctx, tx, r.SourceID, now)
+	case r.NewProposalID != nil:
+		return store.RetakeChanged(ctx, tx, *r.NewProposalID, now)
 	}
-	return store.ProposalChanged
+	return nil
+}
+
+// requestCurrent reports whether proposal status st fits change request r while r is current:
+// changed, or pending when r has no try left and gave it back to review (#359). A recovering
+// request fits both: pending until it runs, and changed once retake took it back (#428).
+func requestCurrent(r store.ChangeRequest, st store.ProposalStatus) bool {
+	switch {
+	case recovering(r):
+		return st == store.ProposalPending || st == store.ProposalChanged
+	case ChangeSpent(r):
+		return st == store.ProposalPending
+	}
+	return st == store.ProposalChanged
 }
 
 // giveBack gives the proposal of change request r back to review when r has no try left
@@ -227,7 +251,7 @@ func (p Pass) itemJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) (j
 		if pr, err = store.ProposalByID(ctx, tx, *r.NewProposalID); err != nil {
 			return job{}, "", err
 		}
-		if pr.Status != requestStatus(r) || pr.ChangeRequest == nil {
+		if !requestCurrent(r, pr.Status) || pr.ChangeRequest == nil {
 			return job{}, "the request is no longer current", nil
 		}
 	}
@@ -366,8 +390,14 @@ func (p Pass) runChange(ctx context.Context, j job) error {
 		j = cur
 		// Another pass may run the request: only one attempt is active at a time.
 		j.change.attempt, err = store.StartChange(ctx, tx, r.ID, p.Now(), p.Now().Add(-changeStale))
-		if errors.Is(err, sql.ErrNoRows) {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
 			skip, err = true, nil
+		case err == nil && recovering(r):
+			// A recovering request takes back its proposal only here, in the transaction of its
+			// call, after the revision, switch and cap checks: a request that waits or goes
+			// leaves the proposal in review (#428).
+			err = retake(ctx, tx, r, p.Now())
 		}
 		return err
 	})
@@ -418,8 +448,8 @@ func (p Pass) commitChange(ctx context.Context, j job, claims []Claim, callErr e
 			if _, err := store.EndChange(ctx, tx, r.ID, r.Status, callErr.Error(), nil, now); err != nil {
 				return err
 			}
-			if errors.Is(callErr, ErrLimit) {
-				return store.UncountChangeCall(ctx, tx, r.ID)
+			if rf := refusal(callErr); rf != store.RefusalNone {
+				return store.RefuseChangeCall(ctx, tx, r.ID, rf)
 			}
 			return giveBack(ctx, tx, r)
 		}

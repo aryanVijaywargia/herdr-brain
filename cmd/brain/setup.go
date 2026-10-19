@@ -50,8 +50,9 @@ const codexTrust = `- Start codex. Choose "Review hooks", then press t on the Br
 
 // locality says where the excerpts of an extractor call go (§7.3 D9, D4).
 const locality = `- Brain calls claude -p or codex exec, with no tools, to learn from finished sessions.
-- Each call sends short excerpts, after the secret filter, to the provider of that CLI.
-- The CLI uses its own sign-in. Brain never reads its tokens or picks the CLI itself.
+- Each call sends short excerpts, after the secret filter, to that CLI's provider or proxy.
+- The CLI signs in as it does in a herdr pane: its own login, or a key or proxy in the herdr env.
+  Brain passes that env on. It does not read it, and it filters the error text that it keeps.
 - Extraction is on by default. An off switch that you set stays off.
 - To stop the calls: brain extract off [--workspace <id>]
   Capture and the signal rules keep running.
@@ -306,7 +307,7 @@ func chooseExtractor(ctx context.Context, d setupDeps, dir string, again bool, p
 		return nil
 	}
 	p.say("- Extractor: record %s, %s in the store %s.\n", cli, cmp.Or(model, "its default model"), dir)
-	p.say("  Each extractor call sends short excerpts, after the secret filter, to the provider of %s.\n", cli)
+	p.say("  Each extractor call sends short excerpts, after the secret filter, to the provider of %s, or its proxy.\n", cli)
 	p.add(func() error {
 		if err := writeExtractor(ctx, dir, cli, model, d.now()); err != nil {
 			return err

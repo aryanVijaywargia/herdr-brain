@@ -327,15 +327,15 @@ func noTryLeft(failed bool, calls int) bool {
 
 // retries reports whether failed or invalid batch b gets its call now, with worked the end of the
 // last call that worked and newest the time of the newest observation of its run (job.newest).
-// With a try left (spent), it gets one as tryAgain says. With no try left, it waits for new
-// evidence of its session and key. Mostly that evidence makes a new batch, which replaces it
+// With a try left (spent), or when the CLI refused its last call (b.Refusal), it gets one as
+// tryAgain says. With no try left, it waits for new evidence of its session and key. Mostly that evidence makes a new batch, which replaces it
 // (store.StartBatch); when the input cap cut the run, the new evidence is after the cut, so the
 // batch keeps its range and gets one call for each new evidence.
 func (p Pass) retries(b store.Batch, worked, newest time.Time) bool {
-	if spent(b) {
+	if spent(b) && b.Refusal == store.RefusalNone {
 		return newest.After(b.At)
 	}
-	return p.tryAgain(b.ModelCalls, b.At, worked, atLimit(b.Reason))
+	return p.tryAgain(b.ModelCalls, b.At, worked, b.Refusal != store.RefusalNone)
 }
 
 // tryAgain reports whether a failed or invalid batch or change request with a try left gets its
@@ -343,18 +343,24 @@ func (p Pass) retries(b store.Batch, worked, newest time.Time) bool {
 // call that worked. It gets one after a later call works, or retryAfter after its own (waits).
 // The last call of a failed one, the one after maxTries, waits for a later call that works: that
 // call shows that the CLI is back, so a failure after it is its own. A last call that the CLI
-// refused at a usage or rate limit (limit, #377) used no try, and the limit is no failure of its
-// own: it gets the call again as any try does.
-func (p Pass) tryAgain(calls int, at, worked time.Time, limit bool) bool {
-	if calls >= maxTries && !limit {
+// refused before it ran a model (refused, the stored refusal: at a usage or rate limit, #377,
+// or with no sign-in, #428) used no try, and that is no failure of its own: it gets the call
+// again as any try does.
+func (p Pass) tryAgain(calls int, at, worked time.Time, refused bool) bool {
+	if calls >= maxTries && !refused {
 		return worked.After(at)
 	}
 	return !p.waits(at, worked)
 }
 
-// atLimit reports whether reason, the stored reason of a failed batch or change request, says
-// that the CLI refused its last call at a usage or rate limit (ErrLimit).
-func atLimit(reason string) bool { return strings.HasSuffix(reason, ErrLimit.Error()) }
+// SignInHint returns what to do when extractor CLI cli could not sign in (store.RefusalSignIn,
+// #428).
+func SignInHint(cli store.ExtractorCLI) string {
+	if cli == store.ExtractorCodex {
+		return "sign in again: run codex login, or set OPENAI_API_KEY in the herdr server env"
+	}
+	return "sign in again: run claude, then /login, or set ANTHROPIC_API_KEY in the herdr server env"
+}
 
 // allowed reports whether batch j may call the extractor: extraction is on for its workspace
 // key, a CLI is chosen, and learning is on for its session, key and pane (§7.3).
@@ -534,8 +540,8 @@ func (p Pass) commit(ctx context.Context, j job, id int64, claims []Claim, dropp
 			if _, err := store.EndBatch(ctx, tx, id, status, callErr.Error(), now); err != nil {
 				return err
 			}
-			if errors.Is(callErr, ErrLimit) {
-				return store.UncountBatchCall(ctx, tx, id)
+			if r := refusal(callErr); r != store.RefusalNone {
+				return store.RefuseBatchCall(ctx, tx, id, r)
 			}
 			return nil
 		}

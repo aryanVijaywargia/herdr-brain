@@ -765,7 +765,22 @@ func (s *statusCall) extraction(ctx context.Context, tx *sql.Tx) error {
 		s.w.printf("    batch %d, session %d, workspace %s: %s, %s, %s ago\n", b.ID, b.SessionID, b.WorkspaceKey,
 			b.Status, b.Reason, age(s.Now().Sub(b.At)))
 	}
+	if slices.ContainsFunc(bs, func(b store.Batch) bool { return b.Refusal == store.RefusalSignIn }) {
+		if err := s.signInHint(ctx, tx); err != nil {
+			return err
+		}
+	}
 	return s.failedChanges(ctx, tx)
+}
+
+// signInHint prints what to do when the chosen extractor CLI could not sign in (#428).
+func (s *statusCall) signInHint(ctx context.Context, tx *sql.Tx) error {
+	x, err := store.Extractor(ctx, tx)
+	if err != nil {
+		return err
+	}
+	s.w.printf("    fix: %s; Brain tries again later\n", extract.SignInHint(x.CLI))
+	return nil
 }
 
 // historyScan prints the history scan of the store, when it has one (§6.8): why it waits, its
@@ -866,6 +881,9 @@ func (s *statusCall) failedChanges(ctx context.Context, tx *sql.Tx) error {
 	for _, r := range rs {
 		s.w.printf("    request %d of %s, workspace %s: %s, %s, %s ago; %s\n", r.ID, changeSource(r),
 			cmp.Or(r.WorkspaceKey, "global"), r.Status, r.Reason, age(s.Now().Sub(r.At)), changeNext(r))
+	}
+	if slices.ContainsFunc(rs, func(r store.ChangeRequest) bool { return r.Refusal == store.RefusalSignIn }) {
+		return s.signInHint(ctx, tx)
 	}
 	return nil
 }
