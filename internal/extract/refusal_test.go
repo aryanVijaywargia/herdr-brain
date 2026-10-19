@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
@@ -168,5 +169,109 @@ func TestLegacyChangeDecided(t *testing.T) {
 	}
 	if got := f.proposal(p.ID); got.Status != store.ProposalRejected {
 		t.Errorf("proposal = %s, want it rejected as you decided", got.Status)
+	}
+}
+
+// legacyRequest gives change request id and its proposal the state of an older Brain after
+// migration 37: failed with all its tries and a sign-in refusal, and the proposal back in review.
+func (f *fixture) legacyRequest(id, proposal int64) {
+	f.t.Helper()
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `UPDATE change_requests SET status = ?, model_calls = ?, refusal = ?,
+			reason = 'claude: exit status 1', at = ? WHERE id = ?`, store.ChangeFailed, maxTries+1, store.RefusalSignIn,
+			f.now.Format(time.RFC3339Nano), id); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE proposals SET status = ?, surface = NULL, decided = NULL WHERE id = ?`,
+			store.ProposalPending, proposal)
+		return err
+	})
+}
+
+// nextRevision adds a revision to item, as an edit in review does.
+func (f *fixture) nextRevision(item int64) {
+	f.t.Helper()
+	f.write(func(ctx context.Context, tx *sql.Tx) error {
+		it, err := store.ItemByID(ctx, tx, item)
+		if err != nil {
+			return err
+		}
+		cur, err := store.ItemRevisionByKey(ctx, tx, item, it.CurrentRevision)
+		if err != nil {
+			return err
+		}
+		cur.Revision++
+		cur.Text += " (edited)"
+		if err := store.InsertItemRevision(ctx, tx, cur); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE items SET current_revision = ? WHERE id = ?`, cur.Revision, item)
+		return err
+	})
+}
+
+// legacyKinds make a recovering change request of each kind: a request on a proposal, and the
+// redraft of the draft of an item revision. Each returns the request, its proposal and its item.
+var legacyKinds = map[string]func(f *fixture) (store.ChangeRequest, int64, int64){
+	"proposal": func(f *fixture) (store.ChangeRequest, int64, int64) {
+		p := f.proposed()
+		return f.ask(p, "split it"), p.ID, *p.ItemID
+	},
+	"item draft": func(f *fixture) (store.ChangeRequest, int64, int64) {
+		item := f.revisedItem(2)
+		f.comebacks(item, 2, 2)
+		f.cli.reply = claimOf("use pnpm, never npm, for every install")
+		f.mustRun()
+		draft := f.proposals()[0]
+		var cr store.ChangeRequest
+		f.write(func(ctx context.Context, tx *sql.Tx) (err error) {
+			cr, err = store.AskItemChange(ctx, tx, draft.ID, "make it shorter", store.SurfaceCLI, f.now)
+			return err
+		})
+		return cr, draft.ID, item
+	},
+}
+
+// AC #428 (Sol round 4): a recovering change request takes back its proposal only when it runs.
+// The pass of another herdr session leaves the proposal in review, and a request that the next
+// pass discards, as the item moved to another revision, leaves it in review too. Both kinds of
+// request.
+func TestRecoveryLeavesReview(t *testing.T) {
+	for kind, make := range legacyKinds {
+		t.Run(kind+", other binding", func(t *testing.T) {
+			f := newFixture(t)
+			cr, proposal, _ := make(f)
+			f.legacyRequest(cr.ID, proposal)
+			f.now = f.now.Add(retryAfter + time.Minute)
+			f.cli.reply = redraft(claimOf("use pnpm 9"))
+			runs := f.cli.calls()
+			other := f.pass()
+			other.HerdrSession = "other"
+			if err := other.Run(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if got := f.proposal(proposal); got.Status != store.ProposalPending || f.cli.calls() != runs {
+				t.Errorf("proposal = %s after %d calls, want pending with no call", got.Status, f.cli.calls()-runs)
+			}
+			f.mustRun()
+			if got := f.request(cr.ID); got.Status != store.ChangeCommitted {
+				t.Errorf("request after its own pass = %+v, want committed", got)
+			}
+		})
+		t.Run(kind+", new revision", func(t *testing.T) {
+			f := newFixture(t)
+			cr, proposal, item := make(f)
+			f.legacyRequest(cr.ID, proposal)
+			f.nextRevision(item)
+			f.now = f.now.Add(retryAfter + time.Minute)
+			f.cli.reply = redraft(claimOf("use pnpm 9"))
+			f.mustRun()
+			if got := f.request(cr.ID); got.Status != store.ChangeDiscarded {
+				t.Errorf("request = %+v, want discarded", got)
+			}
+			if got := f.proposal(proposal); got.Status != store.ProposalPending {
+				t.Errorf("proposal = %s, want pending: still in review", got.Status)
+			}
+		})
 	}
 }

@@ -52,14 +52,6 @@ func (p Pass) requests(ctx context.Context, tx *sql.Tx) ([]job, error) {
 			r.Status == store.ChangeActive && p.Now().Sub(r.At) < changeStale {
 			continue
 		}
-		// A request whose last call the CLI refused is not spent, also after all its tries: it
-		// takes back the proposal that an older Brain gave back to review, so that changeJob
-		// finds it current (#428).
-		if failed && r.Refusal != store.RefusalNone && noTryLeft(r.Status == store.ChangeFailed, r.ModelCalls) {
-			if err := retake(ctx, tx, r, p.Now()); err != nil {
-				return nil, err
-			}
-		}
 		// A request that a Brain before #359 called to the end gives its proposal back now, so
 		// that changeJob finds it current.
 		if spent {
@@ -95,6 +87,14 @@ func (p Pass) requests(ctx context.Context, tx *sql.Tx) ([]job, error) {
 			}
 			continue
 		}
+		// A recovering request takes back its proposal only now, after the binding, the
+		// revision and the switches let it run: a request that waits or goes leaves the
+		// proposal in review (#428).
+		if recovering(r) {
+			if err := retake(ctx, tx, r, p.Now()); err != nil {
+				return nil, err
+			}
+		}
 		jobs = append(jobs, j)
 	}
 	return jobs, nil
@@ -114,7 +114,7 @@ func (p Pass) changeJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) 
 	if err != nil {
 		return job{}, "", err
 	}
-	if pr.Status != requestStatus(r) || pr.ChangeRequest == nil || pr.CandidateID == nil || pr.ItemID == nil {
+	if !requestCurrent(r, pr.Status) || pr.ChangeRequest == nil || pr.CandidateID == nil || pr.ItemID == nil {
 		return job{}, "the request is no longer current", nil
 	}
 	it, err := store.ItemByID(ctx, tx, *pr.ItemID)
@@ -158,10 +158,15 @@ func ChangeSpent(r store.ChangeRequest) bool {
 		noTryLeft(r.Status == store.ChangeFailed, r.ModelCalls)
 }
 
-// retake takes back the proposal of change request r from review at now, when an older Brain
-// gave it back (giveBack) and you did not decide it yet: the CLI refused the last call of r, so r
-// gets its call again (#428). A proposal that you decided stays as it is; changeJob then
-// discards r.
+// recovering reports whether failed change request r has no try left by its count, but the CLI
+// refused its last call (r.Refusal, #428): r is not spent and gets its call again. An older
+// Brain gave its proposal back to review; retake takes it back when r runs.
+func recovering(r store.ChangeRequest) bool {
+	return r.Status == store.ChangeFailed && r.Refusal != store.RefusalNone && noTryLeft(true, r.ModelCalls)
+}
+
+// retake takes back the proposal of recovering change request r from review at now, when you
+// did not decide it yet (#428). A proposal that you decided stays as it is.
 func retake(ctx context.Context, tx *sql.Tx, r store.ChangeRequest, now time.Time) error {
 	switch {
 	case r.Source == store.ChangeProposal:
@@ -172,13 +177,17 @@ func retake(ctx context.Context, tx *sql.Tx, r store.ChangeRequest, now time.Tim
 	return nil
 }
 
-// requestStatus is the status of the proposal of change request r while r is current: changed,
-// or pending when r has no try left and gave it back to review (#359).
-func requestStatus(r store.ChangeRequest) store.ProposalStatus {
-	if ChangeSpent(r) {
-		return store.ProposalPending
+// requestCurrent reports whether proposal status st fits change request r while r is current:
+// changed, or pending when r has no try left and gave it back to review (#359). A recovering
+// request fits both: pending until it runs, and changed once retake took it back (#428).
+func requestCurrent(r store.ChangeRequest, st store.ProposalStatus) bool {
+	switch {
+	case recovering(r):
+		return st == store.ProposalPending || st == store.ProposalChanged
+	case ChangeSpent(r):
+		return st == store.ProposalPending
 	}
-	return store.ProposalChanged
+	return st == store.ProposalChanged
 }
 
 // giveBack gives the proposal of change request r back to review when r has no try left
@@ -250,7 +259,7 @@ func (p Pass) itemJob(ctx context.Context, tx *sql.Tx, r store.ChangeRequest) (j
 		if pr, err = store.ProposalByID(ctx, tx, *r.NewProposalID); err != nil {
 			return job{}, "", err
 		}
-		if pr.Status != requestStatus(r) || pr.ChangeRequest == nil {
+		if !requestCurrent(r, pr.Status) || pr.ChangeRequest == nil {
 			return job{}, "the request is no longer current", nil
 		}
 	}

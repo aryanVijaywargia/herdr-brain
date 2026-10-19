@@ -28,7 +28,8 @@ var (
 
 // cleanEnv is the environment of an extractor call: environ, the environment of brained, with
 // no variable of the denylist (#428). LANG is en_US.UTF-8 when environ has none (E13-S1). Brain
-// passes the values on and never reads, logs or stores them.
+// passes the values on and does not read them; the stored reason of a failure goes through the
+// secret and token filters (reasonText).
 func cleanEnv(environ []string) []string {
 	env := make([]string, 0, len(environ)+1)
 	lang := false
