@@ -1,6 +1,6 @@
 # golangci-lint v2. This config enforces the repo's Go rules: errors handled once and wrapped, no
 # dropped errors, small flat functions, no dead code, and comments that say why.
-# The thresholds are [NEW]: they are the project's own choice.
+# The thresholds are the project's own choice.
 version: "2"
 
 linters:
@@ -20,11 +20,11 @@ linters:
   settings:
     funlen:
       lines: -1 # count statements, not lines, so long test tables pass
-      statements: 40 # [NEW] rule 10: short functions
+      statements: 40 # short functions
     dupl:
-      threshold: 150 # [NEW] tokens; only large copies, rule 9: extract at the third copy
+      threshold: 150 # tokens; only large copies: extract at the third copy
     nestif:
-      min-complexity: 5 # [NEW] rule 10: flat functions
+      min-complexity: 5 # flat functions
   exclusions:
     rules:
       # cmd/ prints to the user's terminal, and a failed write there has no one to report to.

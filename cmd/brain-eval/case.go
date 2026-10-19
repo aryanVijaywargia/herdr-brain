@@ -377,7 +377,7 @@ func reset(store string) error {
 }
 
 // newMarker returns a fresh opaque marker: four letters, a dash and four digits, for example
-// kest-1234. [NEW] shape; it only has to be new in each case and absent from real text.
+// kest-1234. It only has to be new in each case and absent from real text.
 func newMarker() (string, error) {
 	const letters = "abcdefghijklmnopqrstuvwxyz"
 	b := make([]byte, 0, 9)
@@ -400,7 +400,7 @@ func newMarker() (string, error) {
 
 // scratch makes a fresh scratch git folder for case c. A case with a probe of a profile that
 // has eval.dir runs in that fixed folder, emptied first: agy trusts folders by path, so a new
-// folder for each case would ask for its trust each time (E16-S12) [NEW].
+// folder for each case would ask for its trust each time (E16-S12).
 func (r *Runner) scratch(ctx context.Context, c Case) (string, error) {
 	dir, err := r.fixedDir(c)
 	if err != nil {
@@ -447,7 +447,7 @@ func (r *Runner) fixedDir(c Case) (string, error) {
 
 // emptyDir makes dir if it is missing, and removes all that it holds.
 func emptyDir(dir string) error {
-	if err := os.MkdirAll(dir, 0o700); err != nil { // [NEW] 0o700, as os.MkdirTemp
+	if err := os.MkdirAll(dir, 0o700); err != nil { // 0o700, as os.MkdirTemp
 		return err
 	}
 	entries, err := os.ReadDir(dir)

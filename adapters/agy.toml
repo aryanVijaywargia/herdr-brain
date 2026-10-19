@@ -1,5 +1,5 @@
 # agy profile, from the agy 1.2.16 facts (E16-S2 test) and the live E16-S12 check. The base
-# adapter runs it with no Go code of its own (S60).
+# adapter runs it with no Go code of its own.
 kind = "agy"
 # The user hooks file. Each named hook is one root key of the file; Brain's key is
 # "brain". PreInvocation is a flat handler, and PostToolUse a matcher group around its handlers.
@@ -13,7 +13,7 @@ events.start = "PreInvocation"
 events.tool = ["PostToolUse"]
 events.tool_matcher = "run_command"
 # invocationNum is 0 at the start of each turn, and initialNumSteps is 1 only at the first turn
-# of a conversation [NEW].
+# of a conversation.
 start_condition = "invocationNum == 0 && initialNumSteps == 1"
 output_form = "injectSteps[0].ephemeralMessage"
 # agy reads JSON on each hook run, so a run that delivers nothing prints "{}" (E16-S2).
@@ -25,7 +25,7 @@ input.transcript_path = "transcriptPath"
 input.command = "toolCall.args.CommandLine"
 # agy trusts folders by exact path and asks again in each new folder, with no flag to skip that
 # (agy --help, 1.2.16). The eval runner runs agy cases in this one fixed folder, emptied before
-# each case; the M3 exit run (#165) trusts it once by hand. [NEW] folder.
+# each case; the M3 exit run (#165) trusts it once by hand.
 eval.dir = "/tmp/brain-eval-agy"
 # The version of the E16-S12 check (`agy --version`). agy updates itself.
 tested_version = "1.2.16"

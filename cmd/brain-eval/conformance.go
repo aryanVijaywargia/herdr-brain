@@ -20,10 +20,10 @@ const (
 )
 
 // fullBriefMin is the smallest brief that counts as full size for the Codex inline check: near
-// the whole brief budget of 9,500. [NEW] 9,000.
+// the whole brief budget of 9,500.
 const fullBriefMin = 9000
 
-// runID is the id of a run that started at t. [NEW] form.
+// runID is the id of a run that started at t.
 func runID(t time.Time) string { return t.UTC().Format("20060102T150405.000Z") }
 
 // startConformance writes a pending record for each harness whose delivery stage the run
@@ -114,7 +114,7 @@ func conformance(cases []Case, rs []store.EvalResult, h string, limit bool) stri
 }
 
 // briefCheck checks that text is a full-size brief with marker in its middle third. It
-// returns why not, or "". [NEW] the middle third.
+// returns why not, or "".
 func briefCheck(text, marker string) string {
 	i := strings.Index(text, marker)
 	switch {

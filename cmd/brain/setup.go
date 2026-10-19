@@ -31,12 +31,12 @@ import (
 
 const setupUsage = `usage: brain setup [--session <name> [--test <folder>]] [--extractor]`
 
-// setupHerdrDeadline is the deadline of each herdr call of setup. [NEW] 5 s, as the store
-// commands: a person waits for setup, not an agent start.
+// setupHerdrDeadline is the deadline of each herdr call of setup. 5 s, as the store commands:
+// a person waits for setup, not an agent start.
 const setupHerdrDeadline = 5 * time.Second
 
-// setupBusyTimeout is how long setup waits for the store lock of another Brain process. [NEW]
-// 5 s, as the store commands.
+// setupBusyTimeout is how long setup waits for the store lock of another Brain process. 5 s,
+// as the store commands.
 const setupBusyTimeout = 5 * time.Second
 
 // codexTrust are the trust steps of the E8-S3 trust check test, for a profile with
@@ -376,9 +376,9 @@ func readExtractor(ctx context.Context, dir string) (store.ExtractorSetting, err
 // askScan asks whether Brain may read your past Claude and Codex sessions once, for the main
 // store in folder dir, as the next step of st. It adds the answer to p as one line under
 // the extractor bullet. A yes adds the write of the pending scan row; setup itself reads no
-// transcript. A "no" writes nothing, so the next setup asks again (S85). A store with a scan
-// row shows its state and asks nothing. A test binding (test is its folder) never gets the
-// question, so evals never read your history (S87).
+// transcript. A "no" writes nothing, so the next setup asks again. A store with a scan row
+// shows its state and asks nothing. A test binding (test is its folder) never gets the
+// question, so evals never read your history.
 func askScan(ctx context.Context, d setupDeps, dir, test string, st *stepper, p *plan, in *bufio.Reader, stdout io.Writer) error {
 	if test != "" {
 		return nil
@@ -442,7 +442,7 @@ func readScan(ctx context.Context, dir string) (store.Scan, bool, error) {
 }
 
 // herdrSession finds the herdr session name and checks the version of its server. An
-// older herdr than 0.9.1 stops setup with the version and the fix (S81).
+// older herdr than 0.9.1 stops setup with the version and the fix.
 func herdrSession(ctx context.Context, d setupDeps, name string, stdout io.Writer) (herdr.Session, error) {
 	lctx, cancel := context.WithTimeout(ctx, setupHerdrDeadline)
 	ss, err := d.sessions(lctx)
@@ -475,8 +475,8 @@ func herdrSession(ctx context.Context, d setupDeps, name string, stdout io.Write
 
 // planBind plans the binding of sess to the main store, or to the test store folder test. It
 // refuses a test store that is, holds or sits inside the main store or another test store,
-// after links and aliases (S76), and a real session on a test store. A binding that is already
-// right stays as it is. It returns the store folder of the binding.
+// after links and aliases, and a real session on a test store. A binding that is already right
+// stays as it is. It returns the store folder of the binding.
 func planBind(d setupDeps, sess herdr.Session, test string, p *plan, stdout io.Writer) (string, error) {
 	file, err := paths.BindingsFile()
 	if err != nil {
@@ -618,7 +618,7 @@ func wantBinding(sess herdr.Session, test string) (bindings.Binding, error) {
 }
 
 // checkBinding runs the checks of the bindings file on next. A test store must also stay
-// apart from the main store folder when no session is bound to it yet (S76).
+// apart from the main store folder when no session is bound to it yet.
 func checkBinding(file string, next []bindings.Binding, want bindings.Binding) error {
 	if err := bindings.Check(file, next); err != nil {
 		return fmt.Errorf("refused: %w", err)

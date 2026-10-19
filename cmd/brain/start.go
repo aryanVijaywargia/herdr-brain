@@ -16,7 +16,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 )
 
-// startHerdrDeadline is the deadline of the herdr call that opens the setup popup. [NEW] 5 s,
+// startHerdrDeadline is the deadline of the herdr call that opens the setup popup. 5 s,
 // as setupHerdrDeadline.
 const startHerdrDeadline = 5 * time.Second
 

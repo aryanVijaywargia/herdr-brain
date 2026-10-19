@@ -2,9 +2,9 @@ package main
 
 import "testing"
 
-// The labeler with fixed reply texts (E10-S2 AC): S73, negation, refusal plus claim, and the
-// plain cases of each label. The incomplete reply is in TestResultStatus: it is a run status,
-// and its label is UNSURE before any rule runs.
+// The labeler with fixed reply texts (E10-S2 AC): an expected and a stale answer together,
+// negation, refusal plus claim, and the plain cases of each label. The incomplete reply is in
+// TestResultStatus: it is a run status, and its label is UNSURE before any rule runs.
 func TestLabel(t *testing.T) {
 	update := Check{Expect: []string{"bun"}, Stale: []string{"pnpm"}}
 	marker := Check{Expect: []string{"kest-1234"}}

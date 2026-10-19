@@ -526,7 +526,7 @@ func diff(a, b map[string]string) []string {
 	return d
 }
 
-// S74: after a run, the real store has no new row and no real pane got a test marker. The
+// After a run, the real store has no new row and no real pane got a test marker. The
 // run leaves the CLI config files, install.json and the bindings file unchanged: only the
 // eval lock is new in HOME.
 func TestS74RealStoreAndPanesUntouched(t *testing.T) {
@@ -569,7 +569,7 @@ func TestS74RealStoreAndPanesUntouched(t *testing.T) {
 	}
 }
 
-// S78: two cases in a row; nothing from the first reaches the second: not its store rows,
+// Two cases in a row; nothing from the first reaches the second: not its store rows,
 // not its scratch files, not its marker.
 func TestS78NothingCrossesCases(t *testing.T) {
 	e := newEnv(t)
@@ -792,7 +792,7 @@ func TestMarker(t *testing.T) {
 		}
 		seen[m] = true
 	}
-	if len(seen) < 19 { // [NEW] 26^4 * 10^4 shapes: a repeat in 20 is next to impossible
+	if len(seen) < 19 { // 26^4 * 10^4 shapes: a repeat in 20 is next to impossible
 		t.Errorf("newMarker() gave %d different markers in 20", len(seen))
 	}
 }

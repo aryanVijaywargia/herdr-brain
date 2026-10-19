@@ -46,7 +46,7 @@ type Server interface {
 	Stop(ctx context.Context) error
 }
 
-// Timeouts of a run. Each value is [NEW]: the project's own choice, with no source in a story.
+// Timeouts of a run. Each value is the project's own choice, with no source in a story.
 type Timeouts struct {
 	Call   time.Duration // one herdr call: 10 s
 	Start  time.Duration // an agent start, which herdr bounds at 30 s itself: 60 s
@@ -59,7 +59,7 @@ type Timeouts struct {
 	Poll time.Duration // the check interval of the waits: 100 ms
 }
 
-// defaultTimeouts are the Timeouts of a real run. [NEW]
+// defaultTimeouts are the Timeouts of a real run.
 var defaultTimeouts = Timeouts{
 	Call:   10 * time.Second,
 	Start:  60 * time.Second,
@@ -71,7 +71,7 @@ var defaultTimeouts = Timeouts{
 }
 
 // readLines is how many screen lines `agent read` returns for one probe. It must hold the
-// reply and the CLI footer (E10-S4 notes). [NEW] 400.
+// reply and the CLI footer (E10-S4 notes).
 const readLines = 400
 
 // Runner runs eval cases in the brain-eval test session. It holds the files, the herdr calls
@@ -207,7 +207,7 @@ func (r *Runner) hookInstalled(harness string) error {
 }
 
 // testBinding reads the bindings file and returns the binding of the brain-eval session. It
-// must be a test binding whose store stays apart from the main store (E2-S2, S76): the reset
+// must be a test binding whose store stays apart from the main store (E2-S2): the reset
 // removes all that the store folder holds.
 func (r *Runner) testBinding() (bindings.Binding, error) {
 	fix := fmt.Sprintf("start `herdr --session %s server`, then run `brain setup --session %s --test <folder>`", session, session)
@@ -242,7 +242,7 @@ func (r *Runner) testBinding() (bindings.Binding, error) {
 // lockFile takes the eval lock without waiting, so a second runner stops at once. The lock
 // ends with the process, so a killed run leaves no stale lock. The file stays.
 func lockFile(path string) (unlock func(), err error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) // [NEW] 0o600, as the data home files
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) // 0o600, as the data home files
 	if err != nil {
 		return nil, err
 	}

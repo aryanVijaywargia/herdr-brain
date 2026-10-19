@@ -52,7 +52,7 @@ func (e *env) hookText(t *testing.T, res store.Result, hash string, text func() 
 		}
 		sess, gen, version := session, int64(1), "2.1.0"
 		result := res
-		// As the hook: a workspace with no map entry gets an unmapped receipt (S48).
+		// As the hook: a workspace with no map entry gets an unmapped receipt.
 		if ws, _, _ := strings.Cut(pane, ":"); result == store.ResultEmitted && e.lookup(t, ws).State == workspace.Unmapped {
 			result = store.ResultUnmapped
 		}

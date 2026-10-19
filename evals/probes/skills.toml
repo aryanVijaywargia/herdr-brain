@@ -7,7 +7,7 @@
 # - the example of a skill must read that skill and use its marker;
 # - the examples of the other skills and each [[negative]] prompt must not use its marker.
 # Each prompt also runs as a control, with no skill in the brief: no marker may appear.
-# A prompt gets one result for each skill. The pass rule [NEW]: every result passes.
+# A prompt gets one result for each skill. The pass rule: every result passes.
 #
 # pg-migration and sqlite-migration are the near pair: their descriptions differ in one part.
 

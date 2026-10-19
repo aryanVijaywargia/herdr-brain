@@ -138,7 +138,7 @@ type trustDialog struct {
 
 // trustDialogs are the folder-trust dialogs that the runner answers, by profile kind (#276).
 // Claude Code 2.1.292 asks in each new git folder, also below a trusted folder, and selects
-// "No, exit" first. [NEW] the Claude dialog lines and key, read on a test Mac.
+// "No, exit" first. The Claude dialog lines and key, read on a test Mac.
 var trustDialogs = map[string]trustDialog{
 	"claude": {answer: "Yes, I trust this folder", key: "Down", selected: "❯ Yes, I trust this folder"},
 }

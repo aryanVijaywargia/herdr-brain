@@ -74,7 +74,7 @@ var stages = []string{"delivery", "exclusion", "transfer", "update", "restraint"
 // entry, which gets only the global part.
 var hookModes = []string{"no-herdr-env", "closed-pane", "no-herdr-answer", "unbound-session", "other-workspace"}
 
-// probeID is the form of a probe id: it goes into a herdr workspace label. [NEW] form.
+// probeID is the form of a probe id: it goes into a herdr workspace label.
 var probeID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 // slot is a marker placeholder: {{marker}}, {{marker2}} and so on.

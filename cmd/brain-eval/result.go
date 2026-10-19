@@ -119,8 +119,8 @@ func withLast(global, ws string, last store.Delivery, h store.Handoff, loc *time
 	return brief.Handoff(global, ws, h.Approved, h.Skills, failed)
 }
 
-// The UTC offsets of the time zones: from -12:00 to +14:00, each a multiple of 15 minutes. [NEW]
-// the range and the step, from the tz database.
+// The UTC offsets of the time zones: from -12:00 to +14:00, each a multiple of 15 minutes. The
+// range and the step are from the tz database.
 const (
 	minOffset  = -12 * time.Hour
 	maxOffset  = 14 * time.Hour

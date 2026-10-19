@@ -76,8 +76,8 @@ noise_lines = ['› Ask Codex to do anything', '\s*.* · Context \d+% (?:used|le
   'Token usage: total=[\d,]+ input=.*', 'To continue this session, run:? codex resume .*',
 # Codex 0.160.1 (#385, M2 eval run 6 2026-10-10): the limit warning in the footer, as
 # "⚠ 5h limit: 6% left · /status" or "⚠ weekly limit: ... · /status". A prompt starts with ›
-# and a reply with •, so text with the same words stays. [NEW: the run gives the words of the
-# line, not the screen]
+# and a reply with •, so text with the same words stays. (The run gives the words of the
+# line, not the screen.)
   '\s*⚠ .*limit: .* · /status.*']
 # The start banner (#258): the box with the version, model and folder, and the tip lines under
 # it, also when a tip wraps. A tip line at another place is text of a reply.
@@ -91,7 +91,7 @@ noise_blocks = [
   { start = '  Folder access', next = '  .*|› \d\. Trust .*|' },
   # The lines of a code diff in the agent output (#281): a line number, then +, - or a space.
   # A long diff line wraps onto a line with no number (#291); its text, such as "error:", made
-  # a failure signal under the tool mark. [NEW: no wrap is recorded] The number takes at least
+  # a failure signal under the tool mark (no wrap is recorded). The number takes at least
   # 6 columns before the +, so a wrapped line starts at column 7 or more; the tool output
   # under └ starts at column 4. A fold hint keeps the block open, and a blank line ends it.
   { start = '\s{4,}\d+ [-+ ].*', next = '\s{7,}\S.*|\s+⋮' },
@@ -100,7 +100,7 @@ noise_blocks = [
   # source (tui/src/startup_hooks_review.rs, tui/src/bottom_pane/hooks_browser_view.rs). The
   # first choice of the dialog has the prompt mark. Codex cuts a line of these views at the
   # pane edge, so a pattern takes the start of a line. A long command of a hook wraps to
-  # column 12 [NEW: the snapshots of the Codex source]. Both blocks start under a blank line:
+  # column 12 (the snapshots of the Codex source). Both blocks start under a blank line:
   # a prompt line with the same words is right under the prompt, so it stays.
   { start = '  Hooks need review', next = '  .*|› \d\. (?:Review hooks|Trust all and continue|Continue without trusting.*)|', after_blank = true },
   { start = '  (?:Hooks|(?:PreToolUse|PermissionRequest|PostToolUse|PreCompact|PostCompact|SessionStart|SessionEnd|UserPromptSubmit|SubagentStart|SubagentStop|Stop) hooks)', next = '''  (?:Lifecycle hooks.*|Turn hooks on or off.*|Issues|[⚠■] .*|\d+ hooks? needs? review.*|No hooks installed.*|[A-Z][A-Za-z]+ +\d+(?: .*)?|\[[x !]\] .*|(?:Event|Matcher|Source|Command|Timeout|Context|Trust)(?: +\S.*)?|Managed hooks.*|Press .*)|\s{12}\S.*|''', after_blank = true },
@@ -113,8 +113,8 @@ noise_blocks = [
   # so each line up to the blank line under it is part of the error. Tool output can also start
   # at column 0, so under_start keeps such a line at the top of a read. A reply line starts with
   # •, tool output with └ or spaces and a prompt with ›, so a "429" or "rate limit" there stays.
-  # [NEW: the run gives the lines with no wrap; "usage limit" and the 5xx statuses other than
-  # 503 are the other limit and outage texts of the same source]
+  # (The run gives the lines with no wrap; "usage limit" and the 5xx statuses other than 503
+  # are the other limit and outage texts of the same source.)
   { start = '⚠ Heads up, you have less than \d+% of your .*', next = '  \S.*' },
   { start = '■ (?:exceeded retry limit, last status: .*|unexpected status (?:429|5\d\d) .*|You.ve hit your usage limit.*)', next = '[^\s›•⚠■✗✔].*', under_start = true },
 ]

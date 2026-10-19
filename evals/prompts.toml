@@ -1,12 +1,12 @@
-# Labeled prompt set (S71, E14-S2). Go tests of Brain's own matcher load this file:
+# Labeled prompt set (E14-S2). Go tests of Brain's own matcher load this file:
 # internal/store/promptset_test.go. No agent and no model.
 #
 # [[proposal]]: a fixture proposal and its trigger prompts. The test stores each trigger
 # prompt as a prompt observation with its prompt index row in the workspace of the proposal,
 # and proposes it in its scope ("workspace" or "global").
 #
-# [[prompt]]: a prompt with its label: the expected proposal id, or "no match". S71 checks
-# that each one gives its label with exact match only. kind is one of: repeat, language,
+# [[prompt]]: a prompt with its label: the expected proposal id, or "no match". The test
+# checks that each one gives its label with exact match only. kind is one of: repeat, language,
 # unicode, everyday, negation, arguments, repo, unrelated. A negation or arguments case
 # names the proposal that it tests in proposal; each proposal has both. No proposal has a
 # parameter, so other arguments are "no match".
@@ -14,7 +14,7 @@
 # [[near]]: a repeat with a small change (case, punctuation, a polite word) that exact match
 # cannot see. Only a close matcher can give its label. Exact match must give no match.
 #
-# part splits the set [NEW]: a close-match threshold comes from "tune" and is checked on
+# part splits the set: a close-match threshold comes from "tune" and is checked on
 # "held-out". The Unicode cases follow the three kinds of waku
 # waku/memory/semantic/store.py:31-64: text with no spaces, accents and command punctuation.
 # The workspace of a case is "ws-A" when it has none; "" is a workspace with no Brain key.

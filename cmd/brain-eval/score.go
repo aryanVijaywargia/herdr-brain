@@ -146,7 +146,7 @@ func hasStage(cases []Case) bool {
 	return false
 }
 
-// clip shortens a reply for one report line. [NEW] 300 bytes; the results file keeps it all.
+// clip shortens a reply for one report line. 300 bytes; the results file keeps it all.
 func clip(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
 	if len(s) > 300 {

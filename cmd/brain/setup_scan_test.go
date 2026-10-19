@@ -86,7 +86,7 @@ func TestSetupScanYes(t *testing.T) {
 	}
 }
 
-// AC 2, S85: a "no" to the history question, or to the plan, writes no scan row, and the next
+// AC 2: a "no" to the history question, or to the plan, writes no scan row, and the next
 // setup asks again.
 func TestSetupScanNo(t *testing.T) {
 	for name, c := range map[string]struct {
@@ -111,7 +111,7 @@ func TestSetupScanNo(t *testing.T) {
 	}
 }
 
-// AC 3, S87: a test binding never gets the history question, and its store gets no scan row.
+// AC 3: a test binding never gets the history question, and its store gets no scan row.
 func TestSetupScanTestBinding(t *testing.T) {
 	setupHome(t, "0.9.1")
 	folder := filepath.Join(t.TempDir(), "test-store")

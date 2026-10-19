@@ -19,7 +19,6 @@ const skillStage = "skill-choice"
 
 // skillSetup is the setup step of a skill choice case: a Brain call in the shell pane maps the
 // case's workspace and builds the output with the seeded skills, as every brain call does.
-// [NEW] the step.
 const skillSetup = "brain status > /dev/null"
 
 // FixtureSkill is one fixture skill of a probe file. Its steps hold {{marker}}, which gets a
@@ -31,7 +30,7 @@ type FixtureSkill struct {
 	Steps       string
 }
 
-// text is the skill text of s, in the E16-S3 form, with marker in its steps. [NEW]
+// text is the skill text of s, in the E16-S3 form, with marker in its steps.
 // "required-tools: none": a fixture skill needs no tool.
 func (s FixtureSkill) text(marker string) string {
 	return "---\nname: " + s.Name + "\ndescription: " + s.Description + "\nrequired-tools: none\nexample: " + s.Example +
@@ -44,8 +43,8 @@ func skillMarker(name string) string { return "skill:" + name }
 // seedSkills adds each fixture skill of c to the empty test store of b as an active global
 // skill, with its marker in its steps. No brain command adds a skill yet (the drafts come with
 // E16-S4), so the runner writes them itself; the setup step then builds the output. A control
-// gets no skill: its brief has no skill list. [NEW] the global scope: the skill list is
-// then in the brief also before the workspace map has the case's workspace.
+// gets no skill: its brief has no skill list. The global scope: the skill list is then in the
+// brief also before the workspace map has the case's workspace.
 func (r *Runner) seedSkills(ctx context.Context, b bindings.Binding, c Case, markers map[string]string) error {
 	if c.Control || len(c.Skills) == 0 {
 		return nil
@@ -162,8 +161,8 @@ func (s FixtureSkill) stepLines(m string) []*regexp.Regexp {
 }
 
 // skillVerdicts returns the verdict of the skill choice stage of each CLI with a result of the
-// stage, from vs, the verdicts of rs. [NEW] the pass rule: every result of the stage passes,
-// its controls too. A skipped result is never a pass, so it fails the stage; an UNSURE result
+// stage, from vs, the verdicts of rs. The pass rule: every result of the stage passes, its
+// controls too. A skipped result is never a pass, so it fails the stage; an UNSURE result
 // keeps the stage unsure until you resolve it.
 func skillVerdicts(rs []store.EvalResult, vs []string) map[string]string {
 	out := map[string]string{}

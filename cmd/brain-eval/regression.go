@@ -35,7 +35,7 @@ type GoTest struct {
 	Name    string // the test name as `go test -v` prints it, with its subtests: TestScreen/claude-tip
 }
 
-// goTestEntry is the form of one test of a [[bug]]. [NEW] form.
+// goTestEntry is the form of one test of a [[bug]].
 var goTestEntry = regexp.MustCompile(`^([a-z0-9_-]+(?:/[a-z0-9_-]+)*):(Test\w*(?:/[^/\s]+)*)$`)
 
 // bugCases checks the [[bug]] entries of a probe file and returns their regression cases. The
