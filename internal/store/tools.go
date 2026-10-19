@@ -159,7 +159,7 @@ func ToolByID(ctx context.Context, tx *sql.Tx, id int64) (Tool, error) {
 }
 
 // Tools reads every tools row, in approval order, then item id order; a tool with no approval
-// comes last (E17-S5). [NEW] the order: by approval time, so the catalog stays stable.
+// comes last (E17-S5). The order by approval time keeps the catalog stable.
 func Tools(ctx context.Context, tx *sql.Tx) ([]Tool, error) {
 	ts, err := query(ctx, tx, `SELECT `+toolColumns+` ORDER BY t.approved IS NULL, t.approved, t.id`,
 		func(rows *sql.Rows) (Tool, error) { return scanTool(rows) })
@@ -173,7 +173,7 @@ func Tools(ctx context.Context, tx *sql.Tx) ([]Tool, error) {
 // that workspace first, else a global tool ("" finds only a global one). Of the tools with the
 // name in one scope, the approved one comes first, then the newest. A retired tool is not
 // found. It returns sql.ErrNoRows when there is none; a tool of another workspace is never
-// found. [NEW] the order.
+// found.
 func ToolByName(ctx context.Context, tx *sql.Tx, name, workspaceKey string) (Tool, error) {
 	var id int64
 	err := tx.QueryRowContext(ctx, `SELECT t.id FROM tools t JOIN items i ON i.id = t.id

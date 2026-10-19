@@ -73,7 +73,7 @@ const (
 	OriginExtractor Origin = "extractor"
 )
 
-// ProposalStatus is proposals.status. [NEW] the values.
+// ProposalStatus is proposals.status.
 type ProposalStatus string
 
 // The proposal statuses.

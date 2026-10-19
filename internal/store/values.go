@@ -8,7 +8,6 @@ import (
 )
 
 // timeLayout is UTC RFC 3339 with a fixed three-digit fraction, so text order is time order.
-// [NEW] the millisecond precision.
 const timeLayout = "2006-01-02T15:04:05.000Z07:00"
 
 // timeArg is the column value of t. The zero time is NULL.

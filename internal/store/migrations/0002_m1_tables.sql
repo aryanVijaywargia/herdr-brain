@@ -1,7 +1,7 @@
 -- The M1 tables (E3-S2). adapters and file_snapshots live in <data home>/install.json
 -- (E8), not here. Columns of M2 come with a later migration.
 --
--- Conventions, all [NEW]:
+-- Conventions:
 -- - STRICT tables, so SQLite refuses a value of the wrong type.
 -- - Times are UTC RFC 3339 text with milliseconds, for example 2026-09-28T10:00:00.000Z.
 -- - Yes/no columns are INTEGER 0 or 1.
@@ -32,9 +32,9 @@ CREATE TABLE items (
 	CHECK ((scope = 'global') = (workspace_key IS NULL))
 ) STRICT;
 
--- M1 has no status values for a proposal. The [NEW] set: pending until you decide, then
+-- M1 has no status values for a proposal. The set: pending until you decide, then
 -- approved, rejected, or changed (you asked for a change). superseded is a proposal that Brain
--- replaced after its base revision went stale (S26). "Later" only mutes a proposal for one
+-- replaced after its base revision went stale. "Later" only mutes a proposal for one
 -- session, so it stays pending.
 CREATE TABLE proposals (
 	id                 INTEGER PRIMARY KEY,
@@ -102,7 +102,7 @@ CREATE TABLE applied_edits (
 	rolled_back    TEXT
 ) STRICT;
 
--- item_revisions is a JSON array of {"item": id, "revision": n} objects. [NEW] the form.
+-- item_revisions is a JSON array of {"item": id, "revision": n} objects.
 CREATE TABLE deliveries (
 	id                INTEGER PRIMARY KEY,
 	profile           TEXT NOT NULL,
@@ -118,7 +118,7 @@ CREATE TABLE deliveries (
 	at                TEXT NOT NULL
 ) STRICT;
 
--- id is [NEW]: the pane id is no key, because herdr can give a pane id again after a pane closes.
+-- The pane id is no key, because herdr can give a pane id again after a pane closes.
 -- The binding is the herdr session and its continuity identity. herdr 0.9.1 has no
 -- persistent session identity, so session_identity is NULL there.
 CREATE TABLE review_panes (

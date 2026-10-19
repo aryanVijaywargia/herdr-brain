@@ -137,7 +137,7 @@ func TestWriteBusyFromOtherProcess(t *testing.T) {
 			return err
 		}
 		var err error
-		out, err = helperCmd(t, "write", dir, 100*time.Millisecond, 1).Output() // [NEW] 100 ms
+		out, err = helperCmd(t, "write", dir, 100*time.Millisecond, 1).Output() // 100 ms
 		code = exitCode(t, err)
 		return nil
 	})
@@ -159,7 +159,7 @@ func TestTwoProcessesWrite(t *testing.T) {
 	dir, s := newTestStore(t)
 	defer closeTest(t, s)
 
-	const rows = 200 // [NEW] enough transactions for the two writers to overlap
+	const rows = 200 // enough transactions for the two writers to overlap
 	cmds := make([]*exec.Cmd, 2)
 	outs := make([]strings.Builder, 2)
 	for i := range cmds {

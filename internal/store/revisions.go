@@ -87,7 +87,7 @@ func nextGeneration(ctx context.Context, tx *sql.Tx) (int64, error) {
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(generation), 0) + 1 FROM outputs`).Scan(&g); err != nil {
 		return 0, fmt.Errorf("read newest output generation: %w", err)
 	}
-	// [NEW] the folder form: gen-<n> in the out folder.
+	// The folder form: gen-<n> in the out folder.
 	o := Output{Generation: g, Folder: fmt.Sprintf("gen-%d", g)}
 	if err := InsertOutput(ctx, tx, o); err != nil {
 		return 0, err

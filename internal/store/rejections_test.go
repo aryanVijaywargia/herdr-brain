@@ -105,7 +105,7 @@ func TestRejectionNewEvidence(t *testing.T) {
 }
 
 // A reworded key with a confirmed same_as link has the claim id of the rejected claim, so it
-// stays rejected (S23).
+// stays rejected.
 func TestRewordedKeyStaysRejected(t *testing.T) {
 	e := newEvidenceStore(t)
 	old := e.claim(t, "use pnpm")

@@ -50,7 +50,7 @@ type Segment struct {
 	Ended        time.Time
 }
 
-// ObservationStatus says how much of the new text an observation holds (S31).
+// ObservationStatus says how much of the new text an observation holds.
 type ObservationStatus string
 
 // The observation statuses.
@@ -94,7 +94,7 @@ type Observation struct {
 	Counts          bool // it can raise a support count
 	BrainOrigin     bool // Brain caused the text; it never counts
 	At              time.Time
-	EnrichedBy      int64 // the hook observation that adds detail to it (S35); 0 when none
+	EnrichedBy      int64 // the hook observation that adds detail to it; 0 when none
 }
 
 // keyWhere is the WHERE clause of the session with key ?1…?4.

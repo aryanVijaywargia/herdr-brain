@@ -196,7 +196,7 @@ func TestReadHandoff(t *testing.T) {
 	}
 }
 
-// AC #273 1 (Sol review of PR #307): the start of a session is its oldest receipt in the
+// AC #273 1 (review of PR #307): the start of a session is its oldest receipt in the
 // workspace, also when that receipt has no transcript path; a receipt of the same agent session
 // in another workspace, or of another session, does not count.
 func TestSessionStart(t *testing.T) {

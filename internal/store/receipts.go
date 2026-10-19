@@ -150,7 +150,7 @@ func TiedReceipt(ctx context.Context, tx *sql.Tx, obs int64) (d Delivery, ok boo
 // id, the profile, the binding, the agent session id, the time and the transcript path of the
 // receipt only; the handoff lines need the binding and the agent session id (E20-S8). ok is
 // false when there is none. A workspace key names one workspace of one store, so a receipt of
-// another workspace never matches (S48). The partial index deliveries_transcript serves it.
+// another workspace never matches. The partial index deliveries_transcript serves it.
 func LastSession(ctx context.Context, tx *sql.Tx, key, agentSession string) (d Delivery, ok bool, err error) {
 	err = tx.QueryRowContext(ctx, `SELECT id, profile, herdr_session, agent_session_id, at, transcript_path FROM deliveries
 		WHERE workspace_key = ? AND transcript_path IS NOT NULL AND agent_session_id IS NOT ?

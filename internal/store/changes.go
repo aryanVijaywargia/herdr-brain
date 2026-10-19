@@ -13,12 +13,12 @@ type ChangeSource string
 
 // The change request sources.
 const (
-	ChangeProposal ChangeSource = "proposal" // you asked for a change of a proposal (S56)
+	ChangeProposal ChangeSource = "proposal" // you asked for a change of a proposal
 	ChangeItem     ChangeSource = "item"     // two comebacks on an item revision (E15-S1)
 )
 
 // ChangeStatus is the status of a change request entry of the extraction queue. It follows
-// the batch statuses, with queued before the first call [NEW].
+// the batch statuses, with queued before the first call.
 type ChangeStatus string
 
 // The change request statuses.
@@ -73,7 +73,7 @@ func scanChange(rows interface{ Scan(...any) error }) (ChangeRequest, error) {
 const openChanges = `('queued', 'active', 'failed', 'invalid')`
 
 // AskChange records your change request text on pending proposal id of candidate cand, sets
-// the proposal to changed, so it is not published, and queues the request (S56). The queue
+// the proposal to changed, so it is not published, and queues the request. The queue
 // key is the proposal id and its base revision. A proposal that its last request gave back
 // with no try left (ReturnChanged) queues that key again, as a new request with new tries
 // (#359). The caller filters text for secrets.

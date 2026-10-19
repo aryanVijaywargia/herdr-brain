@@ -5,9 +5,9 @@
 --   'comeback' (the receipt names a revision of the item), 'uncertain' (the same, but the
 --   match rests only on an unconfirmed same_as link), 'delivery_gap' (a withheld receipt) or
 --   'delivery_unknown' (no receipt, or no single receipt ties to the session). revision is the
---   item revision that the receipt names, never the current revision (S24); it is NULL for a
---   gap or an unknown delivery [NEW], as no receipt names a revision then. The row holds ids
---   only. UNIQUE (item_id, observation_id) [NEW]: one observation is one outcome of an item,
+--   item revision that the receipt names, never the current revision; it is NULL for a
+--   gap or an unknown delivery, as no receipt names a revision then. The row holds ids
+--   only. UNIQUE (item_id, observation_id): one observation is one outcome of an item,
 --   so a retry adds nothing. The rows are written in the batch commit. brain forget
 --   --session deletes the rows of the session, and an item forget the rows of the item.
 CREATE TABLE outcomes (

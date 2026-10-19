@@ -6,7 +6,7 @@ type Field struct {
 }
 
 // ItemTextFields lists every column that can hold item text or text derived from it. Forget
-// removes the text from each of them (S47). New derived records join this list before
+// removes the text from each of them. New derived records join this list before
 // they ship: the schema test fails on a TEXT column that is in neither this list nor
 // noItemTextFields.
 func ItemTextFields() []Field {

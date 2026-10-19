@@ -91,7 +91,7 @@ func LearningOnWholeStore(ctx context.Context, tx *sql.Tx, defaultOn bool) (bool
 // LearningOn reports whether learning is on for pane paneID of the binding of herdr session
 // session, in the workspace with key workspaceKey ("" when it has none). defaultOn is the store
 // setting when there is no store row: false for a test store. Any off setting that applies wins
-// over a narrower on setting [NEW, design choice]. E11 calls it before it captures.
+// over a narrower on setting (design choice). E11 calls it before it captures.
 func LearningOn(ctx context.Context, tx *sql.Tx, defaultOn bool, session, workspaceKey, paneID string) (bool, error) {
 	on, err := LearningOnWholeStore(ctx, tx, defaultOn)
 	if err != nil || !on {

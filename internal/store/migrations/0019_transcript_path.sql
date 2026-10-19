@@ -5,5 +5,5 @@
 ALTER TABLE deliveries ADD COLUMN transcript_path TEXT;
 
 -- The last session lookup of the hook (store.LastSession): the newest receipt of a workspace
--- with a transcript path. [NEW] a partial index, so it holds only those receipts.
+-- with a transcript path. It is a partial index, so it holds only those receipts.
 CREATE INDEX deliveries_transcript ON deliveries (workspace_key) WHERE transcript_path IS NOT NULL;

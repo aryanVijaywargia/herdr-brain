@@ -6,7 +6,7 @@
 -- claim, started_at the launch mark, finished_at the end. result starts as unknown, so a crash
 -- at any point leaves unknown; the run writes ok, failed or skipped, and brain automation
 -- cancel writes cancelled. pid is the process that runs the tool, from the launch mark, for
--- the cancel. [NEW] the column names, pane_id, workspace_id and pid, and the event key text.
+-- the cancel.
 CREATE TABLE automation_runs (
 	id            INTEGER PRIMARY KEY,
 	automation_id INTEGER NOT NULL REFERENCES automations (id),

@@ -15,7 +15,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/fingerprint"
 )
 
-// promptSet is evals/prompts.toml, the labeled prompt set (S71).
+// promptSet is evals/prompts.toml, the labeled prompt set.
 type promptSet struct {
 	Proposal []setProposal `toml:"proposal"`
 	Prompt   []setCase     `toml:"prompt"`
@@ -176,7 +176,7 @@ func TestPromptSetCoverage(t *testing.T) {
 	}
 }
 
-// AC (S71): each prompt of the set gives its labeled result through MatchPrompt, the exact
+// AC: each prompt of the set gives its labeled result through MatchPrompt, the exact
 // match path of the hook and brained, with 0 model calls. AC: close match is off, so each
 // near repeat gives no match.
 func TestPromptSet(t *testing.T) {
@@ -208,7 +208,7 @@ func TestPromptSet(t *testing.T) {
 	})
 }
 
-// closeRule is a close-match rule that Brain tried (E14-S2) [NEW]: no source gives one. score
+// closeRule is a close-match rule that Brain tried (E14-S2): no source gives one. score
 // is the similarity of two prompts, from 0 to 1.
 type closeRule struct {
 	name  string
@@ -226,7 +226,7 @@ func fold(s string) string {
 	return strings.Join(strings.Fields(strings.ToLower(norm.NFKC.String(s))), " ")
 }
 
-// trigramDice is the Dice score of the sets of runs of three characters [NEW] of a and b,
+// trigramDice is the Dice score of the sets of runs of three characters of a and b,
 // after fold. A text of fewer than three characters is its own run.
 func trigramDice(a, b string) float64 {
 	trigrams := func(s string) map[string]bool {
@@ -324,7 +324,7 @@ func (l *labeledStore) passes(t *testing.T, set promptSet, part string, r closeR
 }
 
 // tune returns the lowest threshold of 0.50, 0.51 … 1.00 at which rule r passes the tune
-// part [NEW], and false when none passes.
+// part, and false when none passes.
 func (l *labeledStore) tune(t *testing.T, set promptSet, r closeRule) (float64, bool) {
 	t.Helper()
 	for i := 50; i <= 100; i++ {

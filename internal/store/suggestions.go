@@ -17,7 +17,7 @@ const (
 	SuggestionRejected SuggestionResult = "rejected"
 	SuggestionChanged  SuggestionResult = "changed"
 	SuggestionLater    SuggestionResult = "later"
-	// SuggestionExpired: the suggestion was not shown, as a check before the pane failed. [NEW]
+	// SuggestionExpired: the suggestion was not shown, as a check before the pane failed.
 	SuggestionExpired SuggestionResult = "expired"
 )
 
@@ -57,13 +57,13 @@ type Suggestion struct {
 // segment of obs. It returns the new row, or a Suggestion with ID 0 when there is nothing to
 // suggest:
 //   - the occurrence has a suggestion already: a hook record and a pane read of one prompt are
-//     one occurrence, linked by enrichment (S57);
+//     one occurrence, linked by enrichment;
 //   - extraction is off in the workspace of obs;
 //   - no ready proposal matches, or each one that matches is muted with "later" in the session.
 //
 // The caller runs it in the transaction that stored obs, after the learning and capture
 // generation checks and after the enrichment match, so the two paths of one occurrence reserve
-// one suggestion. Of several matches, the oldest proposal wins [NEW].
+// one suggestion. Of several matches, the oldest proposal wins.
 func ReserveSuggestion(ctx context.Context, tx *sql.Tx, obs int64, hash string, now time.Time) (Suggestion, error) {
 	s, taken, err := newSuggestion(ctx, tx, obs, now)
 	if err != nil || taken {
@@ -121,7 +121,7 @@ func ReserveLessonSuggestion(ctx context.Context, tx *sql.Tx, obs, proposal int6
 
 // newSuggestion returns the unsaved suggestion of occurrence obs with the ids of its segment,
 // and whether the occurrence has a suggestion already: a hook record and a pane read of one
-// prompt are one occurrence, linked by enrichment (S57).
+// prompt are one occurrence, linked by enrichment.
 func newSuggestion(ctx context.Context, tx *sql.Tx, obs int64, now time.Time) (Suggestion, bool, error) {
 	s := Suggestion{ObservationID: obs, Reserved: now}
 	var taken bool

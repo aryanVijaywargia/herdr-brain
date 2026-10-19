@@ -2,13 +2,13 @@
 -- - proposals.conflicts_with: an M2 column, the item ids that the proposal conflicts with. The
 --   extractor names a claim id (conflicts_with); Brain stores the ids of the active items of
 --   that claim in the scope of the proposal. Ids only, no text.
--- - change_requests [NEW]: one change-request entry of the extraction queue ("ask for a
+-- - change_requests: one change-request entry of the extraction queue ("ask for a
 --   change"). Its key is (source, source_id, revision): a request of you on a proposal is
 --   ('proposal', proposal id, the item revision that the proposal is for), and
 --   E15-S1 adds ('item', item id, item revision). The request text of a proposal is
 --   proposals.change_request; this row holds no text. workspace_key is the scope of the
 --   entry, '' for global. status follows extraction_batches, with 'queued' before the first
---   call [NEW]. new_proposal_id is the new draft that its commit made. reason says why it
+--   call. new_proposal_id is the new draft that its commit made. reason says why it
 --   failed, was invalid or was discarded; it holds no model text.
 -- - extraction_calls gets change_request_id: a change-request call counts under the daily
 --   call cap as a batch call does. Each row has a batch or a change request. The table is built

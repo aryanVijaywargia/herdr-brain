@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// hookTimeout is the hook's busy timeout (hook.go). [NEW] copy for the measure only.
+// hookTimeout is the hook's busy timeout (hook.go), copied for the measure only.
 const hookTimeout = 50 * time.Millisecond
 
 // hookRun does the store work of one hook run: open, one receipt in one transaction, close.
@@ -77,7 +77,7 @@ func BenchmarkHookRun(b *testing.B) {
 func TestReopenReadsCommits(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	const runs = 20 // [NEW]
+	const runs = 20
 	for range runs {
 		if err := hookRun(ctx, dir, "NORMAL"); err != nil {
 			t.Fatal(err)

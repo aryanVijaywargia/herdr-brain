@@ -215,7 +215,7 @@ func TestMatchPromptScope(t *testing.T) {
 
 // A pane observation that a hook record enriches is the evidence, and the hook record holds
 // the full prompt: the trigger prompts hold the hashes of both, and both rows link the
-// proposal (S35, E14-S1).
+// proposal (E14-S1).
 func TestTriggerPromptsEnriched(t *testing.T) {
 	p := newPromptStore(t)
 	ctx := context.Background()
@@ -298,7 +298,7 @@ func TestEraseItemPromptIndex(t *testing.T) {
 	}
 }
 
-// matchRows is the size of the match speed test [NEW]: 10,000 prompt index rows.
+// matchRows is the size of the match speed test: 10,000 prompt index rows.
 const matchRows = 10000
 
 // fillIndex adds matchRows prompt index rows to p, one in ten of them linked to one of 100
@@ -350,7 +350,7 @@ func fillIndex(t testing.TB, p *promptStore) string {
 	return last
 }
 
-// AC: an exact match on 10,000 index rows takes under 50 ms [NEW]. The median of 11
+// AC: an exact match on 10,000 index rows takes under 50 ms. The median of 11
 // runs counts, so one slow run of a loaded machine does not fail it.
 func TestMatchPromptSpeed(t *testing.T) {
 	p := newPromptStore(t)

@@ -50,7 +50,7 @@ type ScanCounts struct {
 const FindingPrompt CandidateKind = "prompt"
 
 // ScanGates returns the gates of the scan findings: the live gates g, and a repeated prompt at
-// 2 times [NEW].
+// 2 times.
 func ScanGates(g Gates) Gates {
 	s := maps.Clone(g)
 	s[FindingPrompt] = Gate{Min: 2}
@@ -247,7 +247,7 @@ func setScanJSON(ctx context.Context, tx *sql.Tx, id int64, column string, v any
 
 // scanReadSource is the read source of the segment of a scanned session. The session has no
 // pane read, and the column takes only the two read sources of capture; nothing reads it for a
-// scanned session. [NEW]
+// scanned session.
 const scanReadSource = "visible"
 
 // ScanWorkspaces returns the live workspaces of the store that have a project folder, in every
@@ -330,7 +330,7 @@ type ScanReport struct {
 
 // TurnTokens are the recorded tokens of a set of turns, the count of its turns with a usage
 // field, and the count of its turns with none. With no known turn, the tokens are unknown, never
-// 0 (S91).
+// 0.
 type TurnTokens struct {
 	Tokens  int64
 	Known   int

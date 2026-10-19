@@ -121,7 +121,7 @@ func scanCommandInto(rows *sql.Rows, c *CommandRecord, more ...any) error {
 
 // Counterparts returns the observations of session sessionID from source, with text, sender
 // and event, that no other observation enriches and that enrich none, at a time in
-// [at-window, at+window]. The nearest in time comes first (S35).
+// [at-window, at+window]. The nearest in time comes first.
 func Counterparts(ctx context.Context, tx *sql.Tx, sessionID int64, source string, at time.Time, window time.Duration) ([]Observation, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT o.id, o.excerpt, o.sender, o.event FROM observations o JOIN segments s ON s.id = o.segment_id
 		WHERE s.session_id = ?1 AND o.source = ?2 AND o.status != 'gap' AND o.excerpt != ''
@@ -159,8 +159,8 @@ func HookPrompts(ctx context.Context, tx *sql.Tx, sessionID int64) ([]Observatio
 }
 
 // Enrich links hook observation hook to pane observation pane: the hook record adds detail to
-// the pane text and is not a second occurrence, so it does not count (S35). Both rows
-// stay, so both references are kept.
+// the pane text and is not a second occurrence, so it does not count. Both rows stay, so
+// both references are kept.
 func Enrich(ctx context.Context, tx *sql.Tx, pane, hook int64) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE observations SET enriched_by = ? WHERE id = ?`, hook, pane); err != nil {
 		return fmt.Errorf("enrich observation: %w", err)

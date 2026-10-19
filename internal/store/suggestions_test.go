@@ -37,7 +37,7 @@ func (p *promptStore) reserveObs(t *testing.T, o int64, text string) Suggestion 
 }
 
 // E14-S3: a prompt that matches a ready proposal reserves one suggestion, with the ids of its
-// session, segment and binding. The same occurrence never reserves twice (S57), a prompt with
+// session, segment and binding. The same occurrence never reserves twice, a prompt with
 // no match reserves nothing, and each new prompt reserves its own (no rate cap).
 func TestReserveSuggestion(t *testing.T) {
 	p := newPromptStore(t)
@@ -60,7 +60,7 @@ func TestReserveSuggestion(t *testing.T) {
 	}
 }
 
-// S57: a hook record and a pane read of one prompt are one occurrence, linked by enrichment:
+// A hook record and a pane read of one prompt are one occurrence, linked by enrichment:
 // whichever path reserves first, the other reserves nothing.
 func TestReserveSuggestionOneOccurrence(t *testing.T) {
 	for _, hookFirst := range []bool{true, false} {

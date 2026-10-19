@@ -98,7 +98,7 @@ func setup(ctx context.Context, db *sql.DB, busyTimeout time.Duration, ms []migr
 	return nil
 }
 
-// walRetry is the pause between two tries to switch a new store to WAL. [NEW]
+// walRetry is the pause between two tries to switch a new store to WAL.
 const walRetry = 5 * time.Millisecond
 
 // setWAL switches the store to WAL mode. SQLite does not always call the busy handler for a

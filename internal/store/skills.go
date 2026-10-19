@@ -13,7 +13,7 @@ import (
 // The text of a skill revision is the whole file, so the file that the compiler writes is the
 // text that you approved.
 //
-// [NEW] the text form (E16-S1 tested it):
+// The text form (E16-S1 tested it):
 //
 //	---
 //	name: <name>
@@ -35,7 +35,7 @@ type Skill struct {
 }
 
 // skillName is the form of a skill name: lower-case letters and digits, joined by hyphens.
-// [NEW] the form; it keeps the "<name>: <description>" entry of the brief clear.
+// The form keeps the "<name>: <description>" entry of the brief clear.
 var skillName = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 // The header keys of a skill text, and whether each must be there.
@@ -228,9 +228,9 @@ func (sk Skill) Text() string {
 }
 
 // SkillDiff is the diff of a skill patch: only the changed lines of next against old,
-// each "- " for a removed line and "+ " for an added line. [NEW] the form: each run of changed
-// lines starts with "@@ line <n>", n the line of old where it starts. The lines that stay are
-// not in it. The diff of a new skill ("" for old) adds all its lines.
+// each "- " for a removed line and "+ " for an added line. Each run of changed lines starts
+// with "@@ line <n>", n the line of old where it starts. The lines that stay are not in it.
+// The diff of a new skill ("" for old) adds all its lines.
 func SkillDiff(old, next string) string {
 	a, b := diffLines(old), diffLines(next)
 	// lcs[i][j] is the length of the longest common subsequence of a[i:] and b[j:].

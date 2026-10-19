@@ -4,7 +4,7 @@
 -- none). session_id is the open capture session of the calling pane, which holds the session
 -- key, or NULL when capture has none. origin says who called: the agent's shell or an
 -- automation. result is ran or refused; only ran rows are real calls (E17-S5). exit_code
--- and duration_ms are NULL when refused. [NEW] the column names, session_id and duration_ms.
+-- and duration_ms are NULL when refused.
 CREATE TABLE tool_calls (
 	id            INTEGER PRIMARY KEY,
 	tool_id       INTEGER NOT NULL REFERENCES tools (id),

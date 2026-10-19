@@ -5,7 +5,7 @@
 -- the time of your approval; it is NULL while the revision is not active. enabled is 1 (on) or
 -- 0 (paused); brain automation pause and resume set it. last_result and last_run are the result
 -- and the time of the newest run (E17-S11). A binding may run only while output.AutomationMayRun
--- says so. [NEW] the column names, trigger_condition and cli_kind. Forget clears the folder.
+-- says so. Forget clears the folder.
 CREATE TABLE automations (
 	id                INTEGER PRIMARY KEY REFERENCES items (id),
 	workspace_key     TEXT NOT NULL REFERENCES workspaces (key),

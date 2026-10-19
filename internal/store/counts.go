@@ -8,12 +8,12 @@ import (
 	"time"
 )
 
-// The M2 counts of brain status (E15-S2). Each one is a raw count with no score (R6), and
+// The M2 counts of brain status (E15-S2). Each one is a raw count with no score, and
 // each one comes with the sessions observed and the capture gaps of the same span. They read
 // ids, kinds and times only, never text.
 
 // Coverage is what capture saw in a span: the sessions with an observation, and the gap
-// observations. [NEW] A partial read is not a gap: it holds text.
+// observations. A partial read is not a gap: it holds text.
 type Coverage struct {
 	Sessions, Gaps int
 }
@@ -163,7 +163,7 @@ func Weeks(ctx context.Context, tx *sql.Tx, starts []time.Time) ([]Week, error) 
 // revision after the base revision of the proposal; a draft revision of brain remember holds
 // the proposal id too, so the revision number picks the approved one. The review time is
 // review_seconds when a surface recorded it, else the time from the newest shown suggestion
-// of the proposal to the decision, when the decision came from a suggestion [NEW]. A proposal
+// of the proposal to the decision, when the decision came from a suggestion. A proposal
 // that Brain superseded is not your decision.
 func decided(ctx context.Context, tx *sql.Tx, since any, week func(time.Time) *Week) error {
 	err := eachRow(ctx, tx, `SELECT p.decided,

@@ -2,7 +2,7 @@
 -- - observations.sender: who wrote the text. Pane text never has 'you': only a review
 --   approval sets it. 'unconfirmed' is a captured message and every text with no known mark.
 -- - observations.counts: 0 when the observation must not raise a support count: a gap, a
---   replay that Brain cannot tell apart from new evidence (S34), or Brain-origin text.
+--   replay that Brain cannot tell apart from new evidence, or Brain-origin text.
 -- - observations.brain_origin: 1 for text that Brain itself caused. It never counts.
 -- - cursors: the last capture identity of each session and source. The transaction that
 --   stores an observation moves it, so a crash leaves both or neither.

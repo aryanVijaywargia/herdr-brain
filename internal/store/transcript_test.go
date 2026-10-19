@@ -54,7 +54,7 @@ func TestLastSession(t *testing.T) {
 		name, key, agent string
 		want             string // the transcript path; "" for none
 	}{
-		// The newer receipts of kb, kc and of an unmapped pane never show in ka (S48). A
+		// The newer receipts of kb, kc and of an unmapped pane never show in ka. A
 		// "withheld: identity" receipt never counts (E15-S5).
 		{"newest other session of the workspace", "ka", "x", "/t/a2"},
 		{"a resumed session skips its own receipts; withheld: inconsistent counts", "ka", "a", "/t/b"},

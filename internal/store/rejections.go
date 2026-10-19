@@ -124,7 +124,7 @@ func ReopenRejection(ctx context.Context, tx *sql.Tx, id int64, now time.Time) e
 }
 
 // ResetRejection keeps rejection id and counts its new evidence from now: the evidence count
-// of the rejection becomes the count now. [NEW] reset is the "reset" of a rejection.
+// of the rejection becomes the count now.
 func ResetRejection(ctx context.Context, tx *sql.Tx, id int64, now time.Time) error {
 	return updateRejection(ctx, tx, id, `at = ?2, evidence_count = COALESCE((SELECT c.count FROM candidates c
 		WHERE c.claim_id = rejections.claim_id

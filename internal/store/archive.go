@@ -25,9 +25,9 @@ type ArchiveCandidate struct {
 // ArchiveCandidates reads the archive candidates whose idle period started before before, the
 // oldest first, of every workspace. A candidate is a live item: active, or disputed, which the
 // brief still delivers. A relevant session is an emitted receipt that holds a revision of the
-// item [NEW rule], in the item's workspace, or in any workspace for a global item. A tool ages
+// item, in the item's workspace, or in any workspace for a global item. A tool ages
 // by its real calls instead: a ran row in tool_calls; a refused call does not count, and the
-// brief catalog is no relevant session. A pinned item never ages (S29), so it is no candidate.
+// brief catalog is no relevant session. A pinned item never ages, so it is no candidate.
 // An item begins to age at the revision that made it a live, unpinned item: an approval, a
 // restore or an unpin. The caller checks the scope of each candidate (E4).
 func ArchiveCandidates(ctx context.Context, tx *sql.Tx, before time.Time) ([]ArchiveCandidate, error) {

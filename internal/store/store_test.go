@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// testTimeout is the busy timeout of stores that the tests open in this process. [NEW]
+// testTimeout is the busy timeout of stores that the tests open in this process.
 const testTimeout = 5 * time.Second
 
 func openTest(t *testing.T, dir string, fsys fstest.MapFS) *Store {
@@ -263,7 +263,7 @@ func TestWriteBusyEndsAtContextDeadline(t *testing.T) {
 	var waitErr error
 	var waited time.Duration
 	err := holder.Write(context.Background(), func(*sql.Tx) error {
-		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond) // [NEW]
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
 		start := time.Now()
 		waitErr = waiter.Write(ctx, func(*sql.Tx) error { return nil })

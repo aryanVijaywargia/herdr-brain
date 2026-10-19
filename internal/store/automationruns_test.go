@@ -43,7 +43,7 @@ func readRun(t *testing.T, s *Store, id int64) AutomationRun {
 	return r
 }
 
-// AC S51: a duplicate event claims nothing. A claim starts as unknown with no launch mark.
+// AC: a duplicate event claims nothing. A claim starts as unknown with no launch mark.
 func TestClaimRun(t *testing.T) {
 	s, a := runStore(t)
 	first := claim(t, s, a, "w1:p1|term_1|s1|6")
@@ -103,7 +103,7 @@ func TestClaimRunRace(t *testing.T) {
 }
 
 // The launch mark, the end and a cancel: an end writes once, so a cancel that comes first
-// stays; the automation keeps the last result. AC S62: a run with a launch mark and no end
+// stays; the automation keeps the last result. AC: a run with a launch mark and no end
 // stays unknown.
 func TestRunEnd(t *testing.T) {
 	s, a := runStore(t)

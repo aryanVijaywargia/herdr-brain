@@ -1,17 +1,17 @@
 -- Extraction batches, watermarks and extractor settings (E13-S2).
 -- - extraction_batches: one extractor batch. Its stable id is (session, workspace key, first
 --   and last capture identity): the UNIQUE index. A batch holds the observations of one
---   run of one workspace key in one session [NEW]; workspace_key is never NULL, because a
---   session with no Brain key has no batch [NEW]. start_watermark is the observation id of the
---   watermark at the start (0 for none) and last_observation the id of its last observation
---   [NEW]. model_calls counts the extractor calls of the batch. reason says why a batch failed,
---   was invalid or was discarded [NEW]; it holds no model text. at is the time of the last
+--   run of one workspace key in one session; workspace_key is never NULL, because a
+--   session with no Brain key has no batch. start_watermark is the observation id of the
+--   watermark at the start (0 for none) and last_observation the id of its last observation.
+--   model_calls counts the extractor calls of the batch. reason says why a batch failed,
+--   was invalid or was discarded; it holds no model text. at is the time of the last
 --   status change. Only one batch of a session is active.
--- - extraction_watermarks [NEW]: the extraction watermark of one session and one workspace key,
+-- - extraction_watermarks: the extraction watermark of one session and one workspace key,
 --   the last observation that a committed or empty batch covered. It is a table of its own: a
 --   cursors row is one (session, source), and a CHECK fixes its sources, but a session has one
 --   watermark for each workspace key.
--- - extractor_settings [NEW]: the extractor CLI and model that you chose, and the extraction
+-- - extractor_settings: the extractor CLI and model that you chose, and the extraction
 --   switch. workspace_key '' is the store row: it holds the CLI and model, and its switch
 --   applies to every workspace. A workspace row holds only its switch. No row means
 --   extraction on with no CLI chosen, so no call.

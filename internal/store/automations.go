@@ -16,7 +16,7 @@ import (
 
 // Binding is the text of an automation item: one approved tool, pinned to its contract hash, on
 // the stop trigger of the CLI of the bound agent, in one pinned folder. The workspace key is the
-// item's own. [NEW] the text form: TOML with these keys.
+// item's own. The text form is TOML with these keys.
 type Binding struct {
 	Tool         string `toml:"tool"`    // the tool name, for you to read
 	ToolID       int64  `toml:"tool_id"` // the tools row
@@ -67,7 +67,7 @@ func (b Binding) Text() string {
 	return s.String()
 }
 
-// Benefit is the expected benefit of a proposal of b [NEW].
+// Benefit is the expected benefit of a proposal of b.
 func (b Binding) Benefit() string {
 	return fmt.Sprintf("runs tool %s in %s after each stop of a %s agent, with no prompt", b.Tool, b.Folder, b.CLI)
 }
@@ -211,7 +211,7 @@ func SetAutomationEnabled(ctx context.Context, tx *sql.Tx, id int64, on bool) er
 	return nil
 }
 
-// StopCall is one occurrence of the minimal learned automation case (E17-S10) [NEW]: a
+// StopCall is one occurrence of the minimal learned automation case (E17-S10): a
 // ran tool call from the agent's pane (origin agent: a Brain-origin run never counts), whose
 // newest stop mark of its capture session at the call is a stop of the agent. A stop mark is a
 // hook stop record, or a pane read whose agent status differs from the status of the pane read
@@ -238,7 +238,7 @@ type StopCall struct {
 
 // callWorking is the time before a call in which a pane read of a change to working is the
 // run of the call itself, not the agent's work (#350). Run 4 stored it 9 ms before the call; an
-// agent turn takes seconds from its change to working to a tool call. [NEW] 1 s.
+// agent turn takes seconds from its change to working to a tool call. 1 s.
 const callWorking = time.Second
 
 // StopCalls returns the occurrences of the learned automation case in the sessions of herdr
@@ -278,7 +278,7 @@ func StopCalls(ctx context.Context, tx *sql.Tx, herdrSession string) ([]StopCall
 // In reports whether cwd, the folder of an agent, is the pinned folder of a. home is the home
 // folder that a leading ~ names. herdr gives the real path of a folder, and the binding can
 // name it through a link (/tmp on macOS), so the links are resolved when the clean paths
-// differ. [NEW] the exact folder: a subfolder is another folder.
+// differ. It matches only the exact folder: a subfolder is another folder.
 func (a Automation) In(cwd, home string) bool {
 	if cwd == "" {
 		return false

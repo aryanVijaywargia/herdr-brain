@@ -7,10 +7,10 @@
 -- - candidates: one claim in one scope (a workspace, or global; workspace_key is NULL for
 --   global). Brain makes one with its first evidence link. kind is the candidate kind
 --   of the gate table. harnesses, count and sessions come from the evidence links; count
---   is the number of occurrences, sessions the number of distinct capture sessions [NEW].
---   priority is 1 when the gate of the kind is reached, else 0 [NEW]: it orders the queue and
+--   is the number of occurrences, sessions the number of distinct capture sessions.
+--   priority is 1 when the gate of the kind is reached, else 0: it orders the queue and
 --   sets the label. last_seen is the time of the newest occurrence; expiry reads it.
--- - evidence_links [NEW]: one observation that supports one candidate. It records
+-- - evidence_links: one observation that supports one candidate. It records
 --   the workspace, harness, sender and capture identity of the observation, and its
 --   session for the session gates and forget. It holds no text.
 CREATE TABLE claims (

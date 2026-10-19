@@ -63,7 +63,7 @@ func MatchPrompt(ctx context.Context, tx *sql.Tx, hash, workspaceKey string) ([]
 
 // candidatePrompts is the WHERE clause of the prompt index rows of the evidence of candidate
 // ?1 that is still in the store, and of the hook records that enrich it: a pane read can show
-// only a part of a long prompt, and its hook record holds the full prompt (S35).
+// only a part of a long prompt, and its hook record holds the full prompt.
 const candidatePrompts = `observation_id IN (SELECT o.id FROM evidence_links l
 	JOIN observations o ON o.id = l.observation_id AND o.capture_identity = l.capture_identity
 	WHERE l.candidate_id = ?1 UNION SELECT o.enriched_by FROM evidence_links l
@@ -96,7 +96,7 @@ func linkPrompts(ctx context.Context, tx *sql.Tx, id, proposal int64) error {
 }
 
 // SessionPromptProposals returns the ids of the proposals that used the prompt index rows of
-// session sessionID, by id: brain forget --session lists them first (S68).
+// session sessionID, by id: brain forget --session lists them first.
 func SessionPromptProposals(ctx context.Context, tx *sql.Tx, sessionID int64) ([]int64, error) {
 	return query(ctx, tx, `SELECT DISTINCT j.value FROM prompt_index x, json_each(x.proposal_ids) j
 		WHERE x.session_id = ? ORDER BY j.value`, scanID, sessionID)

@@ -96,7 +96,7 @@ func TestArchiveCandidatesAge(t *testing.T) {
 	}
 }
 
-// AC (S29): a pinned item with no session for 6 months stays active and is no candidate. An
+// AC: a pinned item with no session for 6 months stays active and is no candidate. An
 // unpin starts its age.
 func TestArchiveCandidatesPinned(t *testing.T) {
 	a := newArchiveStore(t)

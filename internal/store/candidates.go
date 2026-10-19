@@ -64,7 +64,7 @@ func ClaimID(ctx context.Context, tx *sql.Tx, key ClaimKey, now time.Time) (stri
 	return id, nil
 }
 
-// newClaimID returns a new opaque claim id. [NEW] 8 random bytes in hex with a "cl_" prefix, as
+// newClaimID returns a new opaque claim id: 8 random bytes in hex with a "cl_" prefix, as
 // brain remember makes them.
 func newClaimID() (string, error) {
 	b := make([]byte, 8)

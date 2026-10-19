@@ -138,7 +138,7 @@ func TestOpenSessionAgain(t *testing.T) {
 	})
 }
 
-// A known capture identity adds no row and does not count again (S34). Brain-origin text and
+// A known capture identity adds no row and does not count again. Brain-origin text and
 // a gap never count. The cursor keeps the last position of each source, and a forget drops it.
 func TestAddObservationOnce(t *testing.T) {
 	ctx := context.Background()

@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// AC #428 (Sol round 2): migration 37 stores the refusal of a failed call as data, and maps the
-// reasons of an older Brain once: the bare "claude: exit status 1" of a Brain before #428 is a
-// sign-in refusal, the #377 limit text is a limit refusal, and any other reason or status is
-// none. Later code reads only the column.
+// AC #428: migration 37 stores the refusal of a failed call as data, and maps the reasons of
+// an older Brain once: the bare "claude: exit status 1" of a Brain before #428 is a sign-in
+// refusal, the #377 limit text is a limit refusal, and any other reason or status is none.
+// Later code reads only the column.
 func TestRefusalMigration(t *testing.T) {
 	dir := t.TempDir()
 	e := &evidenceStore{Store: openTest(t, dir, migrationsUpTo(t, 36)), sessions: map[string]int64{}}

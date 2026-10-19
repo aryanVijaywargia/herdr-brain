@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-// ScriptTarget is the target of a script proposal (E17-S8) [NEW]: Brain installs no script, so
+// ScriptTarget is the target of a script proposal (E17-S8): Brain installs no script, so
 // the target is you. A script proposal has no item: the data model has no script kind, and
 // approve records your decision only.
 const ScriptTarget = "a script that you install yourself"

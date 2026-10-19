@@ -4,8 +4,8 @@
 -- reviewed read-only restriction) come from it. contract_hash is the one hash of the whole
 -- contract with its scope (tool.Hash). approved_hash is the contract hash that you approved
 -- and approved its time; both are NULL while the revision is not active. A tool may run only
--- while approved_hash, contract_hash and its files agree (output.MayRun). [NEW] the column
--- names, read_only and approved_hash. Forget clears the text columns.
+-- while approved_hash, contract_hash and its files agree (output.MayRun). Forget clears the
+-- text columns.
 CREATE TABLE tools (
 	id            INTEGER PRIMARY KEY REFERENCES items (id),
 	name          TEXT NOT NULL,
