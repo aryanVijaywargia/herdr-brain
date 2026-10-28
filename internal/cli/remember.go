@@ -45,6 +45,12 @@ func Remember(ctx context.Context, e Env, args []string) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, c.Close()) }()
+	return rememberOn(ctx, e, c, r)
+}
+
+// rememberOn is Remember of r for the open call c: brain remember and the remember tool of the
+// MCP gateway (E24-S6) both run it.
+func rememberOn(ctx context.Context, e Env, c *Call, r remember) error {
 	d, err := r.draft(c)
 	if err != nil {
 		return err
@@ -94,22 +100,32 @@ func parseRemember(args []string) (remember, error) {
 		args = fs.Args()[1:]
 	}
 	r.kind = store.Kind(*kind)
-	switch {
-	case len(texts) != 1:
+	if len(texts) != 1 {
 		return remember{}, fmt.Errorf("want one text, got %d\n%s", len(texts), rememberUsage)
-	case strings.TrimSpace(texts[0]) == "":
-		return remember{}, errors.New("the text is empty")
-	case r.global && r.workspace != "":
-		return remember{}, errors.New("--global and --workspace exclude each other")
-	// The kinds that remember can draft.
-	case !slices.Contains([]store.Kind{store.KindFact, store.KindPreference, store.KindDecision, store.KindHandoff}, r.kind):
-		return remember{}, fmt.Errorf("unknown kind %q\n%s", *kind, rememberUsage)
-	case r.global && r.kind == store.KindHandoff:
-		// A task handoff belongs to one workspace.
-		return remember{}, errors.New("a handoff is a workspace item; drop --global")
 	}
 	r.text = texts[0]
+	if err := r.check(); err != nil {
+		return remember{}, err
+	}
+	// The kinds that remember can draft.
+	if !slices.Contains([]store.Kind{store.KindFact, store.KindPreference, store.KindDecision, store.KindHandoff}, r.kind) {
+		return remember{}, fmt.Errorf("unknown kind %q\n%s", *kind, rememberUsage)
+	}
 	return r, nil
+}
+
+// check checks the text and the scope of r.
+func (r remember) check() error {
+	switch {
+	case strings.TrimSpace(r.text) == "":
+		return errors.New("the text is empty")
+	case r.global && r.workspace != "":
+		return errors.New("--global and --workspace exclude each other")
+	case r.global && r.kind == store.KindHandoff:
+		// A task handoff belongs to one workspace.
+		return errors.New("a handoff is a workspace item; drop --global")
+	}
+	return nil
 }
 
 // draft is the item that remember writes.

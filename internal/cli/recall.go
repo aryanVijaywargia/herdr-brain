@@ -39,6 +39,12 @@ func Recall(ctx context.Context, e Env, args []string) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, c.Close()) }()
+	return recallOn(ctx, e, c, words)
+}
+
+// recallOn is Recall for the open call c: brain recall and the recall tool of the MCP gateway
+// (E24-S6) both run it.
+func recallOn(ctx context.Context, e Env, c *Call, words []string) error {
 	return c.Store.Write(ctx, func(tx *sql.Tx) error {
 		// The pane can move to another workspace while the write waits for the store lock, so
 		// check it again under the lock, before the read.
@@ -225,14 +231,7 @@ func bestMatches(ms []recallMatch, words []string) []recallMatch {
 	}
 	var ss []scored
 	for _, m := range ms {
-		text := recallWords(m.text())
-		n := 0
-		for _, w := range words {
-			if slices.ContainsFunc(text, func(t string) bool { return strings.HasPrefix(t, w) }) {
-				n++
-			}
-		}
-		if n > 0 {
+		if n := matchScore(m.text(), words); n > 0 {
 			ss = append(ss, scored{m, n})
 		}
 	}
@@ -244,6 +243,19 @@ func bestMatches(ms []recallMatch, words []string) []recallMatch {
 		out[i] = ss[i].m
 	}
 	return out
+}
+
+// matchScore is the score of text for words: one point for each word that starts a word of
+// text, case aside.
+func matchScore(text string, words []string) int {
+	tw := recallWords(text)
+	n := 0
+	for _, w := range words {
+		if slices.ContainsFunc(tw, func(t string) bool { return strings.HasPrefix(t, w) }) {
+			n++
+		}
+	}
+	return n
 }
 
 // recallWords splits s into its words in lower case, each word once, in the order of s. A
