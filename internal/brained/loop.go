@@ -11,6 +11,7 @@ import (
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
+	"github.com/aryanVijaywargia/herdr-brain/internal/launch"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
@@ -61,6 +62,10 @@ type pane struct {
 	auto        bool          // the workspace of the pane has an enabled automation
 	joined      string        // the last agent status that joined agent.get; "" for none
 	stream      *herdr.Stream // the status stream; nil while learning is off and auto is false
+	// detected is when brained last saw an agent come into the pane; zero for never. An agent
+	// exit ends only the launches that started before it: a late exit of an older agent must
+	// not end a launch whose own agent herdr has not detected yet.
+	detected time.Time
 }
 
 // loop is the state of one run. Only the run goroutine uses it; the readers use only items,
@@ -364,14 +369,8 @@ func (l *loop) item(ctx context.Context, it item) error {
 			l.report(l.syncPanes(ctx, []string{ev.PaneID}, GapNone, true, &ev))
 		}
 	case herdr.PaneAgentDetected:
-		if p == nil {
-			return nil
-		}
-		p.agent = !ev.Released
-		if p.learning.On && ev.Released {
-			l.step(ctx, Step{Kind: End, Reason: ReasonAgentLeft}, ev.PaneID, p, &ev)
-		} else if p.learning.On {
-			l.step(ctx, Step{Kind: Baseline, Gap: GapNone}, ev.PaneID, p, &ev)
+		if p != nil {
+			l.agentDetected(ctx, p, ev)
 		}
 	case herdr.PaneStatusChanged:
 		if p == nil || p.stream != it.src {
@@ -383,11 +382,39 @@ func (l *loop) item(ctx context.Context, it item) error {
 			l.step(ctx, Step{Kind: Change}, ev.PaneID, p, &ev)
 		}
 	case herdr.PaneExited, herdr.PaneClosed:
+		l.paneEnded(ctx, ev)
 		if p != nil {
 			l.drop(ctx, ev.PaneID, p, &ev)
 		}
 	}
 	return nil
+}
+
+// paneEnded ends the launches of the pane of the exit or close event ev. A move to another
+// workspace closes the old pane id too.
+func (l *loop) paneEnded(ctx context.Context, ev herdr.Event) {
+	reason := store.EndPaneClosed
+	if ev.Kind == herdr.PaneExited {
+		reason = store.EndPaneExited
+	}
+	l.endLaunches(ctx, func(r store.Launch) bool { return r.PaneID == ev.PaneID }, reason)
+}
+
+// agentDetected handles the agent event ev of pane p: an agent came into the pane, or left it.
+func (l *loop) agentDetected(ctx context.Context, p *pane, ev herdr.Event) {
+	p.agent = !ev.Released
+	if p.agent {
+		p.detected = l.d.now()
+	} else {
+		l.endLaunches(ctx, func(r store.Launch) bool {
+			return r.PaneID == ev.PaneID && r.Started.Before(p.detected)
+		}, store.EndAgentExit)
+	}
+	if p.learning.On && ev.Released {
+		l.step(ctx, Step{Kind: End, Reason: ReasonAgentLeft}, ev.PaneID, p, &ev)
+	} else if p.learning.On {
+		l.step(ctx, Step{Kind: Baseline, Gap: GapNone}, ev.PaneID, p, &ev)
+	}
 }
 
 // reconnect opens a new main stream after the old one failed with err, and reconciles: the
@@ -483,6 +510,7 @@ func (l *loop) retry(ctx context.Context, gap Gap) {
 func (l *loop) reconcile(ctx context.Context, gap Gap) error {
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
+	listed := l.d.now()
 	live, err := l.d.sock.Panes(cctx)
 	if err != nil {
 		return err
@@ -497,8 +525,14 @@ func (l *loop) reconcile(ctx context.Context, gap Gap) error {
 			p = &pane{}
 			l.panes[lp.ID] = p
 		}
+		if lp.Agent != nil && !p.agent {
+			p.detected = listed
+		}
 		p.workspaceID, p.agent = lp.WorkspaceID, lp.Agent != nil
 	}
+	// A launch that started after the list began can be in a pane that the list does not
+	// show yet.
+	l.endLaunches(ctx, func(r store.Launch) bool { return !seen[r.PaneID] && r.Started.Before(listed) }, store.EndPaneGone)
 	var open []string
 	for id, p := range l.panes {
 		if !seen[id] {
@@ -625,6 +659,20 @@ func (l *loop) follow(ctx context.Context, id string, p *pane) error {
 	l.read(ctx, st)
 	l.baselineAgent(ctx, id, p)
 	return nil
+}
+
+// endLaunches ends the running launch records of this herdr server in the bound store for
+// which gone reports true, with reason r, and deletes their launch folders. Without a binding
+// there is no store to end them in.
+func (l *loop) endLaunches(ctx context.Context, gone func(store.Launch) bool, r store.EndReason) {
+	if l.gate == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	if err := launch.End(ctx, l.gate.Binding.Store, l.gate.Binding.Socket, gone, r, l.d.now()); err != nil {
+		l.report(fmt.Errorf("end launches: %w", err))
+	}
 }
 
 // drop ends pane id and stops following it.
