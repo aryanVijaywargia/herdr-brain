@@ -252,7 +252,10 @@ func TestUnknownFormat(t *testing.T) {
 		{"codex not json", ReadCodex, meta + "not json\n"},
 		{"codex first line not meta", ReadCodex, `{"type":"response_item","payload":{"type":"reasoning"}}` + "\n"},
 		{"codex meta with no id", ReadCodex, `{"type":"session_meta","payload":{"cwd":"/w"}}` + "\n"},
-		{"codex unknown line type", ReadCodex, meta + `{"type":"new_kind","payload":{}}` + "\n"},
+		{"codex line with no type", ReadCodex, meta + `{"payload":{}}` + "\n"},
+		{"codex item_completed with no item", ReadCodex, meta + `{"type":"event_msg","payload":{"type":"item_completed"}}` + "\n"},
+		{"codex command execution with no command", ReadCodex,
+			meta + `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","id":"c1","exit_code":0}}}` + "\n"},
 		{"codex content not a list", ReadCodex, meta + `{"type":"response_item","payload":{"type":"message","role":"user","content":"x"}}` + "\n"},
 		{"codex shell arguments not json", ReadCodex, meta + `{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"x"}}` + "\n"},
 		{"codex shell with no command", ReadCodex, meta + `{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{}"}}` + "\n"},
@@ -352,11 +355,13 @@ func FuzzReadClaude(f *testing.F) {
 }
 
 func FuzzReadCodex(f *testing.F) {
-	fuzz(f, ReadCodex, "codex-basic.jsonl", "codex-drops.jsonl", "codex-0160.jsonl")
+	fuzz(f, ReadCodex, "codex-basic.jsonl", "codex-drops.jsonl", "codex-0160.jsonl", "codex-paginated.jsonl",
+		"codex-custom-tool.jsonl", "codex-unknown-lines.jsonl", "codex-mixed.jsonl")
 }
 
 // #407: codex-cli 0.160.1 adds the top-level lines world_state and token_usage_record, which
-// the reader skips. Its shell commands are custom_tool_call exec scripts: no command record.
+// the reader skips. Its shell commands are custom_tool_call exec scripts, and this file has no
+// item_completed for them: no command record.
 func TestReadCodex0160(t *testing.T) {
 	path := filepath.Join("testdata", "codex-0160.jsonl")
 	got, err := ReadCodex(path, noLimit)
@@ -376,5 +381,101 @@ func TestReadCodex0160(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ReadCodex(%s) =\n%+v\nwant\n%+v", path, got, want)
+	}
+}
+
+// oct returns a time of October 2026 in UTC, in the first minute of the hour.
+func oct(day, hour, sec int) time.Time {
+	return time.Date(2026, 10, day, hour, 0, sec, 0, time.UTC)
+}
+
+// TestReadCodexGaps checks the codex-cli 0.165.0 forms of #439, each in its own file: a
+// paginated file, a custom_tool_call exec cell, line types that the reader does not know, and a
+// file with old and new lines. Each file gives its records and no error.
+func TestReadCodexGaps(t *testing.T) {
+	for _, tc := range []struct {
+		file, session string
+		want          func(id func(text string) string) Session
+	}{{
+		// The prompt and the reply come from the response_item messages, not the item_completed
+		// copies. The function_call and the item_completed of one exec_command give one command,
+		// with the exit_code and the output of the item. A ! command of the user gives none.
+		"codex-paginated.jsonl", "s-codex-paginated", func(id func(string) string) Session {
+			return Session{
+				ID: "s-codex-paginated", CWD: "/work/api", Interactive: true,
+				First: oct(28, 9, 0), Last: oct(28, 9, 9),
+				Turns: []Turn{{
+					Prompt: Text{ID: id(`"run the tests"`), At: oct(28, 9, 2), Text: "run the tests"},
+					Commands: []Command{{ID: id(`"name":"exec_command"`), At: oct(28, 9, 3), Command: "make test", Exit: exit(2),
+						Failure: &Text{ID: id(`"id":"call_t1"`), At: oct(28, 9, 5), Text: "FAIL api_test\n"}}},
+					Reply:  Text{ID: id(`"role":"assistant"`), At: oct(28, 9, 8), Text: "make test fails in api_test."},
+					Tokens: 900, TokensKnown: true,
+				}},
+			}
+		},
+	}, {
+		// The commands of the exec cell come from its item_completed command executions; the
+		// declined one did not run, so it has no exit status. apply_patch is no shell command.
+		"codex-custom-tool.jsonl", "s-codex-custom", func(id func(string) string) Session {
+			failed := id(`"exec-7a2e`)
+			return Session{
+				ID: "s-codex-custom", CWD: "/work/shop", Interactive: true,
+				First: oct(28, 10, 0), Last: oct(28, 10, 12),
+				Turns: []Turn{{
+					Prompt: Text{ID: id(`"list the files and run the tests"`), At: oct(28, 10, 2),
+						Text: "list the files and run the tests"},
+					Commands: []Command{
+						{ID: id(`"exec-6f1d`), At: oct(28, 10, 4), Command: "ls", Exit: exit(0)},
+						{ID: failed, At: oct(28, 10, 5), Command: "go test ./...", Exit: exit(1),
+							Failure: &Text{ID: failed, At: oct(28, 10, 5), Text: "--- FAIL: TestCart\nFAIL\n"}},
+						{ID: id(`"exec-8b3f`), At: oct(28, 10, 6), Command: "rm -rf build"},
+					},
+					Reply:  Text{ID: id(`"role":"assistant"`), At: oct(28, 10, 11), Text: "TestCart fails."},
+					Tokens: 1200, TokensKnown: true,
+				}},
+			}
+		},
+	}, {
+		// retained_context and the other new lines of 0.165.0, and a line type of a later Codex,
+		// are skipped.
+		"codex-unknown-lines.jsonl", "s-codex-lines", func(id func(string) string) Session {
+			return Session{
+				ID: "s-codex-lines", CWD: "/work/web", Interactive: true,
+				First: oct(28, 11, 0), Last: oct(28, 11, 8),
+				Turns: []Turn{{
+					Prompt: Text{ID: id(`"pick a port"`), At: oct(28, 11, 1), Text: "pick a port"},
+					Reply:  Text{ID: id(`"Port 8080 is set."`), At: oct(28, 11, 8), Text: "Port 8080 is set."},
+				}},
+			}
+		},
+	}, {
+		// A legacy exec cell has no item_completed, so it gives no command; the paginated one does.
+		"codex-mixed.jsonl", "s-codex-mixed", func(id func(string) string) Session {
+			return Session{
+				ID: "s-codex-mixed", CWD: "/work/cli", Interactive: true,
+				First: oct(20, 8, 0), Last: oct(28, 12, 8),
+				Turns: []Turn{{
+					Prompt:   Text{ID: id(`"build it"`), At: oct(20, 8, 1), Text: "build it"},
+					Commands: []Command{{ID: id(`"name":"shell"`), At: oct(20, 8, 2), Command: "make build", Exit: exit(0)}},
+					Reply:    Text{ID: id(`"Built bin/cli."`), At: oct(20, 8, 6), Text: "Built bin/cli."},
+				}, {
+					Prompt:   Text{ID: id(`"now test it"`), At: oct(28, 12, 2), Text: "now test it"},
+					Commands: []Command{{ID: id(`"exec-9c4a`), At: oct(28, 12, 4), Command: "make test", Exit: exit(0)}},
+					Reply:    Text{ID: id(`"All tests pass."}`), At: oct(28, 12, 7), Text: "All tests pass."},
+				}},
+			}
+		},
+	}} {
+		t.Run(tc.file, func(t *testing.T) {
+			path := filepath.Join("testdata", tc.file)
+			got, err := ReadCodex(path, noLimit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := tc.want(func(text string) string { return offset(t, path, tc.session, text) })
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("ReadCodex(%s) =\n%+v\nwant\n%+v", path, got, want)
+			}
+		})
 	}
 }

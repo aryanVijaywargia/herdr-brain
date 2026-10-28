@@ -14,7 +14,8 @@ var codexShell = map[string]bool{"shell": true, "shell_command": true, "exec_com
 
 // codexExit is a known exit line of Codex shell output (the exact line in the installed
 // version is not checked yet): "Exit code: N" of the shell tools and "Process exited with
-// code N" of exec_command. Codex saves no exit event, so this line is the only exit status.
+// code N" of exec_command. A legacy file saves no exit event, so there this line is the only
+// exit status; a paginated file also has the exit_code of an item_completed.
 var codexExit = regexp.MustCompile(`(?m)^(?:Exit code: |Process exited with code )(-?\d+)\r?$`)
 
 // codexInteractive lists the sources of sessions that you ran.
@@ -60,20 +61,33 @@ type codexEvent struct {
 			TotalTokens *int64 `json:"total_tokens"`
 		} `json:"total_token_usage"`
 	} `json:"info"`
+	Item *codexTurnItem `json:"item"`
+}
+
+// codexTurnItem is the item of an item_completed event_msg. Only the fields of a
+// CommandExecution item are read.
+type codexTurnItem struct {
+	Type             string   `json:"type"`
+	ID               string   `json:"id"`
+	Command          []string `json:"command"`
+	Source           string   `json:"source"`
+	Status           string   `json:"status"`
+	AggregatedOutput string   `json:"aggregated_output"`
+	ExitCode         *int     `json:"exit_code"`
 }
 
 // codex reads one Codex session file.
 type codex struct {
 	session
-	meta    bool
-	total   int64          // the highest total_tokens so far
-	pending map[string]ref // the shell call ids that wait for their output
+	meta  bool
+	total int64          // the highest total_tokens so far
+	calls map[string]ref // the shell commands by call id, for their result
 }
 
 // ReadCodex reads the Codex session file at path up to limit bytes. The first line is the
 // session_meta.
 func ReadCodex(path string, limit int64) (Session, error) {
-	c := codex{pending: map[string]ref{}}
+	c := codex{calls: map[string]ref{}}
 	if err := lines(path, limit, c.line); err != nil {
 		return Session{}, err
 	}
@@ -93,23 +107,26 @@ func (c *codex) line(raw []byte, off int64) error {
 	if !c.meta && l.Type != "session_meta" {
 		return fmt.Errorf("%w: first line is %q, not session_meta", ErrUnknownFormat, l.Type)
 	}
+	t := Text{ID: c.s.ID + "@" + strconv.FormatInt(off, 10), At: at}
 	switch l.Type {
 	case "session_meta":
 		err = c.sessionMeta(l.Payload)
 		c.at(at, "")
 	case "response_item":
 		c.at(at, "")
-		err = c.item(l.Payload, Text{ID: c.s.ID + "@" + strconv.FormatInt(off, 10), At: at})
+		err = c.item(l.Payload, t)
 	case "event_msg":
 		c.at(at, "")
-		err = c.event(l.Payload)
-	case "turn_context", "compacted", "world_state", "token_usage_record":
-		// A turn context holds no record of the turn; a compaction summary is dropped.
-		// world_state and token_usage_record (codex-cli 0.160.1, #407) hold no prompt, reply or
-		// command: the tokens come from the event_msg token_count.
-		c.at(at, "")
+		err = c.event(l.Payload, t)
+	case "":
+		err = fmt.Errorf("%w: line with no type", ErrUnknownFormat)
 	default:
-		err = fmt.Errorf("%w: line type %q", ErrUnknownFormat, l.Type)
+		// The other lines hold no prompt, reply or command: turn_context, compacted (its
+		// summary is dropped), world_state and token_usage_record (the tokens come from
+		// token_count), and in codex-cli 0.165.0 retained_context, security_risk_score,
+		// realtime_item and the inter_agent_communication lines. Codex adds line types over
+		// time, so a new one is skipped too: it must not fail the whole file.
+		c.at(at, "")
 	}
 	return err
 }
@@ -138,7 +155,9 @@ func (c *codex) sessionMeta(payload json.RawMessage) error {
 
 // item reads a response_item. The prompt comes only from a user message here, never from the
 // event_msg copy. Other item types, as reasoning, hold no prompt, command or reply: Codex
-// adds item types over time, so only an item with no type is an unknown shape.
+// adds item types over time, so only an item with no type is an unknown shape. A
+// custom_tool_call exec runs a JavaScript cell, not a shell command: the shell commands of the
+// cell come from the item_completed command executions of a paginated file.
 func (c *codex) item(payload json.RawMessage, t Text) error {
 	var it codexItem
 	if err := json.Unmarshal(payload, &it); err != nil {
@@ -224,10 +243,24 @@ func argv(list []string) string {
 	return strings.Join(list, " ")
 }
 
-// call adds a shell command to the open turn.
-func (c *codex) call(id string, cmd Command) {
-	if r, ok := c.command(cmd); ok && id != "" {
-		c.pending[id] = r
+// call adds a shell command to the open turn, once per call id: a paginated file has both the
+// function_call and the item_completed of one exec_command.
+func (c *codex) call(id string, cmd Command) (ref, bool) {
+	if r, ok := c.calls[id]; ok {
+		return r, true
+	}
+	r, ok := c.command(cmd)
+	if ok && id != "" {
+		c.calls[id] = r
+	}
+	return r, ok
+}
+
+// exit sets the exit status and the failure output of the command at r. The first one wins:
+// the item_completed and the function_call_output of one call give the same status.
+func (c *codex) exit(r ref, n int, failure *Text) {
+	if c.s.Turns[r.turn].Commands[r.cmd].Exit == nil {
+		c.result(r, &n, failure)
 	}
 }
 
@@ -235,11 +268,10 @@ func (c *codex) call(id string, cmd Command) {
 // only the output of a failed command is kept. An output that is not a string has no exit
 // line.
 func (c *codex) output(it codexItem, t Text) {
-	r, ok := c.pending[it.CallID]
+	r, ok := c.calls[it.CallID]
 	if !ok {
 		return
 	}
-	delete(c.pending, it.CallID)
 	var out string
 	if err := json.Unmarshal(it.Output, &out); err != nil {
 		return
@@ -257,13 +289,13 @@ func (c *codex) output(it codexItem, t Text) {
 		t.Text = out
 		failure = &t
 	}
-	c.result(r, &n, failure)
+	c.exit(r, n, failure)
 }
 
-// event reads an event_msg. Only token_count is read: the turn takes the growth of
+// event reads an event_msg: token_count and item_completed. The turn takes the growth of
 // total_tokens, so a repeated line adds nothing. A token_count with no info carries no
 // usage; an info with no total is an unknown shape, not a total of 0.
-func (c *codex) event(payload json.RawMessage) error {
+func (c *codex) event(payload json.RawMessage, t Text) error {
 	var e codexEvent
 	if err := json.Unmarshal(payload, &e); err != nil {
 		return fmt.Errorf("%w: event_msg: %w", ErrUnknownFormat, err)
@@ -271,6 +303,8 @@ func (c *codex) event(payload json.RawMessage) error {
 	switch {
 	case e.Type == "":
 		return fmt.Errorf("%w: event_msg with no type", ErrUnknownFormat)
+	case e.Type == "item_completed":
+		return c.completed(e.Item, t)
 	case e.Type != "token_count" || e.Info == nil:
 		return nil
 	case e.Info.TotalTokenUsage.TotalTokens == nil:
@@ -279,5 +313,34 @@ func (c *codex) event(payload json.RawMessage) error {
 	total := *e.Info.TotalTokenUsage.TotalTokens
 	c.tokens(max(total-c.total, 0))
 	c.total = max(total, c.total)
+	return nil
+}
+
+// completed reads the item of an item_completed. A paginated file (history_mode paginated,
+// codex-cli 0.165.0) writes one for each turn item; a legacy file writes none of the kinds read
+// here. A UserMessage or AgentMessage is a copy of a response_item message, the one source of
+// the prompt and the reply. A CommandExecution is a shell command with its exit_code: for the
+// commands of a custom_tool_call exec cell it is the only record. A command that you ran with
+// ! (source user_shell) is not the agent's, and a declined one did not run.
+func (c *codex) completed(it *codexTurnItem, t Text) error {
+	if it == nil || it.Type == "" {
+		return fmt.Errorf("%w: item_completed with no item type", ErrUnknownFormat)
+	}
+	if it.Type != "CommandExecution" || it.Source == "user_shell" {
+		return nil
+	}
+	if len(it.Command) == 0 {
+		return fmt.Errorf("%w: CommandExecution with no command", ErrUnknownFormat)
+	}
+	r, ok := c.call(it.ID, Command{ID: t.ID, At: t.At, Command: argv(it.Command)})
+	if !ok || it.ExitCode == nil || it.Status == "declined" {
+		return nil
+	}
+	var failure *Text
+	if *it.ExitCode != 0 {
+		t.Text = it.AggregatedOutput
+		failure = &t
+	}
+	c.exit(r, *it.ExitCode, failure)
 	return nil
 }
