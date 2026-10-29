@@ -40,6 +40,9 @@ type Deps struct {
 	// Exec replaces the process with bin, with the args argv and the env environ
 	// (syscall.Exec): the signals, the terminal and the exit code are then the CLI's.
 	Exec func(bin string, argv, environ []string) error
+	// Dir is the working folder of the call, and CodexSystem the system config folder of
+	// Codex (/etc/codex): a Codex launch reads the config files of both.
+	Dir, CodexSystem string
 }
 
 // Main is `brain <kind> [args]`: it starts the CLI of kind in place of Brain. In a live pane of
@@ -60,6 +63,12 @@ func Main(ctx context.Context, d Deps, kind string, args []string) (err error) {
 	bin, err := findCLI(d.Environ, kind, d.Self, c.paths)
 	if err != nil {
 		return err
+	}
+	if len(c.paths) > 0 {
+		// An earlier Brain of this process ran a CLI file that ran brain again, such as a shell
+		// shim with `exec brain claude`. args then start with the Brain flags of that launch,
+		// so they go to the CLI with no change: a second launch would refuse its own MCP server.
+		return d.Exec(bin, append([]string{kind}, args...), c.env(d.Environ, bin))
 	}
 	argv, notes, plain, l, err := brainArgv(ctx, d, data, bin, args)
 	if err != nil {
@@ -100,6 +109,9 @@ func brainArgv(ctx context.Context, d Deps, data *cliData, bin string, args []st
 	if err := a.refused(); err != nil {
 		return nil, nil, "", nil, err
 	}
+	if err := data.servers(a, d); err != nil {
+		return nil, nil, "", nil, err
+	}
 	if plain := supported(ctx, data, bin, d.Environ); plain != "" {
 		return nil, nil, plain, nil, nil
 	}
@@ -114,7 +126,7 @@ func brainArgv(ctx context.Context, d Deps, data *cliData, bin string, args []st
 	l = &launched{b: r.Binding, dir: dir}
 	hooks, err := captureHooks(data.kind, d.Self, dir)
 	if err == nil {
-		argv, notes, err = a.argv(dir, Plan{Hooks: hooks})
+		argv, notes, err = a.argv(dir, Plan{Hooks: hooks, MCP: mcpServer(d.Self, dir)})
 	}
 	if err != nil {
 		return nil, nil, "", nil, errors.Join(err, l.abandon(ctx, d.Now()))

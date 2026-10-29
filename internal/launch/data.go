@@ -99,6 +99,9 @@ type cliData struct {
 	VariadicFlags    []string   `toml:"variadic_flags"`
 	Conflicts        []conflict `toml:"conflicts"`
 	build            builder
+	// servers returns the error of a launch whose Brain MCP server a config of the user would
+	// change, or nil.
+	servers func(a *args, d Deps) error
 }
 
 // versionRe is a version word of `<cli> --version`: "2.1.312 (Claude Code)", "codex-cli 0.165.0".
@@ -140,9 +143,9 @@ func load(kind string) (*cliData, error) {
 func (d *cliData) check() error {
 	switch d.kind {
 	case "claude":
-		d.build = buildClaude
+		d.build, d.servers = buildClaude, claudeServers
 	case "codex":
-		d.build = buildCodex
+		d.build, d.servers = buildCodex, codexServers
 	default:
 		return fmt.Errorf("no launch builder for %q", d.kind)
 	}

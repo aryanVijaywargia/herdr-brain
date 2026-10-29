@@ -30,11 +30,13 @@ type cmdEnv struct {
 	execBin   string
 	exec, env []string
 	self      string // the brain binary of the last run
+	// HOME, the working folder and the Codex system folder of the runs.
+	home, dir, system string
 }
 
 func newCmdEnv(t *testing.T, claudeVersion string) *cmdEnv {
 	t.Helper()
-	e := &cmdEnv{bin: t.TempDir(), store: t.TempDir()}
+	e := &cmdEnv{bin: t.TempDir(), store: t.TempDir(), home: t.TempDir(), dir: t.TempDir(), system: t.TempDir()}
 	for kind, v := range map[string]string{"claude": claudeVersion + " (Claude Code)", "codex": "codex-cli 0.165.0"} {
 		if err := os.WriteFile(filepath.Join(e.bin, kind), []byte("#!/bin/sh\necho '"+v+"'\n"), 0o700); err != nil { //nolint:gosec // a test CLI must be executable
 			t.Fatal(err)
@@ -54,7 +56,7 @@ func newCmdEnv(t *testing.T, claudeVersion string) *cmdEnv {
 
 // herdrEnv is the env of pane w1:p1 of session s1.
 func (e *cmdEnv) herdrEnv() []string {
-	return []string{"PATH=" + e.bin, "HERDR_ENV=1", "HERDR_SESSION=s1", "HERDR_SOCKET_PATH=" + e.sock,
+	return []string{"HOME=" + e.home, "PATH=" + e.bin, "HERDR_ENV=1", "HERDR_SESSION=s1", "HERDR_SOCKET_PATH=" + e.sock,
 		"HERDR_PANE_ID=w1:p1", "HERDR_WORKSPACE_ID=w1"}
 }
 
@@ -67,6 +69,7 @@ func (e *cmdEnv) run(t *testing.T, environ []string, kind string, args ...string
 	e.self = self
 	d := Deps{
 		Environ: environ, PID: testPID, Self: self, Bindings: e.bindings, Now: time.Now, Stderr: &e.stderr,
+		Dir: e.dir, CodexSystem: e.system,
 		Pane: func(_ context.Context, _ herdr.Target, id string) (herdr.Pane, error) {
 			switch {
 			case e.paneErr != nil:
@@ -101,12 +104,13 @@ func (e *cmdEnv) checkEnv(t *testing.T, environ []string) {
 	}
 }
 
-// captureFlags are the flags of Brain's capture hooks of launch folder dir of the CLI kind,
-// with the brain binary self (E24-S5): the Claude --settings file, or the Codex -c hooks.
-func captureFlags(t *testing.T, kind, self, dir string) []string {
+// planFlags are the flags of the plan of launch folder dir of the CLI kind, with the brain
+// binary self: the capture hooks (E24-S5) and the MCP server (E24-S6). Claude gets the
+// --settings and --mcp-config files; Codex gets the -c mcp_servers.brain.* and -c hooks flags.
+func planFlags(t *testing.T, kind, self, dir string) []string {
 	t.Helper()
 	if kind == "claude" {
-		return []string{"--settings=" + filepath.Join(dir, "settings.json")}
+		return []string{"--settings=" + filepath.Join(dir, "settings.json"), "--mcp-config=" + filepath.Join(dir, "mcp.json")}
 	}
 	hs, err := captureHooks(kind, self, dir)
 	if err != nil {
@@ -116,7 +120,8 @@ func captureFlags(t *testing.T, kind, self, dir string) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return flags
+	return append([]string{"-c", `mcp_servers.brain.command="` + self + `"`, "-c", `mcp_servers.brain.args=["mcp","--launch","` + dir + `"]`,
+		"-c", `mcp_servers.brain.env_vars=["HERDR_BIN_PATH"]`}, flags...)
 }
 
 // A form that gets Brain flags in a confirmed pane makes a launch record and its folder,
@@ -181,7 +186,7 @@ func TestLaunchMain(t *testing.T) {
 			}
 			want := tt.want
 			if tt.launched {
-				want = slices.Concat(want[:tt.static], captureFlags(t, tt.kind, e.self, paths.Launch(e.store, 1)), want[tt.static:])
+				want = slices.Concat(want[:tt.static], planFlags(t, tt.kind, e.self, paths.Launch(e.store, 1)), want[tt.static:])
 			}
 			if want := append([]string{tt.kind}, want...); !slices.Equal(e.exec, want) || e.execBin != cli {
 				t.Errorf("exec %s argv = %q, want %s %q", e.execBin, e.exec, cli, want)
