@@ -231,6 +231,10 @@ func noItemTextFields() []Field {
 		{"tool_calls", "origin"},
 		{"tool_calls", "result"},
 		{"tool_calls", "at"},
+		// A gateway call holds fixed words and a time only (E24-S6).
+		{"gateway_calls", "method"},
+		{"gateway_calls", "result"},
+		{"gateway_calls", "at"},
 		// An automation row holds a key, fixed words, a hash and times besides its folder (E17-S10).
 		{"automations", "workspace_key"},
 		{"automations", "trigger_condition"},

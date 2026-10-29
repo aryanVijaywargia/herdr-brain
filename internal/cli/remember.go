@@ -45,6 +45,12 @@ func Remember(ctx context.Context, e Env, args []string) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, c.Close()) }()
+	return rememberOn(ctx, e, c, r)
+}
+
+// rememberOn is Remember of r for the open call c: brain remember and the remember tool of the
+// MCP gateway (E24-S6) both run it.
+func rememberOn(ctx context.Context, e Env, c *Call, r remember) error {
 	d, err := r.draft(c)
 	if err != nil {
 		return err
@@ -58,7 +64,17 @@ func Remember(ctx context.Context, e Env, args []string) (err error) {
 		_, err = fmt.Fprintf(e.Stdout, "item %d already says this in %s; no draft was made\n", item, d.target)
 		return err
 	}
-	id, err := saveDraft(ctx, c.Store, d, e.Now())
+	now := e.Now()
+	var id int64
+	err = c.Store.Write(ctx, func(tx *sql.Tx) (err error) {
+		// The pane can move to another workspace while the write waits for the store lock, so
+		// check it again under the lock, before the draft of its workspace.
+		if err := e.recheck(ctx, c); err != nil {
+			return err
+		}
+		id, err = insertDraft(ctx, tx, d, now)
+		return err
+	})
 	if err != nil {
 		return err
 	}
@@ -94,22 +110,32 @@ func parseRemember(args []string) (remember, error) {
 		args = fs.Args()[1:]
 	}
 	r.kind = store.Kind(*kind)
-	switch {
-	case len(texts) != 1:
+	if len(texts) != 1 {
 		return remember{}, fmt.Errorf("want one text, got %d\n%s", len(texts), rememberUsage)
-	case strings.TrimSpace(texts[0]) == "":
-		return remember{}, errors.New("the text is empty")
-	case r.global && r.workspace != "":
-		return remember{}, errors.New("--global and --workspace exclude each other")
-	// The kinds that remember can draft.
-	case !slices.Contains([]store.Kind{store.KindFact, store.KindPreference, store.KindDecision, store.KindHandoff}, r.kind):
-		return remember{}, fmt.Errorf("unknown kind %q\n%s", *kind, rememberUsage)
-	case r.global && r.kind == store.KindHandoff:
-		// A task handoff belongs to one workspace.
-		return remember{}, errors.New("a handoff is a workspace item; drop --global")
 	}
 	r.text = texts[0]
+	if err := r.check(); err != nil {
+		return remember{}, err
+	}
+	// The kinds that remember can draft.
+	if !slices.Contains([]store.Kind{store.KindFact, store.KindPreference, store.KindDecision, store.KindHandoff}, r.kind) {
+		return remember{}, fmt.Errorf("unknown kind %q\n%s", *kind, rememberUsage)
+	}
 	return r, nil
+}
+
+// check checks the text and the scope of r.
+func (r remember) check() error {
+	switch {
+	case strings.TrimSpace(r.text) == "":
+		return errors.New("the text is empty")
+	case r.global && r.workspace != "":
+		return errors.New("--global and --workspace exclude each other")
+	case r.global && r.kind == store.KindHandoff:
+		// A task handoff belongs to one workspace.
+		return errors.New("a handoff is a workspace item; drop --global")
+	}
+	return nil
 }
 
 // draft is the item that remember writes.
@@ -162,35 +188,31 @@ func sameItem(ctx context.Context, s *store.Store, d draft) (int64, error) {
 	return item, err
 }
 
-// saveDraft writes d as a draft item at revision 1 with a new claim id, and one pending
-// proposal to approve it, in one transaction. It returns the proposal id. A draft is in no
-// output, so it records no output generation and needs no build.
-func saveDraft(ctx context.Context, s *store.Store, d draft, now time.Time) (int64, error) {
+// insertDraft writes d as a draft item at revision 1 with a new claim id, and one pending
+// proposal to approve it, in tx. It returns the proposal id. A draft is in no output, so it
+// records no output generation and needs no build.
+func insertDraft(ctx context.Context, tx *sql.Tx, d draft, now time.Time) (int64, error) {
 	claim, err := newClaimID()
 	if err != nil {
 		return 0, err
 	}
-	var pid int64
-	err = s.Write(ctx, func(tx *sql.Tx) error {
-		item, err := store.InsertItem(ctx, tx, store.Item{ClaimID: claim, CurrentRevision: 1, Kind: d.kind,
-			Scope: d.scope, WorkspaceKey: d.workspaceKey, State: store.StateDraft, Created: now})
-		if err != nil {
-			return err
-		}
-		base := int64(1)
-		// The target names the brief part, and the diff of a new item is its text with "+ ".
-		pid, err = store.InsertProposal(ctx, tx, store.Proposal{ItemID: &item, BaseRevision: &base,
-			Text: d.text, Scope: d.scope, Target: d.target, Diff: "+ " + d.text,
-			PermissionWarning: permissionWords.MatchString(d.text), Status: store.ProposalPending, Created: now})
-		if err != nil {
-			return err
-		}
-		// The author stays brain until you approve.
-		return store.InsertItemRevision(ctx, tx, store.ItemRevision{ItemID: item, Revision: 1, Text: d.text,
-			Scope: d.scope, WorkspaceKey: d.workspaceKey, State: store.StateDraft, Author: store.AuthorBrain,
-			Origin: store.OriginRemember, ProposalID: &pid, Created: now})
-	})
-	return pid, err
+	item, err := store.InsertItem(ctx, tx, store.Item{ClaimID: claim, CurrentRevision: 1, Kind: d.kind,
+		Scope: d.scope, WorkspaceKey: d.workspaceKey, State: store.StateDraft, Created: now})
+	if err != nil {
+		return 0, err
+	}
+	base := int64(1)
+	// The target names the brief part, and the diff of a new item is its text with "+ ".
+	pid, err := store.InsertProposal(ctx, tx, store.Proposal{ItemID: &item, BaseRevision: &base,
+		Text: d.text, Scope: d.scope, Target: d.target, Diff: "+ " + d.text,
+		PermissionWarning: permissionWords.MatchString(d.text), Status: store.ProposalPending, Created: now})
+	if err != nil {
+		return 0, err
+	}
+	// The author stays brain until you approve.
+	return pid, store.InsertItemRevision(ctx, tx, store.ItemRevision{ItemID: item, Revision: 1, Text: d.text,
+		Scope: d.scope, WorkspaceKey: d.workspaceKey, State: store.StateDraft, Author: store.AuthorBrain,
+		Origin: store.OriginRemember, ProposalID: &pid, Created: now})
 }
 
 // newClaimID returns a new opaque claim id with no text in it: 8 random bytes, in hex with a

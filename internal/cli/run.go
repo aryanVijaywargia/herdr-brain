@@ -20,6 +20,10 @@ import (
 
 const runUsage = `usage: brain run <tool> [--<input> <value>]...`
 
+// errNotReadOnly refuses a tool with no reviewed read-only restriction where only such a tool
+// may run.
+var errNotReadOnly = errors.New("the tool has no reviewed read-only restriction")
+
 // ErrRefused means that a check refused a tool call, so nothing ran.
 var ErrRefused = errors.New("refused; nothing ran")
 
@@ -47,9 +51,12 @@ type ToolRun struct {
 	// nothing.
 	ToolID       int64
 	ContractHash string
-	Inputs       map[string]string
-	Stdout       io.Writer
-	Stderr       io.Writer
+	// ReadOnly lets only a tool with the reviewed read-only restriction run: the MCP gateway
+	// (#172) runs no other tool. Any other tool is refused.
+	ReadOnly bool
+	Inputs   map[string]string
+	Stdout   io.Writer
+	Stderr   io.Writer
 }
 
 // ToolResult is the result of a tool run that passed the checks.
@@ -139,6 +146,11 @@ func runChecked(ctx context.Context, e Env, r ToolRun, inputErr error) (_ ToolRe
 		return ToolResult{}, fmt.Errorf("tool %s: %w", r.Tool, err)
 	}
 	defer func() { err = errors.Join(err, c.Close()) }()
+	return runOn(ctx, e, c, r, inputErr)
+}
+
+// runOn is runChecked for the open call c of the pane of r.
+func runOn(ctx context.Context, e Env, c *Call, r ToolRun, inputErr error) (ToolResult, error) {
 	found, session, err := findTool(ctx, c, r.Tool)
 	if err != nil {
 		return ToolResult{}, err
@@ -173,6 +185,9 @@ func runChecked(ctx context.Context, e Env, r ToolRun, inputErr error) (_ ToolRe
 	if err != nil {
 		return refuse(err)
 	}
+	if r.ReadOnly && !contract.ReadOnly {
+		return refuse(errNotReadOnly)
+	}
 	cmds, err := contract.Fill(r.Inputs)
 	if err != nil {
 		return refuse(err)
@@ -180,6 +195,11 @@ func runChecked(ctx context.Context, e Env, r ToolRun, inputErr error) (_ ToolRe
 	run := tool.Run{Commands: cmds, Dir: contract.Dir(lookupEnv(e.Environ, "HOME")), ScriptDir: dir,
 		Env: e.Environ, Timeout: time.Duration(t.TimeoutS) * time.Second, Stdout: r.Stdout, Stderr: r.Stderr}
 	call.ContractHash = t.ContractHash
+	// The pane can move to another workspace during the checks: a tool of the old workspace
+	// must not run for it.
+	if err := e.recheck(ctx, c); err != nil {
+		return refuse(err)
+	}
 	return execTool(ctx, c.Store, run, call, r.Tool)
 }
 
@@ -196,10 +216,10 @@ func findTool(ctx context.Context, c *Call, name string) (found store.Tool, sess
 	})
 	switch {
 	case errors.Is(err, sql.ErrNoRows) && keyErr != nil:
-		return store.Tool{}, 0, fmt.Errorf("no global tool %s, and no workspace tools here (%w); nothing ran", name, keyErr)
+		return store.Tool{}, 0, fmt.Errorf("no global tool %s, and no workspace tools here (%w): %w", name, keyErr, ErrRefused)
 	case errors.Is(err, sql.ErrNoRows):
-		return store.Tool{}, 0, fmt.Errorf("no tool %s in workspace %s (%s) or in the global tools; nothing ran", name,
-			c.WorkspaceID, label)
+		return store.Tool{}, 0, fmt.Errorf("no tool %s in workspace %s (%s) or in the global tools: %w", name,
+			c.WorkspaceID, label, ErrRefused)
 	}
 	return found, session, err
 }

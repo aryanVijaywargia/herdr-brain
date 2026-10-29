@@ -36,7 +36,33 @@ func Tools(ctx context.Context, e Env, args []string) (err error) {
 //	  brain run <name> --<input> <value> ...
 //	  --<input>: <type>, pattern <pattern>
 func (cl caller) listTools(ctx context.Context) error {
+	ts, err := cl.approvedTools(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if len(ts) == 0 {
+		_, err = fmt.Fprintln(cl.Stdout, "no approved tools")
+		return err
+	}
 	var b strings.Builder
+	for _, t := range ts {
+		writeTool(&b, t.Tool, t.contract, cl.target(t.Scope))
+	}
+	_, err = fmt.Fprint(cl.Stdout, b.String())
+	return err
+}
+
+// approvedTool is an approved tool and its checked contract.
+type approvedTool struct {
+	store.Tool
+	contract tool.Contract
+}
+
+// approvedTools returns the approved tools that the caller sees, in approval order. With
+// words, it returns only the tools whose name or description match one of them, by the match
+// rule of brain recall. A draft is never in it.
+func (cl caller) approvedTools(ctx context.Context, words []string) ([]approvedTool, error) {
+	var out []approvedTool
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) error {
 		ts, err := store.Tools(ctx, tx)
 		if err != nil {
@@ -50,19 +76,13 @@ func (cl caller) listTools(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("tool item %d: %w", t.ID, err)
 			}
-			writeTool(&b, t, c, cl.target(t.Scope))
+			if len(words) == 0 || matchScore(c.Name+" "+c.Description, words) > 0 {
+				out = append(out, approvedTool{t, c})
+			}
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-	if b.Len() == 0 {
-		_, err = fmt.Fprintln(cl.Stdout, "no approved tools")
-		return err
-	}
-	_, err = fmt.Fprint(cl.Stdout, b.String())
-	return err
+	return out, err
 }
 
 // writeTool writes the entry of tool t, with contract c, in scope target.
