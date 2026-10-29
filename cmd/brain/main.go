@@ -56,6 +56,8 @@ commands:
   tools     list the approved tools that this workspace can run, with their inputs
   automation add <tool> --folder <dir> --cli <cli> | list | pause <item> | resume <item> | remove <item>:
             run an approved tool after each stop of the agent (brain automation --help)
+  mcp       --launch <folder>: the Brain MCP server of one launch on stdin and stdout (the CLI of
+            brain claude or brain codex starts it)
 
 launch (one for each CLI with launch data):
   claude    [<args>]: start Claude Code in this pane with the Brain launch flags, then your args with no
@@ -65,8 +67,8 @@ launch (one for each CLI with launch data):
 `
 
 // commands are the commands that run with a cli.Env, by name: the store commands of
-// internal/cli, and the launch command of each CLI kind with launch data (E24-S2,
-// TestLaunchKindNames).
+// internal/cli, the launch command of each CLI kind with launch data (E24-S2,
+// TestLaunchKindNames), and the MCP server of a launch (E24-S6).
 var commands = map[string]func(context.Context, cli.Env, []string) error{
 	"claude":     launchCommand("claude"),
 	"codex":      launchCommand("codex"),
@@ -90,6 +92,7 @@ var commands = map[string]func(context.Context, cli.Env, []string) error{
 	"run":        cli.Run,
 	"tools":      cli.Tools,
 	"automation": cli.Automation,
+	"mcp":        mcpCommand,
 }
 
 // herdrCommands are the commands that herdr or its build runs with the process environment.
@@ -135,7 +138,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "setup":
 		err = setup(context.Background(), osSetupDeps(os.Environ()), args[1:], in, stdout)
 	case "status", "doctor", "remember", "recall", "review", "pin", "archive", "promote", "undo", "workspace", "forget", "repair", "pane", "uninstall", "learn", "extract",
-		"suggest", "run", "tools", "automation", "claude", "codex":
+		"suggest", "run", "tools", "automation", "claude", "codex", "mcp":
 		err = command(commands[args[0]], args[1:], in, stdout, stderr)
 	case "update":
 		err = updateMain(args[1:], stdin, stdout, stderr)

@@ -17,7 +17,11 @@ func launchCommand(kind string) func(context.Context, cli.Env, []string) error {
 		if err != nil {
 			return err
 		}
+		dir, err := os.Getwd()
+		if err != nil {
+			return err
+		}
 		return launch.Main(ctx, launch.Deps{Environ: e.Environ, PID: os.Getpid(), Self: self, Bindings: e.Bindings, Pane: e.Pane,
-			Now: e.Now, Stderr: e.Stderr, Exec: syscall.Exec}, kind, args)
+			Now: e.Now, Stderr: e.Stderr, Exec: syscall.Exec, Dir: dir, CodexSystem: "/etc/codex"}, kind, args)
 	}
 }

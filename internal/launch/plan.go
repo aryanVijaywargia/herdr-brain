@@ -141,8 +141,8 @@ func claudeSettings(p Plan, user string) (map[string]any, error) {
 	return s, nil
 }
 
-// readSettings reads the user's --settings value v: a JSON object, or the path of a file
-// that holds one, as Claude reads it.
+// readSettings reads the user's --settings value v, or one value of --mcp-config: a JSON
+// object, or the path of a file that holds one, as Claude reads it.
 func readSettings(v string) (map[string]any, error) {
 	data := []byte(v)
 	if !strings.HasPrefix(strings.TrimSpace(v), "{") {

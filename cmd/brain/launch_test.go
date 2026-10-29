@@ -10,8 +10,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -99,6 +101,8 @@ func (h *launchHome) brain(t *testing.T, env []string, args ...string) string {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, self, args...)
 	cmd.Env = env
+	// A Codex launch reads the .codex/config.toml of each folder above its working folder.
+	cmd.Dir = h.home
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if out, err := cmd.Output(); err != nil {
@@ -134,12 +138,12 @@ func with(env []string, add ...string) []string {
 	return append(out, add...)
 }
 
-// userArgs returns args without the Brain flags at its start: --no-daemon, the -c pairs and
-// --settings.
+// userArgs returns args without the Brain flags at its start: --no-daemon, the -c pairs,
+// --settings and --mcp-config.
 func userArgs(args []string) []string {
 	for len(args) > 0 {
 		switch {
-		case args[0] == "--no-daemon" || strings.HasPrefix(args[0], "--settings="):
+		case args[0] == "--no-daemon" || strings.HasPrefix(args[0], "--settings=") || strings.HasPrefix(args[0], "--mcp-config="):
 			args = args[1:]
 		case args[0] == "-c" && len(args) > 1:
 			args = args[2:]
@@ -150,14 +154,45 @@ func userArgs(args []string) []string {
 	return args
 }
 
-// AC #442, for the static launch flags of E24-S2: in a herdr pane of a bound session,
-// `brain claude --x y` and `brain codex --x y` exec the real CLI with the static flags (Codex
-// --no-daemon) and the flags of the plan, then --x y, and print nothing. Each launch has its
-// folder (0700) with its ID file and its other files (0600). No file under .claude or .codex
-// changes.
+// mcpFlags are the Brain flags of the MCP server of launch id for the CLI kind: the server is
+// the test binary as `brain mcp --launch <folder>` (E24-S6).
+func (h *launchHome) mcpFlags(t *testing.T, kind string, id int64) []string {
+	t.Helper()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := paths.Launch(h.store, id)
+	if kind == "claude" {
+		return []string{"--mcp-config=" + filepath.Join(dir, "mcp.json")}
+	}
+	return []string{"-c", `mcp_servers.brain.command="` + self + `"`,
+		"-c", `mcp_servers.brain.args=["mcp","--launch","` + dir + `"]`, "-c", `mcp_servers.brain.env_vars=["HERDR_BIN_PATH"]`}
+}
+
+// hasRun reports whether want is a run of args in got.
+func hasRun(got, want []string) bool {
+	for i := 0; i+len(want) <= len(got); i++ {
+		if slices.Equal(got[i:i+len(want)], want) {
+			return true
+		}
+	}
+	return false
+}
+
+// AC #442 and #446: in a herdr pane of a bound session, `brain claude --x y` and `brain codex
+// --x y` exec the real CLI with the static flags (Codex --no-daemon) and the flags of the
+// plan, with the Brain MCP server, then --x y, and print nothing. Claude gets the server in
+// mcp.json and the allow rule of its tools in settings.json; Codex gets -c mcp_servers.brain.*.
+// The server is the running brain binary, with the launch folder. Each launch has its folder
+// (0700) with its ID file and its other files (0600). No file under .claude or .codex changes.
 func TestLaunchStaticFlags(t *testing.T) {
 	h := newLaunchHome(t)
 	before := h.configs(t)
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for i, tt := range []struct {
 		kind  string
 		first string
@@ -168,8 +203,12 @@ func TestLaunchStaticFlags(t *testing.T) {
 		if stderr := h.brain(t, h.env, tt.kind, "--x", "y"); stderr != "" {
 			t.Errorf("brain %s stderr = %q, want none", tt.kind, stderr)
 		}
-		if got := h.logged(t, tt.kind); got[0] != tt.first || !slices.Equal(userArgs(got), []string{"--x", "y"}) {
+		got := h.logged(t, tt.kind)
+		if got[0] != tt.first || !slices.Equal(userArgs(got), []string{"--x", "y"}) {
 			t.Errorf("brain %s --x y: %s got %q, want %s first and --x y last", tt.kind, tt.kind, got, tt.first)
+		}
+		if mcp := h.mcpFlags(t, tt.kind, int64(i+1)); !hasRun(got, mcp) {
+			t.Errorf("brain %s --x y: %s got %q, want the MCP flags %q", tt.kind, tt.kind, got, mcp)
 		}
 		dir := paths.Launch(h.store, int64(i+1))
 		files := map[string]os.FileMode{dir: 0o700 | os.ModeDir}
@@ -189,9 +228,47 @@ func TestLaunchStaticFlags(t *testing.T) {
 				t.Errorf("mode of %s = %v, want %v", path, fi.Mode(), want)
 			}
 		}
+		if tt.kind == "claude" {
+			wantJSON(t, filepath.Join(dir, "mcp.json"), `{"mcpServers":{"brain":{"type":"stdio","command":`+
+				strconv.Quote(self)+`,"args":["mcp","--launch",`+strconv.Quote(dir)+`]}}}`)
+			var s struct {
+				Permissions struct {
+					Allow []string `json:"allow"`
+				} `json:"permissions"`
+			}
+			readJSON(t, filepath.Join(dir, "settings.json"), &s)
+			if !slices.Equal(s.Permissions.Allow, []string{"mcp__brain"}) {
+				t.Errorf("settings.json permissions.allow = %q, want [mcp__brain]", s.Permissions.Allow)
+			}
+		}
 	}
 	if after := h.configs(t); !maps.Equal(after, before) {
 		t.Errorf("the files under .claude and .codex changed:\n%v\nwant\n%v", after, before)
+	}
+}
+
+// readJSON reads the JSON file at path into v.
+func readJSON(t *testing.T, path string, v any) {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, v); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// wantJSON checks that the file at path holds the JSON value want.
+func wantJSON(t *testing.T, path, want string) {
+	t.Helper()
+	var got, w any
+	readJSON(t, path, &got)
+	if err := json.Unmarshal([]byte(want), &w); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, w) {
+		t.Errorf("%s = %v, want %s", path, got, want)
 	}
 }
 
@@ -304,8 +381,8 @@ func TestLaunchCodexCaptureHooks(t *testing.T) {
 	}
 }
 
-// AC #442: with HERDR_ENV unset, the fake CLI gets only the user's args, stderr has one line,
-// and Brain makes no launch folder.
+// AC #442 and #446: with HERDR_ENV unset, the fake CLI gets only the user's args, so no Brain
+// MCP server; stderr has one line, and Brain makes no launch folder.
 func TestLaunchPlain(t *testing.T) {
 	h := newLaunchHome(t)
 	for _, kind := range []string{"claude", "codex"} {
@@ -353,8 +430,9 @@ func TestLaunchNoLoop(t *testing.T) {
 
 // AC #442 (review): a shell shim named claude earlier on PATH that runs `exec brain claude`
 // does not loop: the Brain that the shim runs again skips it and execs the fake claude, in
-// herdr and outside. A shim that runs brain with no exec stops at the chain limit with an
-// error, and starts no CLI.
+// herdr and outside. In herdr it ends the launch whose CLI did not start and launches again
+// with the user's args, so one launch stays. A shim that runs brain with no exec stops at the chain limit with
+// an error, and starts no CLI.
 func TestLaunchShim(t *testing.T) {
 	h := newLaunchHome(t)
 	self, err := os.Executable()
@@ -381,6 +459,14 @@ func TestLaunchShim(t *testing.T) {
 			t.Errorf("brain claude hi through an exec shim: claude got %q, want [hi]", got)
 		}
 	}
+	// The Brain that the shim ran again ended launch 1, whose CLI did not start, and made
+	// launch 2 for the user's args: one launch stays.
+	if _, err := os.Stat(paths.Launch(h.store, 1)); !os.IsNotExist(err) {
+		t.Errorf("launch 1 through the shim: %v, want it ended", err)
+	}
+	if _, err := os.Stat(paths.Launch(h.store, 2)); err != nil {
+		t.Errorf("launch 2 through the shim: %v", err)
+	}
 	if err := os.Remove(filepath.Join(h.home, "claude.log")); err != nil {
 		t.Fatal(err)
 	}
@@ -394,6 +480,39 @@ func TestLaunchShim(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(h.home, "claude.log")); !os.IsNotExist(err) {
 		t.Errorf("the fake claude ran through a looping shim: %v", err)
+	}
+}
+
+// Review of #446: a shim that runs `exec brain claude "$@"` with one more --mcp-config that
+// names a server brain is refused: the Brain that the shim runs again checks the args that the
+// shim added. The fake claude does not run.
+func TestLaunchShimAddsBrainServer(t *testing.T) {
+	h := newLaunchHome(t)
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(h.home, "shim")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+	foreign := `--mcp-config={"mcpServers":{"brain":{"command":"foreign"}}}`
+	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo '2.1.312'; exit 0; fi\nexec " +
+		quote(self) + " claude \"$@\" " + quote(foreign) + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o700); err != nil { //nolint:gosec // a shim must be executable
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, self, "claude", "hi")
+	cmd.Env, cmd.Dir = with(h.env, "PATH="+dir+string(os.PathListSeparator)+h.fakes), h.home
+	out, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "names a server brain") || strings.Contains(string(out), "foreign") {
+		t.Errorf("brain claude through a shim that adds a server brain = %v:\n%s\nwant a refusal with no config text", err, out)
+	}
+	if _, err := os.Stat(filepath.Join(h.home, "claude.log")); !os.IsNotExist(err) {
+		t.Errorf("the fake claude ran: %v", err)
 	}
 }
 
