@@ -140,7 +140,7 @@ func (r *Runner) hookState(ctx context.Context, h Herdr, shell herdr.Pane, dir s
 		return shell.ID, []string{"HERDR_BIN_PATH=" + slow}, nil
 	case "closed-pane":
 		closed, err := call(ctx, r.Timeouts.Call, func(ctx context.Context) (herdr.Pane, error) {
-			return h.SplitPane(ctx, shell.ID, dir)
+			return h.SplitPane(ctx, shell.ID, dir, false)
 		})
 		if err != nil {
 			return "", nil, err

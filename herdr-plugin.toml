@@ -120,25 +120,21 @@ title = "Brain links to review"
 placement = "popup"
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" pane links"]
 
-# E24-S7: split the focused pane, in the cwd of that pane, and type `brain claude` or
-# `brain codex` into the new pane's shell. The pane keeps its shell after the CLI exits, so the
-# "resume with" line stays. The split takes HERDR_PANE_ID, the focused pane, when it has no
-# target. The cwd comes from the action context; a cwd with a JSON escape gives no --cwd, and
-# herdr then uses the cwd of the split pane. herdr prints the new pane in its JSON reply.
-# The brain path goes to the user's shell in single quotes, which sh, bash, zsh and fish read
-# the same way: a plugin root with a space works, one with a ' does not.
-# Also: `herdr plugin action invoke brain.claude` and `brain.codex`.
+# E24-S7: `brain new-pane` splits the focused pane, in the cwd of that pane, and types
+# `brain claude` or `brain codex` into the new pane's shell. The pane keeps its shell after the
+# CLI exits, so the "resume with" line stays. Also: `herdr plugin action invoke brain.claude`
+# and `brain.codex`.
 [[actions]]
 id = "claude"
 title = "Brain: new Claude pane"
 contexts = ["workspace", "pane"]
-command = ["sh", "-c", "c=$(printf '%s' \"$HERDR_PLUGIN_CONTEXT_JSON\" | sed -n 's/.*\"focused_pane_cwd\":\"\\([^\"\\\\]*\\)\".*/\\1/p'); p=$(\"$HERDR_BIN_PATH\" pane split --direction right --focus ${c:+--cwd \"$c\"} | sed -n 's/.*\"pane_id\":\"\\([^\"]*\\)\".*/\\1/p'); [ -n \"$p\" ] && exec \"$HERDR_BIN_PATH\" pane run \"$p\" \"'$HERDR_PLUGIN_ROOT/bin/brain' claude\""]
+command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" new-pane claude"]
 
 [[actions]]
 id = "codex"
 title = "Brain: new Codex pane"
 contexts = ["workspace", "pane"]
-command = ["sh", "-c", "c=$(printf '%s' \"$HERDR_PLUGIN_CONTEXT_JSON\" | sed -n 's/.*\"focused_pane_cwd\":\"\\([^\"\\\\]*\\)\".*/\\1/p'); p=$(\"$HERDR_BIN_PATH\" pane split --direction right --focus ${c:+--cwd \"$c\"} | sed -n 's/.*\"pane_id\":\"\\([^\"]*\\)\".*/\\1/p'); [ -n \"$p\" ] && exec \"$HERDR_BIN_PATH\" pane run \"$p\" \"'$HERDR_PLUGIN_ROOT/bin/brain' codex\""]
+command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" new-pane codex"]
 
 # E2-S6: a close marks the workspace closed, because herdr reuses a closed id after a
 # restart. herdr runs the command once for each event; there is no listener process.

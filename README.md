@@ -82,7 +82,7 @@ If something doesn't work, run `brain doctor`. It checks the setup and prints a 
 
 ## Start an agent with Brain
 
-In a herdr pane, type `brain claude` or `brain codex` where you would type `claude` or `codex`. Brain passes your args on to the CLI. That session gets the start brief, Brain's tools, and capture. Brain sets them up for that session only, and it changes no config file of the CLI. Outside herdr, the command starts the plain CLI.
+In a herdr pane, type `brain claude` or `brain codex` where you would type `claude` or `codex`. Brain starts the CLI with your args, plus its own launch flags for that one session. It changes no config file of the CLI. Outside herdr, or in a workspace that Brain is not set up for, the command starts the plain CLI and prints one line that says why.
 
 Plain `claude` and `codex` keep working as before.
 
@@ -92,7 +92,7 @@ You can also use the herdr actions "Brain: new Claude pane" and "Brain: new Code
 
 | Command | What it does |
 |---|---|
-| `brain claude`, `brain codex` | Starts Claude Code or Codex with Brain's brief, tools and capture for that session |
+| `brain claude`, `brain codex` | Starts Claude Code or Codex with Brain's launch flags for that one session |
 | `brain status` | Shows what Brain holds, what waits for review, and whether extraction is on |
 | `brain doctor` | Checks the setup and tells you how to fix each problem. `--fix` repairs it for you |
 | `brain remember "<text>"` | Saves a draft for you to approve. Add `--global` for every workspace |
