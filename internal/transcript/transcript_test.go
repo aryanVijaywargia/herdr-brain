@@ -399,7 +399,8 @@ func TestReadCodexGaps(t *testing.T) {
 	}{{
 		// The prompt and the reply come from the response_item messages, not the item_completed
 		// copies. The function_call and the item_completed of one exec_command give one command,
-		// with the exit_code and the output of the item. A ! command of the user gives none.
+		// with the exit_code and the output of the item. A ! command of the user gives none. A
+		// tool_search_call, with object arguments, is skipped.
 		"codex-paginated.jsonl", "s-codex-paginated", func(id func(string) string) Session {
 			return Session{
 				ID: "s-codex-paginated", CWD: "/work/api", Interactive: true,
@@ -407,7 +408,7 @@ func TestReadCodexGaps(t *testing.T) {
 				Turns: []Turn{{
 					Prompt: Text{ID: id(`"run the tests"`), At: oct(28, 9, 2), Text: "run the tests"},
 					Commands: []Command{{ID: id(`"name":"exec_command"`), At: oct(28, 9, 3), Command: "make test", Exit: exit(2),
-						Failure: &Text{ID: id(`"id":"call_t1"`), At: oct(28, 9, 5), Text: "FAIL api_test\n"}}},
+						Failure: &Text{ID: id(`"id":"call_t1"`) + "#output", At: oct(28, 9, 5), Text: "FAIL api_test\n"}}},
 					Reply:  Text{ID: id(`"role":"assistant"`), At: oct(28, 9, 8), Text: "make test fails in api_test."},
 					Tokens: 900, TokensKnown: true,
 				}},
@@ -427,7 +428,7 @@ func TestReadCodexGaps(t *testing.T) {
 					Commands: []Command{
 						{ID: id(`"exec-6f1d`), At: oct(28, 10, 4), Command: "ls", Exit: exit(0)},
 						{ID: failed, At: oct(28, 10, 5), Command: "go test ./...", Exit: exit(1),
-							Failure: &Text{ID: failed, At: oct(28, 10, 5), Text: "--- FAIL: TestCart\nFAIL\n"}},
+							Failure: &Text{ID: failed + "#output", At: oct(28, 10, 5), Text: "--- FAIL: TestCart\nFAIL\n"}},
 						{ID: id(`"exec-8b3f`), At: oct(28, 10, 6), Command: "rm -rf build"},
 					},
 					Reply:  Text{ID: id(`"role":"assistant"`), At: oct(28, 10, 11), Text: "TestCart fails."},
@@ -475,6 +476,42 @@ func TestReadCodexGaps(t *testing.T) {
 			want := tc.want(func(text string) string { return offset(t, path, tc.session, text) })
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("ReadCodex(%s) =\n%+v\nwant\n%+v", path, got, want)
+			}
+		})
+	}
+}
+
+// TestCodexLateCompletion checks that a command of an exec cell that ends after the next turn
+// started goes to the turn of its turn_id. With a turn_id that no task_started named, it goes
+// to the open turn.
+func TestCodexLateCompletion(t *testing.T) {
+	const head = `{"type":"session_meta","payload":{"id":"s1","source":"cli","cwd":"/work","history_mode":"paginated"}}
+{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1"}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"run the tests"}]}}
+{"type":"response_item","payload":{"type":"custom_tool_call","call_id":"call_x1","name":"exec","input":"text(await tools.exec_command({cmd: 'go test ./...', yield_time_ms: 1000}))"}}
+{"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_x1","output":"Process running with session ID 52"}}
+{"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","last_agent_message":"Tests are still running."}}
+{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-2"}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"now explain the design"}]}}
+`
+	for _, tc := range []struct {
+		turnID string
+		want   [2]int // the command count of each turn
+	}{
+		{"turn-1", [2]int{1, 0}},
+		{"turn-9", [2]int{0, 1}},
+	} {
+		t.Run(tc.turnID, func(t *testing.T) {
+			completed := `{"type":"event_msg","payload":{"type":"item_completed","turn_id":"` + tc.turnID + `","item":{"type":"CommandExecution","id":"exec-1","command":["/bin/zsh","-lc","go test ./..."],"source":"unified_exec_startup","status":"failed","aggregated_output":"FAIL cart\n","exit_code":1}}}` + "\n"
+			got, err := ReadCodex(write(t, head+completed), noLimit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got.Turns) != 2 {
+				t.Fatalf("turns = %+v, want 2", got.Turns)
+			}
+			if n := [2]int{len(got.Turns[0].Commands), len(got.Turns[1].Commands)}; n != tc.want {
+				t.Errorf("command counts = %v, want %v", n, tc.want)
 			}
 		})
 	}

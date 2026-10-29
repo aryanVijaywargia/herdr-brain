@@ -18,6 +18,11 @@ var codexShell = map[string]bool{"shell": true, "shell_command": true, "exec_com
 // exit status; a paginated file also has the exit_code of an item_completed.
 var codexExit = regexp.MustCompile(`(?m)^(?:Exit code: |Process exited with code )(-?\d+)\r?$`)
 
+// codexItems lists the response_item types that the reader reads. The other types are skipped
+// before their fields are decoded: a tool_search_call, for one, has object arguments.
+var codexItems = map[string]bool{"message": true, "function_call": true, "local_shell_call": true,
+	"function_call_output": true}
+
 // codexInteractive lists the sources of sessions that you ran.
 var codexInteractive = map[string]bool{"cli": true, "vscode": true}
 
@@ -55,8 +60,9 @@ type codexItem struct {
 
 // codexEvent is the payload of an event_msg.
 type codexEvent struct {
-	Type string `json:"type"`
-	Info *struct {
+	Type   string `json:"type"`
+	TurnID string `json:"turn_id"`
+	Info   *struct {
 		TotalTokenUsage struct {
 			TotalTokens *int64 `json:"total_tokens"`
 		} `json:"total_token_usage"`
@@ -79,15 +85,17 @@ type codexTurnItem struct {
 // codex reads one Codex session file.
 type codex struct {
 	session
-	meta  bool
-	total int64          // the highest total_tokens so far
-	calls map[string]ref // the shell commands by call id, for their result
+	meta   bool
+	total  int64          // the highest total_tokens so far
+	calls  map[string]ref // the shell commands by call id, for their result
+	turnID string         // the Codex turn id of the last task_started
+	turns  map[string]int // a Codex turn id → the index of its last prompt in Turns
 }
 
 // ReadCodex reads the Codex session file at path up to limit bytes. The first line is the
 // session_meta.
 func ReadCodex(path string, limit int64) (Session, error) {
-	c := codex{calls: map[string]ref{}}
+	c := codex{calls: map[string]ref{}, turns: map[string]int{}}
 	if err := lines(path, limit, c.line); err != nil {
 		return Session{}, err
 	}
@@ -159,12 +167,21 @@ func (c *codex) sessionMeta(payload json.RawMessage) error {
 // custom_tool_call exec runs a JavaScript cell, not a shell command: the shell commands of the
 // cell come from the item_completed command executions of a paginated file.
 func (c *codex) item(payload json.RawMessage, t Text) error {
+	var head struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(payload, &head); err != nil {
+		return fmt.Errorf("%w: response_item: %w", ErrUnknownFormat, err)
+	}
+	if head.Type == "" {
+		return fmt.Errorf("%w: response_item with no type", ErrUnknownFormat)
+	}
+	if !codexItems[head.Type] {
+		return nil
+	}
 	var it codexItem
 	if err := json.Unmarshal(payload, &it); err != nil {
 		return fmt.Errorf("%w: response_item: %w", ErrUnknownFormat, err)
-	}
-	if it.Type == "" {
-		return fmt.Errorf("%w: response_item with no type", ErrUnknownFormat)
 	}
 	switch it.Type {
 	case "message":
@@ -173,6 +190,9 @@ func (c *codex) item(payload json.RawMessage, t Text) error {
 		case t.Text == "":
 		case it.Role == "user":
 			c.prompt(t)
+			if c.turnID != "" {
+				c.turns[c.turnID] = len(c.s.Turns) - 1
+			}
 		case it.Role == "assistant":
 			c.reply(t)
 		}
@@ -184,12 +204,12 @@ func (c *codex) item(payload json.RawMessage, t Text) error {
 		if err != nil {
 			return err
 		}
-		c.call(it.CallID, Command{ID: t.ID, At: t.At, Command: cmd})
+		c.call(it.CallID, len(c.s.Turns)-1, Command{ID: t.ID, At: t.At, Command: cmd})
 	case "local_shell_call":
 		if it.Action == nil || len(it.Action.Command) == 0 {
 			return fmt.Errorf("%w: local_shell_call with no command", ErrUnknownFormat)
 		}
-		c.call(it.CallID, Command{ID: t.ID, At: t.At, Command: argv(it.Action.Command)})
+		c.call(it.CallID, len(c.s.Turns)-1, Command{ID: t.ID, At: t.At, Command: argv(it.Action.Command)})
 	case "function_call_output":
 		c.output(it, t)
 	}
@@ -243,13 +263,13 @@ func argv(list []string) string {
 	return strings.Join(list, " ")
 }
 
-// call adds a shell command to the open turn, once per call id: a paginated file has both the
-// function_call and the item_completed of one exec_command.
-func (c *codex) call(id string, cmd Command) (ref, bool) {
+// call adds a shell command to the turn at index turn, once per call id: a paginated file has
+// both the function_call and the item_completed of one exec_command.
+func (c *codex) call(id string, turn int, cmd Command) (ref, bool) {
 	if r, ok := c.calls[id]; ok {
 		return r, true
 	}
-	r, ok := c.command(cmd)
+	r, ok := c.commandIn(turn, cmd)
 	if ok && id != "" {
 		c.calls[id] = r
 	}
@@ -292,9 +312,9 @@ func (c *codex) output(it codexItem, t Text) {
 	c.exit(r, n, failure)
 }
 
-// event reads an event_msg: token_count and item_completed. The turn takes the growth of
-// total_tokens, so a repeated line adds nothing. A token_count with no info carries no
-// usage; an info with no total is an unknown shape, not a total of 0.
+// event reads an event_msg: task_started, item_completed and token_count. The turn takes the
+// growth of total_tokens, so a repeated line adds nothing. A token_count with no info carries
+// no usage; an info with no total is an unknown shape, not a total of 0.
 func (c *codex) event(payload json.RawMessage, t Text) error {
 	var e codexEvent
 	if err := json.Unmarshal(payload, &e); err != nil {
@@ -303,8 +323,11 @@ func (c *codex) event(payload json.RawMessage, t Text) error {
 	switch {
 	case e.Type == "":
 		return fmt.Errorf("%w: event_msg with no type", ErrUnknownFormat)
+	case e.Type == "task_started":
+		c.turnID = e.TurnID
+		return nil
 	case e.Type == "item_completed":
-		return c.completed(e.Item, t)
+		return c.completed(e.Item, e.TurnID, t)
 	case e.Type != "token_count" || e.Info == nil:
 		return nil
 	case e.Info.TotalTokenUsage.TotalTokens == nil:
@@ -322,7 +345,12 @@ func (c *codex) event(payload json.RawMessage, t Text) error {
 // the prompt and the reply. A CommandExecution is a shell command with its exit_code: for the
 // commands of a custom_tool_call exec cell it is the only record. A command that you ran with
 // ! (source user_shell) is not the agent's, and a declined one did not run.
-func (c *codex) completed(it *codexTurnItem, t Text) error {
+//
+// A command that runs on in the background can end after the next turn started, so a new
+// command goes to the last prompt of its Codex turn (turnID), when that turn is known. Its
+// failure output gets its own record id, after the id of the line, as the command can have
+// the id of the same line.
+func (c *codex) completed(it *codexTurnItem, turnID string, t Text) error {
 	if it == nil || it.Type == "" {
 		return fmt.Errorf("%w: item_completed with no item type", ErrUnknownFormat)
 	}
@@ -332,14 +360,17 @@ func (c *codex) completed(it *codexTurnItem, t Text) error {
 	if len(it.Command) == 0 {
 		return fmt.Errorf("%w: CommandExecution with no command", ErrUnknownFormat)
 	}
-	r, ok := c.call(it.ID, Command{ID: t.ID, At: t.At, Command: argv(it.Command)})
+	turn, ok := c.turns[turnID]
+	if !ok {
+		turn = len(c.s.Turns) - 1
+	}
+	r, ok := c.call(it.ID, turn, Command{ID: t.ID, At: t.At, Command: argv(it.Command)})
 	if !ok || it.ExitCode == nil || it.Status == "declined" {
 		return nil
 	}
 	var failure *Text
 	if *it.ExitCode != 0 {
-		t.Text = it.AggregatedOutput
-		failure = &t
+		failure = &Text{ID: t.ID + "#output", At: t.At, Text: it.AggregatedOutput}
 	}
 	c.exit(r, *it.ExitCode, failure)
 	return nil

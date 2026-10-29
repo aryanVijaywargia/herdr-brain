@@ -880,6 +880,25 @@ func TestScanNoCodexParses(t *testing.T) {
 	}
 }
 
+// A command of a Codex exec cell, with its failure output on the same item_completed line,
+// gives both a command record and the failure excerpt: the two records have their own ids.
+func TestScanCodexCompletedFailure(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "transcript", "testdata", "codex-custom-tool.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newScanFix(t, bindings.KindMain)
+	f.codex("custom", time.Hour, strings.TrimSpace(string(b)))
+	f.run()
+	obs, commands := f.observations()
+	if len(commands) != 3 || commands[1].ExitStatus == nil || *commands[1].ExitStatus != 1 {
+		t.Fatalf("command records = %+v, want three, the second with exit 1", commands)
+	}
+	if !slices.ContainsFunc(obs, func(o store.Observation) bool { return strings.Contains(o.Excerpt, "--- FAIL: TestCart") }) {
+		t.Errorf("observations = %+v, want the failure output of the CommandExecution", obs)
+	}
+}
+
 // Learning off for the store during the read stops the read; the row stays reading,
 // with no session skipped for it, and the read starts again when learning is on (AC 10).
 func TestScanPausesWhenLearningOff(t *testing.T) {

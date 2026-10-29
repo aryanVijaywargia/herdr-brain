@@ -110,12 +110,18 @@ func (b *session) tokens(n int64) {
 // command adds c to the open turn. It returns where c is, for its result, and false before the
 // first prompt.
 func (b *session) command(c Command) (ref, bool) {
-	tn := b.turn()
-	if tn == nil {
+	return b.commandIn(len(b.s.Turns)-1, c)
+}
+
+// commandIn adds c to the turn at index i. It returns where c is, for its result, and false
+// when i is before the first prompt.
+func (b *session) commandIn(i int, c Command) (ref, bool) {
+	if i < 0 {
 		return ref{}, false
 	}
+	tn := &b.s.Turns[i]
 	tn.Commands = append(tn.Commands, c)
-	return ref{len(b.s.Turns) - 1, len(tn.Commands) - 1}, true
+	return ref{i, len(tn.Commands) - 1}, true
 }
 
 // result sets the exit status and the failure output of the command at r.
