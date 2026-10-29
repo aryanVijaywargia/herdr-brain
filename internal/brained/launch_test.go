@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
+	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/launch"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
@@ -206,4 +207,79 @@ func checkLaunch(h *harness, l testLaunch) error {
 	defer cancel()
 	_, err := launch.Check(ctx, h.d.bindingsFile, l.dir, nil)
 	return err
+}
+
+// The store keeps the start of a launch to the millisecond. A launch that started after the
+// time of an agent detection or a pane list, in the same millisecond, is not older than it: an
+// agent exit or a reconcile does not end it.
+func TestLaunchSameMillisecond(t *testing.T) {
+	for _, kind := range []string{"agent exit", "pane list"} {
+		t.Run(kind, func(t *testing.T) {
+			h := newHarness(t, bindings.KindMain)
+			base := time.Date(2026, 10, 29, 1, 0, 0, 0, time.UTC)
+			observed := base.Add(500 * time.Microsecond)
+			h.d.now = func() time.Time { return observed }
+			newer := h.launchIn(t, h.f.path, "w1:p1", "claude", base.Add(600*time.Microsecond))
+			g := NewGate(bindings.Binding{Session: "s1", Socket: h.f.path, Store: h.store, Kind: bindings.KindMain})
+			l := newLoop(h.d)
+			l.gate = &g
+			if kind == "agent exit" {
+				l.agentDetected(context.Background(), &pane{agent: true, detected: observed},
+					herdr.Event{Kind: herdr.PaneAgentDetected, PaneID: "w1:p1", Agent: "claude", Released: true})
+			} else if err := l.reconcile(context.Background(), GapStart); err != nil {
+				t.Fatal(err)
+			}
+			h.wantRunning(t, newer)
+		})
+	}
+}
+
+// A repeated detection of the agent in a pane keeps the time of its first detection, so the
+// exit of that agent does not end a launch that started after it.
+func TestLaunchRepeatedDetection(t *testing.T) {
+	h := newHarness(t, bindings.KindMain)
+	base := time.Date(2026, 10, 29, 1, 0, 0, 0, time.UTC)
+	calls := 0
+	h.d.now = func() time.Time {
+		calls++
+		if calls <= 2 { // the start pane list and the end of its launches
+			return base
+		}
+		return base.Add(2 * time.Second)
+	}
+	h.f.addPane("w1:p1", "claude")
+	main := h.start(t)
+	h.f.statusSubs(t, 1)
+	wantStep(t, h.step(t), Baseline, "w1:p1", GapStart, "")
+	newer := h.launchIn(t, h.f.path, "w1:p1", "claude", base.Add(time.Second))
+	main.send(paneLine("pane_agent_detected", "w1:p1")) // the old agent again
+	wantStep(t, h.step(t), Baseline, "w1:p1", GapNone, "")
+	main.send(agentGoneLine("w1:p1"))
+	wantStep(t, h.step(t), End, "w1:p1", "", ReasonAgentLeft)
+	h.wantRunning(t, newer)
+}
+
+// A crash after the end of a launch and before the delete of its folder leaves the folder. The
+// next reconcile deletes it.
+func TestLaunchFolderAfterCrash(t *testing.T) {
+	h := newHarness(t, bindings.KindMain)
+	ended := h.launchIn(t, h.f.path, "w1:p1", "claude", time.Now().Add(-time.Hour))
+	id := h.record(t, ended).ID
+	ctx := context.Background()
+	st, err := store.Open(ctx, h.store, busyTimeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = st.Write(ctx, func(tx *sql.Tx) error { return store.EndLaunch(ctx, tx, id, store.EndPaneClosed, time.Now()) })
+	if err := errors.Join(err, st.Close()); err != nil {
+		t.Fatal(err)
+	}
+	l := newLoop(h.d)
+	if err := l.check(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.reconcile(ctx, GapStart); err != nil {
+		t.Fatal(err)
+	}
+	h.wantEnded(t, ended, store.EndPaneClosed)
 }

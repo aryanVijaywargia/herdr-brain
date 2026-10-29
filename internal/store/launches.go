@@ -64,6 +64,18 @@ func LaunchByHash(ctx context.Context, tx *sql.Tx, hash string) (l Launch, ok bo
 	return l, true, nil
 }
 
+// LaunchByID reads launch record id. ok is false when there is none.
+func LaunchByID(ctx context.Context, tx *sql.Tx, id int64) (l Launch, ok bool, err error) {
+	l, err = scanLaunch(tx.QueryRowContext(ctx, `SELECT `+launchColumns+` FROM launches WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Launch{}, false, nil
+	}
+	if err != nil {
+		return Launch{}, false, fmt.Errorf("read launch %d: %w", id, err)
+	}
+	return l, true, nil
+}
+
 // RunningLaunches returns the launch records of the herdr server socket that have no end, by
 // id.
 func RunningLaunches(ctx context.Context, tx *sql.Tx, socket string) ([]Launch, error) {
@@ -80,19 +92,14 @@ func RunningLaunches(ctx context.Context, tx *sql.Tx, socket string) ([]Launch, 
 	return ls, nil
 }
 
-// EndLaunch ends launch record id at at with reason r. It reports false when the record had an
-// end already.
-func EndLaunch(ctx context.Context, tx *sql.Tx, id int64, r EndReason, at time.Time) (bool, error) {
-	res, err := tx.ExecContext(ctx, `UPDATE launches SET ended = ?, end_reason = ? WHERE id = ? AND ended IS NULL`,
-		timeArg(at), string(r), id)
-	if err != nil {
-		return false, fmt.Errorf("end launch %d: %w", id, err)
+// EndLaunch ends launch record id at at with reason r. A record with an end keeps its first
+// end.
+func EndLaunch(ctx context.Context, tx *sql.Tx, id int64, r EndReason, at time.Time) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE launches SET ended = ?, end_reason = ? WHERE id = ? AND ended IS NULL`,
+		timeArg(at), string(r), id); err != nil {
+		return fmt.Errorf("end launch %d: %w", id, err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return false, fmt.Errorf("end launch %d: %w", id, err)
-	}
-	return n == 1, nil
+	return nil
 }
 
 // SetLaunchSession adds the native session id session to launch record id, when the record

@@ -32,13 +32,19 @@ func TestLaunches(t *testing.T) {
 		if err != nil || !ok || got != want {
 			t.Errorf("LaunchByHash(a) = %+v, %v, %v, want %+v", got, ok, err, want)
 		}
+		if got, ok, err := LaunchByID(ctx, tx, ids[0]); err != nil || !ok || got != want {
+			t.Errorf("LaunchByID(%d) = %+v, %v, %v, want %+v", ids[0], got, ok, err, want)
+		}
+		if _, ok, err := LaunchByID(ctx, tx, ids[2]+1); ok || err != nil {
+			t.Errorf("LaunchByID(none) = %v, %v, want none", ok, err)
+		}
 		if _, ok, err := LaunchByHash(ctx, tx, strings.Repeat("d", 64)); ok || err != nil {
 			t.Errorf("LaunchByHash(d) = %v, %v, want none", ok, err)
 		}
 		end := testNow.Add(time.Minute)
-		for i, want := range []bool{true, false} {
-			if ok, err := EndLaunch(ctx, tx, ids[0], EndPaneClosed, end.Add(time.Duration(i)*time.Minute)); ok != want || err != nil {
-				t.Errorf("EndLaunch() %d = %v, %v, want %v", i, ok, err, want)
+		for i, r := range []EndReason{EndPaneClosed, EndAgentExit} {
+			if err := EndLaunch(ctx, tx, ids[0], r, end.Add(time.Duration(i)*time.Minute)); err != nil {
+				t.Errorf("EndLaunch() %d = %v", i, err)
 			}
 		}
 		got, _, err = LaunchByHash(ctx, tx, strings.Repeat("a", 64))

@@ -156,20 +156,31 @@ func Check(ctx context.Context, bindingsFile, dir string, environ []string) (Lau
 	if err != nil {
 		return Launch{}, err
 	}
-	b, l, err := record(ctx, bindingsFile, filepath.Dir(filepath.Dir(dir)), raw)
+	l, err := running(ctx, bindingsFile, dir, rowID, raw)
 	if err != nil {
 		return Launch{}, err
 	}
-	switch pane := lookup(environ, "HERDR_PANE_ID"); {
+	if pane := lookup(environ, "HERDR_PANE_ID"); pane != "" && pane != l.PaneID {
+		return Launch{}, refuse(OtherPane)
+	}
+	if err := live(ctx, l.Launch); err != nil {
+		return Launch{}, err
+	}
+	// The record can end, or the binding go, while herdr answers.
+	return running(ctx, bindingsFile, dir, rowID, raw)
+}
+
+// running reads the record of the raw launch ID of the launch folder dir, whose name is the
+// record id rowID, and the binding of its herdr server. The record must have no end.
+func running(ctx context.Context, bindingsFile, dir string, rowID int64, raw []byte) (Launch, error) {
+	b, l, err := record(ctx, bindingsFile, filepath.Dir(filepath.Dir(dir)), raw)
+	switch {
+	case err != nil:
+		return Launch{}, err
 	case l.ID != rowID:
 		return Launch{}, refuse(Unknown) // the ID of another launch folder
 	case !l.Ended.IsZero():
 		return Launch{}, refuse(Ended)
-	case pane != "" && pane != l.PaneID:
-		return Launch{}, refuse(OtherPane)
-	}
-	if err := live(ctx, l); err != nil {
-		return Launch{}, err
 	}
 	return Launch{Launch: l, Binding: b, Dir: dir}, nil
 }
@@ -314,15 +325,16 @@ func lookup(environ []string, key string) string {
 }
 
 // End ends the running launch records of the herdr server socket in the store folder dir for
-// which gone reports true, with reason r at now, and deletes their launch folders. brained
-// calls it.
+// which gone reports true, with reason r at now, and deletes their launch folders. It also
+// deletes the folder of each record that ended before, so a delete that a crash or an error
+// stopped runs again at the next End. brained calls it.
 func End(ctx context.Context, dir, socket string, gone func(store.Launch) bool, r store.EndReason, now time.Time) (err error) {
 	st, err := store.Open(ctx, dir, busyTimeout)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, st.Close()) }()
-	var ended []int64
+	var stale []string
 	err = st.Write(ctx, func(tx *sql.Tx) error {
 		ls, err := store.RunningLaunches(ctx, tx, socket)
 		if err != nil {
@@ -332,24 +344,49 @@ func End(ctx context.Context, dir, socket string, gone func(store.Launch) bool, 
 			if !gone(l) {
 				continue
 			}
-			ok, err := store.EndLaunch(ctx, tx, l.ID, r, now)
-			if err != nil {
+			if err := store.EndLaunch(ctx, tx, l.ID, r, now); err != nil {
 				return err
 			}
-			if ok {
-				ended = append(ended, l.ID)
-			}
 		}
-		return nil
+		stale, err = endedFolders(ctx, tx, dir)
+		return err
 	})
 	if err != nil {
 		return err
 	}
 	var errs []error
-	for _, id := range ended {
-		if err := os.RemoveAll(paths.Launch(dir, id)); err != nil {
+	for _, f := range stale {
+		if err := os.RemoveAll(f); err != nil {
 			errs = append(errs, fmt.Errorf("delete launch folder: %w", err))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// endedFolders returns the launch folders in the store folder dir whose record has an end.
+// It keeps a folder with no record, or with a name that is no record id: Brain did not make it
+// for an ended launch.
+func endedFolders(ctx context.Context, tx *sql.Tx, dir string) ([]string, error) {
+	entries, err := os.ReadDir(paths.Launches(dir))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil // no launch yet in this store
+	}
+	if err != nil {
+		return nil, err
+	}
+	var stale []string
+	for _, e := range entries {
+		id, err := strconv.ParseInt(e.Name(), 10, 64)
+		if err != nil || id <= 0 {
+			continue
+		}
+		l, ok, err := store.LaunchByID(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+		if ok && !l.Ended.IsZero() {
+			stale = append(stale, paths.Launch(dir, id))
+		}
+	}
+	return stale, nil
 }

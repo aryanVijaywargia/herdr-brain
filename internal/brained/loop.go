@@ -402,12 +402,15 @@ func (l *loop) paneEnded(ctx context.Context, ev herdr.Event) {
 
 // agentDetected handles the agent event ev of pane p: an agent came into the pane, or left it.
 func (l *loop) agentDetected(ctx context.Context, p *pane, ev herdr.Event) {
+	was := p.agent
 	p.agent = !ev.Released
-	if p.agent {
+	switch {
+	case p.agent && !was:
+		// A repeated event of the agent keeps its first time: herdr repeats events.
 		p.detected = l.d.now()
-	} else {
+	case !p.agent:
 		l.endLaunches(ctx, func(r store.Launch) bool {
-			return r.PaneID == ev.PaneID && r.Started.Before(p.detected)
+			return r.PaneID == ev.PaneID && startedBefore(r, p.detected)
 		}, store.EndAgentExit)
 	}
 	if p.learning.On && ev.Released {
@@ -532,7 +535,7 @@ func (l *loop) reconcile(ctx context.Context, gap Gap) error {
 	}
 	// A launch that started after the list began can be in a pane that the list does not
 	// show yet.
-	l.endLaunches(ctx, func(r store.Launch) bool { return !seen[r.PaneID] && r.Started.Before(listed) }, store.EndPaneGone)
+	l.endLaunches(ctx, func(r store.Launch) bool { return !seen[r.PaneID] && startedBefore(r, listed) }, store.EndPaneGone)
 	var open []string
 	for id, p := range l.panes {
 		if !seen[id] {
@@ -659,6 +662,12 @@ func (l *loop) follow(ctx context.Context, id string, p *pane) error {
 	l.read(ctx, st)
 	l.baselineAgent(ctx, id, p)
 	return nil
+}
+
+// startedBefore reports whether launch r surely started before t. The store keeps the start to
+// the millisecond, so a launch in the millisecond of t does not count as before it.
+func startedBefore(r store.Launch, t time.Time) bool {
+	return r.Started.Before(t.Truncate(time.Millisecond))
 }
 
 // endLaunches ends the running launch records of this herdr server in the bound store for

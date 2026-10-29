@@ -31,6 +31,10 @@ type fakeHerdr struct {
 	mu    sync.Mutex
 	panes map[string]string // pane id → its agent; "" for none
 	moved map[string]string // an old pane id → its new id: pane.get answers the old id
+	// during runs while a pane.get waits for its reply, as a change while herdr answers; nil
+	// for none.
+	during func() error
+	errs   []error // the errors of during
 }
 
 func newFakeHerdr(t *testing.T) *fakeHerdr {
@@ -91,7 +95,15 @@ func (f *fakeHerdr) answer(conn net.Conn) {
 		id = n
 	}
 	agent, ok := f.panes[id]
+	during := f.during
 	f.mu.Unlock()
+	if during != nil {
+		if err := during(); err != nil {
+			f.mu.Lock()
+			f.errs = append(f.errs, err)
+			f.mu.Unlock()
+		}
+	}
 	if !ok {
 		_, _ = io.WriteString(conn, `{"id":"brain","error":{"code":"pane_not_found","message":"no pane"}}`+"\n")
 		return
@@ -374,5 +386,75 @@ func writeID(t *testing.T, dir, id string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, idFile), []byte(id), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// AC 1: a launch that ends, or whose binding goes, while herdr answers the check is refused:
+// the check reads the record and the binding again after the herdr request.
+func TestCheckChangesDuringHerdr(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		change func(e env) error
+		want   Reason
+	}{
+		{name: "ended", change: func(e env) error {
+			return End(context.Background(), e.b.Store, e.b.Socket, func(store.Launch) bool { return true },
+				store.EndAgentExit, time.Now())
+		}, want: Ended},
+		{name: "unbound", change: func(e env) error { return bindings.Write(e.bindings, nil) }, want: Unbound},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newEnv(t)
+			e.f.set("w1:p1", "claude")
+			dir := e.create(t, "w1:p1", "claude")
+			e.f.mu.Lock()
+			e.f.during = func() error { return c.change(e) }
+			e.f.mu.Unlock()
+			_, err := e.check(t, dir, nil)
+			e.f.mu.Lock()
+			errs := errors.Join(e.f.errs...)
+			e.f.mu.Unlock()
+			if errs != nil {
+				t.Fatal(errs)
+			}
+			var r *RefusedError
+			if !errors.As(err, &r) || r.Reason != c.want {
+				t.Errorf("Check() = %v, want refused: %s", err, c.want)
+			}
+		})
+	}
+}
+
+// End deletes the folder of a record that ended before, as after a crash between the end and
+// the delete. It keeps a folder that is no ended record's.
+func TestEndDeletesLeftFolders(t *testing.T) {
+	e := newEnv(t)
+	left := e.create(t, "w1:p1", "claude")
+	running := e.create(t, "w1:p2", "claude")
+	ctx := context.Background()
+	st, err := store.Open(ctx, e.b.Store, busyTimeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = st.Write(ctx, func(tx *sql.Tx) error { return store.EndLaunch(ctx, tx, 1, store.EndPaneClosed, time.Now()) })
+	if err := errors.Join(err, st.Close()); err != nil {
+		t.Fatal(err)
+	}
+	foreign := []string{filepath.Join(paths.Launches(e.b.Store), "notes"), paths.Launch(e.b.Store, 99)}
+	for _, dir := range foreign {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := End(ctx, e.b.Store, e.b.Socket, func(store.Launch) bool { return false }, store.EndPaneGone, time.Now()); err != nil {
+		t.Fatalf("End() = %v", err)
+	}
+	if _, err := os.Stat(left); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("folder %s of the ended record: %v, want it deleted", left, err)
+	}
+	for _, dir := range append(foreign, running) {
+		if _, err := os.Stat(dir); err != nil {
+			t.Errorf("folder %s: %v, want it kept", dir, err)
+		}
 	}
 }
