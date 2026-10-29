@@ -430,8 +430,8 @@ func TestLaunchNoLoop(t *testing.T) {
 
 // AC #442 (review): a shell shim named claude earlier on PATH that runs `exec brain claude`
 // does not loop: the Brain that the shim runs again skips it and execs the fake claude, in
-// herdr and outside. In herdr it passes the Brain flags of the one launch with no change, so
-// there is no second launch. A shim that runs brain with no exec stops at the chain limit with
+// herdr and outside. In herdr it ends the launch whose CLI did not start and launches again
+// with the user's args, so one launch stays. A shim that runs brain with no exec stops at the chain limit with
 // an error, and starts no CLI.
 func TestLaunchShim(t *testing.T) {
 	h := newLaunchHome(t)
@@ -459,8 +459,13 @@ func TestLaunchShim(t *testing.T) {
 			t.Errorf("brain claude hi through an exec shim: claude got %q, want [hi]", got)
 		}
 	}
-	if _, err := os.Stat(paths.Launch(h.store, 2)); !os.IsNotExist(err) {
-		t.Errorf("a second launch through the shim: %v, want one launch", err)
+	// The Brain that the shim ran again ended launch 1, whose CLI did not start, and made
+	// launch 2 for the user's args: one launch stays.
+	if _, err := os.Stat(paths.Launch(h.store, 1)); !os.IsNotExist(err) {
+		t.Errorf("launch 1 through the shim: %v, want it ended", err)
+	}
+	if _, err := os.Stat(paths.Launch(h.store, 2)); err != nil {
+		t.Errorf("launch 2 through the shim: %v", err)
 	}
 	if err := os.Remove(filepath.Join(h.home, "claude.log")); err != nil {
 		t.Fatal(err)

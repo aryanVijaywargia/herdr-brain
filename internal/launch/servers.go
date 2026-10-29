@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -25,6 +26,7 @@ func mcpServer(self, dir string) *Server {
 // (E24-S1), but nobody checked which of two --mcp-config servers named brain wins. If the
 // user's server won, the Brain allow rule mcp__brain would run its tools with no question.
 func claudeServers(a *args, _ Deps) error {
+	n := 0
 	for _, f := range a.flags {
 		if f.name != "--mcp-config" {
 			continue
@@ -34,17 +36,23 @@ func claudeServers(a *args, _ Deps) error {
 			values = []string{f.value}
 		}
 		for _, v := range values {
+			n++
+			// A JSON text can hold secrets, such as the env of a server: name it only by its place.
+			name := fmt.Sprintf("--mcp-config value %d (JSON text)", n)
+			if !strings.HasPrefix(strings.TrimSpace(v), "{") {
+				name = "--mcp-config " + v
+			}
 			cfg, err := readSettings(v)
 			if err != nil {
-				return fmt.Errorf("--mcp-config %s: Brain cannot read its server names, so Brain starts nothing: %w", v, err)
+				return fmt.Errorf("%s: Brain cannot read its server names, so Brain starts nothing: %w", name, err)
 			}
 			servers, ok := cfg["mcpServers"].(map[string]any)
 			if cfg["mcpServers"] != nil && !ok {
-				return fmt.Errorf("--mcp-config %s: mcpServers is not an object, so Brain starts nothing", v)
+				return fmt.Errorf("%s: mcpServers is not an object, so Brain starts nothing", name)
 			}
 			if _, ok := servers[serverName]; ok {
-				return fmt.Errorf("--mcp-config %s: it names a server %s, the name of the Brain MCP server of the launch, "+
-					"so Brain starts nothing; rename that server, or run claude without brain", v, serverName)
+				return fmt.Errorf("%s: it names a server %s, the name of the Brain MCP server of the launch, "+
+					"so Brain starts nothing; rename that server, or run claude without brain", name, serverName)
 			}
 		}
 	}
@@ -79,22 +87,26 @@ func codexServers(a *args, d Deps) error {
 
 // codexConfigs returns the config files that Codex 0.165 loads for a launch with the user's
 // args of a and the env and working folder of d (config/src/loader/mod.rs
-// load_config_layers_state): the system config.toml, $CODEX_HOME/config.toml (CODEX_HOME
-// defaults to ~/.codex), the profile $CODEX_HOME/<name>.config.toml of --profile, the
-// .codex/config.toml of the project folders, and the legacy managed_config.toml. Codex reads
-// the project folders from the project root down to the working folder (-C, else the folder
-// of the call). This list takes each folder up to /, so it needs no project root markers.
-// It also takes an untrusted project: Codex loads its file once you trust the folder at the
-// start prompt (tui/src/lib.rs). The macOS managed preferences and the cloud config of an
-// organization are not files, so they are not on the list.
+// load_config_layers_state): the system config.toml, $CODEX_HOME/config.toml, the profile
+// $CODEX_HOME/<name>.config.toml of --profile, the .codex/config.toml of the project folders,
+// and the legacy managed_config.toml. Codex reads the project folders from the project root
+// down to the working folder (-C, else the folder of the call). This list takes each folder up
+// to /, so it needs no project root markers. It also takes an untrusted project: Codex loads
+// its file once you trust the folder at the start prompt (tui/src/lib.rs).
+//
+// Known limits: the list cannot hold every layer that Codex merges.
+//   - resume and fork can load the project config of the folder of the saved session, not the
+//     folder of the call (tui/src/lib.rs:1008 and :1766, tui/src/session_resume.rs:105). The
+//     Brain command, args and env_vars still win there, because the -c layer is above the
+//     project layers; only the server keys that Brain does not set can merge.
+//   - The cloud config of an organization (config/src/loader/mod.rs:212 and :290,
+//     config/src/cloud_config_layers.rs:91) and the macOS managed preferences of
+//     com.openai.codex (config/src/loader/layer_io.rs:122, loader/macos.rs:26, merged above the
+//     -c layer at loader/mod.rs:464) are no files that Brain can read in a reliable way.
 func codexConfigs(a *args, d Deps) ([]string, error) {
-	home := lookup(d.Environ, "CODEX_HOME")
-	if home == "" {
-		h := lookup(d.Environ, "HOME")
-		if !filepath.IsAbs(h) {
-			return nil, errors.New("HOME is not an absolute path, so Brain cannot read the Codex config")
-		}
-		home = filepath.Join(h, ".codex")
+	home, err := codexConfigHome(d)
+	if err != nil {
+		return nil, err
 	}
 	files := []string{filepath.Join(d.CodexSystem, "config.toml"), filepath.Join(home, "config.toml")}
 	if p := a.last("-p", "--profile"); profileRe.MatchString(p) {
@@ -116,6 +128,35 @@ func codexConfigs(a *args, d Deps) ([]string, error) {
 		}
 	}
 	return append(files, filepath.Join(d.CodexSystem, "managed_config.toml")), nil
+}
+
+// codexConfigHome returns the Codex home of d as Codex 0.165 finds it
+// (utils/home-dir/src/lib.rs find_codex_home): a CODEX_HOME that is set must be a folder, and
+// Codex resolves its links before its "..", so Brain does the same before it adds file names;
+// a cleaned "link/.." can be another folder. With no CODEX_HOME, it is ~/.codex.
+func codexConfigHome(d Deps) (string, error) {
+	if home := lookup(d.Environ, "CODEX_HOME"); home != "" {
+		if !filepath.IsAbs(home) {
+			home = d.Dir + string(filepath.Separator) + home // no Join: it would clean "link/.."
+		}
+		resolved, err := filepath.EvalSymlinks(home)
+		if err != nil {
+			return "", fmt.Errorf("CODEX_HOME: %w, so Codex does not start", err)
+		}
+		if !isDir(resolved) {
+			return "", fmt.Errorf("CODEX_HOME %s is not a folder, so Codex does not start", resolved)
+		}
+		return resolved, nil
+	}
+	h := lookup(d.Environ, "HOME")
+	if !filepath.IsAbs(h) {
+		return "", errors.New("HOME is not an absolute path, so Brain cannot read the Codex config")
+	}
+	resolved, err := filepath.EvalSymlinks(h)
+	if err != nil {
+		return "", fmt.Errorf("HOME: %w", err)
+	}
+	return filepath.Join(resolved, ".codex"), nil
 }
 
 // isDir reports whether path is a folder. As Codex, a path that Brain cannot stat is none.

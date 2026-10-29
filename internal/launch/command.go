@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,15 +67,16 @@ func Main(ctx context.Context, d Deps, kind string, args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	if len(c.paths) > 0 {
-		// An earlier Brain of this process ran a CLI file that ran brain again, such as a shell
-		// shim with `exec brain claude`. args then start with the Brain flags of that launch,
-		// so they go to the CLI with no change: a second launch would refuse its own MCP server.
-		return d.Exec(bin, append([]string{kind}, args...), c.env(d.Environ, bin))
+	if args, err = again(ctx, d, c, args); err != nil {
+		return err
 	}
 	argv, notes, plain, l, err := brainArgv(ctx, d, data, bin, args)
 	if err != nil {
 		return err
+	}
+	dir := ""
+	if l != nil {
+		dir = l.dir
 	}
 	if l != nil {
 		// A real exec returns only when the CLI did not start: its launch must not stay running.
@@ -92,7 +96,92 @@ func Main(ctx context.Context, d Deps, kind string, args []string) (err error) {
 			return err
 		}
 	}
-	return d.Exec(bin, append([]string{kind}, argv...), c.env(d.Environ, bin))
+	return d.Exec(bin, append([]string{kind}, argv...), c.env(d.Environ, bin, dir))
+}
+
+// argvFile is the file of a launch folder with the argv that its launch gave the CLI and the
+// user's args of the launch.
+const argvFile = "argv.json"
+
+// launchArgv is the content of argvFile.
+type launchArgv struct {
+	Argv []string `json:"argv"`
+	Args []string `json:"args"`
+}
+
+// again returns the args of this Brain. A CLI file that an earlier Brain of this process ran,
+// such as a shell shim with `exec brain claude "$@"`, can run brain again with the argv of that
+// launch, and maybe more args after it. Then args start with the argv of the launch folder of
+// the chain: again ends that launch, whose CLI did not start, and returns its user's args and
+// the more args. The caller checks them all as a new launch, so a shim that adds a flag gets the
+// same checks as the user. Any other args stay as they are; Brain flags in them are refused.
+// The env only names the folder: the argv comes from the 0600 file of a bound store.
+func again(ctx context.Context, d Deps, c chain, args []string) ([]string, error) {
+	if len(c.paths) == 0 || c.dir == "" {
+		return args, nil
+	}
+	l, ok, err := readArgv(d.Bindings, c.dir)
+	if err != nil || !ok || len(args) < len(l.Argv) || !slices.Equal(args[:len(l.Argv)], l.Argv) {
+		return args, err
+	}
+	if err := endFolder(ctx, c.dir, d.Now()); err != nil {
+		return nil, err
+	}
+	return append(slices.Clone(l.Args), args[len(l.Argv):]...), nil
+}
+
+// readArgv reads the argvFile of the launch folder dir. ok is false when dir is no launch
+// folder of a bound store, or it has no such file.
+func readArgv(bindingsFile, dir string) (l launchArgv, ok bool, err error) {
+	if _, err := folderID(dir); err != nil {
+		return launchArgv{}, false, nil //nolint:nilerr // a folder that the env names is only a hint
+	}
+	bs, _, err := bindings.Read(bindingsFile)
+	if err != nil {
+		return launchArgv{}, false, err
+	}
+	bound, err := boundStore(bs, filepath.Dir(filepath.Dir(dir)))
+	if err != nil || !bound {
+		return launchArgv{}, false, err
+	}
+	b, err := os.ReadFile(filepath.Join(dir, argvFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		return launchArgv{}, false, nil // a launch that ended: End deleted its folder
+	}
+	if err != nil {
+		return launchArgv{}, false, err
+	}
+	if err := json.Unmarshal(b, &l); err != nil {
+		return launchArgv{}, false, fmt.Errorf("read the launch args: %w", err)
+	}
+	return l, true, nil
+}
+
+// endFolder ends the running launch of the launch folder dir at now, and deletes its folder.
+func endFolder(ctx context.Context, dir string, now time.Time) error {
+	id, err := folderID(dir)
+	if err != nil {
+		return err
+	}
+	storeDir := filepath.Dir(filepath.Dir(dir))
+	st, err := store.Open(ctx, storeDir, busyTimeout)
+	if err != nil {
+		return err
+	}
+	var l store.Launch
+	var ok bool
+	err = st.Write(ctx, func(tx *sql.Tx) error {
+		l, ok, err = store.LaunchByID(ctx, tx, id)
+		return err
+	})
+	if err = errors.Join(err, st.Close()); err != nil || !ok {
+		return err
+	}
+	gone := func(r store.Launch) bool { return r.ID == id }
+	if err := End(ctx, storeDir, l.Socket, gone, store.EndAgentExit, now); err != nil {
+		return fmt.Errorf("end the launch that ran brain again: %w", err)
+	}
+	return nil
 }
 
 // brainArgv returns the args of a Brain launch of the CLI bin of d with the user's args, the
@@ -128,6 +217,9 @@ func brainArgv(ctx context.Context, d Deps, data *cliData, bin string, args []st
 	if err == nil {
 		argv, notes, err = a.argv(dir, Plan{Hooks: hooks, MCP: mcpServer(d.Self, dir)})
 	}
+	if err == nil {
+		_, err = writeJSON(dir, argvFile, launchArgv{Argv: argv, Args: args})
+	}
 	if err != nil {
 		return nil, nil, "", nil, errors.Join(err, l.abandon(ctx, d.Now()))
 	}
@@ -162,10 +254,15 @@ const chainEnv = "BRAIN_LAUNCH_CHAIN"
 // maxDepth is the most Brain launches in one chain: far above any nesting of sessions.
 const maxDepth = 8
 
+// chainDirEnv is the env name of the launch folder of the last Brain of the chain, when it
+// made a launch. Only a Brain of the same process uses it (again).
+const chainDirEnv = "BRAIN_LAUNCH_DIR"
+
 // chain is the launch chain of this process.
 type chain struct {
 	pid, depth int
 	paths      []string // the CLI files that earlier Brain launches of this process ran
+	dir        string   // the launch folder of the last of them; "" for none
 }
 
 // readChain reads the launch chain of environ for the process pid. A value that Brain did not
@@ -186,16 +283,23 @@ func readChain(environ []string, pid int) chain {
 	}
 	c.depth = n
 	if p == pid {
-		c.paths = parts[2:]
+		c.paths, c.dir = parts[2:], lookup(environ, chainDirEnv)
 	}
 	return c
 }
 
-// env returns environ with the chain of a launch that runs the CLI file bin.
-func (c chain) env(environ []string, bin string) []string {
+// env returns environ with the chain of a launch that runs the CLI file bin, with the launch
+// folder dir; "" for none.
+func (c chain) env(environ []string, bin, dir string) []string {
 	v := fmt.Sprintf("%d:%d:%s", c.pid, c.depth+1, strings.Join(append(slices.Clone(c.paths), bin), ":"))
-	out := slices.DeleteFunc(slices.Clone(environ), func(kv string) bool { return strings.HasPrefix(kv, chainEnv+"=") })
-	return append(out, chainEnv+"="+v)
+	out := slices.DeleteFunc(slices.Clone(environ), func(kv string) bool {
+		return strings.HasPrefix(kv, chainEnv+"=") || strings.HasPrefix(kv, chainDirEnv+"=")
+	})
+	out = append(out, chainEnv+"="+v)
+	if dir != "" {
+		out = append(out, chainDirEnv+"="+dir)
+	}
+	return out
 }
 
 // resolve resolves the pane of the call with the resolver. plain is why the call gets no

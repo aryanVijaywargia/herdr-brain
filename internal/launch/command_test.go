@@ -93,12 +93,17 @@ func (e *cmdEnv) run(t *testing.T, environ []string, kind string, args ...string
 const testPID = 4242
 
 // checkEnv checks that the exec got environ, with the launch chain of one more launch that
-// runs the CLI file bin.
-func (e *cmdEnv) checkEnv(t *testing.T, environ []string) {
+// runs the CLI file bin, and the launch folder dir of that launch; "" for none.
+func (e *cmdEnv) checkEnv(t *testing.T, environ []string, dir string) {
 	t.Helper()
 	c := readChain(environ, testPID)
 	chain := fmt.Sprintf("%s=%d:%d:%s", chainEnv, testPID, c.depth+1, strings.Join(append(c.paths, e.execBin), ":"))
-	want := append(slices.DeleteFunc(slices.Clone(environ), func(kv string) bool { return strings.HasPrefix(kv, chainEnv+"=") }), chain)
+	want := append(slices.DeleteFunc(slices.Clone(environ), func(kv string) bool {
+		return strings.HasPrefix(kv, chainEnv+"=") || strings.HasPrefix(kv, chainDirEnv+"=")
+	}), chain)
+	if dir != "" {
+		want = append(want, chainDirEnv+"="+dir)
+	}
 	if !slices.Equal(e.env, want) {
 		t.Errorf("exec env = %q, want %q", e.env, want)
 	}
@@ -191,7 +196,11 @@ func TestLaunchMain(t *testing.T) {
 			if want := append([]string{tt.kind}, want...); !slices.Equal(e.exec, want) || e.execBin != cli {
 				t.Errorf("exec %s argv = %q, want %s %q", e.execBin, e.exec, cli, want)
 			}
-			e.checkEnv(t, environ)
+			dir := ""
+			if tt.launched {
+				dir = paths.Launch(e.store, 1)
+			}
+			e.checkEnv(t, environ, dir)
 			out := e.stderr.String()
 			if tt.stderr == "" && out != "" || !strings.Contains(out, tt.stderr) || strings.Count(out, "\n") > 1 {
 				t.Errorf("stderr = %q, want one line with %q", out, tt.stderr)
@@ -319,12 +328,77 @@ func TestLaunchChain(t *testing.T) {
 		if err != nil || e.execBin != tt.want {
 			t.Errorf("chain %q: Main() = %v, exec %s, want %s", tt.chain, err, e.execBin, tt.want)
 		}
-		e.checkEnv(t, environ)
+		e.checkEnv(t, environ, "")
 	}
 	// After a shim of this process, the chain holds the shim and the real CLI.
 	want := fmt.Sprintf("%s=%d:2:%s:%s", chainEnv, testPID, filepath.Join(shim, "claude"), filepath.Join(e.bin, "claude"))
 	if err := e.run(t, []string{path, chainEnv + "=" + tests[1].chain}, "claude"); err != nil || !slices.Contains(e.env, want) {
 		t.Errorf("Main() = %v, env %q, want %s", err, e.env, want)
+	}
+}
+
+// Review of #446: a Brain that a CLI file of this process runs again with the argv of the
+// launch of the chain ends that launch and checks its user's args and the args after the argv
+// as a new launch: a shim that adds a server brain is refused. The env alone allows nothing: a
+// chain of this process with Brain flags that no launch file holds gets the checks of a new
+// launch, and a launch file of another argv changes nothing.
+func TestLaunchAgain(t *testing.T) {
+	// shimEnv is the env of pane w1:p1 of e with a shim of each CLI first on PATH: the first
+	// Brain runs the shim, and the shim would run brain again.
+	shimEnv := func(e *cmdEnv) []string {
+		t.Helper()
+		shim := t.TempDir()
+		for kind, v := range map[string]string{"claude": "2.1.312 (Claude Code)", "codex": "codex-cli 0.165.0"} {
+			if err := os.WriteFile(filepath.Join(shim, kind), []byte("#!/bin/sh\necho '"+v+"'\n"), 0o700); err != nil { //nolint:gosec // a test CLI must be executable
+				t.Fatal(err)
+			}
+		}
+		return append(e.herdrEnv(), "PATH="+shim+string(os.PathListSeparator)+e.bin)
+	}
+	for _, kind := range []string{"claude", "codex"} {
+		t.Run(kind, func(t *testing.T) {
+			e := newCmdEnv(t, "2.1.312")
+			if err := e.run(t, shimEnv(e), kind, "hi"); err != nil {
+				t.Fatal(err)
+			}
+			first, env := e.exec[1:], e.env
+			dir := paths.Launch(e.store, 1)
+			// The shim runs brain again with the argv of launch 1, and its own server brain.
+			foreign := []string{`--mcp-config={"mcpServers":{"brain":{"command":"foreign","env":{"TOKEN":"s3cret"}}}}`}
+			if kind == "codex" {
+				foreign = []string{"-c", "mcp_servers.brain.enabled=false"}
+			}
+			e.exec = nil
+			err := e.run(t, env, kind, append(slices.Clone(first), foreign...)...)
+			if err == nil || !strings.Contains(err.Error(), "Brain starts nothing") || strings.Contains(err.Error(), "s3cret") || e.exec != nil {
+				t.Errorf("Main() again with a server brain = %v, exec %q; want a refusal with no config text", err, e.exec)
+			}
+			if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("the folder of the launch that ran brain again: %v, want none", err)
+			}
+			// A forged chain of this process with no launch file: the flags are checked.
+			e.exec = nil
+			forged := append(e.herdrEnv(), fmt.Sprintf("%s=%d:1:/unrelated", chainEnv, testPID), chainDirEnv+"="+dir)
+			if err := e.run(t, forged, kind, foreign...); err == nil || !strings.Contains(err.Error(), "Brain starts nothing") || e.exec != nil {
+				t.Errorf("Main() with a forged chain = %v, exec %q; want a refusal", err, e.exec)
+			}
+		})
+	}
+	// A shim that adds a plain arg: one launch runs, with the user's args and the arg.
+	e := newCmdEnv(t, "2.1.312")
+	if err := e.run(t, shimEnv(e), "codex", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.run(t, e.env, "codex", append(slices.Clone(e.exec[1:]), "--x")...); err != nil {
+		t.Fatalf("Main() again = %v", err)
+	}
+	dir := paths.Launch(e.store, 2)
+	want := slices.Concat([]string{"codex", "--no-daemon"}, planFlags(t, "codex", e.self, dir), []string{"hi", "--x"})
+	if !slices.Equal(e.exec, want) {
+		t.Errorf("exec again = %q, want %q", e.exec, want)
+	}
+	if _, err := os.Stat(paths.Launch(e.store, 1)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the folder of launch 1: %v, want none", err)
 	}
 }
 

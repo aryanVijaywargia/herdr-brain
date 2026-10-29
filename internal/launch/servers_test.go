@@ -89,6 +89,36 @@ func TestCodexServerLayers(t *testing.T) {
 	}
 }
 
+// Review of #446: Codex resolves the links of CODEX_HOME before its "..", so Brain reads the
+// config.toml of that folder, not of the cleaned path. A CODEX_HOME that is no folder stops the
+// launch, as Codex does not start.
+func TestCodexServerHome(t *testing.T) {
+	e := newCmdEnv(t, "2.1.312")
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "actual", "child")
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(root, "actual", "config.toml"), "[mcp_servers.brain]\ncommand = \"old-brain\"\nenabled = false\n")
+	write(t, filepath.Join(root, "config.toml"), "model = \"o3\"\n")
+	err = e.run(t, append(e.herdrEnv(), "CODEX_HOME="+root+"/link/.."), "codex", "hi")
+	if err == nil || !strings.Contains(err.Error(), filepath.Join(root, "actual", "config.toml")+" has a [mcp_servers.brain] table") || e.exec != nil {
+		t.Errorf("Main() with CODEX_HOME link/.. = %v, exec %q; want a refusal that names actual/config.toml", err, e.exec)
+	}
+	for _, home := range []string{filepath.Join(root, "none"), filepath.Join(root, "config.toml")} {
+		e.exec = nil
+		if err := e.run(t, append(e.herdrEnv(), "CODEX_HOME="+home), "codex", "hi"); err == nil || !strings.Contains(err.Error(), "CODEX_HOME") || e.exec != nil {
+			t.Errorf("Main() with CODEX_HOME %s = %v, exec %q; want a CODEX_HOME error", home, err, e.exec)
+		}
+	}
+}
+
 // AC #446 (Claude): a user --mcp-config that names a server brain refuses the launch, as a
 // JSON text or a file, in the --flag=value form or as one value of the variadic flag. Other
 // servers launch. A config that Claude could not read refuses too: Brain cannot see its names.
@@ -105,7 +135,10 @@ func TestClaudeServerConfigs(t *testing.T) {
 		{args: []string{"--mcp-config", otherFile, `{"mcpServers":{}}`, "--x"}},
 		{args: []string{"--mcp-config=" + brainFile, "hi"}, error: "it names a server brain"},
 		{args: []string{"--mcp-config", otherFile, brainFile}, error: "it names a server brain"},
-		{args: []string{"--mcp-config", `{"mcpServers":{"brain":{}}}`}, error: "it names a server brain"},
+		{args: []string{"--mcp-config", `{"mcpServers":{"brain":{}}}`}, error: "--mcp-config value 1 (JSON text): it names a server brain"},
+		{args: []string{"--mcp-config", otherFile, `{"mcpServers":{"brain":{"env":{"TOKEN":"s3cret"}}}}`},
+			error: "--mcp-config value 2 (JSON text): it names a server brain"},
+		{args: []string{`--mcp-config={"mcpServers":{"x":{"env":{"TOKEN":"s3cret"}}}} more`}, error: "value 1 (JSON text): Brain cannot read"},
 		{args: []string{"--mcp-config=" + filepath.Join(dir, "none.json")}, error: "no such file"},
 		{args: []string{"--mcp-config", `{"mcpServers":[]}`}, error: "mcpServers is not an object"},
 	}
@@ -118,7 +151,9 @@ func TestClaudeServerConfigs(t *testing.T) {
 			}
 			continue
 		}
-		if err == nil || !strings.Contains(err.Error(), tt.error) || !strings.Contains(err.Error(), "Brain starts nothing") || e.exec != nil {
+		// A JSON text can hold secrets: an error names it only by its place.
+		if err == nil || !strings.Contains(err.Error(), tt.error) || !strings.Contains(err.Error(), "Brain starts nothing") ||
+			strings.Contains(err.Error(), "s3cret") || strings.Contains(err.Error(), "mcpServers\"") || e.exec != nil {
 			t.Errorf("Main(%q) = %v, exec %q, want a refusal with %q", tt.args, err, e.exec, tt.error)
 		}
 	}
