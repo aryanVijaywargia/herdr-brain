@@ -167,6 +167,19 @@ func readHookStates(path string) (map[string]hookState, error) {
 	return cfg.Hooks.State, nil
 }
 
+// CodexHookHash returns the trust key label and the trusted hash of a Codex hook group of one
+// command handler with the default timeout, as a launch passes it with -c (E24-S2). matcher
+// and contextLimit are nil when the group has none. Codex 0.165 hashes a -c hook with the rule
+// of a hooks.json hook (E24-S1).
+func CodexHookHash(event string, matcher *string, command string, contextLimit *uint64) (label, hash string, err error) {
+	label, ok := eventLabels[event]
+	if !ok {
+		return "", "", fmt.Errorf("codex trust: unknown event %q", event)
+	}
+	hash, err = hookHash(event, label, matcher, handler{Type: "command", Command: command, AdditionalContextLimit: contextLimit})
+	return label, hash, err
+}
+
 // hookHash is hook_hash and version_for_toml of Codex 0.154, as the E8-S3 probe computes it:
 // the normalized identity {event_name, matcher, hooks: [handler]} as JSON with sorted keys and
 // no spaces, then SHA-256, as "sha256:<hex>".

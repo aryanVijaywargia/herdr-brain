@@ -9,3 +9,10 @@ import "embed"
 //
 //go:embed *.toml
 var Profiles embed.FS
+
+// Launch holds launch/<cli>.toml, the launch data of `brain <cli>` (E24-S2). It is apart from
+// the profiles: the profile hash covers the whole profile file, so a launch data edit there
+// would drop a saved conformance pass from verified to configured.
+//
+//go:embed launch/*.toml
+var Launch embed.FS

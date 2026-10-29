@@ -1,0 +1,37 @@
+# The launch data of `brain claude` (E24-S2), from the E24-S1 spike and its fact-check on
+# Claude Code 2.1.312. --system-prompt-snapshot needs 2.1.257; a user --append-system-prompt
+# together with the Brain --append-system-prompt-file needs 2.1.283.
+min_version = "2.1.283"
+# The flags of each launch. The launch plan adds the flags of its files. Brain passes each
+# flag in the --flag=value form: a variadic flag such as --mcp-config takes the next args too,
+# also the prompt.
+flags = []
+# A subcommand, or one of these flags, starts the plain CLI: the session does not run as the
+# interactive agent of the pane, or it runs no hooks. --remote is a deprecated alias of --cloud.
+subcommands = ["agents", "attach", "auth", "auto-mode", "doctor", "gateway", "import", "install", "logs", "mcp",
+  "plugin", "plugins", "purge", "respawn", "rm", "setup-token", "stop", "kill", "ultrareview", "update", "upgrade"]
+plain_flags = ["-p", "--print", "--bg", "--background", "--cloud", "--remote", "--teleport", "--desktop", "--environment",
+  "--tmux", "--safe-mode", "--bare", "--init-only", "-h", "--help", "-v", "--version"]
+# The flags that take the next arg as their value; the flags that take the next arg only when
+# it does not start with "-" (claude --resume mcp --help resumes session mcp); and the flags
+# that take all the next args up to the next flag. Brain skips their values when it looks for
+# the subcommand.
+value_flags = ["--advisor", "--agent", "--agents", "--append-subagent-system-prompt",
+  "--append-subagent-system-prompt-file", "--append-system-prompt", "--append-system-prompt-file", "--autocompact",
+  "--debug-file", "--effort", "--fallback-model", "--input-format", "--json-schema", "--max-budget-usd",
+  "--max-thinking-tokens", "--max-turns", "--model", "-n", "--name", "--output-format", "--permission-mode",
+  "--permission-prompt-tool", "--permission-prompts", "--plugin-dir", "--plugin-url", "--ref",
+  "--remote-control-session-name-prefix", "--sdk-url", "--session-id", "--setting-sources", "--settings",
+  "--system-prompt", "--system-prompt-file", "--system-prompt-snapshot", "--teammate-mode", "--environment"]
+optional_flags = ["-d", "--debug", "-r", "--resume", "--from-pr", "-w", "--worktree", "--remote-control", "--rc",
+  "--prompt-suggestions", "--cloud", "--remote", "--teleport"]
+variadic_flags = ["--add-dir", "--allowedTools", "--allowed-tools", "--disallowedTools", "--disallowed-tools",
+  "--mcp-config", "--betas", "--file", "--tools", "--channels", "--dangerously-load-development-channels"]
+# The user's flags that clash with a Brain flag. merge: Brain puts the user's value into its
+# own file and drops the user's flag (the last --settings wins, so the Brain hooks would be
+# lost). keep: the user's flag stays, Brain drops its own and prints the reason.
+conflicts = [
+  { flags = ["--settings"], rule = "merge" },
+  { flags = ["--append-system-prompt-file"], rule = "merge" },
+  { flags = ["--system-prompt-snapshot"], rule = "keep", reason = "your --system-prompt-snapshot replaces the Brain value off, so a later plain claude --resume can keep the brief" },
+]

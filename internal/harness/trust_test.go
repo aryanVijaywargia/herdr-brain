@@ -58,6 +58,30 @@ func TestHookHashMatchesCodex(t *testing.T) {
 	}
 }
 
+// The E24-S1 spike passed this hash with -c hooks.state for the -c SessionStart hook of this
+// command, and Codex 0.165 ran the hook with no trust prompt.
+func TestCodexHookHash(t *testing.T) {
+	const command = "/tmp/e24s1-scratch/tools/hook.sh /tmp/e24s1-scratch/hooks.log CODEX-LAUNCH codex-start"
+	label, sum, err := CodexHookHash("SessionStart", nil, command, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "sha256:fe07e8a190835d341d6b7eb164fb934c9efa886f63eaa143c759efbfc68752f2"; label != "session_start" || sum != want {
+		t.Errorf("CodexHookHash() = %s, %s, want session_start, %s", label, sum, want)
+	}
+	// additionalContextLimit 0 is not the default, so it changes the hash.
+	_, limited, err := CodexHookHash("SessionStart", nil, command, ptr[uint64](0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if limited == sum {
+		t.Errorf("CodexHookHash() with additionalContextLimit 0 = %s, the hash with none", limited)
+	}
+	if _, _, err := CodexHookHash("Nope", nil, command, nil); err == nil {
+		t.Error("CodexHookHash(Nope) = nil error, want an unknown event")
+	}
+}
+
 // trustEnv is a Codex home with an other group before the Brain group, so the Brain key has
 // group index 1. It returns the recorded entry, its key and its hash.
 func trustEnv(t *testing.T) (dir string, e install.Entry, key, sum string) {
