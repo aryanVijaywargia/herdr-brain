@@ -29,6 +29,7 @@ type cmdEnv struct {
 	// The file, argv and env of the exec; exec is nil before it.
 	execBin   string
 	exec, env []string
+	self      string // the brain binary of the last run
 }
 
 func newCmdEnv(t *testing.T, claudeVersion string) *cmdEnv {
@@ -63,6 +64,7 @@ func (e *cmdEnv) run(t *testing.T, environ []string, kind string, args ...string
 	if err := os.WriteFile(self, []byte("brain binary"), 0o700); err != nil { //nolint:gosec // a test binary must be executable
 		t.Fatal(err)
 	}
+	e.self = self
 	d := Deps{
 		Environ: environ, PID: testPID, Self: self, Bindings: e.bindings, Now: time.Now, Stderr: &e.stderr,
 		Pane: func(_ context.Context, _ herdr.Target, id string) (herdr.Pane, error) {
@@ -99,6 +101,24 @@ func (e *cmdEnv) checkEnv(t *testing.T, environ []string) {
 	}
 }
 
+// captureFlags are the flags of Brain's capture hooks of launch folder dir of the CLI kind,
+// with the brain binary self (E24-S5): the Claude --settings file, or the Codex -c hooks.
+func captureFlags(t *testing.T, kind, self, dir string) []string {
+	t.Helper()
+	if kind == "claude" {
+		return []string{"--settings=" + filepath.Join(dir, "settings.json")}
+	}
+	hs, err := captureHooks(kind, self, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags, err := codexHooks(hs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return flags
+}
+
 // A form that gets Brain flags in a confirmed pane makes a launch record and its folder,
 // and execs the CLI with the Brain flags, then the user's args. Every other call execs the
 // plain CLI with the user's args and prints one stderr line with the reason. A refuse conflict
@@ -111,13 +131,14 @@ func TestLaunchMain(t *testing.T) {
 		pane     string
 		kind     string
 		args     []string
-		want     []string // the argv of the exec, after the kind
+		want     []string // the argv of the exec, after the kind; a launch has its capture flags after want[:static]
+		static   int      // the number of static Brain flags at the start of want
 		stderr   string   // a part of the one stderr line; "" for none
 		launched bool
 		paneErr  error // the error of herdr pane get
 	}{
 		{name: "brain codex", version: "2.1.312", herdr: true, kind: "codex", args: []string{"--x", "y"},
-			want: []string{"--no-daemon", "--x", "y"}, launched: true},
+			want: []string{"--no-daemon", "--x", "y"}, static: 1, launched: true},
 		{name: "brain claude", version: "2.1.312", herdr: true, kind: "claude", args: []string{"--x", "y"},
 			want: []string{"--x", "y"}, launched: true},
 		{name: "not in herdr", version: "2.1.312", kind: "codex", args: []string{"--x", "y"},
@@ -158,7 +179,11 @@ func TestLaunchMain(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Main() = %v", err)
 			}
-			if want := append([]string{tt.kind}, tt.want...); !slices.Equal(e.exec, want) || e.execBin != cli {
+			want := tt.want
+			if tt.launched {
+				want = slices.Concat(want[:tt.static], captureFlags(t, tt.kind, e.self, paths.Launch(e.store, 1)), want[tt.static:])
+			}
+			if want := append([]string{tt.kind}, want...); !slices.Equal(e.exec, want) || e.execBin != cli {
 				t.Errorf("exec %s argv = %q, want %s %q", e.execBin, e.exec, cli, want)
 			}
 			e.checkEnv(t, environ)
@@ -224,7 +249,7 @@ func TestFindCLI(t *testing.T) {
 func TestLaunchExecFailure(t *testing.T) {
 	e := newCmdEnv(t, "2.1.312")
 	b := bindings.Binding{Session: "s1", Socket: e.sock, Store: e.store, Kind: bindings.KindMain}
-	older, err := Create(context.Background(), b, "w1", "w1:p1", "codex", time.Now())
+	older, err := Create(context.Background(), b, "w1", "w1:p1", "codex", "", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

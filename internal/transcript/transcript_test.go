@@ -2,6 +2,7 @@ package transcript
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -42,7 +43,7 @@ func offset(t *testing.T, path, id, text string) string {
 
 func TestReadClaude(t *testing.T) {
 	path := filepath.Join("testdata", "claude-basic.jsonl")
-	got, err := ReadClaude(path, noLimit)
+	got, err := ReadClaude(context.Background(), path, noLimit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +75,7 @@ func TestReadClaude(t *testing.T) {
 
 func TestReadCodex(t *testing.T) {
 	path := filepath.Join("testdata", "codex-basic.jsonl")
-	got, err := ReadCodex(path, noLimit)
+	got, err := ReadCodex(context.Background(), path, noLimit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,14 +117,14 @@ func TestReadCodex(t *testing.T) {
 func TestDrops(t *testing.T) {
 	for _, tc := range []struct {
 		file   string
-		read   func(string, int64) (Session, error)
+		read   func(context.Context, string, int64) (Session, error)
 		tokens int64
 	}{
 		{"claude-drops.jsonl", ReadClaude, 8},
 		{"codex-drops.jsonl", ReadCodex, 0},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
-			s, err := tc.read(filepath.Join("testdata", tc.file), noLimit)
+			s, err := tc.read(context.Background(), filepath.Join("testdata", tc.file), noLimit)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -164,7 +165,7 @@ func TestClaudeMessage(t *testing.T) {
 {"type":"assistant","uuid":"a2","message":{"id":"m2","content":[{"type":"text","text":"Tests failed."},{"type":"text","text":"Retry with pnpm."}]}}
 {"type":"assistant","uuid":"a3","message":{"id":"m2","content":[{"type":"text","text":"Done."}]}}
 `)
-	s, err := ReadClaude(path, noLimit)
+	s, err := ReadClaude(context.Background(), path, noLimit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +194,7 @@ func TestCodexMarks(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := write(t, `{"timestamp":"2026-09-02T08:00:00Z","type":"session_meta","payload":{"id":"s1","cwd":"/w",`+tc.meta+"}}\n")
-			s, err := ReadCodex(path, noLimit)
+			s, err := ReadCodex(context.Background(), path, noLimit)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -215,7 +216,7 @@ func TestLimit(t *testing.T) {
 	}
 	// Up to the middle of the line of the second prompt.
 	limit := int64(bytes.Index(b, []byte(`"fix it"`)))
-	s, err := ReadClaude(path, limit)
+	s, err := ReadClaude(context.Background(), path, limit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +238,7 @@ func TestUnknownFormat(t *testing.T) {
 	const meta = `{"timestamp":"2026-09-02T08:00:00Z","type":"session_meta","payload":{"id":"s1","source":"cli"}}` + "\n"
 	for _, tc := range []struct {
 		name string
-		read func(string, int64) (Session, error)
+		read func(context.Context, string, int64) (Session, error)
 		text string
 	}{
 		{"claude not json", ReadClaude, "not json\n"},
@@ -268,7 +269,7 @@ func TestUnknownFormat(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := write(t, tc.text)
-			if _, err := tc.read(path, noLimit); !errors.Is(err, ErrUnknownFormat) {
+			if _, err := tc.read(context.Background(), path, noLimit); !errors.Is(err, ErrUnknownFormat) {
 				t.Errorf("read(%q) error = %v, want %v", tc.text, err, ErrUnknownFormat)
 			}
 		})
@@ -307,7 +308,7 @@ func TestList(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := List(filepath.Join(home, ".claude"), filepath.Join(home, ".codex"))
+	got, err := List(context.Background(), filepath.Join(home, ".claude"), filepath.Join(home, ".codex"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,15 +326,90 @@ func TestList(t *testing.T) {
 	}
 }
 
+// E24-S5: the rollout of a thread is the one file with its id in the name. A newer file of
+// another thread in the same folder is never picked, and a part of an id matches nothing.
+func TestCodexRollout(t *testing.T) {
+	const (
+		a = "019a0000-0000-7000-8000-00000000000a"
+		b = "019a0000-0000-7000-8000-00000000000b"
+		c = "019a0000-0000-7000-8000-00000000000c"
+	)
+	codex := t.TempDir()
+	for _, p := range []string{
+		"sessions/2026/09/01/rollout-2026-09-01T08-00-00-" + a + ".jsonl",
+		"sessions/2026/09/01/rollout-2026-09-01T09-00-00-" + b + ".jsonl", // newer, same folder
+		"sessions/2026/09/01/rollout-2026-09-01T07-00-00-" + c + ".jsonl.zst",
+		"sessions/2026/09/02/rollout-2026-09-02T08-00-00-" + c + ".jsonl",
+		"sessions/2026/09/03/rollout-2026-09-03T08-00-00-" + c + ".jsonl", // a second file of c
+		"archived_sessions/rollout-2026-08-01T08-00-00-" + b + ".jsonl",
+	} {
+		path := filepath.Join(codex, p)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		id, want string
+	}{
+		{a, "sessions/2026/09/01/rollout-2026-09-01T08-00-00-" + a + ".jsonl"},
+		{b, "sessions/2026/09/01/rollout-2026-09-01T09-00-00-" + b + ".jsonl"},
+		{c, ""}, // two files
+		{"019a0000-0000-7000-8000-00000000000d", ""}, // none
+		{"8000-00000000000a", ""},                    // a part of an id
+		{"", ""},
+		{"../" + a, ""},
+	} {
+		got, ok, err := CodexRollout(context.Background(), codex, tc.id)
+		want := ""
+		if tc.want != "" {
+			want = filepath.Join(codex, tc.want)
+		}
+		if got != want || ok != (tc.want != "") || err != nil {
+			t.Errorf("CodexRollout(%q) = %q, %v, %v, want %q", tc.id, got, ok, err, want)
+		}
+	}
+	if _, ok, err := CodexRollout(context.Background(), filepath.Join(codex, "none"), a); ok || err != nil {
+		t.Errorf("CodexRollout(no home) = %v, %v, want not found", ok, err)
+	}
+}
+
+// E24-S5: the end of ctx stops the read of a session file, also inside one long line, and the
+// walk of a Codex home.
+func TestReadStopsAtCtx(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	long := `{"type":"retained_context","payload":{"text":"` + strings.Repeat("x", 1<<20) + `"}}` + "\n"
+	if err := os.WriteFile(path, []byte(long), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadCodex(ctx, path, noLimit); !errors.Is(err, context.Canceled) {
+		t.Errorf("ReadCodex(canceled) = %v, want %v", err, context.Canceled)
+	}
+	if _, err := ReadClaude(ctx, path, noLimit); !errors.Is(err, context.Canceled) {
+		t.Errorf("ReadClaude(canceled) = %v, want %v", err, context.Canceled)
+	}
+	codex := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(codex, "sessions", "2026"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := CodexRollout(ctx, codex, "019a0000-0000-7000-8000-00000000000a"); !errors.Is(err, context.Canceled) {
+		t.Errorf("CodexRollout(canceled) = %v, want %v", err, context.Canceled)
+	}
+}
+
 func TestListEmptyHome(t *testing.T) {
 	home := t.TempDir()
-	got, err := List(filepath.Join(home, ".claude"), filepath.Join(home, ".codex"))
+	got, err := List(context.Background(), filepath.Join(home, ".claude"), filepath.Join(home, ".codex"))
 	if err != nil || len(got.Files) != 0 || got.Compressed != 0 {
 		t.Errorf("List(empty home) = %+v, %v; want nothing", got, err)
 	}
 }
 
-func fuzz(f *testing.F, read func(string, int64) (Session, error), seeds ...string) {
+func fuzz(f *testing.F, read func(context.Context, string, int64) (Session, error), seeds ...string) {
 	for _, s := range seeds {
 		b, err := os.ReadFile(filepath.Join("testdata", s))
 		if err != nil {
@@ -346,7 +422,7 @@ func fuzz(f *testing.F, read func(string, int64) (Session, error), seeds ...stri
 		if err := os.WriteFile(path, b, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		_, _ = read(path, noLimit) // only a panic fails: any error is a fine answer
+		_, _ = read(context.Background(), path, noLimit) // only a panic fails: any error is a fine answer
 	})
 }
 
@@ -364,7 +440,7 @@ func FuzzReadCodex(f *testing.F) {
 // item_completed for them: no command record.
 func TestReadCodex0160(t *testing.T) {
 	path := filepath.Join("testdata", "codex-0160.jsonl")
-	got, err := ReadCodex(path, noLimit)
+	got, err := ReadCodex(context.Background(), path, noLimit)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +545,7 @@ func TestReadCodexGaps(t *testing.T) {
 	}} {
 		t.Run(tc.file, func(t *testing.T) {
 			path := filepath.Join("testdata", tc.file)
-			got, err := ReadCodex(path, noLimit)
+			got, err := ReadCodex(context.Background(), path, noLimit)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -503,7 +579,7 @@ func TestCodexLateCompletion(t *testing.T) {
 	} {
 		t.Run(tc.turnID, func(t *testing.T) {
 			completed := `{"type":"event_msg","payload":{"type":"item_completed","turn_id":"` + tc.turnID + `","item":{"type":"CommandExecution","id":"exec-1","command":["/bin/zsh","-lc","go test ./..."],"source":"unified_exec_startup","status":"failed","aggregated_output":"FAIL cart\n","exit_code":1}}}` + "\n"
-			got, err := ReadCodex(write(t, head+completed), noLimit)
+			got, err := ReadCodex(context.Background(), write(t, head+completed), noLimit)
 			if err != nil {
 				t.Fatal(err)
 			}

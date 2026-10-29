@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"encoding/json"
 	"io"
 	"maps"
 	"os"
@@ -17,6 +19,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/launch"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
+	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
 // TestMain lets the test binary run as brain when BRAIN_TEST_MAIN is 1, so a test can see the
@@ -131,26 +134,42 @@ func with(env []string, add ...string) []string {
 	return append(out, add...)
 }
 
+// userArgs returns args without the Brain flags at its start: --no-daemon, the -c pairs and
+// --settings.
+func userArgs(args []string) []string {
+	for len(args) > 0 {
+		switch {
+		case args[0] == "--no-daemon" || strings.HasPrefix(args[0], "--settings="):
+			args = args[1:]
+		case args[0] == "-c" && len(args) > 1:
+			args = args[2:]
+		default:
+			return args
+		}
+	}
+	return args
+}
+
 // AC #442, for the static launch flags of E24-S2: in a herdr pane of a bound session,
 // `brain claude --x y` and `brain codex --x y` exec the real CLI with the static flags (Codex
-// --no-daemon; the Claude flags come with the plan of E24-S4 to S6), then --x y, and print
-// nothing. Each launch has its folder (0700) with its ID file (0600). No file under .claude
-// or .codex changes.
+// --no-daemon) and the flags of the plan, then --x y, and print nothing. Each launch has its
+// folder (0700) with its ID file and its other files (0600). No file under .claude or .codex
+// changes.
 func TestLaunchStaticFlags(t *testing.T) {
 	h := newLaunchHome(t)
 	before := h.configs(t)
 	for i, tt := range []struct {
-		kind string
-		want []string
+		kind  string
+		first string
 	}{
-		{"claude", []string{"--x", "y"}},
-		{"codex", []string{"--no-daemon", "--x", "y"}},
+		{"claude", "--settings=" + filepath.Join(paths.Launch(h.store, 1), "settings.json")},
+		{"codex", "--no-daemon"},
 	} {
 		if stderr := h.brain(t, h.env, tt.kind, "--x", "y"); stderr != "" {
 			t.Errorf("brain %s stderr = %q, want none", tt.kind, stderr)
 		}
-		if got := h.logged(t, tt.kind); !slices.Equal(got, tt.want) {
-			t.Errorf("brain %s --x y: %s got %q, want %q", tt.kind, tt.kind, got, tt.want)
+		if got := h.logged(t, tt.kind); got[0] != tt.first || !slices.Equal(userArgs(got), []string{"--x", "y"}) {
+			t.Errorf("brain %s --x y: %s got %q, want %s first and --x y last", tt.kind, tt.kind, got, tt.first)
 		}
 		dir := paths.Launch(h.store, int64(i+1))
 		files := map[string]os.FileMode{dir: 0o700 | os.ModeDir}
@@ -173,6 +192,115 @@ func TestLaunchStaticFlags(t *testing.T) {
 	}
 	if after := h.configs(t); !maps.Equal(after, before) {
 		t.Errorf("the files under .claude and .codex changed:\n%v\nwant\n%v", after, before)
+	}
+}
+
+// hookCommand is the command of Brain's hook of event for launch record launch of the CLI kind.
+func (h *launchHome) hookCommand(t *testing.T, kind, event string, launch int64) string {
+	t.Helper()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return self + " hook --profile " + kind + " --event " + event + " --launch " + paths.Launch(h.store, launch)
+}
+
+// AC E24-S5: the fake claude gets Brain's prompt, tool and stop hooks with the launch folder
+// in its private --settings file.
+func TestLaunchClaudeCaptureHooks(t *testing.T) {
+	h := newLaunchHome(t)
+	hook := func(kind, event string, launch int64) string { return h.hookCommand(t, kind, event, launch) }
+	h.brain(t, h.env, "claude", "hi")
+	args := h.logged(t, "claude")
+	settings, ok := strings.CutPrefix(args[0], "--settings=")
+	if !ok {
+		t.Fatalf("claude got %q, want --settings first", args)
+	}
+	b, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
+				Type, Command string
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(b, &s); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for event, groups := range s.Hooks {
+		for _, g := range groups {
+			for _, hd := range g.Hooks {
+				got[event] = g.Matcher + " " + hd.Type + " " + hd.Command
+			}
+		}
+	}
+	want := map[string]string{
+		"UserPromptSubmit":   " command " + hook("claude", "prompt", 1),
+		"PostToolUse":        "Bash command " + hook("claude", "tool", 1),
+		"PostToolUseFailure": "Bash command " + hook("claude", "tool", 1),
+		"Stop":               " command " + hook("claude", "stop", 1),
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("claude settings hooks = %q, want %q", got, want)
+	}
+}
+
+// AC E24-S5: the fake codex gets Brain's prompt, tool and stop hooks as -c hooks entries with
+// one hooks.state table that trusts each of them. The Codex launch keeps the Codex home of the
+// pane.
+func TestLaunchCodexCaptureHooks(t *testing.T) {
+	h := newLaunchHome(t)
+	hook := func(kind, event string, launch int64) string { return h.hookCommand(t, kind, event, launch) }
+	h.brain(t, h.env, "codex", "hi")
+	args := h.logged(t, "codex")
+	var overrides []string
+	for i, a := range args {
+		if a == "-c" && i+1 < len(args) {
+			overrides = append(overrides, args[i+1])
+		}
+	}
+	for _, w := range []struct{ key, command string }{
+		{"hooks.UserPromptSubmit=", hook("codex", "prompt", 1)},
+		{"hooks.PostToolUse=", hook("codex", "tool", 1)},
+		{"hooks.Stop=", hook("codex", "stop", 1)},
+	} {
+		i := slices.IndexFunc(overrides, func(o string) bool { return strings.HasPrefix(o, w.key) })
+		if i < 0 || !strings.Contains(overrides[i], `command="`+w.command+`"`) {
+			t.Errorf("codex -c overrides = %q, want %s with %q", overrides, w.key, w.command)
+		}
+	}
+	states := slices.DeleteFunc(slices.Clone(overrides), func(o string) bool { return !strings.HasPrefix(o, "hooks.state=") })
+	if len(states) != 1 || strings.Count(states[0], "trusted_hash") != 3 {
+		t.Errorf("codex hooks.state overrides = %q, want one table that trusts 3 hooks", states)
+	}
+	if got := userArgs(args); !slices.Equal(got, []string{"hi"}) {
+		t.Errorf("codex user args = %q, want [hi]", got)
+	}
+	ctx := context.Background()
+	st, err := store.Open(ctx, h.store, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close() //nolint:errcheck // test
+	err = st.Write(ctx, func(tx *sql.Tx) error {
+		for id, want := range map[int64]string{1: filepath.Join(h.home, ".codex")} {
+			l, _, err := store.LaunchByID(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if l.CodexHome != want {
+				t.Errorf("Codex home of launch %d = %q, want %q", id, l.CodexHome, want)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -217,7 +345,7 @@ func TestLaunchNoLoop(t *testing.T) {
 	for _, env := range [][]string{with(h.env, path), with(h.env, path, "HERDR_ENV=")} {
 		// The args are a brain command line: a launch that ran brain as claude would launch again.
 		h.brain(t, env, "claude", "claude", "hi")
-		if got := h.logged(t, "claude"); !slices.Equal(got, []string{"claude", "hi"}) {
+		if got := userArgs(h.logged(t, "claude")); !slices.Equal(got, []string{"claude", "hi"}) {
 			t.Errorf("brain claude claude hi: claude got %q, want [claude hi]", got)
 		}
 	}
@@ -249,7 +377,7 @@ func TestLaunchShim(t *testing.T) {
 	}
 	for _, env := range [][]string{with(h.env, path("exec")), with(h.env, path("exec"), "HERDR_ENV=")} {
 		h.brain(t, env, "claude", "hi")
-		if got := h.logged(t, "claude"); !slices.Equal(got, []string{"hi"}) {
+		if got := userArgs(h.logged(t, "claude")); !slices.Equal(got, []string{"hi"}) {
 			t.Errorf("brain claude hi through an exec shim: claude got %q, want [hi]", got)
 		}
 	}

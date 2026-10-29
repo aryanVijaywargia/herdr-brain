@@ -38,6 +38,7 @@ type daemon struct {
 	launch       func(ctx context.Context, environ []string, l Launch) error // starts the launch process of a claimed run (StartLaunch)
 	now          func() time.Time
 	onBehind     func()                                  // tests only: called after a reader drops an event
+	onCaptured   func(error)                             // tests only: called when a capture pass of ended launches ends
 	extract      func(ctx context.Context, g Gate) error // one extraction pass of the store of g; nil for none
 	stale        func(ctx context.Context, g Gate) error // the stale check of every workspace of the store of g; nil for none
 	merge        func(ctx context.Context, g Gate) error // the merge pass of the store of g; nil for none
@@ -97,6 +98,10 @@ type loop struct {
 	scanDone  bool             // the history scan has nothing more for scanFor
 	scanAfter time.Time        // the next try after a scan that failed
 	scanned   chan scanResult  // the end of a history scan
+
+	capturing  bool       // a capture pass of ended launches runs
+	captureDue bool       // a capture pass is due: at the start, after an end, after a failed pass
+	captured   chan error // the end of a capture pass
 }
 
 // scanResult is the end of one history scan run of binding b.
@@ -148,6 +153,7 @@ func (d *daemon) run(ctx context.Context) error {
 			l.checkStale(ctx)
 			l.mergePass(ctx)
 			l.historyScan(ctx)
+			l.captureEnded(ctx)
 		case err := <-l.extracted:
 			l.extracting = false
 			l.report(err)
@@ -157,6 +163,13 @@ func (d *daemon) run(ctx context.Context) error {
 		case err := <-l.merged:
 			l.merging = false
 			l.report(err)
+		case err := <-l.captured:
+			l.capturing = false
+			l.captureDue = l.captureDue || err != nil
+			l.report(err)
+			if d.onCaptured != nil {
+				d.onCaptured(err)
+			}
 		case r := <-l.scanned:
 			l.scanning = false
 			l.scanDone = r.done && r.b == l.scanFor
@@ -171,7 +184,7 @@ func (d *daemon) run(ctx context.Context) error {
 func newLoop(d *daemon) *loop {
 	return &loop{d: d, items: make(chan item, d.queue), behind: make(chan struct{}, 1), panes: map[string]*pane{},
 		extracted: make(chan error, 1), staled: make(chan error, 1), merged: make(chan error, 1),
-		scanned: make(chan scanResult, 1)}
+		scanned: make(chan scanResult, 1), captureDue: true, captured: make(chan error, 1)}
 }
 
 // historyScan starts the history scan of the bound store at a tick,
@@ -671,17 +684,38 @@ func startedBefore(r store.Launch, t time.Time) bool {
 }
 
 // endLaunches ends the running launch records of this herdr server in the bound store for
-// which gone reports true, with reason r, and deletes their launch folders. Without a binding
-// there is no store to end them in.
+// which gone reports true, with reason r, and deletes their launch folders. Then it starts the
+// capture pass of the ended launches. Without a binding there is no store to end them in.
 func (l *loop) endLaunches(ctx context.Context, gone func(store.Launch) bool, r store.EndReason) {
 	if l.gate == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	ectx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	if err := launch.End(ctx, l.gate.Binding.Store, l.gate.Binding.Socket, gone, r, l.d.now()); err != nil {
+	if err := launch.End(ectx, l.gate.Binding.Store, l.gate.Binding.Socket, gone, r, l.d.now()); err != nil {
 		l.report(fmt.Errorf("end launches: %w", err))
 	}
+	l.captureDue = true
+	l.captureEnded(ctx)
+}
+
+// captureEnded starts a capture pass of the ended launches of the bound store beside the loop
+// (captureLaunches), when one is due and none runs (E24-S5). A pass reads rollout files, so the
+// events do not wait for it. A failed pass, or an end during a pass, makes the next one due:
+// a tick starts it. captureTimeout bounds a pass, and the end of ctx stops it.
+func (l *loop) captureEnded(ctx context.Context) {
+	if l.gate == nil || l.capturing || !l.captureDue {
+		return
+	}
+	l.capturing, l.captureDue = true, false
+	g, now := *l.gate, l.d.now()
+	l.wg.Add(1)
+	go func() {
+		defer l.wg.Done()
+		ctx, cancel := context.WithTimeout(ctx, captureTimeout)
+		defer cancel()
+		l.captured <- captureLaunches(ctx, g, now.Add(-captureWindow), now)
+	}()
 }
 
 // drop ends pane id and stops following it.

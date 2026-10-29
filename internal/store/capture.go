@@ -361,14 +361,16 @@ func sessions(ctx context.Context, tx *sql.Tx, where string, args ...any) ([]Ses
 
 // Segments returns every segment, by id.
 func Segments(ctx context.Context, tx *sql.Tx) ([]Segment, error) {
-	return query(ctx, tx, `SELECT id, session_id, pane_id, COALESCE(workspace_key, ''), read_source, started, ended
-		FROM segments ORDER BY id`,
-		func(rows *sql.Rows) (Segment, error) {
-			var s Segment
-			err := rows.Scan(&s.ID, &s.SessionID, &s.PaneID, &s.WorkspaceKey, &s.ReadSource,
-				timeDest{&s.Started}, timeDest{&s.Ended})
-			return s, err
-		})
+	return query(ctx, tx, `SELECT `+segmentColumns+` FROM segments ORDER BY id`, scanSegment)
+}
+
+// segmentColumns are the segment columns that scanSegment reads, in order.
+const segmentColumns = `id, session_id, pane_id, COALESCE(workspace_key, ''), read_source, started, ended`
+
+func scanSegment(rows *sql.Rows) (Segment, error) {
+	var s Segment
+	err := rows.Scan(&s.ID, &s.SessionID, &s.PaneID, &s.WorkspaceKey, &s.ReadSource, timeDest{&s.Started}, timeDest{&s.Ended})
+	return s, err
 }
 
 // Observations returns every observation, by id.

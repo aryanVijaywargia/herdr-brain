@@ -44,8 +44,9 @@ var idRe = regexp.MustCompile(`^[0-9a-f]{32}$`)
 // Create makes the launch record of the CLI of kind cli in pane paneID of workspace
 // workspaceID, on the herdr server of binding b, and its private launch folder (0700) with the
 // launch ID in a 0600 file. It returns the folder: the launch command writes its other launch
-// files there. now is the start time of the launch.
-func Create(ctx context.Context, b bindings.Binding, workspaceID, paneID, cli string, now time.Time) (dir string, err error) {
+// files there. codexHome is the absolute Codex home of a Codex launch, where brained finds its
+// rollouts; "" for none. now is the start time of the launch.
+func Create(ctx context.Context, b bindings.Binding, workspaceID, paneID, cli, codexHome string, now time.Time) (dir string, err error) {
 	if workspaceID == "" || paneID == "" || cli == "" {
 		return "", errors.New("create launch: want a workspace, a pane and a CLI kind")
 	}
@@ -61,7 +62,7 @@ func Create(ctx context.Context, b bindings.Binding, workspaceID, paneID, cli st
 	made := false
 	err = st.Write(ctx, func(tx *sql.Tx) error {
 		id, err := store.InsertLaunch(ctx, tx, store.Launch{IDHash: hash(raw), Socket: b.Socket,
-			WorkspaceID: workspaceID, PaneID: paneID, CLI: cli, Started: now})
+			WorkspaceID: workspaceID, PaneID: paneID, CLI: cli, Started: now, CodexHome: codexHome})
 		if err != nil {
 			return err
 		}

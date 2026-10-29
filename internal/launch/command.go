@@ -103,12 +103,19 @@ func brainArgv(ctx context.Context, d Deps, data *cliData, bin string, args []st
 	if plain := supported(ctx, data, bin, d.Environ); plain != "" {
 		return nil, nil, plain, nil, nil
 	}
-	dir, err := Create(ctx, r.Binding, r.WorkspaceID, r.PaneID, data.kind, d.Now())
+	home, err := codexHome(data.kind, d.Environ)
+	if err != nil {
+		return nil, nil, "", nil, err
+	}
+	dir, err := Create(ctx, r.Binding, r.WorkspaceID, r.PaneID, data.kind, home, d.Now())
 	if err != nil {
 		return nil, nil, "", nil, err
 	}
 	l = &launched{b: r.Binding, dir: dir}
-	argv, notes, err = a.argv(dir, Plan{})
+	hooks, err := captureHooks(data.kind, d.Self, dir)
+	if err == nil {
+		argv, notes, err = a.argv(dir, Plan{Hooks: hooks})
+	}
 	if err != nil {
 		return nil, nil, "", nil, errors.Join(err, l.abandon(ctx, d.Now()))
 	}

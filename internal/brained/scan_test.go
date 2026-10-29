@@ -421,11 +421,11 @@ func TestScanFiles(t *testing.T) {
 	}, files...)
 	files = append(files, transcript.File{Harness: transcript.Codex, Path: "old", Changed: scanClaim.Add(-31 * 24 * time.Hour)})
 	var homes []string
-	s := &historyScan{environ: []string{"HOME=/h", "CODEX_HOME=/x"}, list: func(claude, codex string) (transcript.Listing, error) {
+	s := &historyScan{environ: []string{"HOME=/h", "CODEX_HOME=/x"}, list: func(_ context.Context, claude, codex string) (transcript.Listing, error) {
 		homes = []string{claude, codex}
 		return transcript.Listing{Files: files, Compressed: 4}, nil
 	}}
-	got, compressed, err := s.files(scanClaim)
+	got, compressed, err := s.files(context.Background(), scanClaim)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -542,12 +542,12 @@ func TestScanRestart(t *testing.T) {
 	f.codex("x1", 2*time.Hour, xMeta("x1", "/nowhere", "cli", nil), xUser(1, "run the tests"), xTokens(2, 50))
 	read := f.s.read
 	reads := 0
-	f.s.read = func(file transcript.File, limit int64) (transcript.Session, error) {
+	f.s.read = func(ctx context.Context, file transcript.File, limit int64) (transcript.Session, error) {
 		reads++
 		if reads == 2 {
 			return transcript.Session{}, errors.New("brained stopped")
 		}
-		return read(file, limit)
+		return read(ctx, file, limit)
 	}
 	if done, err := f.s.run(context.Background(), f.g); done || err == nil {
 		t.Fatalf("run = %v, %v; want not done with the stop", done, err)
@@ -753,10 +753,10 @@ func TestScanInBackground(t *testing.T) {
 	f.claude("c1", time.Hour, cUser("u1", "/nowhere", 1, "a prompt"))
 	reading, release := make(chan struct{}), make(chan struct{})
 	read := f.s.read
-	f.s.read = func(file transcript.File, limit int64) (transcript.Session, error) {
+	f.s.read = func(ctx context.Context, file transcript.File, limit int64) (transcript.Session, error) {
 		close(reading)
 		<-release
-		return read(file, limit)
+		return read(ctx, file, limit)
 	}
 	ends := make(chan bool, 4)
 	h.d.scan = func(ctx context.Context, g Gate) (bool, error) {
@@ -906,11 +906,11 @@ func TestScanPausesWhenLearningOff(t *testing.T) {
 	f.claude("c1", time.Hour, cUser("u1", "/nowhere", 1, "a prompt"))
 	f.claude("c2", 2*time.Hour, cUser("u2", "/nowhere", 1, "a prompt"))
 	read := f.s.read
-	f.s.read = func(file transcript.File, limit int64) (transcript.Session, error) {
+	f.s.read = func(ctx context.Context, file transcript.File, limit int64) (transcript.Session, error) {
 		f.write(func(ctx context.Context, tx *sql.Tx) error {
 			return store.SetLearning(ctx, tx, store.LearningSetting{Scope: store.LearningStore, Changed: time.Now()})
 		})
-		return read(file, limit)
+		return read(ctx, file, limit)
 	}
 	if f.run() {
 		t.Fatal("run with learning off = done, want a wait")
@@ -946,9 +946,9 @@ func TestScanWorkspaceMap(t *testing.T) {
 	}
 	f.claude("c1", time.Hour, cUser("u1", dir, 1, "a prompt"))
 	read := f.s.read
-	f.s.read = func(file transcript.File, limit int64) (transcript.Session, error) {
+	f.s.read = func(ctx context.Context, file transcript.File, limit int64) (transcript.Session, error) {
 		f.workspaceAt("k1", "s1", dir) // mapped after the scan started
-		return read(file, limit)
+		return read(ctx, file, limit)
 	}
 	f.run()
 	f.write(func(ctx context.Context, tx *sql.Tx) error {
@@ -996,11 +996,11 @@ func TestScanRestartKeepsImported(t *testing.T) {
 	f.claude("c3", 3*time.Hour, cUser("u3", "/nowhere", 1, "a prompt"))
 	ctx, cancel := context.WithCancel(context.Background())
 	read, n := f.s.read, 0
-	f.s.read = func(file transcript.File, limit int64) (transcript.Session, error) {
+	f.s.read = func(ctx context.Context, file transcript.File, limit int64) (transcript.Session, error) {
 		if n++; n == 3 {
 			cancel() // brained stops after the first two files
 		}
-		return read(file, limit)
+		return read(ctx, file, limit)
 	}
 	if done, err := f.s.run(ctx, f.g); done || !errors.Is(err, context.Canceled) {
 		t.Fatalf("run = %v, %v; want a stop", done, err)

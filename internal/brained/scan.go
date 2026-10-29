@@ -53,8 +53,8 @@ type historyScan struct {
 	environ []string // the brained environment: the CLI homes and herdr
 	config  string   // the config file: the gates
 	text    ScanText
-	list    func(claudeHome, codexHome string) (transcript.Listing, error)
-	read    func(f transcript.File, limit int64) (transcript.Session, error)
+	list    func(ctx context.Context, claudeHome, codexHome string) (transcript.Listing, error)
+	read    func(ctx context.Context, f transcript.File, limit int64) (transcript.Session, error)
 	sync    func(ctx context.Context, g Gate, st *store.Store) error // refreshes the workspace map of g
 	notify  func(ctx context.Context, g Gate, body string) error
 	now     func() time.Time
@@ -78,11 +78,11 @@ func newHistoryScan(environ []string, config string, text ScanText) *historyScan
 }
 
 // readFile reads session file f up to limit bytes.
-func readFile(f transcript.File, limit int64) (transcript.Session, error) {
+func readFile(ctx context.Context, f transcript.File, limit int64) (transcript.Session, error) {
 	if f.Harness == transcript.Codex {
-		return transcript.ReadCodex(f.Path, limit)
+		return transcript.ReadCodex(ctx, f.Path, limit)
 	}
-	return transcript.ReadClaude(f.Path, limit)
+	return transcript.ReadClaude(ctx, f.Path, limit)
 }
 
 // run claims the scan of the store of g and reads it, at a tick. Only a
@@ -153,7 +153,7 @@ func (s *historyScan) scan(ctx context.Context, g Gate, st *store.Store, sc stor
 	if err != nil {
 		return false, fmt.Errorf("history scan: workspace map: %w", err)
 	}
-	files, compressed, err := s.files(sc.Claimed)
+	files, compressed, err := s.files(ctx, sc.Claimed)
 	if err != nil {
 		return false, err
 	}
@@ -197,12 +197,12 @@ func (s *historyScan) scan(ctx context.Context, g Gate, st *store.Store, sc stor
 // files returns the files of the scan with claim time claimed, newest first, and the count of
 // compressed Codex files. A restart picks again with the same claim
 // time.
-func (s *historyScan) files(claimed time.Time) ([]transcript.File, int, error) {
+func (s *historyScan) files(ctx context.Context, claimed time.Time) ([]transcript.File, int, error) {
 	claude, codex, err := cliHomes(s.environ)
 	if err != nil {
 		return nil, 0, err
 	}
-	l, err := s.list(claude, codex)
+	l, err := s.list(ctx, claude, codex)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -235,7 +235,7 @@ func (s *historyScan) file(ctx context.Context, g Gate, st *store.Store, sc stor
 	if err != nil {
 		return fmt.Errorf("history scan: %w", err)
 	}
-	ses, err := s.read(f, info.Size())
+	ses, err := s.read(ctx, f, info.Size())
 	unknown := errors.Is(err, transcript.ErrUnknownFormat)
 	if err != nil && !unknown {
 		return fmt.Errorf("history scan: %w", err)
@@ -348,6 +348,10 @@ type importer struct {
 	at           time.Time // the time of a record that has none
 	last         int64     // the newest observation id of the session
 	lastIdentity string
+	// match is the capture session whose pane records each new record matches, so a record
+	// that the pane showed too does not count twice (E24-S5); 0 for none, as in the history
+	// scan.
+	match int64
 }
 
 // turns stores the records of each turn of ts and returns the scan turns, each id once.
@@ -432,6 +436,12 @@ func (imp *importer) observation(ctx context.Context, o store.Observation) (int6
 	}
 	if id > imp.last {
 		imp.last, imp.lastIdentity = id, o.CaptureIdentity
+	}
+	if added && imp.match != 0 {
+		o.ID = id
+		if err := Match(ctx, imp.tx, imp.harness, imp.match, o); err != nil {
+			return 0, false, err
+		}
 	}
 	return id, added, nil
 }

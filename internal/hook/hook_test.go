@@ -701,27 +701,37 @@ func TestPartialBuild(t *testing.T) {
 	}
 }
 
-// TestProfileArg: the hook takes only the frozen arguments.
+// TestProfileArg: the hook takes only the frozen arguments. Only a hook record of a launched
+// session adds a launch folder (E24-S5).
 func TestProfileArg(t *testing.T) {
 	tests := []struct {
 		args  []string
 		want  string
 		event string
+		dir   string
 		ok    bool
 	}{
-		{[]string{"--profile", "codex", "--event", "start"}, "codex", "start", true},
-		{[]string{"--profile", "claude", "--event", "prompt"}, "claude", "prompt", true},
-		{[]string{"--profile", "claude", "--event", "tool"}, "claude", "tool", true},
-		{[]string{"--profile", "codex", "--event", "stop"}, "codex", "stop", true},
-		{[]string{"--profile", "codex", "--event", "notify"}, "", "", false},
-		{[]string{"--event", "start", "--profile", "codex"}, "", "", false},
-		{[]string{"--profile", "", "--event", "start"}, "", "", false},
-		{[]string{"--profile", "codex"}, "", "", false},
+		{[]string{"--profile", "codex", "--event", "start"}, "codex", "start", "", true},
+		{[]string{"--profile", "claude", "--event", "prompt"}, "claude", "prompt", "", true},
+		{[]string{"--profile", "claude", "--event", "tool"}, "claude", "tool", "", true},
+		{[]string{"--profile", "codex", "--event", "stop"}, "codex", "stop", "", true},
+		{[]string{"--profile", "codex", "--event", "stop", "--launch", "/s/launches/7"}, "codex", "stop", "/s/launches/7", true},
+		{[]string{"--profile", "claude", "--event", "prompt", "--launch", "/s/launches/7"}, "claude", "prompt", "/s/launches/7", true},
+		{[]string{"--profile", "codex", "--event", "notify"}, "", "", "", false},
+		{[]string{"--event", "start", "--profile", "codex"}, "", "", "", false},
+		{[]string{"--profile", "", "--event", "start"}, "", "", "", false},
+		{[]string{"--profile", "codex"}, "", "", "", false},
+		{[]string{"--profile", "codex", "--event", "start", "--launch", "/s/launches/7"}, "", "", "", false},
+		{[]string{"--profile", "codex", "--event", "stop", "--launch", ""}, "", "", "", false},
+		{[]string{"--profile", "codex", "--event", "stop", "--launch"}, "", "", "", false},
+		{[]string{"--profile", "codex", "--event", "stop", "--folder", "/s/launches/7"}, "", "", "", false},
+		{[]string{"--launch", "/s/launches/7", "--profile", "codex", "--event", "stop"}, "", "", "", false},
 	}
 	for _, tt := range tests {
-		got, event, err := profileArg(tt.args)
-		if got != tt.want || event != tt.event || (err == nil) != tt.ok {
-			t.Errorf("profileArg(%q) = %q, %q, %v; want %q, %q, ok %v", tt.args, got, event, err, tt.want, tt.event, tt.ok)
+		got, event, dir, err := profileArg(tt.args)
+		if got != tt.want || event != tt.event || dir != tt.dir || (err == nil) != tt.ok {
+			t.Errorf("profileArg(%q) = %q, %q, %q, %v; want %q, %q, %q, ok %v", tt.args, got, event, dir, err,
+				tt.want, tt.event, tt.dir, tt.ok)
 		}
 	}
 }

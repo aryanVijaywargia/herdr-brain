@@ -368,6 +368,8 @@ type harness struct {
 	steps chan Step
 	tick  chan time.Time
 	done  chan error
+	// codexHome is the Codex home of the launches that launchIn makes; "" for none.
+	codexHome string
 }
 
 // newHarness binds session s1 to a new store and returns a brained that is not started.

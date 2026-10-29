@@ -157,7 +157,7 @@ func extractPass(ctx context.Context, g Gate, config string, environ []string, r
 	p := extract.Pass{Store: st, Runner: extract.ExecRunner{}, HerdrSession: g.Binding.Session,
 		DefaultOn: defaultOn, Now: time.Now, Gates: gates, Caps: caps,
 		Suggest: func(ctx context.Context, s extract.Suggestion) error {
-			return start(ctx, paneEnv(environ, g.Binding, s.AgentPaneID, s.WorkspaceID), LessonDispatch(g.Binding.Store, s))
+			return start(ctx, PaneEnv(environ, g.Binding, s.AgentPaneID, s.WorkspaceID), LessonDispatch(g.Binding.Store, s))
 		},
 		Note: func(line string) {
 			_, _ = fmt.Fprintf(log, "brained: extract: %s\n", line) // a failed log write has no other place to go

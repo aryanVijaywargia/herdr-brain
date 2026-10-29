@@ -31,7 +31,7 @@ func (h *harness) launchIn(t *testing.T, socket, pane, cli string, at time.Time)
 	t.Helper()
 	ws, _, _ := strings.Cut(pane, ":")
 	b := bindings.Binding{Session: "s1", Socket: socket, Store: h.store, Kind: bindings.KindMain, Created: at}
-	dir, err := launch.Create(context.Background(), b, ws, pane, cli, at)
+	dir, err := launch.Create(context.Background(), b, ws, pane, cli, h.codexHome, at)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -112,6 +112,8 @@ func TestHookErrorsExitZero(t *testing.T) {
 		{"hook"},
 		{"hook", "--profile", "nope", "--event", "start"},
 		{"hook", "--profile", "claude", "--event", "start"}, // no herdr socket in the environment
+		// No launch record: a refused launch never fails the CLI (E24-S5).
+		{"hook", "--profile", "claude", "--event", "stop", "--launch", filepath.Join(t.TempDir(), "launches", "7")},
 	} {
 		var out, errOut bytes.Buffer
 		if code := run(args, strings.NewReader("{}"), &out, &errOut); code != 0 || out.Len() != 0 || errOut.Len() != 0 {
