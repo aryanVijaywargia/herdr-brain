@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// E24-S5: a launch gets Brain's prompt, tool and stop hooks on the CLI events of its profile,
-// each with the launch folder, and no start hook. A path with a space is one shell word.
+// E24-S4, E24-S5: a launch gets Brain's start, prompt, tool and stop hooks on the CLI events
+// of its profile, each with the launch folder. A path with a space is one shell word.
 func TestCaptureHooks(t *testing.T) {
 	dir := "/s/brain store/launches/7"
 	for _, c := range []struct {
@@ -15,12 +15,14 @@ func TestCaptureHooks(t *testing.T) {
 		want []Hook
 	}{
 		{"claude", []Hook{
+			{Event: "SessionStart", Command: "/b/brain hook --profile claude --event start --launch '/s/brain store/launches/7'"},
 			{Event: "UserPromptSubmit", Command: "/b/brain hook --profile claude --event prompt --launch '/s/brain store/launches/7'"},
 			{Event: "PostToolUse", Matcher: "Bash", Command: "/b/brain hook --profile claude --event tool --launch '/s/brain store/launches/7'"},
 			{Event: "PostToolUseFailure", Matcher: "Bash", Command: "/b/brain hook --profile claude --event tool --launch '/s/brain store/launches/7'"},
 			{Event: "Stop", Command: "/b/brain hook --profile claude --event stop --launch '/s/brain store/launches/7'"},
 		}},
 		{"codex", []Hook{
+			{Event: "SessionStart", Command: "/b/brain hook --profile codex --event start --launch '/s/brain store/launches/7'"},
 			{Event: "UserPromptSubmit", Command: "/b/brain hook --profile codex --event prompt --launch '/s/brain store/launches/7'"},
 			{Event: "PostToolUse", Matcher: "Bash", Command: "/b/brain hook --profile codex --event tool --launch '/s/brain store/launches/7'"},
 			{Event: "Stop", Command: "/b/brain hook --profile codex --event stop --launch '/s/brain store/launches/7'"},

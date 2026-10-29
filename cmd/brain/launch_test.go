@@ -20,6 +20,7 @@ import (
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/launch"
+	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
@@ -35,7 +36,7 @@ func TestMain(m *testing.M) {
 
 // launchHome is a test home with the Claude and Codex config files of the user, fake claude and
 // codex CLIs that log their args, a fake herdr that confirms pane w1:p1 in workspace w1, and
-// a main store bound to herdr session s1.
+// a main store bound to herdr session s1. The store has no built brief yet.
 type launchHome struct {
 	home, fakes, store string
 	env                []string // the env of pane w1:p1, with only the fake CLIs on PATH
@@ -55,7 +56,7 @@ func newLaunchHome(t *testing.T) *launchHome {
 		"herdr/herdr":           "#!/bin/sh\n[ \"$*\" = 'pane get w1:p1' ] || exit 1\necho '" + reply + "'\n",
 		"herdr/herdr.sock":      "",
 		".claude/settings.json": `{"hooks":{}}`,
-		".codex/config.toml":    "model = \"o3\"\n",
+		".codex/config.toml":    "model = \"o3\"\ndeveloper_instructions = \"USER\"\n",
 		".codex/hooks.json":     `{"hooks":{}}`,
 	}
 	for rel, data := range files {
@@ -80,6 +81,20 @@ func newLaunchHome(t *testing.T) *launchHome {
 		"HERDR_SOCKET_PATH=" + sock, "HERDR_PANE_ID=w1:p1", "HERDR_WORKSPACE_ID=w1",
 		"HERDR_BIN_PATH=" + filepath.Join(home, "herdr", "herdr")}
 	return h
+}
+
+// build builds the brief of the store of h.
+func (h *launchHome) build(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	st, err := store.Open(ctx, h.store, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close() //nolint:errcheck // test
+	if _, err := output.Build(ctx, st, filepath.Join(h.store, "out"), nil, time.Now); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // fakeCLI is a fake CLI that prints version, or writes each of its args on a line of
@@ -139,11 +154,12 @@ func with(env []string, add ...string) []string {
 }
 
 // userArgs returns args without the Brain flags at its start: --no-daemon, the -c pairs,
-// --settings and --mcp-config.
+// --settings, --mcp-config and the brief flags.
 func userArgs(args []string) []string {
 	for len(args) > 0 {
 		switch {
-		case args[0] == "--no-daemon" || strings.HasPrefix(args[0], "--settings=") || strings.HasPrefix(args[0], "--mcp-config="):
+		case args[0] == "--no-daemon" || args[0] == "--system-prompt-snapshot=off" || strings.HasPrefix(args[0], "--settings=") ||
+			strings.HasPrefix(args[0], "--mcp-config=") || strings.HasPrefix(args[0], "--append-system-prompt-file="):
 			args = args[1:]
 		case args[0] == "-c" && len(args) > 1:
 			args = args[2:]
@@ -282,8 +298,8 @@ func (h *launchHome) hookCommand(t *testing.T, kind, event string, launch int64)
 	return self + " hook --profile " + kind + " --event " + event + " --launch " + paths.Launch(h.store, launch)
 }
 
-// AC E24-S5: the fake claude gets Brain's prompt, tool and stop hooks with the launch folder
-// in its private --settings file.
+// AC E24-S4, E24-S5: the fake claude gets Brain's start, prompt, tool and stop hooks with the
+// launch folder in its private --settings file.
 func TestLaunchClaudeCaptureHooks(t *testing.T) {
 	h := newLaunchHome(t)
 	hook := func(kind, event string, launch int64) string { return h.hookCommand(t, kind, event, launch) }
@@ -317,6 +333,7 @@ func TestLaunchClaudeCaptureHooks(t *testing.T) {
 		}
 	}
 	want := map[string]string{
+		"SessionStart":       " command " + hook("claude", "start", 1),
 		"UserPromptSubmit":   " command " + hook("claude", "prompt", 1),
 		"PostToolUse":        "Bash command " + hook("claude", "tool", 1),
 		"PostToolUseFailure": "Bash command " + hook("claude", "tool", 1),
@@ -327,8 +344,8 @@ func TestLaunchClaudeCaptureHooks(t *testing.T) {
 	}
 }
 
-// AC E24-S5: the fake codex gets Brain's prompt, tool and stop hooks as -c hooks entries with
-// one hooks.state table that trusts each of them. The Codex launch keeps the Codex home of the
+// AC E24-S4, E24-S5: the fake codex gets Brain's start, prompt, tool and stop hooks as -c hooks
+// entries with one hooks.state table that trusts each of them. The Codex launch keeps the Codex home of the
 // pane.
 func TestLaunchCodexCaptureHooks(t *testing.T) {
 	h := newLaunchHome(t)
@@ -342,6 +359,7 @@ func TestLaunchCodexCaptureHooks(t *testing.T) {
 		}
 	}
 	for _, w := range []struct{ key, command string }{
+		{"hooks.SessionStart=", hook("codex", "start", 1)},
 		{"hooks.UserPromptSubmit=", hook("codex", "prompt", 1)},
 		{"hooks.PostToolUse=", hook("codex", "tool", 1)},
 		{"hooks.Stop=", hook("codex", "stop", 1)},
@@ -352,8 +370,8 @@ func TestLaunchCodexCaptureHooks(t *testing.T) {
 		}
 	}
 	states := slices.DeleteFunc(slices.Clone(overrides), func(o string) bool { return !strings.HasPrefix(o, "hooks.state=") })
-	if len(states) != 1 || strings.Count(states[0], "trusted_hash") != 3 {
-		t.Errorf("codex hooks.state overrides = %q, want one table that trusts 3 hooks", states)
+	if len(states) != 1 || strings.Count(states[0], "trusted_hash") != 4 {
+		t.Errorf("codex hooks.state overrides = %q, want one table that trusts 4 hooks", states)
 	}
 	if got := userArgs(args); !slices.Equal(got, []string{"hi"}) {
 		t.Errorf("codex user args = %q, want [hi]", got)

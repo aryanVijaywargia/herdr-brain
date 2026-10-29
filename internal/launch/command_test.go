@@ -26,6 +26,11 @@ type cmdEnv struct {
 	stderr                     bytes.Buffer
 	paneErr                    error // the error of herdr pane get; nil for the pane
 	execErr                    error // the error of the exec
+	// The start brief of a launch and its error; briefs are the panes and folders of the
+	// Brief calls.
+	brief    string
+	briefErr error
+	briefs   []string
 	// The file, argv and env of the exec; exec is nil before it.
 	execBin   string
 	exec, env []string
@@ -85,6 +90,10 @@ func (e *cmdEnv) run(t *testing.T, environ []string, kind string, args ...string
 			e.env = env
 			return e.execErr
 		},
+		Brief: func(_ context.Context, b bindings.Binding, workspaceID, paneID, dir string, _ func() time.Time) (string, error) {
+			e.briefs = append(e.briefs, b.Session+" "+workspaceID+" "+paneID+" "+dir)
+			return e.brief, e.briefErr
+		},
 	}
 	return Main(context.Background(), d, kind, args)
 }
@@ -110,12 +119,17 @@ func (e *cmdEnv) checkEnv(t *testing.T, environ []string, dir string) {
 }
 
 // planFlags are the flags of the plan of launch folder dir of the CLI kind, with the brain
-// binary self: the capture hooks (E24-S5) and the MCP server (E24-S6). Claude gets the
-// --settings and --mcp-config files; Codex gets the -c mcp_servers.brain.* and -c hooks flags.
-func planFlags(t *testing.T, kind, self, dir string) []string {
+// binary self: the capture hooks (E24-S5), the MCP server (E24-S6) and, when brief is true, the
+// brief (E24-S4). Claude gets the --settings and --mcp-config files and the brief flags; Codex
+// gets the -c mcp_servers.brain.* and -c hooks flags.
+func planFlags(t *testing.T, kind, self, dir string, brief bool) []string {
 	t.Helper()
 	if kind == "claude" {
-		return []string{"--settings=" + filepath.Join(dir, "settings.json"), "--mcp-config=" + filepath.Join(dir, "mcp.json")}
+		flags := []string{"--settings=" + filepath.Join(dir, "settings.json"), "--mcp-config=" + filepath.Join(dir, "mcp.json")}
+		if brief {
+			flags = append(flags, "--append-system-prompt-file="+filepath.Join(dir, "brief.md"), "--system-prompt-snapshot=off")
+		}
+		return flags
 	}
 	hs, err := captureHooks(kind, self, dir)
 	if err != nil {
@@ -146,11 +160,18 @@ func TestLaunchMain(t *testing.T) {
 		stderr   string   // a part of the one stderr line; "" for none
 		launched bool
 		paneErr  error // the error of herdr pane get
+		brief    string
+		briefErr error // the error of the start brief
 	}{
 		{name: "brain codex", version: "2.1.312", herdr: true, kind: "codex", args: []string{"--x", "y"},
-			want: []string{"--no-daemon", "--x", "y"}, static: 1, launched: true},
+			want: []string{"--no-daemon", "--x", "y"}, static: 1, launched: true, brief: "B"},
 		{name: "brain claude", version: "2.1.312", herdr: true, kind: "claude", args: []string{"--x", "y"},
+			want: []string{"--x", "y"}, launched: true, brief: "B"},
+		{name: "brain claude, brief withheld", version: "2.1.312", herdr: true, kind: "claude", args: []string{"--x", "y"},
 			want: []string{"--x", "y"}, launched: true},
+		{name: "brain claude, brief error", version: "2.1.312", herdr: true, kind: "claude", args: []string{"--x", "y"},
+			want: []string{"--x", "y"}, launched: true, brief: "B", briefErr: errors.New("no output\ngeneration"),
+			stderr: "brain claude: starting with no Brain brief: no output generation\n"},
 		{name: "not in herdr", version: "2.1.312", kind: "codex", args: []string{"--x", "y"},
 			want: []string{"--x", "y"}, stderr: "brain codex: starting the plain codex with no Brain flags: not in herdr\n"},
 		{name: "subcommand", version: "2.1.312", herdr: true, kind: "codex", args: []string{"exec", "hi"},
@@ -171,6 +192,7 @@ func TestLaunchMain(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newCmdEnv(t, tt.version)
 			e.paneErr = tt.paneErr
+			e.brief, e.briefErr = tt.brief, tt.briefErr
 			cli := filepath.Join(e.bin, tt.kind)
 			environ := []string{"PATH=" + e.bin}
 			if tt.herdr {
@@ -191,7 +213,16 @@ func TestLaunchMain(t *testing.T) {
 			}
 			want := tt.want
 			if tt.launched {
-				want = slices.Concat(want[:tt.static], planFlags(t, tt.kind, e.self, paths.Launch(e.store, 1)), want[tt.static:])
+				brief := tt.brief != "" && tt.briefErr == nil
+				want = slices.Concat(want[:tt.static], planFlags(t, tt.kind, e.self, paths.Launch(e.store, 1), brief), want[tt.static:])
+			}
+			// Only a Claude launch compiles the brief, once, for its own pane and folder.
+			var briefs []string
+			if tt.launched && tt.kind == "claude" {
+				briefs = []string{"s1 w1 w1:p1 " + paths.Launch(e.store, 1)}
+			}
+			if !slices.Equal(e.briefs, briefs) {
+				t.Errorf("Brief calls = %q, want %q", e.briefs, briefs)
 			}
 			if want := append([]string{tt.kind}, want...); !slices.Equal(e.exec, want) || e.execBin != cli {
 				t.Errorf("exec %s argv = %q, want %s %q", e.execBin, e.exec, cli, want)
@@ -393,7 +424,7 @@ func TestLaunchAgain(t *testing.T) {
 		t.Fatalf("Main() again = %v", err)
 	}
 	dir := paths.Launch(e.store, 2)
-	want := slices.Concat([]string{"codex", "--no-daemon"}, planFlags(t, "codex", e.self, dir), []string{"hi", "--x"})
+	want := slices.Concat([]string{"codex", "--no-daemon"}, planFlags(t, "codex", e.self, dir, false), []string{"hi", "--x"})
 	if !slices.Equal(e.exec, want) {
 		t.Errorf("exec again = %q, want %q", e.exec, want)
 	}

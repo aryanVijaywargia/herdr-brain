@@ -63,8 +63,9 @@ const (
 var errCapped = errors.New("hook cap reached")
 
 // Main runs the hook for the frozen command `brain hook --profile <name> --event <event>` with
-// the process environment environ. A launched session's prompt, tool and stop hooks add
-// `--launch <launch folder>` (E24-S5). The caller prints nothing on the error and exits 0.
+// the process environment environ. A launched session's hooks add `--launch <launch folder>`:
+// its prompt, tool and stop hooks (E24-S5) and its start hook (E24-S4). The caller prints
+// nothing on the error and exits 0.
 func Main(args, environ []string, stdin io.Reader, stdout io.Writer) error {
 	start := time.Now()
 	name, event, dir, err := profileArg(args)
@@ -89,9 +90,9 @@ func Main(args, environ []string, stdin io.Reader, stdout io.Writer) error {
 }
 
 // profileArg reads the profile name, the event and the launch folder ("" for none) from the
-// frozen arguments; any other form is an error. Only a hook record takes a launch folder.
+// frozen arguments; any other form is an error.
 func profileArg(args []string) (name, event, dir string, err error) {
-	if len(args) == 6 && args[4] == "--launch" && args[5] != "" && args[3] != adapter.EventStart {
+	if len(args) == 6 && args[4] == "--launch" && args[5] != "" {
 		dir, args = args[5], args[:4]
 	}
 	if len(args) != 4 || args[0] != "--profile" || args[1] == "" || args[2] != "--event" ||
@@ -105,8 +106,8 @@ func profileArg(args []string) (name, event, dir string, err error) {
 type Hook struct {
 	Profile *adapter.Profile
 	Event   string // the Brain event; "" is start
-	// Launch is the launch folder of a launched session (E24-S5); "" for none. A hook record
-	// with a launch folder captures against the launch record, not the environment.
+	// Launch is the launch folder of a launched session (E24-S5); "" for none. A hook with a
+	// launch folder uses the pane of the launch record, not the environment.
 	Launch   string
 	Environ  []string
 	Bindings string // the bindings file
@@ -185,6 +186,9 @@ func (h Hook) run(ctx context.Context, stdin io.Reader, stdout io.Writer) (err e
 	if err != nil {
 		return err
 	}
+	if h.Launch != "" {
+		return h.launched(ctx, in, stdout)
+	}
 	open := func(ctx context.Context, dir string) (resolver.Store, error) {
 		s, err := store.Open(ctx, dir, busyTimeout)
 		if err != nil {
@@ -225,14 +229,43 @@ func (h Hook) pane(ctx context.Context, t herdr.Target, id string) (herdr.Pane, 
 }
 
 // deliver prints the brief of the current generation for the live pane of r, or withholds
-// it, and writes the receipt.
+// it, and writes the receipt. A launched session's receipt names its launch, which must still
+// run.
 func (h Hook) deliver(ctx context.Context, rc *receipts, r *resolver.Resolved, stdout io.Writer) error {
-	m, err := workspace.For(r.Binding).Lookup(r.WorkspaceID)
+	d, key, err := delivery(r)
 	if err != nil {
 		return err
 	}
-	d := store.Delivery{HerdrSession: &r.Binding.Session, PaneID: r.PaneID, Result: store.ResultEmitted}
-	var key string
+	// The forget check, the read, the print and the receipt are one write transaction. A forget
+	// marks the outputs in a write transaction, so it commits before the check or after the
+	// receipt, never between them.
+	return rc.s.Write(ctx, func(tx *sql.Tx) error {
+		if rc.launch != 0 {
+			if err := launchRunning(ctx, tx, rc.launch); err != nil {
+				return err
+			}
+		}
+		d, text, err := h.compile(ctx, tx, r.Binding.Store, d, key, rc.agentSession)
+		if err != nil {
+			return err
+		}
+		if text != "" {
+			if err := h.Profile.Write(stdout, text); err != nil {
+				return err
+			}
+		}
+		return rc.insert(ctx, tx, d)
+	})
+}
+
+// delivery returns the receipt of the brief for the pane of r before the read of the brief,
+// and the workspace key of its workspace part: "" for none.
+func delivery(r *resolver.Resolved) (d store.Delivery, key string, err error) {
+	m, err := workspace.For(r.Binding).Lookup(r.WorkspaceID)
+	if err != nil {
+		return d, "", err
+	}
+	d = store.Delivery{HerdrSession: &r.Binding.Session, PaneID: r.PaneID, Result: store.ResultEmitted}
 	switch m.State {
 	case workspace.Mapped:
 		key = m.Entry.Key
@@ -245,40 +278,40 @@ func (h Hook) deliver(ctx context.Context, rc *receipts, r *resolver.Resolved, s
 		d = withheld(d, reasonIdentity)
 		d.WorkspaceKey = &m.Entry.Key
 	}
-	// The forget check, the read, the print and the receipt are one write transaction. A forget
-	// marks the outputs in a write transaction, so it commits before the check or after the
-	// receipt, never between them.
-	return rc.s.Write(ctx, func(tx *sql.Tx) error {
-		pending, err := store.ForgetPending(ctx, tx)
-		if err != nil {
-			return err
-		}
-		if pending {
-			return rc.insert(ctx, tx, withheld(d, reasonForget))
-		}
-		b, err := output.Read(filepath.Join(r.Binding.Store, outDir), key)
-		if errors.Is(err, output.ErrInconsistent) {
-			return rc.insert(ctx, tx, withheld(d, reasonInconsistent))
-		}
-		if err != nil {
-			return err
-		}
-		ws, err := h.lastSession(ctx, tx, key, rc.agentSession, b)
-		if err != nil {
-			return err
-		}
-		// The brief is made from the same bytes that passed the manifest check. The receipt
-		// names the (item, revision) pairs of that manifest, not the store rows now.
-		// The brief hash covers the last session line and its handoff lines too.
-		text := brief.Text(b.Global, ws)
-		if err := h.Profile.Write(stdout, text); err != nil {
-			return err
-		}
-		sum := sha256.Sum256([]byte(text))
-		briefHash := hex.EncodeToString(sum[:])
-		d.BriefHash, d.OutputGeneration, d.ItemRevisions = &briefHash, &b.Generation, b.Revisions
-		return rc.insert(ctx, tx, d)
-	})
+	return d, key, nil
+}
+
+// compile reads the brief of the current generation in the store folder dir for the agent
+// session agentSession, in tx, and returns receipt d with its brief fields and the brief text.
+// The text is "" when the receipt withholds the brief: a forget is pending, or the generation
+// is not whole. key is the workspace key of delivery.
+func (h Hook) compile(ctx context.Context, tx *sql.Tx, dir string, d store.Delivery, key, agentSession string) (store.Delivery, string, error) {
+	pending, err := store.ForgetPending(ctx, tx)
+	if err != nil {
+		return d, "", err
+	}
+	if pending {
+		return withheld(d, reasonForget), "", nil
+	}
+	b, err := output.Read(filepath.Join(dir, outDir), key)
+	if errors.Is(err, output.ErrInconsistent) {
+		return withheld(d, reasonInconsistent), "", nil
+	}
+	if err != nil {
+		return d, "", err
+	}
+	ws, err := h.lastSession(ctx, tx, key, agentSession, b)
+	if err != nil {
+		return d, "", err
+	}
+	// The brief is made from the same bytes that passed the manifest check. The receipt
+	// names the (item, revision) pairs of that manifest, not the store rows now.
+	// The brief hash covers the last session line and its handoff lines too.
+	text := brief.Text(b.Global, ws)
+	sum := sha256.Sum256([]byte(text))
+	briefHash := hex.EncodeToString(sum[:])
+	d.BriefHash, d.OutputGeneration, d.ItemRevisions = &briefHash, &b.Generation, b.Revisions
+	return d, text, nil
 }
 
 // lastSession adds the line of the last session of workspace key before agent session
@@ -334,6 +367,7 @@ type receipts struct {
 	recorded bool
 	// checks are the agent checks of earlier records. They join the receipt transaction.
 	checks []agentCheck
+	launch int64 // the launch record of a launched session; 0 for none
 }
 
 // agentCheck is one check of an earlier (pane, agent session id) record.
@@ -386,6 +420,9 @@ func (rc *receipts) insert(ctx context.Context, tx *sql.Tx, d store.Delivery) er
 	if rc.recorded {
 		pending := string(resolver.AgentPending)
 		d.AgentCheck = &pending
+	}
+	if rc.launch != 0 {
+		d.LaunchID = &rc.launch
 	}
 	_, err := store.InsertDelivery(ctx, tx, d)
 	return err

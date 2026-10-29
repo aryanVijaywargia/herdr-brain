@@ -701,8 +701,8 @@ func TestPartialBuild(t *testing.T) {
 	}
 }
 
-// TestProfileArg: the hook takes only the frozen arguments. Only a hook record of a launched
-// session adds a launch folder (E24-S5).
+// TestProfileArg: the hook takes only the frozen arguments. A hook of a launched session adds
+// a launch folder (E24-S4, E24-S5).
 func TestProfileArg(t *testing.T) {
 	tests := []struct {
 		args  []string
@@ -721,7 +721,7 @@ func TestProfileArg(t *testing.T) {
 		{[]string{"--event", "start", "--profile", "codex"}, "", "", "", false},
 		{[]string{"--profile", "", "--event", "start"}, "", "", "", false},
 		{[]string{"--profile", "codex"}, "", "", "", false},
-		{[]string{"--profile", "codex", "--event", "start", "--launch", "/s/launches/7"}, "", "", "", false},
+		{[]string{"--profile", "codex", "--event", "start", "--launch", "/s/launches/7"}, "codex", "start", "/s/launches/7", true},
 		{[]string{"--profile", "codex", "--event", "stop", "--launch", ""}, "", "", "", false},
 		{[]string{"--profile", "codex", "--event", "stop", "--launch"}, "", "", "", false},
 		{[]string{"--profile", "codex", "--event", "stop", "--folder", "/s/launches/7"}, "", "", "", false},

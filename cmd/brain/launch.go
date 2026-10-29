@@ -6,6 +6,7 @@ import (
 	"syscall"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/cli"
+	"github.com/aryanVijaywargia/herdr-brain/internal/hook"
 	"github.com/aryanVijaywargia/herdr-brain/internal/launch"
 )
 
@@ -22,6 +23,7 @@ func launchCommand(kind string) func(context.Context, cli.Env, []string) error {
 			return err
 		}
 		return launch.Main(ctx, launch.Deps{Environ: e.Environ, PID: os.Getpid(), Self: self, Bindings: e.Bindings, Pane: e.Pane,
-			Now: e.Now, Stderr: e.Stderr, Exec: syscall.Exec, Dir: dir, CodexSystem: "/etc/codex"}, kind, args)
+			Now: e.Now, Stderr: e.Stderr, Exec: syscall.Exec, Dir: dir, CodexSystem: "/etc/codex",
+			Brief: hook.LaunchBrief}, kind, args)
 	}
 }

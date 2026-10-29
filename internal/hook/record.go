@@ -141,15 +141,9 @@ func (h Hook) resolve(ctx context.Context) (*resolver.Resolved, error) {
 		r, _ := res.(*resolver.Resolved)
 		return r, err
 	}
-	// The herdr lookup of the check ends by the lookup deadline, as the resolver's does.
-	lctx, cancel := context.WithDeadline(ctx, h.Start.Add(lookupDeadline))
-	l, err := launch.Check(lctx, h.Bindings, h.Launch, h.Environ)
-	cancel()
+	l, err := h.checkLaunch(ctx)
 	if err != nil {
 		return nil, err
-	}
-	if l.CLI != h.Profile.Kind {
-		return nil, fmt.Errorf("launch of %s, hook of profile %s", l.CLI, h.Profile.Kind)
 	}
 	s, err := store.Open(ctx, l.Binding.Store, busyTimeout)
 	if err != nil {

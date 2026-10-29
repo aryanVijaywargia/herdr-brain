@@ -84,6 +84,8 @@ If something doesn't work, run `brain doctor`. It checks the setup and prints a 
 
 In a herdr pane, type `brain claude` or `brain codex` where you would type `claude` or `codex`. Brain starts the CLI with your args, plus its own launch flags for that one session. It changes no config file of the CLI. Outside herdr, or in a workspace that Brain is not set up for, the command starts the plain CLI and prints one line that says why.
 
+The session gets the brief of its workspace at start. Claude Code keeps the brief of the launch for the whole session. If you later resume the session with a plain `claude --resume`, it has no brief. A plain `codex resume` keeps the old brief, because Codex stores it in the session history.
+
 Plain `claude` and `codex` keep working as before.
 
 You can also use the herdr actions "Brain: new Claude pane" and "Brain: new Codex pane". Each one splits the focused pane, in the same folder, and runs `brain claude` or `brain codex` in the new pane. When the CLI exits, the pane keeps its shell, so you can still read the last lines.
