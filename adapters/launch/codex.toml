@@ -1,0 +1,35 @@
+# The launch data of `brain codex` (E24-S2), from the E24-S1 spike and its fact-check on
+# Codex 0.165.0.
+min_version = "0.165.0"
+# --no-daemon runs the app server in the pane process, so the hooks and the MCP server get the
+# env of the pane. Any -c override does this too, but that rule can change. Brain flags go
+# before the subcommand: the top-level flags also apply to `codex resume`.
+flags = ["--no-daemon"]
+# A subcommand, or one of these flags, starts the plain CLI. With --remote the hooks and the
+# MCP server run in the remote server, not in the pane. cloud-tasks is an alias; execpolicy,
+# tcp-tunnel, responses-api-proxy and stdio-to-uds are hidden commands.
+subcommands = ["exec", "e", "review", "login", "logout", "mcp", "plugin", "app-server", "remote-control", "app",
+  "completion", "update", "doctor", "sandbox", "debug", "apply", "a", "queue", "archive", "delete", "migrate-rollouts",
+  "migrate-nfs-db", "unarchive", "cloud", "cloud-tasks", "exec-server", "features", "help", "agents", "execpolicy",
+  "tcp-tunnel", "responses-api-proxy", "stdio-to-uds"]
+# The subcommands that get Brain flags. A prompt is no subcommand: `codex hi --no-daemon` has a
+# top-level --no-daemon.
+brain_subcommands = ["resume", "fork"]
+plain_flags = ["--remote", "--remote-auth-token-env", "-h", "--help", "-V", "--version"]
+value_flags = ["-c", "--config", "--enable", "--disable", "--remote", "--remote-auth-token-env", "-m", "--model",
+  "--local-provider", "-p", "--profile", "-s", "--sandbox", "-C", "--cd", "--add-dir", "-a", "--ask-for-approval"]
+variadic_flags = ["-i", "--image"]
+# keep: Codex refuses a second --no-daemon at one level, so a top-level --no-daemon of the user
+# stays and Brain adds none. refuse: Brain says why and starts nothing. A later -c value
+# replaces the Brain value, and a -c of a parent table (hooks, hooks.state, mcp_servers)
+# replaces all the Brain keys under it. no-brain: Codex runs no hooks, so Brain starts the
+# plain CLI. value is a pattern of the user's value. key and equals read the -c value as Codex
+# does (the key, "=", a TOML value), so `features={"hooks"=false}` turns off the hooks too.
+conflicts = [
+  { flags = ["--no-daemon"], rule = "keep" },
+  { flags = ["-c", "--config"], value = '^\s*mcp_servers\s*(?:=|\.\s*"?brain"?\s*[.=])', rule = "refuse", reason = "it replaces the Brain MCP server of the launch" },
+  { flags = ["-c", "--config"], value = '^\s*hooks\s*(?:=|\.\s*"?(?:SessionStart|UserPromptSubmit|PostToolUse|Stop)"?\s*=)', rule = "refuse", reason = "it replaces the Brain hooks of the launch" },
+  { flags = ["-c", "--config"], value = '^\s*hooks\s*\.\s*"?state"?\s*=', rule = "refuse", reason = "it replaces the Brain hook trust of the launch" },
+  { flags = ["--disable"], value = '^hooks$', rule = "no-brain", reason = "it turns off the hooks" },
+  { flags = ["-c", "--config"], key = "features.hooks", equals = false, rule = "no-brain", reason = "it turns off the hooks" },
+]

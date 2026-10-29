@@ -14,6 +14,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/cli"
 	"github.com/aryanVijaywargia/herdr-brain/internal/event"
 	"github.com/aryanVijaywargia/herdr-brain/internal/hook"
+	"github.com/aryanVijaywargia/herdr-brain/internal/launch"
 	"github.com/aryanVijaywargia/herdr-brain/internal/update"
 )
 
@@ -55,10 +56,20 @@ commands:
   tools     list the approved tools that this workspace can run, with their inputs
   automation add <tool> --folder <dir> --cli <cli> | list | pause <item> | resume <item> | remove <item>:
             run an approved tool after each stop of the agent (brain automation --help)
+
+launch (one for each CLI with launch data):
+  claude    [<args>]: start Claude Code in this pane with the Brain launch flags, then your args with no
+            change; outside herdr, in an unbound session or for a form such as -p, the plain CLI starts
+            and one line on stderr says why. brain claude --help is the help of claude
+  codex     [<args>]: the same for Codex
 `
 
-// commands are the store commands of internal/cli, by name.
+// commands are the commands that run with a cli.Env, by name: the store commands of
+// internal/cli, and the launch command of each CLI kind with launch data (E24-S2,
+// TestLaunchKindNames).
 var commands = map[string]func(context.Context, cli.Env, []string) error{
+	"claude":     launchCommand("claude"),
+	"codex":      launchCommand("codex"),
 	"remember":   cli.Remember,
 	"recall":     cli.Recall,
 	"review":     cli.Review,
@@ -116,7 +127,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "setup":
 		err = setup(context.Background(), osSetupDeps(os.Environ()), args[1:], in, stdout)
 	case "status", "doctor", "remember", "recall", "review", "pin", "archive", "promote", "undo", "workspace", "forget", "repair", "pane", "uninstall", "learn", "extract",
-		"suggest", "run", "tools", "automation":
+		"suggest", "run", "tools", "automation", "claude", "codex":
 		err = command(commands[args[0]], args[1:], in, stdout, stderr)
 	case "update":
 		err = updateMain(args[1:], stdin, stdout, stderr)
@@ -170,9 +181,11 @@ func updateMain(args []string, stdin io.Reader, stdout, stderr io.Writer) error 
 }
 
 // helpFlag reports whether the arguments args of command name are only -h or --help, for a
-// command that takes arguments (#318). The hook gets no help: it prints only the brief.
+// command that takes arguments (#318). The hook gets no help: it prints only the brief. A
+// launch passes -h to the CLI: brain claude --help is the help of claude.
 func helpFlag(name string, args []string) bool {
 	_, store := commands[name]
+	store = store && !slices.Contains(launch.Kinds(), name)
 	cmd := store || slices.Contains([]string{"setup", "update", "event", "start", "brained"}, name)
 	return cmd && len(args) == 1 && (args[0] == "-h" || args[0] == "--help")
 }

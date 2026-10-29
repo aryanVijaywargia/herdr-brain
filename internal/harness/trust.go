@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
 
@@ -167,6 +168,19 @@ func readHookStates(path string) (map[string]hookState, error) {
 	return cfg.Hooks.State, nil
 }
 
+// CodexHookHash returns the trust key label and the trusted hash of a Codex hook group of one
+// command handler with the default timeout, as a launch passes it with -c (E24-S2). matcher
+// and contextLimit are nil when the group has none. Codex 0.165 hashes a -c hook with the rule
+// of a hooks.json hook (E24-S1).
+func CodexHookHash(event string, matcher *string, command string, contextLimit *uint64) (label, hash string, err error) {
+	label, ok := eventLabels[event]
+	if !ok {
+		return "", "", fmt.Errorf("codex trust: unknown event %q", event)
+	}
+	hash, err = hookHash(event, label, matcher, handler{Type: "command", Command: command, AdditionalContextLimit: contextLimit})
+	return label, hash, err
+}
+
 // hookHash is hook_hash and version_for_toml of Codex 0.154, as the E8-S3 probe computes it:
 // the normalized identity {event_name, matcher, hooks: [handler]} as JSON with sorted keys and
 // no spaces, then SHA-256, as "sha256:<hex>".
@@ -206,8 +220,31 @@ func hookHash(event, label string, matcher *string, h handler) (string, error) {
 	if err := enc.Encode(identity); err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(bytes.TrimSuffix(buf.Bytes(), []byte("\n")))
+	sum := sha256.Sum256(lineSeparators(bytes.TrimSuffix(buf.Bytes(), []byte("\n"))))
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+// lineSeparators returns the JSON text b with the JSON escape of each U+2028 and U+2029 as the
+// UTF-8 bytes of its character. encoding/json escapes these two characters, and the serde_json
+// of Codex does not. An escaped backslash before "u2028" stays: the scan reads each escape as one pair.
+func lineSeparators(b []byte) []byte {
+	out := make([]byte, 0, len(b))
+	for i := 0; i < len(b); i++ {
+		switch {
+		case b[i] != '\\' || i+1 == len(b):
+			out = append(out, b[i])
+		case bytes.HasPrefix(b[i+1:], []byte("u2028")):
+			out = utf8.AppendRune(out, 0x2028)
+			i += 5
+		case bytes.HasPrefix(b[i+1:], []byte("u2029")):
+			out = utf8.AppendRune(out, 0x2029)
+			i += 5
+		default:
+			out = append(out, b[i], b[i+1])
+			i++
+		}
+	}
+	return out
 }
 
 // matcherEvent reports whether Codex keeps the matcher of the event (matcher_pattern_for_event).

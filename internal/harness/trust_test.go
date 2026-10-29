@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -55,6 +56,46 @@ func TestHookHashMatchesCodex(t *testing.T) {
 				t.Errorf("hash = %s, want %s", got, tt.want)
 			}
 		})
+	}
+}
+
+// The E24-S1 spike passed this hash with -c hooks.state for the -c SessionStart hook of this
+// command, and Codex 0.165 ran the hook with no trust prompt.
+func TestCodexHookHash(t *testing.T) {
+	const command = "/tmp/e24s1-scratch/tools/hook.sh /tmp/e24s1-scratch/hooks.log CODEX-LAUNCH codex-start"
+	label, sum, err := CodexHookHash("SessionStart", nil, command, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "sha256:fe07e8a190835d341d6b7eb164fb934c9efa886f63eaa143c759efbfc68752f2"; label != "session_start" || sum != want {
+		t.Errorf("CodexHookHash() = %s, %s, want session_start, %s", label, sum, want)
+	}
+	// additionalContextLimit 0 is not the default, so it changes the hash.
+	_, limited, err := CodexHookHash("SessionStart", nil, command, ptr[uint64](0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if limited == sum {
+		t.Errorf("CodexHookHash() with additionalContextLimit 0 = %s, the hash with none", limited)
+	}
+	// serde_json hashes U+2028 and U+2029 as their UTF-8 bytes (a live Codex 0.165 run trusted
+	// this hash). A backslash before "u2028" in the text stays an escaped backslash.
+	for _, tt := range []struct{ command, identity string }{
+		{"/tmp/brain" + string(rune(0x2028)) + "dir/brain hook" + string(rune(0x2029)), "/tmp/brain" + string(rune(0x2028)) + "dir/brain hook" + string(rune(0x2029))},
+		{`/tmp/a\` + "u2028b", `/tmp/a\\` + "u2028b"},
+	} {
+		identity := `{"event_name":"session_start","hooks":[{"additionalContextLimit":0,"async":false,"command":"` +
+			tt.identity + `","timeout":600,"type":"command"}]}`
+		_, got, err := CodexHookHash("SessionStart", nil, tt.command, ptr[uint64](0))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(identity))); got != want {
+			t.Errorf("CodexHookHash(%q) = %s, want %s", tt.command, got, want)
+		}
+	}
+	if _, _, err := CodexHookHash("Nope", nil, command, nil); err == nil {
+		t.Error("CodexHookHash(Nope) = nil error, want an unknown event")
 	}
 }
 
