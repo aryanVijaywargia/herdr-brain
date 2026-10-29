@@ -172,7 +172,7 @@ func (r *Runner) startCLI(ctx context.Context, h Herdr, shell herdr.Pane, dir, n
 // splitStart opens a pane beside the shell pane in dir and starts agent name of kind in it.
 func (r *Runner) splitStart(ctx context.Context, h Herdr, shell herdr.Pane, dir, name, kind string, args []string, opened *[]string) (herdr.Pane, error) {
 	pane, err := call(ctx, r.Timeouts.Call, func(ctx context.Context) (herdr.Pane, error) {
-		return h.SplitPane(ctx, shell.ID, dir)
+		return h.SplitPane(ctx, shell.ID, dir, false)
 	})
 	if err != nil {
 		return herdr.Pane{}, err

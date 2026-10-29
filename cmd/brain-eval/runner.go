@@ -28,7 +28,7 @@ type Herdr interface {
 	Workspaces(ctx context.Context) ([]herdr.Workspace, error)
 	PaneProcessInfo(ctx context.Context, id string) (herdr.ProcessInfo, error)
 	CreateWorkspace(ctx context.Context, cwd, label string) (herdr.Pane, error)
-	SplitPane(ctx context.Context, id, cwd string) (herdr.Pane, error)
+	SplitPane(ctx context.Context, id, cwd string, focus bool) (herdr.Pane, error)
 	ClosePane(ctx context.Context, id string) error
 	RunInPane(ctx context.Context, id, command string) error
 	WaitOutput(ctx context.Context, id, re string, timeout time.Duration) (string, error)

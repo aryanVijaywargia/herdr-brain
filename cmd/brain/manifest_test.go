@@ -177,3 +177,20 @@ func TestManifestRetiredAction(t *testing.T) {
 		}
 	}
 }
+
+// E24-S7 AC 1: the actions "Brain: new Claude pane" and "Brain: new Codex pane" run
+// `brain new-pane claude` and `brain new-pane codex` (TestNewPane).
+func TestManifestNewPaneActions(t *testing.T) {
+	for id, title := range map[string]string{"claude": "Brain: new Claude pane", "codex": "Brain: new Codex pane"} {
+		action := findTable(manifestTables(t, "actions"), id)
+		if action == nil {
+			t.Fatalf("no [[actions]] with id %s", id)
+		}
+		if action["title"] != `"`+title+`"` || action["contexts"] != `["workspace", "pane"]` {
+			t.Errorf("%s action = %v, want title %s in the workspace and pane contexts", id, action, title)
+		}
+		if !strings.Contains(action["command"], `exec \"$HERDR_PLUGIN_ROOT/bin/brain\" new-pane `+id+`"`) {
+			t.Errorf("%s action command = %s, want it to run bin/brain new-pane %s", id, action["command"], id)
+		}
+	}
+}

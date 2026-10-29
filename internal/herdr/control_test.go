@@ -28,13 +28,18 @@ func TestCreateWorkspace(t *testing.T) {
 }
 
 func TestSplitPane(t *testing.T) {
-	cmd := "pane split w1:p1 --direction right --cwd /tmp/w --no-focus"
-	c, _ := fakeClient(t, map[string]reply{cmd: {Stdout: fixture(t, "pane-split.json")}})
-	p, err := c.SplitPane(deadline(t), "w1:p1", "/tmp/w")
-	if err != nil || p.ID != "w1:p2" || p.WorkspaceID != "w1" {
-		t.Errorf("SplitPane() = %+v, %v, want pane w1:p2", p, err)
+	split := fixture(t, "pane-split.json")
+	c, _ := fakeClient(t, map[string]reply{
+		"pane split w1:p1 --direction right --cwd /tmp/w --no-focus": {Stdout: split},
+		"pane split w1:p1 --direction right --cwd /tmp/w --focus":    {Stdout: split},
+	})
+	for _, focus := range []bool{false, true} {
+		p, err := c.SplitPane(deadline(t), "w1:p1", "/tmp/w", focus)
+		if err != nil || p.ID != "w1:p2" || p.WorkspaceID != "w1" {
+			t.Errorf("SplitPane(focus %v) = %+v, %v, want pane w1:p2", focus, p, err)
+		}
 	}
-	if _, err := c.SplitPane(deadline(t), "p1", "/tmp/w"); err == nil {
+	if _, err := c.SplitPane(deadline(t), "p1", "/tmp/w", false); err == nil {
 		t.Error("SplitPane(malformed id) = nil, want an error")
 	}
 }

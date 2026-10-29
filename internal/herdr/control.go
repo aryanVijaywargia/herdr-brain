@@ -13,7 +13,8 @@ import (
 )
 
 // The calls in this file open, drive and close panes and agents, and start a named herdr
-// server. Only the eval runner (E10) uses them, and only in its test session.
+// server. The eval runner (E10) uses them, only in its test session. `brain new-pane` (E24-S7)
+// uses SplitPane and RunInPane in the session of the plugin action.
 
 // CreateWorkspace opens a workspace with its root pane in folder cwd, from `herdr workspace
 // create`. It never takes focus. It returns the root pane.
@@ -33,15 +34,19 @@ func (c *Client) CreateWorkspace(ctx context.Context, cwd, label string) (Pane, 
 }
 
 // SplitPane opens a pane to the right of the pane with id, in folder cwd, from `herdr pane
-// split`. It never takes focus.
-func (c *Client) SplitPane(ctx context.Context, id, cwd string) (Pane, error) {
+// split`. The new pane takes focus only when focus is set.
+func (c *Client) SplitPane(ctx context.Context, id, cwd string, focus bool) (Pane, error) {
 	if err := checkPaneID(id); err != nil {
 		return Pane{}, fmt.Errorf("herdr pane split: %w", err)
 	}
 	var r struct {
 		Pane *rawPane `json:"pane"`
 	}
-	err := c.result(ctx, "pane_info", &r, "pane", "split", id, "--direction", "right", "--cwd", cwd, "--no-focus")
+	flag := "--no-focus"
+	if focus {
+		flag = "--focus"
+	}
+	err := c.result(ctx, "pane_info", &r, "pane", "split", id, "--direction", "right", "--cwd", cwd, flag)
 	if err != nil {
 		return Pane{}, fmt.Errorf("herdr pane split: %w", err)
 	}

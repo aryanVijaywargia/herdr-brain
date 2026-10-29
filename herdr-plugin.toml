@@ -120,6 +120,22 @@ title = "Brain links to review"
 placement = "popup"
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" pane links"]
 
+# E24-S7: `brain new-pane` splits the focused pane, in the cwd of that pane, and types
+# `brain claude` or `brain codex` into the new pane's shell. The pane keeps its shell after the
+# CLI exits, so the "resume with" line stays. Also: `herdr plugin action invoke brain.claude`
+# and `brain.codex`.
+[[actions]]
+id = "claude"
+title = "Brain: new Claude pane"
+contexts = ["workspace", "pane"]
+command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" new-pane claude"]
+
+[[actions]]
+id = "codex"
+title = "Brain: new Codex pane"
+contexts = ["workspace", "pane"]
+command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" new-pane codex"]
+
 # E2-S6: a close marks the workspace closed, because herdr reuses a closed id after a
 # restart. herdr runs the command once for each event; there is no listener process.
 [[events]]

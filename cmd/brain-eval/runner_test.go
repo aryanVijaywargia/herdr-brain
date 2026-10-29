@@ -195,7 +195,7 @@ func (f *fakeHerdr) CreateWorkspace(_ context.Context, cwd, label string) (herdr
 	return f.add(id+":p1", cwd).pane, nil
 }
 
-func (f *fakeHerdr) SplitPane(_ context.Context, id, cwd string) (herdr.Pane, error) {
+func (f *fakeHerdr) SplitPane(_ context.Context, id, cwd string, _ bool) (herdr.Pane, error) {
 	p, err := f.get(id)
 	if err != nil {
 		return herdr.Pane{}, err

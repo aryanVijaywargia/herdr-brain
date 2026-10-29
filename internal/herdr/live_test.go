@@ -167,7 +167,7 @@ func TestLiveServerControl(t *testing.T) {
 	if line, err := c.WaitOutput(deadline(t), root.ID, "live-done-kest [0-9]+", 10*time.Second); err != nil || line != "live-done-kest 0" {
 		t.Errorf("WaitOutput() = %q, %v", line, err)
 	}
-	p, err := c.SplitPane(deadline(t), root.ID, work)
+	p, err := c.SplitPane(deadline(t), root.ID, work, false)
 	if err != nil {
 		t.Fatal(err)
 	}
