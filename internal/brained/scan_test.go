@@ -483,7 +483,7 @@ func TestScanSkipsAndScope(t *testing.T) {
 	f.codex("exec", time.Hour, xMeta("exec", "/nowhere", "exec", nil), xUser(1, "a prompt"))
 	f.codex("fork", time.Hour, xMeta("fork", "/nowhere", "cli", obj{"forked_from_id": "parent"}), xUser(1, "a prompt"))
 	f.codex("sub", time.Hour, xMeta("sub", "/nowhere", "cli", obj{"parent_thread_id": "parent"}), xUser(1, "a prompt"))
-	f.codex("odd", time.Hour, xMeta("odd", "/nowhere", "cli", nil), jsonLine(obj{"timestamp": at(1), "type": "weird"}))
+	f.codex("odd", time.Hour, xMeta("odd", "/nowhere", "cli", nil), jsonLine(obj{"timestamp": at(1), "type": "event_msg", "payload": obj{}}))
 	f.codex("read", time.Hour, xMeta("read", "/nowhere", "vscode", nil), xUser(1, "a prompt"))
 	f.file(filepath.Join(".codex", "sessions", "2026", "10", "12", "rollout-z.jsonl.zst"), time.Hour)
 	f.run()
@@ -867,7 +867,7 @@ func TestScanKinds(t *testing.T) {
 // When no Codex file parses, the scan reads no Codex session, and Claude continues.
 func TestScanNoCodexParses(t *testing.T) {
 	f := newScanFix(t, bindings.KindMain)
-	f.codex("x1", time.Hour, xMeta("x1", "/nowhere", "cli", nil), jsonLine(obj{"timestamp": at(1), "type": "weird"}))
+	f.codex("x1", time.Hour, xMeta("x1", "/nowhere", "cli", nil), jsonLine(obj{"timestamp": at(1), "type": "event_msg", "payload": obj{}}))
 	f.codex("x2", time.Hour, jsonLine(obj{"timestamp": at(1), "type": "response_item", "payload": obj{}}))
 	f.claude("c1", time.Hour, cUser("u1", "/nowhere", 1, "a prompt"))
 	f.run()
@@ -877,6 +877,25 @@ func TestScanNoCodexParses(t *testing.T) {
 	}
 	if sc := f.row(); fmt.Sprint(sc.Counts) != fmt.Sprint(want) || sc.Status != store.ScanExtracting {
 		t.Errorf("row = %s %v, want extracting %v", sc.Status, sc.Counts, want)
+	}
+}
+
+// A command of a Codex exec cell, with its failure output on the same item_completed line,
+// gives both a command record and the failure excerpt: the two records have their own ids.
+func TestScanCodexCompletedFailure(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "transcript", "testdata", "codex-custom-tool.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newScanFix(t, bindings.KindMain)
+	f.codex("custom", time.Hour, strings.TrimSpace(string(b)))
+	f.run()
+	obs, commands := f.observations()
+	if len(commands) != 3 || commands[1].ExitStatus == nil || *commands[1].ExitStatus != 1 {
+		t.Fatalf("command records = %+v, want three, the second with exit 1", commands)
+	}
+	if !slices.ContainsFunc(obs, func(o store.Observation) bool { return strings.Contains(o.Excerpt, "--- FAIL: TestCart") }) {
+		t.Errorf("observations = %+v, want the failure output of the CommandExecution", obs)
 	}
 }
 
