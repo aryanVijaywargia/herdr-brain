@@ -1,16 +1,18 @@
 // Package transcript reads past Claude Code and Codex session files for the history scan at
-// setup. It parses only: it stores nothing and calls no secret filter. The formats come
+// setup, and the Codex rollout of a launched session at its end (E24-S5). It parses only: it stores nothing and calls no secret filter. The formats come
 // from the CLI docs and source code; no real transcript was read to write it.
 package transcript
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -135,14 +137,20 @@ type ref struct{ turn, cmd int }
 
 // lines calls fn with each whole line of the first limit bytes of the file at path and the
 // byte offset of the line. A last line with no newline is not yet whole: a session that still
-// runs or a cut at the limit leaves it, so it is skipped.
-func lines(path string, limit int64, fn func(line []byte, offset int64) error) error {
+// runs or a cut at the limit leaves it, so it is skipped. The end of ctx stops the read, also
+// inside a long line.
+func lines(ctx context.Context, path string, limit int64, fn func(line []byte, offset int64) error) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close() //nolint:errcheck // read-only: Close cannot lose data
-	r := bufio.NewReader(io.LimitReader(f, limit))
+	r := bufio.NewReader(io.LimitReader(readerFunc(func(p []byte) (int, error) {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		return f.Read(p)
+	}), limit))
 	var offset int64
 	for n := 1; ; n++ {
 		line, err := r.ReadBytes('\n')
@@ -158,6 +166,11 @@ func lines(path string, limit int64, fn func(line []byte, offset int64) error) e
 		offset += int64(len(line))
 	}
 }
+
+// readerFunc is a function as an io.Reader.
+type readerFunc func(p []byte) (int, error)
+
+func (f readerFunc) Read(p []byte) (int, error) { return f(p) }
 
 // parseTime parses the time of a record; "" gives the zero time.
 func parseTime(s string) (time.Time, error) {
@@ -240,10 +253,11 @@ type Listing struct {
 // codexHome: Claude <claude home>/projects/<folder>/<id>.jsonl and Codex
 // <codex home>/sessions/YYYY/MM/DD/rollout-*.jsonl, by change time, newest first. The fixed
 // depths leave out the Claude subagents/ and tool-results/ folders and Codex
-// archived_sessions/. It skips Claude set-aside copies and counts Codex *.jsonl.zst files.
-func List(claudeHome, codexHome string) (Listing, error) {
+// archived_sessions/. It skips Claude set-aside copies and counts Codex *.jsonl.zst files. The end
+// of ctx stops the walk.
+func List(ctx context.Context, claudeHome, codexHome string) (Listing, error) {
 	var l Listing
-	claude, err := atDepth(filepath.Join(claudeHome, "projects"), 2)
+	claude, err := atDepth(ctx, filepath.Join(claudeHome, "projects"), 2)
 	if err != nil {
 		return Listing{}, err
 	}
@@ -256,7 +270,7 @@ func List(claudeHome, codexHome string) (Listing, error) {
 			}
 		}
 	}
-	codex, err := atDepth(filepath.Join(codexHome, "sessions"), 4)
+	codex, err := atDepth(ctx, filepath.Join(codexHome, "sessions"), 4)
 	if err != nil {
 		return Listing{}, err
 	}
@@ -276,6 +290,33 @@ func List(claudeHome, codexHome string) (Listing, error) {
 	return l, nil
 }
 
+// threadRe is a Codex thread id: a UUID. A full id cannot match the end of another one.
+var threadRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// CodexRollout returns the rollout file of Codex thread id under the Codex home codexHome:
+// <codex home>/sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl, by its name (E24-S5). It never
+// picks a file by its time. ok is false when the id is no thread id, or when not exactly one
+// file has it. The end of ctx stops the walk.
+func CodexRollout(ctx context.Context, codexHome, id string) (path string, ok bool, err error) {
+	if !threadRe.MatchString(id) {
+		return "", false, nil
+	}
+	ps, err := atDepth(ctx, filepath.Join(codexHome, "sessions"), 4)
+	if err != nil {
+		return "", false, err
+	}
+	var found []string
+	for _, p := range ps {
+		if name := filepath.Base(p); strings.HasPrefix(name, "rollout-") && strings.HasSuffix(name, "-"+id+".jsonl") {
+			found = append(found, p)
+		}
+	}
+	if len(found) != 1 {
+		return "", false, nil
+	}
+	return found[0], true, nil
+}
+
 // appendFile appends the file at path with its change time.
 func appendFile(files []File, harness, path string) ([]File, error) {
 	info, err := os.Stat(path)
@@ -285,10 +326,13 @@ func appendFile(files []File, harness, path string) ([]File, error) {
 	return append(files, File{Harness: harness, Path: path, Changed: info.ModTime()}), nil
 }
 
-// atDepth returns the regular files exactly depth levels under root.
-func atDepth(root string, depth int) ([]string, error) {
+// atDepth returns the regular files exactly depth levels under root. The end of ctx stops it.
+func atDepth(ctx context.Context, root string, depth int) ([]string, error) {
 	var ps []string
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
 		if err != nil {
 			// A home with no Claude or no Codex has no files of it.
 			if p == root && errors.Is(err, fs.ErrNotExist) {

@@ -46,13 +46,15 @@ func HookText(harness, text string) (excerpt string, truncated, brain bool) {
 // matches: the same session, a time within matchWindow, the pane sender of the
 // hook event, and the same normalized text. The hook record then enriches the pane observation
 // and is not a second occurrence. The nearest counterpart in time wins. o.ID is the stored
-// row; o.Source is herdr or hook.
+// row; o.Source is herdr or hook, or transcript for a record of the rollout of a launched Codex
+// session, which matches as a hook record does (E24-S5). A pane record matches hook records
+// only: brained reads a rollout after the pane reads.
 func Match(ctx context.Context, tx *sql.Tx, harness string, session int64, o store.Observation) error {
 	c, err := counterpart(ctx, tx, harness, session, o)
 	if err != nil || c == 0 {
 		return err
 	}
-	if o.Source == store.SourceHook {
+	if o.Source != store.SourceHerdr {
 		return store.Enrich(ctx, tx, c, o.ID)
 	}
 	return store.Enrich(ctx, tx, o.ID, c)
@@ -65,7 +67,7 @@ func counterpart(ctx context.Context, tx *sql.Tx, harness string, session int64,
 		return 0, nil
 	}
 	other := store.SourceHook
-	if o.Source == store.SourceHook {
+	if o.Source != store.SourceHerdr {
 		other = store.SourceHerdr
 	}
 	cs, err := store.Counterparts(ctx, tx, session, other, o.At, matchWindow)
@@ -74,7 +76,7 @@ func counterpart(ctx context.Context, tx *sql.Tx, harness string, session int64,
 	}
 	for _, c := range cs {
 		pane, hook := o, c
-		if o.Source == store.SourceHook {
+		if o.Source != store.SourceHerdr {
 			pane, hook = c, o
 		}
 		if pane.Sender == paneSender(hook) &&

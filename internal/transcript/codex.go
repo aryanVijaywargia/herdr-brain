@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -93,10 +94,10 @@ type codex struct {
 }
 
 // ReadCodex reads the Codex session file at path up to limit bytes. The first line is the
-// session_meta.
-func ReadCodex(path string, limit int64) (Session, error) {
+// session_meta. The end of ctx stops the read.
+func ReadCodex(ctx context.Context, path string, limit int64) (Session, error) {
 	c := codex{calls: map[string]ref{}, turns: map[string]int{}}
-	if err := lines(path, limit, c.line); err != nil {
+	if err := lines(ctx, path, limit, c.line); err != nil {
 		return Session{}, err
 	}
 	return c.s, nil

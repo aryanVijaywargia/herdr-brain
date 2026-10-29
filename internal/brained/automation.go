@@ -167,7 +167,7 @@ func (l *loop) claim(ctx context.Context, g Gate, a herdr.Agent) (err error) {
 	}
 	var errs []error
 	for _, id := range runs {
-		env := paneEnv(l.d.environ, g.Binding, a.PaneID, a.WorkspaceID)
+		env := PaneEnv(l.d.environ, g.Binding, a.PaneID, a.WorkspaceID)
 		errs = append(errs, l.d.launch(ctx, env, Launch{Run: id, Binding: g.Binding.Session, Store: g.Binding.Store}))
 	}
 	return errors.Join(errs...)

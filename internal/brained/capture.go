@@ -663,7 +663,7 @@ func (c *Capture) suggest(ctx context.Context, s Step, cp *capturePane) error {
 	var errs []error
 	for _, d := range cp.reserved {
 		d.Store = s.Gate.Binding.Store
-		errs = append(errs, c.start(ctx, paneEnv(c.environ, s.Gate.Binding, s.PaneID, cp.workspace), d))
+		errs = append(errs, c.start(ctx, PaneEnv(c.environ, s.Gate.Binding, s.PaneID, cp.workspace), d))
 	}
 	cp.reserved = nil
 	return errors.Join(errs...)

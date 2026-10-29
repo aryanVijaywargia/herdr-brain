@@ -137,7 +137,7 @@ func newEnv(t *testing.T) env {
 
 func (e env) create(t *testing.T, pane, cli string) string {
 	t.Helper()
-	dir, err := Create(context.Background(), e.b, "w1", pane, cli, time.Now())
+	dir, err := Create(context.Background(), e.b, "w1", pane, cli, "", time.Now())
 	if err != nil {
 		t.Fatalf("Create() = %v", err)
 	}
@@ -239,7 +239,7 @@ func TestCreate(t *testing.T) {
 // A launch needs its pane, workspace and CLI kind.
 func TestCreateRefusesEmpty(t *testing.T) {
 	e := newEnv(t)
-	if _, err := Create(context.Background(), e.b, "w1", "", "claude", time.Now()); err == nil {
+	if _, err := Create(context.Background(), e.b, "w1", "", "claude", "", time.Now()); err == nil {
 		t.Error("Create() with no pane = nil, want an error")
 	}
 	if ls := e.records(t); len(ls) != 0 {
@@ -348,7 +348,7 @@ func TestEnd(t *testing.T) {
 	p2 := e.create(t, "w1:p2", "codex")
 	other := e.b
 	other.Socket = "/tmp/other.sock"
-	p3, err := Create(context.Background(), other, "w1", "w1:p1", "claude", time.Now())
+	p3, err := Create(context.Background(), other, "w1", "w1:p1", "claude", "", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

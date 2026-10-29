@@ -13,6 +13,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/brained"
 	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
+	"github.com/aryanVijaywargia/herdr-brain/internal/launch"
 	"github.com/aryanVijaywargia/herdr-brain/internal/resolver"
 	"github.com/aryanVijaywargia/herdr-brain/internal/secret"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -33,7 +34,11 @@ var senders = map[string]store.Sender{
 // observation and, for a tool, one command record. It uses the same resolver and live check
 // as the start hook, and it prints nothing. It stores nothing when the profile does not turn
 // the event on, when learning is off, or when capture has no open segment of the pane: a hook
-// record joins the session that capture keeps.
+// record joins the session that capture keeps, as the global hooks do: a record before capture
+// opens the session of the pane, or of a new session after /clear, is not stored. A launched
+// session's hook uses the pane of its launch record (resolve), stores nothing once the launch
+// has ended, and adds its native session to the launch record with the capture source hooks
+// when it stores a record.
 func (h Hook) record(ctx context.Context, stdin io.Reader) (err error) {
 	var r *resolver.Resolved
 	var rs records
@@ -63,16 +68,26 @@ func (h Hook) record(ctx context.Context, stdin io.Reader) (err error) {
 	}
 	var d brained.Dispatch
 	err = rs.s.Write(ctx, func(tx *sql.Tx) (err error) {
-		d, err = h.write(ctx, tx, r, in, session, gen, h.Now().UTC())
+		if rs.launch != 0 {
+			if err := launchRunning(ctx, tx, rs.launch); err != nil {
+				return err
+			}
+		}
+		d, err = h.write(ctx, tx, r, rs.launch, in, session, gen, h.Now().UTC())
 		return err
 	})
 	if err != nil || d.Suggestion == 0 {
 		return ignoreForgotten(err)
 	}
 	// A prompt that matches a ready proposal: a detached process shows the suggestion, and
-	// the hook does not wait for it. It inherits the pane's environment.
+	// the hook does not wait for it. It inherits the pane's environment; a launched session's
+	// gets the herdr variables of the pane of its launch record, as its own may be missing.
 	d.Store = r.Binding.Store
-	return h.Dispatch(ctx, h.Environ, d)
+	environ := h.Environ
+	if rs.launch != 0 {
+		environ = brained.PaneEnv(environ, r.Binding, r.PaneID, r.WorkspaceID)
+	}
+	return h.Dispatch(ctx, environ, d)
 }
 
 // ignoreForgotten returns err, or nil when a forget of the session made the record stale.
@@ -89,16 +104,7 @@ func ignoreForgotten(err error) error {
 // or the pane failed the live check, and session is 0 when capture has no open segment of the
 // pane; a hook record writes nothing then. rs is the store of r, and the caller closes it.
 func (h Hook) note(ctx context.Context) (r *resolver.Resolved, rs records, session, gen int64, err error) {
-	open := func(ctx context.Context, dir string) (resolver.Store, error) {
-		s, err := store.Open(ctx, dir, busyTimeout)
-		if err != nil {
-			return nil, err
-		}
-		return records{s}, nil
-	}
-	// No agent session goes to the resolver: a hook record writes no delivery record.
-	res, err := resolver.New(h.Bindings, open, h.pane).Resolve(ctx, h.Environ, "")
-	if r, _ = res.(*resolver.Resolved); err != nil || r == nil {
+	if r, err = h.resolve(ctx); err != nil || r == nil {
 		return nil, rs, 0, 0, err
 	}
 	rs, ok := r.Store.(records)
@@ -118,9 +124,62 @@ func (h Hook) note(ctx context.Context) (r *resolver.Resolved, rs records, sessi
 	return r, rs, session, gen, err
 }
 
+// resolve finds the pane of a hook record and opens its store. For a launched session it is
+// the pane of the launch record, after launch.Check; else the pane of the environment, after
+// the resolver's live check. r is nil when no store is open or the pane failed the live check.
+func (h Hook) resolve(ctx context.Context) (*resolver.Resolved, error) {
+	if h.Launch == "" {
+		open := func(ctx context.Context, dir string) (resolver.Store, error) {
+			s, err := store.Open(ctx, dir, busyTimeout)
+			if err != nil {
+				return nil, err
+			}
+			return records{s: s}, nil
+		}
+		// No agent session goes to the resolver: a hook record writes no delivery record.
+		res, err := resolver.New(h.Bindings, open, h.pane).Resolve(ctx, h.Environ, "")
+		r, _ := res.(*resolver.Resolved)
+		return r, err
+	}
+	// The herdr lookup of the check ends by the lookup deadline, as the resolver's does.
+	lctx, cancel := context.WithDeadline(ctx, h.Start.Add(lookupDeadline))
+	l, err := launch.Check(lctx, h.Bindings, h.Launch, h.Environ)
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+	if l.CLI != h.Profile.Kind {
+		return nil, fmt.Errorf("launch of %s, hook of profile %s", l.CLI, h.Profile.Kind)
+	}
+	s, err := store.Open(ctx, l.Binding.Store, busyTimeout)
+	if err != nil {
+		return nil, err
+	}
+	return &resolver.Resolved{Binding: l.Binding, PaneID: l.PaneID, WorkspaceID: l.WorkspaceID,
+		Store: records{s: s, launch: l.ID}}, nil
+}
+
+// launchRunning returns a refusal when launch record id has ended since its check: the launch
+// can end while the hook reads its input.
+func launchRunning(ctx context.Context, tx *sql.Tx, id int64) error {
+	l, ok, err := store.LaunchByID(ctx, tx, id)
+	switch {
+	case err != nil:
+		return err
+	case !ok:
+		return &launch.RefusedError{Reason: launch.Unknown}
+	case !l.Ended.IsZero():
+		return &launch.RefusedError{Reason: launch.Ended}
+	}
+	return nil
+}
+
 // write stores the hook record in in tx, after the learning check of the pane, in session
-// noted with capture generation gen. It returns the suggestion that a prompt reserved, if any.
-func (h Hook) write(ctx context.Context, tx *sql.Tx, r *resolver.Resolved, in adapter.Record, noted, gen int64, now time.Time) (brained.Dispatch, error) {
+// noted with capture generation gen. A stored record of launch record launchID (0 for none)
+// adds its native session to the launch with the source hooks. It returns the suggestion that
+// a prompt reserved, if any.
+func (h Hook) write(ctx context.Context, tx *sql.Tx, r *resolver.Resolved, launchID int64, in adapter.Record, noted, gen int64,
+	now time.Time) (brained.Dispatch, error) {
 	learning, err := brained.NewGate(r.Binding).Learning(ctx, tx, r.PaneID, r.WorkspaceID)
 	if err != nil || !learning.On {
 		return brained.Dispatch{}, err
@@ -155,6 +214,11 @@ func (h Hook) write(ctx context.Context, tx *sql.Tx, r *resolver.Resolved, in ad
 	}
 	if o.ID, err = store.AddObservation(ctx, tx, o); err != nil || o.ID == 0 {
 		return brained.Dispatch{}, err
+	}
+	if launchID != 0 {
+		if err := store.SetLaunchSession(ctx, tx, launchID, in.SessionID, store.CaptureHooks, now); err != nil {
+			return brained.Dispatch{}, err
+		}
 	}
 	// The prompt index row joins the transaction of its observation (E14-S1).
 	if err := brained.IndexPrompt(ctx, tx, o, prompt); err != nil {
@@ -203,7 +267,10 @@ func cut(s string, n int) string {
 
 // records is the store of one hook record run as the resolver sees it. A hook record writes
 // no receipt and no agent record, so every resolver write does nothing.
-type records struct{ s *store.Store }
+type records struct {
+	s      *store.Store
+	launch int64 // the launch record of a launched session; 0 for none
+}
 
 func (records) WriteWithheld(context.Context, resolver.Withheld) error { return nil }
 

@@ -2,6 +2,7 @@ package transcript
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -69,12 +70,12 @@ type claude struct {
 }
 
 // ReadClaude reads the Claude session file at path up to limit bytes. The session id is the
-// file name: Claude names each file <session id>.jsonl.
-func ReadClaude(path string, limit int64) (Session, error) {
+// file name: Claude names each file <session id>.jsonl. The end of ctx stops the read.
+func ReadClaude(ctx context.Context, path string, limit int64) (Session, error) {
 	c := claude{usage: map[string]bool{}, pending: map[string]ref{}}
 	c.s.ID = strings.TrimSuffix(filepath.Base(path), ".jsonl")
 	c.s.Interactive = true
-	if err := lines(path, limit, c.line); err != nil {
+	if err := lines(ctx, path, limit, c.line); err != nil {
 		return Session{}, err
 	}
 	return c.s, nil

@@ -63,10 +63,11 @@ const (
 var errCapped = errors.New("hook cap reached")
 
 // Main runs the hook for the frozen command `brain hook --profile <name> --event <event>` with
-// the process environment environ. The caller prints nothing on the error and exits 0.
+// the process environment environ. A launched session's prompt, tool and stop hooks add
+// `--launch <launch folder>` (E24-S5). The caller prints nothing on the error and exits 0.
 func Main(args, environ []string, stdin io.Reader, stdout io.Writer) error {
 	start := time.Now()
-	name, event, err := profileArg(args)
+	name, event, dir, err := profileArg(args)
 	if err != nil {
 		return err
 	}
@@ -82,25 +83,31 @@ func Main(args, environ []string, stdin io.Reader, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	h := Hook{Profile: p, Event: event, Environ: environ, Bindings: file, Retest: filepath.Join(data, retestDir),
+	h := Hook{Profile: p, Event: event, Launch: dir, Environ: environ, Bindings: file, Retest: filepath.Join(data, retestDir),
 		Pane: resolver.HerdrPane(environ), Dispatch: brained.Start, Start: start, Now: time.Now}
 	return h.Run(context.Background(), stdin, stdout)
 }
 
-// profileArg reads the profile name and the event from the frozen arguments; any other form
-// is an error.
-func profileArg(args []string) (string, string, error) {
+// profileArg reads the profile name, the event and the launch folder ("" for none) from the
+// frozen arguments; any other form is an error. Only a hook record takes a launch folder.
+func profileArg(args []string) (name, event, dir string, err error) {
+	if len(args) == 6 && args[4] == "--launch" && args[5] != "" && args[3] != adapter.EventStart {
+		dir, args = args[5], args[:4]
+	}
 	if len(args) != 4 || args[0] != "--profile" || args[1] == "" || args[2] != "--event" ||
 		!slices.Contains([]string{adapter.EventStart, adapter.EventPrompt, adapter.EventTool, adapter.EventStop}, args[3]) {
-		return "", "", fmt.Errorf("want --profile <name> --event start|prompt|tool|stop, got %q", args)
+		return "", "", "", fmt.Errorf("want --profile <name> --event start|prompt|tool|stop [--launch <folder>], got %q", args)
 	}
-	return args[1], args[3], nil
+	return args[1], args[3], dir, nil
 }
 
 // Hook is one run of `brain hook`.
 type Hook struct {
-	Profile  *adapter.Profile
-	Event    string // the Brain event; "" is start
+	Profile *adapter.Profile
+	Event   string // the Brain event; "" is start
+	// Launch is the launch folder of a launched session (E24-S5); "" for none. A hook record
+	// with a launch folder captures against the launch record, not the environment.
+	Launch   string
 	Environ  []string
 	Bindings string // the bindings file
 	Retest   string // the folder of the retest markers (harness.MarkRetest)
@@ -149,9 +156,9 @@ func (h Hook) Run(ctx context.Context, stdin io.Reader, stdout io.Writer) error 
 }
 
 // inHerdr is run for a hook inside herdr. Outside herdr the hook reads no file and asks no
-// herdr.
+// herdr. A launched session is in herdr by its launch record: its environment is only a hint.
 func (h Hook) inHerdr(ctx context.Context, stdin io.Reader, stdout io.Writer) error {
-	if lookup(h.Environ, "HERDR_ENV") != "1" {
+	if h.Launch == "" && lookup(h.Environ, "HERDR_ENV") != "1" {
 		return nil
 	}
 	return h.run(ctx, stdin, stdout)

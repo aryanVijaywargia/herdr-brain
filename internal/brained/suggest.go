@@ -109,10 +109,10 @@ func detach(ctx context.Context, environ, args []string) error {
 	return cmd.Run()
 }
 
-// paneEnv returns environ with the herdr variables of pane paneID in workspace workspaceID of
+// PaneEnv returns environ with the herdr variables of pane paneID in workspace workspaceID of
 // binding b: the environment of a `brain suggest` process that brained starts for that pane,
 // so it resolves the pane as a call from the pane would (E2-S3).
-func paneEnv(environ []string, b bindings.Binding, paneID, workspaceID string) []string {
+func PaneEnv(environ []string, b bindings.Binding, paneID, workspaceID string) []string {
 	env := slices.DeleteFunc(slices.Clone(environ), func(kv string) bool {
 		// The herdr variables that name the pane of a call.
 		switch k, _, _ := strings.Cut(kv, "="); k {
