@@ -4,17 +4,21 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"slices"
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
+	"github.com/aryanVijaywargia/herdr-brain/internal/launch"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 )
 
-// updateRecords is the hook record step of brain update (#315). For each installed CLI whose
-// Brain start entry is in place, it plans the hook record entries that the profile turns on and
-// that are missing, as setup does, and asks once: yes adds them, and any other answer writes
-// nothing. A CLI with no start entry needs brain setup, which adds both, so the step skips it.
+// updateRecords is the hook step of brain update (#315). First it asks, for each CLI with
+// launch data whose global Brain hooks are in place, whether Brain may remove them (E24-S8).
+// Then, for each other installed CLI whose Brain start entry is in place, it plans the hook
+// record entries that the profile turns on and that are missing, as setup does, and asks once:
+// yes adds them, and any other answer writes nothing. A CLI with no start entry needs brain
+// setup, which adds both, so the step skips it.
 func updateRecords(d setupDeps, in *bufio.Reader, stdout io.Writer) error {
 	bin, err := paths.BinaryPath()
 	if err != nil {
@@ -28,9 +32,12 @@ func updateRecords(d setupDeps, in *bufio.Reader, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if err := updateGlobalHooks(inst, ps, in, stdout); err != nil {
+		return err
+	}
 	var p plan
 	for _, pr := range ps {
-		if _, err := d.lookPath(pr.Kind); err != nil {
+		if _, err := d.lookPath(pr.Kind); err != nil || slices.Contains(launch.Kinds(), pr.Kind) {
 			continue
 		}
 		_, st, err := inst.WouldInstall(pr)
@@ -54,8 +61,7 @@ func updateRecords(d setupDeps, in *bufio.Reader, stdout io.Writer) error {
 	}
 	fmt.Fprint(stdout, "Hook records: the profiles of this Brain turn on hook records, and these entries are missing.\n"+
 		p.text.String())
-	_, err = p.apply(in, stdout, "brain update wrote no hook record entry. To add them later, run brain update again.\n")
-	return err
+	return p.apply(in, stdout, "brain update wrote no hook record entry. To add them later, run brain update again.\n")
 }
 
 // applyRecords adds the hook record entries records of p when the Brain start entry of p is

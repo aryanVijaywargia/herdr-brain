@@ -63,6 +63,16 @@ func (r Record) Has(kind string, h adapter.Hook) bool {
 	return ok
 }
 
+// Events returns the CLI events of the entries of profile p that the record holds: the hook
+// record entries, by CLI event, then the start entry.
+func (r Record) Events(p *adapter.Profile) []string {
+	var events []string
+	for _, h := range recorded(r, p) {
+		events = append(events, h.CLIEvent)
+	}
+	return events
+}
+
 // Entry is one installed Brain entry.
 type Entry struct {
 	Target  string `json:"target"`       // the hook file

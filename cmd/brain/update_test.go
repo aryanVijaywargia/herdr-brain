@@ -10,18 +10,17 @@ import (
 	"testing"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
-	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 )
 
 // updateHome is setupHome with a Brain plugin that is up to date: a fake herdr lists it at
-// commit c1, and a fake git gives c1 as the newest commit. With start, the home holds the
-// Brain start entries of Claude and Codex and no hook record entry, as after an update before
-// #315.
-func updateHome(t *testing.T, start bool) string {
+// commit c1, and a fake git gives c1 as the newest commit. agy is on the PATH. The home holds the
+// Brain start entry of each of kinds and no hook record entry, as after an update before #315.
+func updateHome(t *testing.T, kinds ...string) string {
 	t.Helper()
 	home := setupHome(t, "0.9.1")
+	fakeAgy(t, home)
 	const commit = "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1"
 	list := `{"id":"cli:plugin","result":{"type":"plugin_list","plugins":[{"plugin_id":"brain","version":"0.0.1",` +
 		`"plugin_root":"` + filepath.Join(home, "plugin") + `","source":{"kind":"github","owner":"acme","repo":"brain",` +
@@ -35,9 +34,25 @@ func updateHome(t *testing.T, start bool) string {
 		}
 	}
 	t.Setenv("HERDR_BIN_PATH", filepath.Join(home, "fake-herdr", "update-herdr"))
-	if !start {
-		return home
+	inst := testInstaller(t)
+	for _, kind := range kinds {
+		p, err := adapter.Load(kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(home, strings.TrimPrefix(p.InstallTarget, "~/"))), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := inst.Install(p); err != nil {
+			t.Fatal(err)
+		}
 	}
+	return home
+}
+
+// testInstaller is the installer of the test home, for this test binary.
+func testInstaller(t *testing.T) *install.Installer {
+	t.Helper()
 	bin, err := paths.BinaryPath()
 	if err != nil {
 		t.Fatal(err)
@@ -46,16 +61,7 @@ func updateHome(t *testing.T, start bool) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, kind := range []string{"claude", "codex"} {
-		p, err := adapter.Load(kind)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := inst.Install(p); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return home
+	return inst
 }
 
 // runUpdate runs `brain update args...` with answers on stdin.
@@ -66,40 +72,32 @@ func runUpdate(t *testing.T, answers string, args ...string) (code int, stdout, 
 	return code, out.String(), errOut.String()
 }
 
-// AC #315, the M2 case: a home with only the Brain start entries. brain update, up to date,
-// shows the missing hook record entries of Claude and Codex in its plan and asks once, as
-// setup does. No changes nothing; yes adds every entry and says that Codex needs trust. Then
-// there is nothing to add, and brain update asks nothing.
+// AC #315, the M2 case: a home with only the Brain start entry of agy. brain update, up to
+// date, shows its missing hook record entries and asks once, as setup does. No changes
+// nothing; yes adds every entry. Then there is nothing to add, and brain update asks nothing.
+// A CLI with launch data gets no hook record entry (E24-S8).
 func TestUpdateHookRecords(t *testing.T) {
-	home := updateHome(t, true)
-	settings := filepath.Join(home, ".claude", "settings.json")
-	codex := filepath.Join(home, ".codex", "hooks.json")
+	home := updateHome(t, "agy")
+	agy := filepath.Join(home, ".gemini", "config", "hooks.json")
 	before := snapshot(t, home)
 
 	code, out, errOut := runUpdate(t, "n\n")
 	if code != 0 {
 		t.Fatalf("update (no) = %d: %s\n%s", code, errOut, out)
 	}
+	// The text of brain update stays as it was before the short setup text (#430): one head line
+	// for each CLI, then its entries, and none of the setup lines.
 	for _, want := range []string{"up to date\n",
 		"Hook records: the profiles of this Brain turn on hook records, and these entries are missing.\n",
-		"Brain also stores hook records of claude: prompts, commands and replies. Add these entries to " + settings + ":\n",
-		"    PostToolUseFailure: {", "Add these entries to " + codex + ":\n", "Apply all of this? [y/N] ",
+		"\n  Brain also stores hook records of agy: prompts, commands and replies. Add these entries to " + agy + ":\n    ",
+		"    PostToolUse: {", "Apply all of this? [y/N] ",
 		"brain update wrote no hook record entry. To add them later, run brain update again.\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("update (no):\n%s\nwant %q", out, want)
 		}
 	}
-	// The text of brain update stays as it was before the short setup text (#430): one head line
-	// for each CLI, then its entries, and none of the setup lines.
-	for _, kind := range []string{"claude", "codex"} {
-		file := map[string]string{"claude": settings, "codex": codex}[kind]
-		head := "\n  Brain also stores hook records of " + kind + ": prompts, commands and replies. Add these entries to " + file + ":\n    "
-		if !strings.Contains(out, head) {
-			t.Errorf("update (no):\n%s\nwant the head line %q", out, head)
-		}
-	}
-	if strings.Contains(out, "Hook records of ") || strings.Contains(out, "- Hooks:") {
-		t.Errorf("update (no) shows the setup text:\n%s", out)
+	if strings.Contains(out, "Hook records of ") || strings.Contains(out, "- Hooks:") || strings.Contains(out, "of claude") {
+		t.Errorf("update (no) shows the setup text or a Claude entry:\n%s", out)
 	}
 	if n := strings.Count(out, "[y/N]"); n != 1 {
 		t.Errorf("update (no) asked %d questions, want 1:\n%s", n, out)
@@ -112,23 +110,12 @@ func TestUpdateHookRecords(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("update (yes) = %d: %s\n%s", code, errOut, out)
 	}
-	for _, want := range []string{"Added the hook record entries for claude.\n", "Added the hook record entries for codex.\n",
-		"Codex needs trust again for each new hook entry"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("update (yes):\n%s\nwant %q", out, want)
-		}
+	if !strings.Contains(out, "Added the hook record entries for agy.\n") {
+		t.Errorf("update (yes):\n%s\nwant the agy entries", out)
 	}
-	for file, events := range map[string][]string{settings: {"prompt", "tool", "stop"}, codex: {"prompt", "tool", "stop"}} {
-		got := string(mustRead(t, file))
-		for _, e := range events {
-			if !strings.Contains(got, " --event "+e) {
-				t.Errorf("%s after yes has no %s entry:\n%s", file, e, got)
-			}
-		}
+	if got := string(mustRead(t, agy)); !strings.Contains(got, " --event tool") {
+		t.Errorf("%s after yes has no tool entry:\n%s", agy, got)
 	}
-	// Codex does not trust the new entries yet: the doctor check (TestDoctorRecordsM2 in
-	// internal/cli shows its line) finds each one untrusted.
-	untrusted(t, home, "UserPromptSubmit", "PostToolUse", "Stop")
 
 	before = snapshot(t, home)
 	code, out, _ = runUpdate(t, "", "--records")
@@ -140,31 +127,7 @@ func TestUpdateHookRecords(t *testing.T) {
 	}
 }
 
-// untrusted checks that Codex trusts none of the Brain hook record entries of events in home,
-// as brain doctor checks them.
-func untrusted(t *testing.T, home string, events ...string) {
-	t.Helper()
-	file, err := paths.InstallFile()
-	if err != nil {
-		t.Fatal(err)
-	}
-	rec, err := install.Read(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, ev := range events {
-		e, ok := rec.Records["codex "+ev]
-		if !ok {
-			t.Errorf("install record has no codex %s entry", ev)
-			continue
-		}
-		if got, err := harness.CodexTrust(filepath.Join(home, ".codex"), e, ev); err != nil || got != harness.Untrusted {
-			t.Errorf("CodexTrust(codex %s) = %q, %v; want %q", ev, got, err, harness.Untrusted)
-		}
-	}
-}
-
-// startGone is an answer of brain update that removes the Brain start entry of claude before
+// startGone is an answer of brain update that removes the Brain start entry of agy before
 // update reads it, as you can while update waits for the answer.
 type startGone struct {
 	t      *testing.T
@@ -175,47 +138,38 @@ type startGone struct {
 func (r *startGone) Read(b []byte) (int, error) {
 	if !r.gone {
 		r.gone = true
-		bin, err := paths.BinaryPath()
+		p, err := adapter.Load("agy")
 		if err != nil {
 			r.t.Fatal(err)
 		}
-		inst, err := installer(bin)
-		if err != nil {
-			r.t.Fatal(err)
-		}
-		p, err := adapter.Load("claude")
-		if err != nil {
-			r.t.Fatal(err)
-		}
-		if st, err := inst.UninstallHook(p, p.Hooks()[0]); err != nil || st != install.Removed {
-			r.t.Fatalf("UninstallHook(claude start) = %q, %v", st, err)
+		if st, err := testInstaller(r.t).UninstallHook(p, p.Hooks()[0]); err != nil || st != install.Removed {
+			r.t.Fatalf("UninstallHook(agy start) = %q, %v", st, err)
 		}
 	}
 	return r.answer.Read(b)
 }
 
 // Review of PR #324 (no over-defensive code): a start entry that goes away while update waits for the
-// answer gets no hook record entry; the other CLIs still get theirs.
+// answer gets no hook record entry.
 func TestUpdateRecordsStartGone(t *testing.T) {
-	home := updateHome(t, true)
+	home := updateHome(t, "agy")
 	var out, errOut bytes.Buffer
 	if code := run([]string{"update", "--records"}, &startGone{t: t, answer: strings.NewReader("y\n")}, &out, &errOut); code != 0 {
 		t.Fatalf("update --records = %d: %s\n%s", code, errOut.String(), out.String())
 	}
-	settings := filepath.Join(home, ".claude", "settings.json")
-	if !strings.Contains(out.String(), settings+" no longer holds the Brain hook entry for claude, so brain update adds no hook record entry") ||
-		!strings.Contains(out.String(), "Added the hook record entries for codex.") {
-		t.Errorf("update --records:\n%s\nwant no claude entries and the codex entries", out.String())
+	agy := filepath.Join(home, ".gemini", "config", "hooks.json")
+	if !strings.Contains(out.String(), agy+" no longer holds the Brain hook entry for agy, so brain update adds no hook record entry") {
+		t.Errorf("update --records:\n%s\nwant no agy entries", out.String())
 	}
-	if s := string(mustRead(t, settings)); strings.Contains(s, "--event prompt") {
-		t.Errorf("settings.json has a hook record entry with no start entry:\n%s", s)
+	if s := string(mustRead(t, agy)); strings.Contains(s, "--event tool") {
+		t.Errorf("%s has a hook record entry with no start entry:\n%s", agy, s)
 	}
 }
 
 // AC #315: a CLI with no Brain start entry needs brain setup, which adds both, so brain update
 // adds no hook record entry for it.
 func TestUpdateRecordsNeedsStart(t *testing.T) {
-	home := updateHome(t, false)
+	home := updateHome(t)
 	before := snapshot(t, home)
 	code, out, errOut := runUpdate(t, "y\n")
 	if code != 0 || !strings.HasSuffix(out, "up to date\nHook records: no hook record entry to add.\n") {

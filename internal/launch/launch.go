@@ -368,6 +368,20 @@ func End(ctx context.Context, dir, socket string, gone func(store.Launch) bool, 
 // It keeps a folder with no record, or with a name that is no record id: Brain did not make it
 // for an ended launch.
 func endedFolders(ctx context.Context, tx *sql.Tx, dir string) ([]string, error) {
+	return folders(ctx, tx, dir, func(l store.Launch, ok bool) bool { return ok && !l.Ended.IsZero() })
+}
+
+// OldFolders returns the launch folders in the store folder dir with a record id as name that
+// no running launch uses: the folder of a record that ended, and a folder with no record.
+// brain doctor lists them (E24-S8). brained deletes the folder of an ended record at its next
+// launch end; Brain never deletes a folder with no record.
+func OldFolders(ctx context.Context, tx *sql.Tx, dir string) ([]string, error) {
+	return folders(ctx, tx, dir, func(l store.Launch, ok bool) bool { return !ok || !l.Ended.IsZero() })
+}
+
+// folders returns the launch folders in the store folder dir with a record id as name for
+// which keep reports true. keep gets the record of the folder, and ok false when it has none.
+func folders(ctx context.Context, tx *sql.Tx, dir string, keep func(l store.Launch, ok bool) bool) ([]string, error) {
 	entries, err := os.ReadDir(paths.Launches(dir))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil // no launch yet in this store
@@ -375,7 +389,7 @@ func endedFolders(ctx context.Context, tx *sql.Tx, dir string) ([]string, error)
 	if err != nil {
 		return nil, err
 	}
-	var stale []string
+	var out []string
 	for _, e := range entries {
 		id, err := strconv.ParseInt(e.Name(), 10, 64)
 		if err != nil || id <= 0 {
@@ -385,9 +399,9 @@ func endedFolders(ctx context.Context, tx *sql.Tx, dir string) ([]string, error)
 		if err != nil {
 			return nil, err
 		}
-		if ok && !l.Ended.IsZero() {
-			stale = append(stale, paths.Launch(dir, id))
+		if keep(l, ok) {
+			out = append(out, paths.Launch(dir, id))
 		}
 	}
-	return stale, nil
+	return out, nil
 }

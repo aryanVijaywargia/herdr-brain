@@ -62,7 +62,9 @@ If it fails:
 
 ## 3. Run setup
 
-Setup binds this herdr session to the main store `~/.local/share/brain/main`, adds the hook entries for Claude Code, Codex and agy when they are on `PATH`, offers the `~/.local/bin/brain` link, and records the extractor choice.
+Setup binds this herdr session to the main store `~/.local/share/brain/main`, adds the hook entries for agy when it is on `PATH`, offers the `~/.local/bin/brain` link, and records the extractor choice.
+Claude Code and Codex get no global hook: the user starts them with `brain claude` and `brain codex`, or with the herdr actions "Brain: new Claude pane" and "Brain: new Codex pane".
+When an older Brain added global hooks for Claude Code or Codex, setup asks once for each CLI whether Brain may remove them, in the step "global hooks".
 It shows all of this in one plan and asks once. "No" writes nothing.
 
 There are two ways to run it. Use one.
@@ -94,22 +96,24 @@ Now ask your user:
 2. For `claude` or `codex`: which model? Empty means the default model of that CLI.
 3. May Brain read the past Claude Code and Codex sessions once? Show them the bullets of the "past sessions" step.
    Skip this question when the plan shows a "History scan:" state line other than "History scan: not now".
-4. Show them the plan, with the extractor line that matches their choice. Ask: "Apply all of this? [y/N]".
+4. Only when setup shows the step "global hooks": for each CLI, may Brain remove its global hooks? Show them the bullets of that step.
+   After a yes, a plain `claude` or `codex` session gets pane-screen capture only. An entry that the user edited stays.
+5. Show them the plan, with the extractor line that matches their choice. Ask: "Apply all of this? [y/N]".
 
 Then run setup again and give each answer on its own line, in the order setup asks:
 
 ```sh
-printf '%s\n' "<cli>" "<model>" "<scan yes or no>" "<apply yes or no>" | "$BRAIN" setup
+printf '%s\n' "<cli>" "<model>" "<scan yes or no>" "<claude hooks yes or no>" "<codex hooks yes or no>" "<apply yes or no>" | "$BRAIN" setup
 ```
 
-Leave out the lines of the questions that setup does not ask: with `none` it asks no model, with a recorded choice it asks neither, and with a recorded scan answer it does not ask about the past sessions.
+Leave out the lines of the questions that setup does not ask: with `none` it asks no model, with a recorded choice it asks neither, with a recorded scan answer it does not ask about the past sessions, and it asks about the global hooks only of a CLI that has them.
 A line that answers the wrong question does no harm: any answer except `y` to the last question writes nothing.
 
 Expected after a yes:
 
 - Under "Step 1: herdr version": `- Brain is tested with this version. OK.` The lines `- <version> is not one of the tested versions: ...` and `- Brain works. brain status shows a warning.` are fine too.
 - Each plan line was written, or it says "Already done".
-- For Codex, a last step "trust the Codex hook" with the Codex trust steps. Do step 4 below.
+- Only when Codex keeps a global Brain hook: a last step "trust the Codex hook" with the Codex trust steps. Do step 4 below.
 - A "First use" guide at the end.
 - With nothing to write, setup prints "Every step is already done. Setup changes nothing." and asks nothing.
 
@@ -130,7 +134,7 @@ herdr 0.9.1 gives a session no lasting identity. After the user renames or recre
 
 ## 4. Trust the Codex hook
 
-Skip this step when the user does not use Codex.
+Skip this step when the user does not use Codex, or when Codex has no global Brain hook: `brain codex` passes its hooks already trusted.
 Codex runs a new hook only after the user trusts it. You cannot do this for them. Tell the user:
 
 1. Start `codex` in a terminal. Codex shows "Hooks need review" and "1 hook is new or changed."
@@ -155,7 +159,7 @@ brain status
 Expected:
 
 - `brain doctor` ends with `all checks passed`.
-- `brain status` shows `binding: herdr session "<name>", ...`, the herdr version, and the agent CLIs.
+- `brain status` shows `binding: herdr session "<name>", ...`, the herdr version, the agent CLIs, and the start and capture of each live session (`start brain launch`, `start global hook` or `start none`).
 
 If `brain doctor` fails, it prints one line for each failed check, with its fix after `fix:`. Do the fix, then run `brain doctor` again.
 `brain doctor` asks before a repair that writes a hook entry. `brain doctor --fix` applies each repair that `brain doctor` offers, with no question.
@@ -172,7 +176,7 @@ If it fails:
 
 - `workspace <id> is not mapped yet (herdr saves a new workspace after about 5 s)`: wait about 5 seconds and run it again, or use `--global`.
 - `the review pane did not open: <reason>`: the draft still waits. The user approves it with `brain review`.
-The next Claude Code or Codex session in that workspace gets the item at start. Codex gets it at its first prompt.
+The next session in that workspace that starts with `brain claude` or `brain codex` gets the item at start. Codex gets it at its first prompt.
 
 ## Common failures
 
@@ -182,13 +186,16 @@ The next Claude Code or Codex session in that workspace gets the item at start. 
 | `herdr session "<name>" has no Brain binding, so Brain gives its agents nothing.` | Setup did not run in this session | `brain setup --session <name>` |
 | The shell cannot find `brain` | `~/.local/bin` is not on `PATH`, or setup made no link | Use the full binary path that setup prints |
 | `herdr pane list: ...` | The herdr server of the session does not answer | Check that the herdr server of that session runs, then run `brain doctor` again |
-| `<cli>: no Brain hook in <file>, so <cli> sessions get no Brain items` | The hook entry is missing | `brain setup` |
+| `<cli>: no Brain hook in <file>, so <cli> sessions get no Brain items` | The hook entry of a CLI with no Brain launch, such as agy, is missing | `brain setup` |
+| `<cli>: brain <cli> starts the plain <file> with no Brain flags: ...` | The CLI is older than the version that Brain needs, or Brain cannot read its version | Update the CLI to the version that the line names |
+| `<cli>: <cli> not found on PATH (Brain skips its own binary and its copies)` | Each file named `claude` or `codex` on `PATH` is the brain binary | Put the real CLI on `PATH` |
+| `codex: the Codex hook hash rule of Brain does not match` | This Brain build computes another trust hash than the one Codex trusted | `brain update` |
 | `<cli>: the Brain hook in <file> runs <command>` | The hook points to an old binary | Run `brain doctor` again and answer y, or `brain setup` |
 | `holds the Brain <event> entry that you edited` | The user edited a Brain hook entry | Brain keeps it. The user edits it by hand. |
 | `codex: Codex hook not trusted` | Codex skips the hook | Step 4: start codex, type `/hooks`, and press t on the Brain hook |
 | `codex: Codex hook not trusted: the Brain hook is disabled in Codex` | The user turned the hook off | Enable it in `/hooks` in Codex |
 | `codex: Codex reads <dir>/hooks.json, which holds no Brain hook entry` | `CODEX_HOME` points Codex to another folder. `brain setup` writes only `~/.codex/hooks.json` and does not read `CODEX_HOME`, so a new setup run does not fix this. | Run Codex with `CODEX_HOME` unset, or set to `~/.codex`, so that it reads `~/.codex/hooks.json` |
-| `hook records off for <cli>` | A newer Brain has hook record entries that are missing | `brain update` |
+| `hook records off for <cli>` | A newer Brain has hook record entries that are missing, for a CLI with no Brain launch | `brain update` |
 | `hook not trusted or not firing: <n> live agent(s) with no Brain receipt` | A session started before setup, or the hook does not run | Start a new session. If it gets no receipt either, the CLI sandbox may block the herdr socket. |
 | `extraction: signals wait, and no extractor CLI is chosen` | No extractor | `brain setup --extractor` |
 | `extraction: the last extractor call for workspace <key> failed` | The extractor CLI fails. The reason in parentheses is the error of the CLI. | Do what the fix says. For a sign-in failure: run `claude`, then `/login` (or `codex login`), or set `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) in the herdr server env. Else run that CLI in a terminal and check that it works. Brain tries again later. |
@@ -203,8 +210,8 @@ brain update
 ```
 
 `brain update --check` compares the installed version with the newest version of the repo and changes nothing.
-`brain update` installs the newest version, shows the missing hook record entries and asks once, then runs `brain doctor --fix`.
-Ask the user before you answer that question. For Codex, each new entry needs trust again (step 4).
+`brain update` installs the newest version. It asks for each CLI with old global Brain hooks whether Brain may remove them, shows the missing hook record entries and asks once, then runs `brain doctor --fix`.
+Ask the user before you answer each question. For Codex, each new entry needs trust again (step 4).
 
 The newest version depends on the install:
 

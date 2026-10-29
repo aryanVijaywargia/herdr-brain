@@ -8,6 +8,16 @@ agent CLIs:
   codex 0.155.0: detected, no Brain hook; newer than tested (0.154.0)
   opencode: no start-time delivery; live panes: 1
 
+live sessions:
+  w14:p1 claude: start none, capture screen
+  w14:p2 claude: start none, capture screen
+  w14:p3 claude: start none, capture screen
+  w14:p4 claude: start none, capture screen
+  w14:p5 claude: start none, capture screen
+  w14:p6 claude: start none, capture screen
+  w15:p1 codex: start none, capture screen
+  w15:p2 opencode: start none, capture screen
+
 delivery to live agents:
   claude: 6 live: 1 emitted, 1 unmapped, 1 withheld, 3 unknown
     w14:p2 unmapped

@@ -181,6 +181,29 @@ func CodexHookHash(event string, matcher *string, command string, contextLimit *
 	return label, hash, err
 }
 
+// The pinned fixture of the Codex hook hash rule: the E24-S1 spike passed CodexFixtureHash with
+// -c hooks.state for a -c SessionStart hook of CodexFixtureCommand, and Codex
+// CodexFixtureVersion ran the hook with no trust prompt.
+const (
+	CodexFixtureCommand = "/tmp/e24s1-scratch/tools/hook.sh /tmp/e24s1-scratch/hooks.log CODEX-LAUNCH codex-start"
+	CodexFixtureHash    = "sha256:fe07e8a190835d341d6b7eb164fb934c9efa886f63eaa143c759efbfc68752f2"
+	CodexFixtureVersion = "0.165.0"
+)
+
+// CheckCodexHookHash returns an error when CodexHookHash no longer gives the pinned hash of the
+// fixture. Then Codex would not trust the hooks of a launch, and it would skip them. brain
+// doctor runs it (E24-S8).
+func CheckCodexHookHash() error {
+	_, sum, err := CodexHookHash("SessionStart", nil, CodexFixtureCommand, nil)
+	if err != nil {
+		return err
+	}
+	if sum != CodexFixtureHash {
+		return fmt.Errorf("the hash of the fixture hook is %s, but Codex %s trusted %s", sum, CodexFixtureVersion, CodexFixtureHash)
+	}
+	return nil
+}
+
 // hookHash is hook_hash and version_for_toml of Codex 0.154, as the E8-S3 probe computes it:
 // the normalized identity {event_name, matcher, hooks: [handler]} as JSON with sorted keys and
 // no spaces, then SHA-256, as "sha256:<hex>".

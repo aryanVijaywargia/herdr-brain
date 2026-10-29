@@ -21,6 +21,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/extract"
 	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
+	brainlaunch "github.com/aryanVijaywargia/herdr-brain/internal/launch"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/resolver"
@@ -134,6 +135,9 @@ type statusCall struct {
 	w *lineWriter
 	herdrState
 	kinds []string // the profile kinds, in the order that status shows them
+	// global is the capture source of a session of each kind whose global Brain start entry is
+	// in its hook file; nil when the adapter state is unavailable.
+	global map[string]store.CaptureSource
 }
 
 func (s *statusCall) run(ctx context.Context) {
@@ -155,6 +159,9 @@ func (s *statusCall) run(ctx context.Context) {
 	}
 	s.clis(ctx, ps)
 	s.fail(s.Store.Write(ctx, func(tx *sql.Tx) error {
+		if err := s.sessions(ctx, tx); err != nil {
+			return err
+		}
 		if err := s.delivery(ctx, tx); err != nil {
 			return err
 		}
@@ -387,6 +394,7 @@ func (s *statusCall) clis(ctx context.Context, ps []*adapter.Profile) {
 		s.w.printf("  unavailable: %v\n", err)
 		return
 	}
+	s.global = map[string]store.CaptureSource{}
 	for i, st := range sts {
 		if !st.Installed {
 			s.w.printf("  %s: not installed\n", st.Kind)
@@ -411,7 +419,9 @@ func (s *statusCall) clis(ctx context.Context, ps []*adapter.Profile) {
 			}
 		}
 		if st.Configured {
-			word += s.records(ps[i])
+			records, on := s.records(ps[i])
+			word += records
+			s.global[st.Kind] = globalCapture(on)
 		}
 		if n := st.VersionNote(); n != "" && st.VersionErr == nil {
 			word += "; " + n
@@ -434,26 +444,113 @@ func (s *statusCall) clis(ctx context.Context, ps []*adapter.Profile) {
 
 // records is the hook records part of the status line of the configured profile p (#315):
 // "on" when each hook record entry that it turns on is in place, else "off", with the missing
-// CLI events when some are in place. It is "" for a profile with no hook record event.
-func (s *statusCall) records(p *adapter.Profile) string {
+// CLI events when some are in place, and the fix for a CLI with no launch data. It is "" for a
+// profile with no hook record event. on reports whether hook records are on.
+func (s *statusCall) records(p *adapter.Profile) (word string, on bool) {
 	all := len(p.Hooks()) - 1
 	if all == 0 {
-		return ""
+		return "", false
 	}
 	inst, err := s.installer()
 	var missing []string
 	if err == nil {
 		missing, _, err = missingRecords(inst, p)
 	}
+	// brain update adds no hook record entry for a CLI with launch data (E24-S8).
+	fix := " (brain update adds them)"
+	if slices.Contains(brainlaunch.Kinds(), p.Kind) {
+		fix = ""
+	}
 	switch {
 	case err != nil:
-		return fmt.Sprintf("; hook records unknown (%v)", err)
+		return fmt.Sprintf("; hook records unknown (%v)", err), false
 	case len(missing) == 0:
-		return "; hook records on"
+		return "; hook records on", true
 	case len(missing) == all:
-		return "; hook records off (brain update adds them)"
+		return "; hook records off" + fix, false
 	}
-	return "; hook records off for " + strings.Join(missing, ", ") + " (brain update adds them)"
+	return "; hook records off for " + strings.Join(missing, ", ") + fix, false
+}
+
+// globalCapture is the capture source of a session of a CLI with its global Brain start entry:
+// hooks when every hook record entry is on, else pane-screen capture only.
+func globalCapture(records bool) store.CaptureSource {
+	if records {
+		return store.CaptureHooks
+	}
+	return store.CaptureScreen
+}
+
+// The starts of a live session in brain status (E24-S8).
+const (
+	startLaunch = "brain launch" // a running launch record of its CLI in its pane
+	startGlobal = "global hook"  // the global Brain start entry of its CLI is in its hook file
+	startNone   = "none"
+)
+
+// sessions prints the start and the capture source of each live agent (E24-S8). An agent of a
+// running launch record in its pane has the capture source of the current native session of
+// the launch, and pane-screen capture until a hook of the launch names that session. An agent
+// of a CLI with its global Brain start entry has hook capture when each hook record entry is in
+// place. Any other agent has pane-screen capture only.
+func (s *statusCall) sessions(ctx context.Context, tx *sql.Tx) error {
+	s.w.printf("\nlive sessions:\n")
+	if s.panesErr != nil {
+		s.w.printf("  unavailable: %v\n", s.panesErr)
+		return nil //nolint:nilerr // the line above reports the failed pane list
+	}
+	ls, err := store.RunningLaunches(ctx, tx, s.Binding.Socket)
+	if err != nil {
+		return err
+	}
+	n := 0
+	for _, p := range s.panes {
+		if p.Agent == nil {
+			continue
+		}
+		n++
+		start, capture, err := s.start(ctx, tx, ls, p)
+		if err != nil {
+			return err
+		}
+		s.w.printf("  %s %s: start %s, capture %s\n", p.ID, *p.Agent, start, capture)
+	}
+	if n == 0 {
+		s.w.printf("  no live agent\n")
+	}
+	return nil
+}
+
+// start returns the start and the capture source of the live agent in pane p, with ls the
+// running launch records of the herdr server. The newest launch of the pane counts.
+func (s *statusCall) start(ctx context.Context, tx *sql.Tx, ls []store.Launch, p herdr.Pane) (start string, capture store.CaptureSource, err error) {
+	var l *store.Launch
+	for i := range ls {
+		if ls[i].PaneID == p.ID && ls[i].CLI == *p.Agent {
+			l = &ls[i]
+		}
+	}
+	if l == nil {
+		c, ok := s.global[*p.Agent]
+		switch {
+		case s.global == nil:
+			return "unknown (agent CLIs unavailable)", store.CaptureScreen, nil
+		case ok:
+			return startGlobal, c, nil
+		}
+		return startNone, store.CaptureScreen, nil
+	}
+	ss, err := store.LaunchSessions(ctx, tx, l.ID)
+	if err != nil {
+		return "", "", err
+	}
+	capture = store.CaptureScreen
+	for _, x := range ss {
+		if x.ID == l.NativeSessionID {
+			capture = x.Source
+		}
+	}
+	return startLaunch, capture, nil
 }
 
 // delivery prints the delivery gaps of each profile: each live agent joins its newest receipt

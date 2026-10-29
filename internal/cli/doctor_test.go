@@ -30,6 +30,7 @@ import (
 type doctorFixture struct {
 	*statusFixture
 	home, codexHome string
+	environ         []string // more env entries of each doctor call
 }
 
 func newDoctorFixture(t *testing.T) *doctorFixture {
@@ -162,7 +163,7 @@ func (f *doctorFixture) doctorArgs(t *testing.T, socket, stdin string, args []st
 	t.Helper()
 	var out bytes.Buffer
 	e := f.env(socket, "w14:p1", "w14", &out)
-	e.Environ = append(e.Environ, "CODEX_HOME="+f.codexHome)
+	e.Environ = append(append(e.Environ, "CODEX_HOME="+f.codexHome), f.environ...)
 	e.Data = f.data
 	e.Adapters = harness.Files{Install: filepath.Join(f.data, "install.json"),
 		Conformance: filepath.Join(f.data, "conformance.json"), Retest: filepath.Join(f.data, retestDir), Installed: filepath.Join(f.data, installedDir)}
@@ -221,17 +222,15 @@ func TestDoctorPaneListFails(t *testing.T) {
 	f.failed(t, "", "herdr pane list: timeout")
 }
 
-// AC: a CLI on PATH with no Brain hook: profile not configured, fix brain setup. Each failed
-// check has its own line.
+// E24-S8: a CLI with launch data needs no global Brain hook, so a home with no Brain hook for
+// Claude and Codex passes. A CLI with no launch data still fails (TestDoctorFakeProfile).
 func TestDoctorNotConfigured(t *testing.T) {
 	f := newDoctorFixture(t)
 	if err := os.Remove(filepath.Join(f.data, "install.json")); err != nil {
 		t.Fatal(err)
 	}
-	out := f.failed(t, "", "claude: no Brain hook in "+filepath.Join(f.home, ".claude"),
-		"codex: no Brain hook in "+filepath.Join(f.home, ".codex", "hooks.json"), "; fix: brain setup")
-	if _, err := f.doctor(t, f.sock, ""); err == nil || err.Error() != "2 checks failed" {
-		t.Errorf("Doctor() = %v, want 2 checks failed\n%s", err, out)
+	if out, err := f.doctor(t, f.sock, ""); err != nil || out != "all checks passed\n" {
+		t.Errorf("Doctor() = %v\n%s\nwant all checks passed", err, out)
 	}
 }
 

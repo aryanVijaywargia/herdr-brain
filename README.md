@@ -28,7 +28,7 @@ If you use more than one coding agent, or even one agent across many sessions, y
 1. **You work as usual.** You talk to Claude Code or Codex in a herdr pane, the way you always do.
 2. **Brain notices what matters.** When a session finishes or goes idle, Brain looks at what happened. A plain rule such as "from now on, never edit an applied migration" or "always run the linter before you commit" becomes a draft. So does a correction that you make more than once.
 3. **You decide.** Each draft waits for your review. You can approve it, edit it first, ask for a better draft, or reject it. A rejected idea stays rejected until you reopen it.
-4. **Every new session knows it.** When a Claude Code or Codex session starts in herdr, a small hook gives it the approved items. Codex gets them with your first prompt.
+4. **Every new session knows it.** When you start Claude Code or Codex in herdr with `brain claude` or `brain codex`, Brain gives that session the approved items. Codex gets them with your first prompt.
 
 Items live at one of two levels, because not every rule fits every project. A **workspace** item belongs to one herdr workspace. "Never edit an applied migration; add a new one" is a good example, since this project has a database but the next one may not. Drafts start at this level. A **global** item goes to every workspace, which suits a rule like "keep commit messages under 72 characters". You choose that level yourself, when you approve a draft or later with `brain promote`.
 
@@ -60,8 +60,10 @@ The first is which CLI Brain may use to learn from your sessions, `claude`, `cod
 
 The second is whether Brain may read your past Claude Code and Codex sessions once. That lets it find your repeated corrections on day one instead of after weeks. Say no and setup asks again next time.
 
+Setup adds no global hook for Claude Code or Codex. You start them with Brain as `brain claude` and `brain codex` (see [Start an agent with Brain](#start-an-agent-with-brain)). If an older Brain added global hooks for them, setup and `brain update` ask once for each CLI whether Brain may remove them. After a yes, a plain `claude` or `codex` session gets pane-screen capture only.
+
 > [!IMPORTANT]
-> Codex runs a new hook only after you trust it, and only you can do that. Start `codex`, type `/hooks`, and press `t` on the Brain hook.
+> If you keep the global Codex hook: Codex runs a new hook only after you trust it, and only you can do that. Start `codex`, type `/hooks`, and press `t` on the Brain hook.
 
 Setup also offers a `~/.local/bin/brain` link, so you can type `brain` in any shell. If `~/.local/bin` isn't on your `PATH`, setup prints the full path to use.
 
@@ -114,7 +116,7 @@ You can also use the herdr actions "Brain: new Claude pane" and "Brain: new Code
 
 **What leaves my machine?** Two things. If you chose a learning CLI in setup, Brain sends it short excerpts of your sessions, each at most 500 characters and run through a filter that replaces secrets such as passwords and tokens. A command that could become a tool goes whole, up to 4 KB. That CLI sends the excerpts to its model provider, or to the proxy or gateway that you set for it, such as `ANTHROPIC_BASE_URL`. It signs in as it does in a herdr pane, with its own login or with an API key, token or proxy in the env of the herdr server. Brain passes that env on and does not read it. When a call fails, Brain keeps the error text of the CLI after a filter that hides long tokens, URLs, keys and their encoded forms; a short or all-letter value may not be hidden. Also, the approved items that a session gets at start are part of that agent's context, so the agent can send them to its own provider like any other text it reads.
 
-**What does Brain change on my machine?** Outside its own folders, it touches the hook files of your agent CLIs, such as `~/.claude/settings.json` and `~/.codex/hooks.json`, and the optional `~/.local/bin/brain` link. It adds its hook entries only after you say yes, and it removes only its own entries.
+**What does Brain change on my machine?** Outside its own folders, it touches the hook file of an agent CLI with no Brain launch, such as agy's `~/.gemini/config/hooks.json`, and the optional `~/.local/bin/brain` link. It adds no hook to `~/.claude` or `~/.codex`; it only removes the old Brain entries there after you say yes. It adds its hook entries only after you say yes, and it removes only its own entries.
 
 **Can Brain forget something?** Yes. `brain forget <item>` removes the item's text from Brain. It can't reach copies that already left Brain, though, such as your backups and sessions that already got the item.
 

@@ -368,6 +368,29 @@ func supported(ctx context.Context, d *cliData, bin string, environ []string) st
 	return ""
 }
 
+// CLI is the real CLI that `brain <kind>` starts, as brain doctor checks it (E24-S8).
+type CLI struct {
+	Path       string // the CLI file on the PATH: never the brain binary or a copy of it
+	MinVersion string // the min_version of the launch data
+	// Plain is why a launch of this CLI gets no Brain flags: its version is older than
+	// MinVersion, or Brain cannot read it. "" is a supported CLI.
+	Plain string
+}
+
+// CheckCLI finds the real CLI of kind on the PATH of environ as a launch does, skipping the
+// brain binary self and its copies, and checks its version against the launch data.
+func CheckCLI(ctx context.Context, environ []string, kind, self string) (CLI, error) {
+	data, err := load(kind)
+	if err != nil {
+		return CLI{}, err
+	}
+	bin, err := findCLI(environ, kind, self, nil)
+	if err != nil {
+		return CLI{}, err
+	}
+	return CLI{Path: bin, MinVersion: data.MinVersion, Plain: supported(ctx, data, bin, environ)}, nil
+}
+
 // noStore is the store of the resolve of a launch. The resolve only checks the pane: the
 // launch writes its own record with Create, writes no receipt, and leaves the agent checks of
 // the pane to the next Brain call.
@@ -417,12 +440,14 @@ func cliVersion(ctx context.Context, bin string, environ []string) (string, erro
 // findCLI returns the first executable file named kind in an absolute folder of the PATH of
 // environ that is not the brain binary self: not self, not a link to it and not a copy of it.
 // So `brain claude` never runs itself, also with a brain link named claude earlier on PATH.
-// It also skips the files of skip: the files of the launch chain that ran brain again.
+// It also skips the files of skip: the files of the launch chain that ran brain again. With no
+// executable file named kind on the PATH at all, the error is ErrNoCLI.
 func findCLI(environ []string, kind, self string, skip []string) (string, error) {
 	me, err := os.Stat(self)
 	if err != nil {
 		return "", fmt.Errorf("brain binary: %w", err)
 	}
+	seen := false // an executable file named kind, also a skipped one
 	for _, dir := range filepath.SplitList(lookup(environ, "PATH")) {
 		if !filepath.IsAbs(dir) {
 			continue // as exec.LookPath: the working folder must not supply the CLI
@@ -430,10 +455,11 @@ func findCLI(environ []string, kind, self string, skip []string) (string, error)
 		p := filepath.Join(dir, kind)
 		fi, err := os.Stat(p)
 		// As exec.LookPath, a PATH entry that is not an executable file is skipped.
-		if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm()&0o111 == 0 || slices.Contains(skip, p) {
+		if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm()&0o111 == 0 {
 			continue
 		}
-		if os.SameFile(me, fi) {
+		seen = true
+		if slices.Contains(skip, p) || os.SameFile(me, fi) {
 			continue
 		}
 		if fi.Size() == me.Size() {
@@ -447,8 +473,14 @@ func findCLI(environ []string, kind, self string, skip []string) (string, error)
 		}
 		return p, nil
 	}
+	if !seen {
+		return "", fmt.Errorf("%s %w", kind, ErrNoCLI)
+	}
 	return "", fmt.Errorf("%s not found on PATH (Brain skips its own binary and its copies)", kind)
 }
+
+// ErrNoCLI says that the PATH holds no executable file with the name of the CLI.
+var ErrNoCLI = errors.New("not found on PATH")
 
 // sameContent reports whether the files a and b hold the same bytes.
 func sameContent(a, b string) (bool, error) {

@@ -66,7 +66,8 @@ var profileRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 // codexServers refuses a Codex launch while a config file that Codex loads for it has a
 // mcp_servers.brain table. Codex merges the tables of its config layers key by key, so that
 // table and the Brain -c mcp_servers.brain.* flags make one server with the keys of both
-// (Codex 0.165 config/src/merge.rs). An old global entry stays there until E24-S8 removes it.
+// (Codex 0.165 config/src/merge.rs). No Brain release wrote such a table, so it is your own:
+// Brain never removes it (E24-S8).
 func codexServers(a *args, d Deps) error {
 	files, err := codexConfigs(a, d)
 	if err != nil {

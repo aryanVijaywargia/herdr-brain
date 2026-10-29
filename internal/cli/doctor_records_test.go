@@ -148,32 +148,22 @@ func (f *doctorFixture) dropRecords(t *testing.T, kind string) {
 	}
 }
 
-// AC #315, the M2 case: with only the Brain start entries, status shows hook records off and
-// doctor fails with brain update as the fix, also with --fix, which adds no entry. After brain
-// update adds the entries, doctor fails on each Codex hook record entry that Codex does not
-// trust yet, and passes when Codex trusts them.
+// AC #315, the M2 case, after E24-S8: with only the Brain start entries of Claude and Codex,
+// status shows hook records off with no fix, and doctor passes: brain update adds no hook
+// record entry for a CLI with launch data. With the entries in place, doctor fails on each
+// Codex hook record entry that Codex does not trust yet, and passes when Codex trusts them.
 func TestDoctorRecordsM2(t *testing.T) {
 	f := newDoctorFixture(t)
-	settings := filepath.Join(f.home, ".claude", "settings.json")
-	hooks := filepath.Join(f.home, ".codex", "hooks.json")
 	f.dropRecords(t, "claude")
 	f.dropRecords(t, "codex")
 	f.trust(t, "")
 
-	off := []string{
-		"hook records off for claude: " + settings + " has no Brain entry for UserPromptSubmit, PostToolUse, " +
-			"PostToolUseFailure, Stop; fix: brain update\n",
-		"hook records off for codex: " + hooks + " has no Brain entry for UserPromptSubmit, PostToolUse, Stop; fix: brain update\n",
+	if out, err := f.doctor(t, f.sock, ""); err != nil || out != "all checks passed\n" {
+		t.Errorf("Doctor() = %v\n%s\nwant all checks passed", err, out)
 	}
-	f.failed(t, "", off...)
-	before := files(t, f.home)
-	if out, err := f.doctorArgs(t, f.sock, "", []string{"--fix"}); err == nil || !strings.Contains(out, off[0]) {
-		t.Errorf("Doctor(--fix) = %v\n%s\nwant %q", err, out, off[0])
-	}
-	diff(t, files(t, f.home), before)
 	status := f.mustStatus(t)
-	for _, want := range []string{"  claude 2.1.283: configured, unverified; hook records off (brain update adds them)\n",
-		"  codex 0.154.0: configured, unverified; hook records off (brain update adds them)\n"} {
+	for _, want := range []string{"  claude 2.1.283: configured, unverified; hook records off\n",
+		"  codex 0.154.0: configured, unverified; hook records off\n"} {
 		if !strings.Contains(status, want) {
 			t.Errorf("brain status:\n%s\nwant %q", status, want)
 		}
@@ -208,7 +198,7 @@ func TestRecordsPartly(t *testing.T) {
 	if st, err := f.installer(entryBin(t)).UninstallHook(p, stop); err != nil || st != install.Removed {
 		t.Fatalf("UninstallHook(codex Stop) = %q, %v", st, err)
 	}
-	if status := f.mustStatus(t); !strings.Contains(status, "  codex 0.154.0: configured, unverified; hook records off for Stop (brain update adds them)\n") {
+	if status := f.mustStatus(t); !strings.Contains(status, "  codex 0.154.0: configured, unverified; hook records off for Stop\n") {
 		t.Errorf("brain status:\n%s\nwant codex hook records off for Stop", status)
 	}
 	f.installAll(t, "codex", entryBin(t))

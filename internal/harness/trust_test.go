@@ -70,6 +70,13 @@ func TestCodexHookHash(t *testing.T) {
 	if want := "sha256:fe07e8a190835d341d6b7eb164fb934c9efa886f63eaa143c759efbfc68752f2"; label != "session_start" || sum != want {
 		t.Errorf("CodexHookHash() = %s, %s, want session_start, %s", label, sum, want)
 	}
+	// The doctor check uses the same fixture.
+	if command != CodexFixtureCommand || sum != CodexFixtureHash {
+		t.Errorf("the pinned fixture = %q, %s; want %q, %s", CodexFixtureCommand, CodexFixtureHash, command, sum)
+	}
+	if err := CheckCodexHookHash(); err != nil {
+		t.Errorf("CheckCodexHookHash() = %v", err)
+	}
 	// additionalContextLimit 0 is not the default, so it changes the hash.
 	_, limited, err := CodexHookHash("SessionStart", nil, command, ptr[uint64](0))
 	if err != nil {
