@@ -282,16 +282,16 @@ func storeOf(s resolver.Store) *store.Store {
 }
 
 // recheck asks herdr again for the calling pane, and fails when it is gone or no longer in
-// the workspace that the resolver confirmed.
+// the workspace that the resolver confirmed. The error is a *scopeError.
 func (e Env) recheck(ctx context.Context, c *Call) error {
 	ctx, cancel := context.WithTimeout(ctx, herdrDeadline)
 	defer cancel()
 	p, err := e.Pane(ctx, herdr.Target{Session: c.Binding.Session, Socket: c.Binding.Socket}, c.PaneID)
 	if err != nil {
-		return fmt.Errorf("check pane %s again: %w; nothing was written", c.PaneID, err)
+		return &scopeError{fmt.Errorf("check pane %s again: %w; nothing was written", c.PaneID, err)}
 	}
 	if p.ID != c.PaneID || p.WorkspaceID != c.WorkspaceID {
-		return fmt.Errorf("pane %s moved to workspace %s; nothing was written", c.PaneID, p.WorkspaceID)
+		return &scopeError{fmt.Errorf("pane %s moved to workspace %s; nothing was written", c.PaneID, p.WorkspaceID)}
 	}
 	if p.AgentSession != nil {
 		c.AgentSession = p.AgentSession.Value
@@ -301,6 +301,14 @@ func (e Env) recheck(ctx context.Context, c *Call) error {
 	}
 	return nil
 }
+
+// scopeError is the error of a call whose pane herdr no longer confirms in the workspace of the
+// call. The MCP gateway logs it as a refusal.
+type scopeError struct{ err error }
+
+func (s *scopeError) Error() string { return s.err.Error() }
+
+func (s *scopeError) Unwrap() error { return s.err }
 
 // noStoreError is the error of a call that gets no store. brain status explains an unbound
 // session instead of failing.

@@ -12,7 +12,9 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/mcp"
 	"github.com/aryanVijaywargia/herdr-brain/internal/secret"
@@ -30,6 +32,7 @@ type Scope struct {
 // Identify returns the scope of the gateway session, or an error that refuses the call. The
 // gateway asks it at each tools/list and each tools/call. It never takes the scope from the
 // environment of the server: a shared CLI process can have the environment of another pane.
+// A tools/list can ask it while a tool call runs, so it must be safe for concurrent use.
 type Identify func(ctx context.Context) (Scope, error)
 
 // Gateway is the MCP gateway (#172, E24-S6): the tools find_tool, run_tool, recall and remember
@@ -111,7 +114,7 @@ func (g *Gateway) Tools(ctx context.Context) []mcp.Tool {
 
 // check checks the scope, and the pane of it live with herdr. It writes nothing.
 func (g *Gateway) check(ctx context.Context) error {
-	e, err := g.scoped(ctx, io.Discard)
+	e, _, err := g.scoped(ctx, io.Discard)
 	if err != nil {
 		return err
 	}
@@ -122,21 +125,24 @@ func (g *Gateway) check(ctx context.Context) error {
 	return c.Close()
 }
 
-// Call runs gateway tool name. A call with no valid scope, or whose pane herdr does not
-// confirm, is refused and writes nothing. Any other call writes one gateway_calls row.
+// Call runs gateway tool name. A call with no valid scope is refused and writes nothing. A call
+// whose pane herdr does not confirm is refused, and its refused row goes to the store of the
+// herdr server of the scope, when one is bound. Any other call writes one gateway_calls row.
 func (g *Gateway) Call(ctx context.Context, name string, args json.RawMessage) (mcp.Result, error) {
 	var out bytes.Buffer
-	e, err := g.scoped(ctx, &out)
-	if err != nil {
-		return refusal(err), nil
-	}
-	c, err := e.Open(ctx)
+	e, s, err := g.scoped(ctx, &out)
 	if err != nil {
 		return refusal(err), nil
 	}
 	tools := gatewayTools()
 	i := slices.IndexFunc(tools, func(t gatewayTool) bool { return t.def.Name == name })
-	if i < 0 {
+	c, err := e.Open(ctx)
+	switch {
+	case err != nil && i < 0:
+		return refusal(err), nil
+	case err != nil:
+		return refusal(errors.Join(err, g.logRefusal(ctx, s, name, e.Now()))), nil
+	case i < 0:
 		return mcp.Result{}, errors.Join(mcp.ErrUnknownTool, c.Close())
 	}
 	err = tools[i].call(ctx, e, c, args)
@@ -153,20 +159,45 @@ func (g *Gateway) Call(ctx context.Context, name string, args json.RawMessage) (
 	return mcp.Result{Text: out.String()}, nil
 }
 
-// scoped returns the command context of a call of the scope that Identify gives: the herdr
-// variables of the scope come last in the environment, so they win over any inherited ones in
-// the resolver and in a tool run. The answer of the call goes to out.
-func (g *Gateway) scoped(ctx context.Context, out io.Writer) (Env, error) {
+// logRefusal writes the refused row of a call of method whose pane check failed. The row goes
+// to the store that the bindings file binds to the socket of scope s; with no such binding,
+// there is no store and no row. It writes only the method, the result and the time, and reads
+// nothing of the store, so the refused call gets no access to it.
+func (g *Gateway) logRefusal(ctx context.Context, s Scope, method string, at time.Time) error {
+	bs, _, err := bindings.Read(g.env.Bindings)
+	if err != nil {
+		return fmt.Errorf("log the refusal: %w", err)
+	}
+	b, ok, err := bindings.BySocket(bs, s.Server.Socket)
+	if err != nil || !ok {
+		return err
+	}
+	ctx = context.WithoutCancel(ctx)
+	st, err := store.Open(ctx, b.Store, busyTimeout)
+	if err != nil {
+		return fmt.Errorf("log the refusal: %w", err)
+	}
+	err = st.Write(ctx, func(tx *sql.Tx) error {
+		_, err := store.AddGatewayCall(ctx, tx, store.GatewayCall{Method: method, Result: store.GatewayRefused, At: at})
+		return err
+	})
+	return errors.Join(err, st.Close())
+}
+
+// scoped returns the command context of a call of the scope that Identify gives, and the
+// scope: the herdr variables of the scope come last in the environment, so they win over any
+// inherited ones in the resolver and in a tool run. The answer of the call goes to out.
+func (g *Gateway) scoped(ctx context.Context, out io.Writer) (Env, Scope, error) {
 	s, err := g.identify(ctx)
 	if err != nil {
-		return Env{}, fmt.Errorf("no valid Brain launch for this session: %w", err)
+		return Env{}, Scope{}, fmt.Errorf("no valid Brain launch for this session: %w", err)
 	}
 	e := g.env
 	e.Environ = append(e.Environ[:len(e.Environ):len(e.Environ)], "HERDR_ENV=1",
 		"HERDR_SOCKET_PATH="+s.Server.Socket, "HERDR_SESSION="+s.Server.Session,
 		"HERDR_PANE_ID="+s.PaneID, "HERDR_WORKSPACE_ID="+s.WorkspaceID)
 	e.Stdout = out
-	return e, nil
+	return e, s, nil
 }
 
 // refusal is the result of a call that the checks of the session refused.
@@ -179,7 +210,7 @@ func gatewayResult(err error) store.GatewayResult {
 	switch {
 	case err == nil:
 		return store.GatewayOK
-	case errors.Is(err, errRefusedCall), errors.Is(err, ErrRefused):
+	case errors.Is(err, errRefusedCall), errors.Is(err, ErrRefused), errors.As(err, new(*scopeError)):
 		return store.GatewayRefused
 	}
 	return store.GatewayFailed

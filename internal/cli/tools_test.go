@@ -24,6 +24,15 @@ func toolText(name string) string {
 		"[inputs.package]\ntype = \"string\"\npattern = \"^[a-z0-9@/._-]{1,64}$\"\n"
 }
 
+// saveDraft writes d with insertDraft in one transaction of s, as brain remember does.
+func saveDraft(ctx context.Context, s *store.Store, d draft, now time.Time) (pid int64, err error) {
+	err = s.Write(ctx, func(tx *sql.Tx) error {
+		pid, err = insertDraft(ctx, tx, d, now)
+		return err
+	})
+	return pid, err
+}
+
 // toolDraft saves a draft tool in workspace w14 (ws_a14) with one pending proposal, as E17-S6
 // will, and returns the proposal id.
 func (f *fixture) toolDraft(t *testing.T, text string) int64 {

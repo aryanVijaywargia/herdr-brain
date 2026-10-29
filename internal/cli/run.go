@@ -195,6 +195,11 @@ func runOn(ctx context.Context, e Env, c *Call, r ToolRun, inputErr error) (Tool
 	run := tool.Run{Commands: cmds, Dir: contract.Dir(lookupEnv(e.Environ, "HOME")), ScriptDir: dir,
 		Env: e.Environ, Timeout: time.Duration(t.TimeoutS) * time.Second, Stdout: r.Stdout, Stderr: r.Stderr}
 	call.ContractHash = t.ContractHash
+	// The pane can move to another workspace during the checks: a tool of the old workspace
+	// must not run for it.
+	if err := e.recheck(ctx, c); err != nil {
+		return refuse(err)
+	}
 	return execTool(ctx, c.Store, run, call, r.Tool)
 }
 

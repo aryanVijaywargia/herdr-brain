@@ -106,7 +106,8 @@ func decode[T any](t *testing.T, raw json.RawMessage) T {
 }
 
 // initialize answers with the version that the client asks for when the server speaks it, and
-// with the newest version for any other.
+// with the newest version for any other. 2025-03-26 needs batches, so the server does not
+// speak it.
 func TestInitialize(t *testing.T) {
 	c := start(t, fakeHandler{})
 	defer c.stop(t)
@@ -114,6 +115,7 @@ func TestInitialize(t *testing.T) {
 		{"2025-11-25", "2025-11-25"}, // Claude Code
 		{"2025-06-18", "2025-06-18"}, // Codex
 		{"2024-11-05", "2024-11-05"},
+		{"2025-03-26", "2025-11-25"},
 		{"2099-01-01", "2025-11-25"},
 		{"", "2025-11-25"},
 	} {
@@ -164,6 +166,12 @@ func TestBadMessages(t *testing.T) {
 	}{
 		{`{"jsonrpc":"2.0","id":1,"method":`, "null", codeParse},
 		{`not json`, "null", codeParse},
+		{`null`, "null", codeInvalidRequest},
+		{`{}`, "null", codeInvalidRequest},
+		{`{"jsonrpc":"1.0","method":"ping"}`, "null", codeInvalidRequest},
+		{`{"jsonrpc":"2.0","id":1.5,"method":"ping"}`, "null", codeInvalidRequest},
+		{`{"jsonrpc":"2.0","id":1e3,"method":"ping"}`, "null", codeInvalidRequest},
+		{`{"jsonrpc":"2.0","id":true,"method":"ping"}`, "null", codeInvalidRequest},
 		{`[{"jsonrpc":"2.0","id":1,"method":"ping"}]`, "null", codeInvalidRequest},
 		{`{"jsonrpc":"2.0","id":null,"method":"ping"}`, "null", codeInvalidRequest},
 		{`{"jsonrpc":"2.0","id":{"a":1},"method":"ping"}`, "null", codeInvalidRequest},
@@ -271,6 +279,79 @@ func TestLastLineWithNoNewline(t *testing.T) {
 	}
 	if a := c.recv(t); a.Error != nil || string(a.ID) != "9" {
 		t.Errorf("ping = %+v, want a result with id 9", a)
+	}
+	c.stop(t)
+}
+
+// A ping gets its answer while a tool call runs, and tool calls run one at a time: the second
+// call starts only when the first ends. Each call answers, also after the end of input.
+func TestPingWhileToolRuns(t *testing.T) {
+	started := make(chan string, 2)
+	release := map[string]chan struct{}{"a": make(chan struct{}), "b": make(chan struct{})}
+	h := fakeHandler{call: func(name string, _ json.RawMessage) (Result, error) {
+		started <- name
+		<-release[name]
+		return Result{Text: "done " + name}, nil
+	}}
+	c := start(t, h)
+	c.send(t, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"a"}}`)
+	if got := <-started; got != "a" {
+		t.Fatalf("started %s, want a", got)
+	}
+	c.send(t, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"b"}}`)
+	if a := c.ask(t, `{"jsonrpc":"2.0","id":3,"method":"ping"}`); string(a.ID) != "3" || a.Error != nil {
+		t.Errorf("ping while a tool runs = %+v, want the ping result", a)
+	}
+	select {
+	case got := <-started:
+		t.Errorf("call %s started while call a runs, want one call at a time", got)
+	default:
+	}
+	close(release["a"])
+	if a := c.recv(t); string(a.ID) != "1" {
+		t.Errorf("answer = %+v, want the answer of call 1", a)
+	}
+	if got := <-started; got != "b" {
+		t.Fatalf("started %s, want b", got)
+	}
+	if err := c.w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	close(release["b"])
+	if a := c.recv(t); string(a.ID) != "2" {
+		t.Errorf("answer = %+v, want the answer of call 2", a)
+	}
+	c.stop(t)
+}
+
+// When ctx ends, a call that waits for its turn ends with an error.
+func TestStoppedCallWaitsNoMore(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	h := fakeHandler{call: func(string, json.RawMessage) (Result, error) {
+		close(started)
+		<-release
+		return Result{Text: "done"}, nil
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	done := make(chan error, 1)
+	go func() { done <- errors.Join(Serve(ctx, inR, outW, "test", h), outW.Close()) }()
+	c := &client{w: inW, r: bufio.NewReader(outR), done: done}
+	c.send(t, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"a"}}`)
+	<-started
+	c.send(t, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"b"}}`)
+	// The ping answer shows that both calls were read.
+	if a := c.ask(t, `{"jsonrpc":"2.0","id":3,"method":"ping"}`); string(a.ID) != "3" {
+		t.Fatalf("ping = %+v", a)
+	}
+	cancel()
+	if a := c.recv(t); string(a.ID) != "2" || a.Error == nil || a.Error.Code != codeInternal {
+		t.Errorf("waiting call after the stop = %+v, want an internal error with id 2", a)
+	}
+	close(release)
+	if a := c.recv(t); string(a.ID) != "1" || a.Error != nil {
+		t.Errorf("running call = %+v, want its result", a)
 	}
 	c.stop(t)
 }

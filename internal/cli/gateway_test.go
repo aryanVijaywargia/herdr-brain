@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/mcp"
@@ -185,28 +186,37 @@ func readOnlyTool(name, dir string) string {
 }
 
 // AC S63, S61 (gateway part): with no valid identity, or with an identity of a closed pane or
-// of a pane that moved to another workspace, tools/list is empty, and each call is refused and
-// writes nothing: no gateway_calls row, no tool_calls row, no draft, no tool run. The herdr
-// variables of a live pane in the environment of the server change nothing.
+// of a pane that moved to another workspace, tools/list is empty, and each call is refused: no
+// tool_calls row, no draft, no tool run. Each refused call of a gateway tool writes a refused
+// gateway_calls row in the store of its herdr server; with no identity, or a server with no
+// store, there is no store for a row. The herdr variables of a live pane in the environment of
+// the server change nothing.
 func TestGatewayRefusesWithNoValidIdentity(t *testing.T) {
-	f := newRunFixture(t)
-	f.approvedTool(t, readOnlyTool("write-word", f.dir))
-	noLaunch := func(context.Context) (Scope, error) { return Scope{}, errors.New("no launch file") }
+	noLaunch := func(*runFixture) Identify {
+		return func(context.Context) (Scope, error) { return Scope{}, errors.New("no launch file") }
+	}
+	refused := []string{"find_tool refused", "run_tool refused", "recall refused", "remember refused"}
 	for _, tc := range []struct {
 		name     string
-		identify Identify
+		identify func(f *runFixture) Identify
 		want     string
+		rows     []string // the gateway_calls rows
 	}{
-		{"no launch", noLaunch, "no launch file"},
-		{"closed pane", f.paneScope("w14:p9", "w14"), "pane not live"},
-		{"moved pane", f.paneScope("w14:p2", "w14"), "not a member"},
-		{"other socket", func(context.Context) (Scope, error) {
-			return Scope{Server: herdr.Target{Session: "default", Socket: f.sock + ".other"}, WorkspaceID: "w14", PaneID: "w14:p1"}, nil
-		}, "unbound session"},
+		{"no launch", noLaunch, "no launch file", nil},
+		{"closed pane", func(f *runFixture) Identify { return f.paneScope("w14:p9", "w14") }, "pane not live", refused},
+		{"moved pane", func(f *runFixture) Identify { return f.paneScope("w14:p2", "w14") }, "not a member", refused},
+		{"other socket", func(f *runFixture) Identify {
+			return func(context.Context) (Scope, error) {
+				return Scope{Server: herdr.Target{Session: "default", Socket: f.sock + ".other"}, WorkspaceID: "w14",
+					PaneID: "w14:p1"}, nil
+			}
+		}, "unbound session", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			f := newRunFixture(t)
+			f.approvedTool(t, readOnlyTool("write-word", f.dir))
 			before := f.rows(t)
-			c := serveGateway(t, f.gatewayEnv(), tc.identify)
+			c := serveGateway(t, f.gatewayEnv(), tc.identify(f))
 			if got := c.list(t); len(got) != 0 {
 				t.Errorf("tools/list = %v, want no tools", got)
 			}
@@ -236,7 +246,63 @@ func TestGatewayRefusesWithNoValidIdentity(t *testing.T) {
 			if cs := f.calls(t); len(cs) != 0 {
 				t.Errorf("tool_calls = %+v, want none", cs)
 			}
-			wantGatewayCalls(t, f.gatewayCalls(t))
+			wantGatewayCalls(t, f.gatewayCalls(t), tc.rows...)
+		})
+	}
+}
+
+// movingEnv is the gateway context of f in which pane w14:p1 moves to workspace w15 after the
+// two checks of Open, as a call can wait between its checks and its use. With onClock, it
+// moves at the first clock read after them; else at the next herdr check.
+func (f *runFixture) movingEnv(onClock bool) Env {
+	e := f.gatewayEnv()
+	pane, checks := e.Pane, 0
+	move := func() { f.panes["w14:p1"] = herdr.Pane{ID: "w14:p1", WorkspaceID: "w15"} }
+	e.Pane = func(ctx context.Context, t herdr.Target, id string) (herdr.Pane, error) {
+		if checks++; checks == 3 && !onClock {
+			move()
+		}
+		return pane(ctx, t, id)
+	}
+	e.Now = func() time.Time {
+		if checks >= 2 && onClock {
+			move()
+		}
+		return testNow
+	}
+	return e
+}
+
+// A pane that moves to another workspace after the checks of Open runs no tool of its old
+// workspace and drafts nothing there: the check just before the use refuses the call, and the
+// gateway_calls row says refused. A recall that its own check under the store lock refuses is
+// refused too.
+func TestGatewayPaneMovesBeforeUse(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		args    map[string]any
+		onClock bool
+	}{
+		{"run_tool", map[string]any{"tool": "read-word", "inputs": map[string]any{"word": "hello"}}, true},
+		{"remember", map[string]any{"text": "a fact of the old workspace"}, true},
+		{"recall", map[string]any{"query": "live"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRunFixture(t)
+			f.approvedTool(t, readOnlyTool("read-word", f.dir))
+			before := f.rows(t)
+			c := serveGateway(t, f.movingEnv(tc.onClock), f.paneScope("w14:p1", "w14"))
+			text, isErr := c.call(t, tc.name, tc.args)
+			if !isErr || !strings.Contains(text, "pane w14:p1 moved to workspace w15") {
+				t.Errorf("tools/call %s = %q, %v, want the refusal of the moved pane", tc.name, text, isErr)
+			}
+			if got := f.ran(t); got != "" {
+				t.Errorf("tools/call %s ran the tool with %q, want no run", tc.name, got)
+			}
+			if after := f.rows(t); len(after.items) != len(before.items) || len(after.proposals) != len(before.proposals) {
+				t.Errorf("tools/call %s wrote %d items, want none", tc.name, len(after.items)-len(before.items))
+			}
+			wantGatewayCalls(t, f.gatewayCalls(t), tc.name+" refused")
 		})
 	}
 }
