@@ -147,7 +147,8 @@ func TestBuildClaudeSettings(t *testing.T) {
 	if s["env"] == nil || s["permissions"] != nil || s["hooks"] == nil {
 		t.Errorf("settings.json = %v, want the user's env and the Brain hook, no allow rule with no server", s)
 	}
-	for _, bad := range []string{`{"hooks":[]}`, `{"hooks":{"SessionStart":{}}}`, `[1]`, filepath.Join(dir, "nope.json")} {
+	for _, bad := range []string{`{"hooks":[]}`, `{"hooks":{"SessionStart":{}}}`, `[1]`, filepath.Join(dir, "nope.json"),
+		`{"model":"opus"} trailing`, `{"model":"opus"} {"disableAllHooks":true}`} {
 		if _, _, err := parse(d, []string{"--settings", bad}).argv(t.TempDir(), p); err == nil {
 			t.Errorf("--settings %s: argv() = nil error", bad)
 		}

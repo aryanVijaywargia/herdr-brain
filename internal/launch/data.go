@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -30,30 +31,74 @@ const (
 
 // conflict is one conflict rule of the launch data.
 type conflict struct {
-	Flags  []string `toml:"flags"`
-	Value  string   `toml:"value"` // a pattern of the user's value; "" matches any value
-	Rule   rule     `toml:"rule"`
-	Reason string   `toml:"reason"`
+	Flags []string `toml:"flags"`
+	Value string   `toml:"value"` // a pattern of the user's value; "" matches any value
+	// Key and Equals: the user's value is a Codex config override "<key>=<TOML value>" that
+	// sets the dotted key path Key to Equals, also through a parent table.
+	Key    string `toml:"key"`
+	Equals any    `toml:"equals"`
+	Rule   rule   `toml:"rule"`
+	Reason string `toml:"reason"`
 	value  *regexp.Regexp
 }
 
 // matches reports whether the user's flag f is one of this rule.
 func (c *conflict) matches(f flag) bool {
-	return slices.Contains(c.Flags, f.name) && (c.value == nil || c.value.MatchString(f.value))
+	if !slices.Contains(c.Flags, f.name) {
+		return false
+	}
+	if c.Key != "" {
+		v, ok := configValue(f.value, c.Key)
+		return ok && reflect.DeepEqual(v, c.Equals)
+	}
+	return c.value == nil || c.value.MatchString(f.value)
+}
+
+// configValue returns the value that the Codex config override o sets at the dotted key path
+// key. It reads o as Codex 0.165 does: it cuts o at the first "=", trims the key and splits it
+// at each dot, and reads the value as TOML, or as a string when it is no TOML value. ok is false
+// when o sets no value at key, as for another key or a value that is no table.
+func configValue(o, key string) (v any, ok bool) {
+	k, raw, ok := strings.Cut(o, "=")
+	if !ok {
+		return nil, false
+	}
+	v = raw
+	var doc map[string]any
+	if _, err := toml.Decode("_x_ = "+raw, &doc); err == nil {
+		v = doc["_x_"]
+	}
+	path, want := strings.Split(strings.TrimSpace(k), "."), strings.Split(key, ".")
+	if len(path) > len(want) || !slices.Equal(path, want[:len(path)]) {
+		return nil, false
+	}
+	for _, p := range want[len(path):] {
+		table, isTable := v.(map[string]any)
+		if !isTable {
+			return nil, false
+		}
+		if v, ok = table[p]; !ok {
+			return nil, false
+		}
+	}
+	return v, true
 }
 
 // cliData is the launch data of one CLI: adapters/launch/<kind>.toml.
 type cliData struct {
-	kind          string
-	MinVersion    string     `toml:"min_version"`
-	Flags         []string   `toml:"flags"` // the flags of each launch, before the flags of the plan
-	Subcommands   []string   `toml:"subcommands"`
-	PlainFlags    []string   `toml:"plain_flags"`
-	ValueFlags    []string   `toml:"value_flags"`
-	OptionalFlags []string   `toml:"optional_flags"` // the flags that take the next arg when it is not a flag
-	VariadicFlags []string   `toml:"variadic_flags"`
-	Conflicts     []conflict `toml:"conflicts"`
-	build         builder
+	kind        string
+	MinVersion  string   `toml:"min_version"`
+	Flags       []string `toml:"flags"` // the flags of each launch, before the flags of the plan
+	Subcommands []string `toml:"subcommands"`
+	// BrainSubcommands are the subcommands that get Brain flags, such as `codex resume`: the
+	// flags after one are flags of the subcommand.
+	BrainSubcommands []string   `toml:"brain_subcommands"`
+	PlainFlags       []string   `toml:"plain_flags"`
+	ValueFlags       []string   `toml:"value_flags"`
+	OptionalFlags    []string   `toml:"optional_flags"` // the flags that take the next arg when it is not a flag
+	VariadicFlags    []string   `toml:"variadic_flags"`
+	Conflicts        []conflict `toml:"conflicts"`
+	build            builder
 }
 
 // versionRe is a version word of `<cli> --version`: "2.1.312 (Claude Code)", "codex-cli 0.165.0".
@@ -113,6 +158,8 @@ func (d *cliData) check() error {
 			return fmt.Errorf("conflict %d: unknown rule %q", i, c.Rule)
 		case c.Reason == "" && (c.Rule == ruleRefuse || c.Rule == ruleNoBrain):
 			return fmt.Errorf("conflict %d: rule %s needs a reason", i, c.Rule)
+		case (c.Key == "") != (c.Equals == nil) || c.Key != "" && c.Value != "":
+			return fmt.Errorf("conflict %d: key needs equals, and no value pattern", i)
 		}
 		if c.Value != "" {
 			re, err := regexp.Compile(c.Value)

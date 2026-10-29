@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -76,6 +77,22 @@ func TestCodexHookHash(t *testing.T) {
 	}
 	if limited == sum {
 		t.Errorf("CodexHookHash() with additionalContextLimit 0 = %s, the hash with none", limited)
+	}
+	// serde_json hashes U+2028 and U+2029 as their UTF-8 bytes (a live Codex 0.165 run trusted
+	// this hash). A backslash before "u2028" in the text stays an escaped backslash.
+	for _, tt := range []struct{ command, identity string }{
+		{"/tmp/brain" + string(rune(0x2028)) + "dir/brain hook" + string(rune(0x2029)), "/tmp/brain" + string(rune(0x2028)) + "dir/brain hook" + string(rune(0x2029))},
+		{`/tmp/a\` + "u2028b", `/tmp/a\\` + "u2028b"},
+	} {
+		identity := `{"event_name":"session_start","hooks":[{"additionalContextLimit":0,"async":false,"command":"` +
+			tt.identity + `","timeout":600,"type":"command"}]}`
+		_, got, err := CodexHookHash("SessionStart", nil, tt.command, ptr[uint64](0))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(identity))); got != want {
+			t.Errorf("CodexHookHash(%q) = %s, want %s", tt.command, got, want)
+		}
 	}
 	if _, _, err := CodexHookHash("Nope", nil, command, nil); err == nil {
 		t.Error("CodexHookHash(Nope) = nil error, want an unknown event")

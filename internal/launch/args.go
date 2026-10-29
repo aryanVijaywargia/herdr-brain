@@ -12,8 +12,8 @@ type flag struct {
 	value string // its value; "" for none, and for the values of a variadic flag
 	// first and end: the user's args [first, end) hold the flag and its values.
 	first, end int
-	// top: the flag comes before the first positional arg, so it is a flag of the CLI itself
-	// and not of its subcommand.
+	// top: the flag comes before the subcommand, or there is none, so it is a flag of the CLI
+	// itself. A prompt does not end the top level: `codex hi --no-daemon` is a top-level flag.
 	top bool
 }
 
@@ -27,21 +27,24 @@ type args struct {
 }
 
 // parse reads the user's args raw of the CLI of d. The first positional arg is the subcommand
-// when it is one of the subcommands of d; else it is the prompt. After "--" each arg is
-// positional.
+// when it is one of the subcommands or Brain subcommands of d; else it is the prompt. After
+// "--" each arg is positional.
 func parse(d *cliData, raw []string) *args {
 	a := &args{d: d, raw: raw}
-	top := true
+	top, positional := true, false
 	for i := 0; i < len(raw); i++ {
 		arg := raw[i]
 		if arg == "--" {
 			break
 		}
 		if arg == "-" || !strings.HasPrefix(arg, "-") {
-			if top && slices.Contains(d.Subcommands, arg) {
+			if !positional && slices.Contains(d.Subcommands, arg) {
 				a.sub = arg
 			}
-			top = false
+			if !positional && (a.sub != "" || slices.Contains(d.BrainSubcommands, arg)) {
+				top = false
+			}
+			positional = true
 			continue
 		}
 		first := i

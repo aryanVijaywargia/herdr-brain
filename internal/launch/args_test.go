@@ -83,6 +83,17 @@ func TestPlain(t *testing.T) {
 		{"codex", []string{"-c", "features={apps=true,hooks=false}"}, "it turns off the hooks"},
 		{"codex", []string{"-c", "features.hooks=true"}, ""},
 		{"codex", []string{"-c", "features={myhooks=false}"}, ""},
+		// The -c value is TOML, as Codex reads it (review of #442): quoted keys, a comment, and
+		// the attached and --config forms.
+		{"codex", []string{"-c", `features={"hooks"=false}`}, "it turns off the hooks"},
+		{"codex", []string{"-c", `features={'hooks'=false}`}, "it turns off the hooks"},
+		{"codex", []string{"-c", "features.hooks=false # user override"}, "it turns off the hooks"},
+		{"codex", []string{"-cfeatures.hooks=false"}, "it turns off the hooks"},
+		{"codex", []string{"--config=features={hooks=false}"}, "it turns off the hooks"},
+		{"codex", []string{"resume", "-c", "features.hooks=false"}, "it turns off the hooks"},
+		{"codex", []string{"-c", `features.hooks="false"`}, ""}, // a string, not false
+		{"codex", []string{"-c", "features.hooks.x=false"}, ""},
+		{"codex", []string{"-c", "features"}, ""},
 	}
 	for _, tt := range tests {
 		got := parse(mustLoad(t, tt.kind), tt.args).plain()
@@ -144,6 +155,9 @@ func TestArgvEmptyPlan(t *testing.T) {
 		{"codex", []string{"--no-daemon", "resume"}, []string{"--no-daemon", "resume"}},
 		{"codex", []string{"-m", "o3", "--no-daemon"}, []string{"-m", "o3", "--no-daemon"}},
 		{"codex", []string{"resume", "--no-daemon"}, []string{"--no-daemon", "resume", "--no-daemon"}},
+		{"codex", []string{"fork", "--no-daemon"}, []string{"--no-daemon", "fork", "--no-daemon"}},
+		// A prompt is no subcommand: the --no-daemon after it is a top-level flag (review of #442).
+		{"codex", []string{"hello", "--no-daemon"}, []string{"hello", "--no-daemon"}},
 	}
 	for _, tt := range tests {
 		got, notes, err := parse(mustLoad(t, tt.kind), tt.args).argv(t.TempDir(), Plan{})

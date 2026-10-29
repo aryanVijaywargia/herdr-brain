@@ -131,10 +131,12 @@ func with(env []string, add ...string) []string {
 	return append(out, add...)
 }
 
-// AC #442: in a herdr pane of a bound session, `brain claude --x y` and `brain codex --x y`
-// exec the real CLI with the launch flags, then --x y, and print nothing. Each launch has its
-// folder (0700) with its ID file (0600). No file under .claude or .codex changes.
-func TestLaunchExec(t *testing.T) {
+// AC #442, for the static launch flags of E24-S2: in a herdr pane of a bound session,
+// `brain claude --x y` and `brain codex --x y` exec the real CLI with the static flags (Codex
+// --no-daemon; the Claude flags come with the plan of E24-S4 to S6), then --x y, and print
+// nothing. Each launch has its folder (0700) with its ID file (0600). No file under .claude
+// or .codex changes.
+func TestLaunchStaticFlags(t *testing.T) {
 	h := newLaunchHome(t)
 	before := h.configs(t)
 	for i, tt := range []struct {
@@ -218,6 +220,52 @@ func TestLaunchNoLoop(t *testing.T) {
 		if got := h.logged(t, "claude"); !slices.Equal(got, []string{"claude", "hi"}) {
 			t.Errorf("brain claude claude hi: claude got %q, want [claude hi]", got)
 		}
+	}
+}
+
+// AC #442 (review): a shell shim named claude earlier on PATH that runs `exec brain claude`
+// does not loop: the Brain that the shim runs again skips it and execs the fake claude, in
+// herdr and outside. A shim that runs brain with no exec stops at the chain limit with an
+// error, and starts no CLI.
+func TestLaunchShim(t *testing.T) {
+	h := newLaunchHome(t)
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	quoted := "'" + strings.ReplaceAll(self, "'", `'\''`) + "'"
+	shims := map[string]string{"exec": "exec " + quoted, "fork": quoted}
+	for name, line := range shims {
+		dir := filepath.Join(h.home, name)
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "claude"), []byte("#!/bin/sh\n"+line+" claude \"$@\"\n"), 0o700); err != nil { //nolint:gosec // a shim must be executable
+			t.Fatal(err)
+		}
+	}
+	path := func(name string) string {
+		return "PATH=" + filepath.Join(h.home, name) + string(os.PathListSeparator) + h.fakes
+	}
+	for _, env := range [][]string{with(h.env, path("exec")), with(h.env, path("exec"), "HERDR_ENV=")} {
+		h.brain(t, env, "claude", "hi")
+		if got := h.logged(t, "claude"); !slices.Equal(got, []string{"hi"}) {
+			t.Errorf("brain claude hi through an exec shim: claude got %q, want [hi]", got)
+		}
+	}
+	if err := os.Remove(filepath.Join(h.home, "claude.log")); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, self, "claude", "hi")
+	cmd.Env = with(h.env, path("fork"), "HERDR_ENV=")
+	out, err := cmd.CombinedOutput()
+	if err == nil || ctx.Err() != nil || !strings.Contains(string(out), "started brain again 8 times") {
+		t.Errorf("brain claude through a shim with no exec = %v, %v:\n%s\nwant the loop error", err, ctx.Err(), out)
+	}
+	if _, err := os.Stat(filepath.Join(h.home, "claude.log")); !os.IsNotExist(err) {
+		t.Errorf("the fake claude ran through a looping shim: %v", err)
 	}
 }
 

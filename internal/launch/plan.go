@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -158,6 +159,10 @@ func readSettings(v string) (map[string]any, error) {
 	}
 	if s == nil {
 		return nil, errors.New("not a JSON object")
+	}
+	// Claude refuses a value with more text after the object, so Brain must not launch with it.
+	if _, err := d.Token(); !errors.Is(err, io.EOF) {
+		return nil, errors.New("not one JSON object: more text after it")
 	}
 	return s, nil
 }

@@ -10,18 +10,28 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
+	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/resolver"
+	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
 // callDeadline is the deadline of the herdr call of the resolve, and of `<cli> --version`.
 const callDeadline = 5 * time.Second
 
+// waitDelay is how long `<cli> --version` may hold its output pipe open after it ends or after
+// its deadline.
+const waitDelay = 500 * time.Millisecond
+
 // Deps are the parts of a launch command that reach outside the process; tests replace them.
 type Deps struct {
 	Environ  []string
+	PID      int    // the process ID (os.Getpid)
 	Self     string // the running brain binary: a launch never runs it as the CLI
 	Bindings string // the bindings file
 	Pane     resolver.PaneFunc
@@ -37,54 +47,136 @@ type Deps struct {
 // launch, then args with no change. Every other call starts the plain CLI with args, and
 // prints one line on stderr with the reason. A refuse conflict starts nothing. Main writes
 // nothing to a CLI config file. It returns only on an error.
-func Main(ctx context.Context, d Deps, kind string, args []string) error {
+func Main(ctx context.Context, d Deps, kind string, args []string) (err error) {
 	data, err := load(kind)
 	if err != nil {
 		return err
 	}
-	bin, err := findCLI(d.Environ, kind, d.Self)
+	c := readChain(d.Environ, d.PID)
+	if c.depth >= maxDepth {
+		return fmt.Errorf("brain started brain again %d times: a file named %s on PATH runs brain; "+
+			"remove it from PATH, or run %s without brain", c.depth, kind, kind)
+	}
+	bin, err := findCLI(d.Environ, kind, d.Self, c.paths)
 	if err != nil {
 		return err
 	}
-	argv, notes, plain, err := brainArgv(ctx, d, data, bin, args)
+	argv, notes, plain, l, err := brainArgv(ctx, d, data, bin, args)
 	if err != nil {
 		return err
+	}
+	if l != nil {
+		// A real exec returns only when the CLI did not start: its launch must not stay running.
+		defer func() {
+			if err != nil {
+				err = errors.Join(err, l.abandon(ctx, d.Now()))
+			}
+		}()
 	}
 	if plain != "" {
 		argv = args
-		notes = []string{fmt.Sprintf("starting the plain %s with no Brain flags: %s", kind, plain)}
+		// One line: a reason can hold the line breaks of a herdr error.
+		notes = []string{fmt.Sprintf("starting the plain %s with no Brain flags: %s", kind, strings.Join(strings.Fields(plain), " "))}
 	}
 	for _, n := range notes {
 		if _, err := fmt.Fprintf(d.Stderr, "brain %s: %s\n", kind, n); err != nil {
 			return err
 		}
 	}
-	return d.Exec(bin, append([]string{kind}, argv...), d.Environ)
+	return d.Exec(bin, append([]string{kind}, argv...), c.env(d.Environ, bin))
 }
 
-// brainArgv returns the args of a Brain launch of the CLI bin of d with the user's args, and
-// the notes to print. plain is the reason when the call gets no Brain flags.
-func brainArgv(ctx context.Context, d Deps, data *cliData, bin string, args []string) (argv, notes []string, plain string, err error) {
+// brainArgv returns the args of a Brain launch of the CLI bin of d with the user's args, the
+// notes to print, and the new launch l. plain is the reason when the call gets no Brain flags.
+func brainArgv(ctx context.Context, d Deps, data *cliData, bin string, args []string) (argv, notes []string, plain string, l *launched, err error) {
 	a := parse(data, args)
 	if r := a.plain(); r != "" {
-		return nil, nil, r, nil
+		return nil, nil, r, nil, nil
 	}
 	r, plain := resolve(ctx, d)
 	if plain != "" {
-		return nil, nil, plain, nil
+		return nil, nil, plain, nil, nil
 	}
 	if err := a.refused(); err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", nil, err
 	}
 	if plain := supported(ctx, data, bin, d.Environ); plain != "" {
-		return nil, nil, plain, nil
+		return nil, nil, plain, nil, nil
 	}
 	dir, err := Create(ctx, r.Binding, r.WorkspaceID, r.PaneID, data.kind, d.Now())
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", nil, err
 	}
+	l = &launched{b: r.Binding, dir: dir}
 	argv, notes, err = a.argv(dir, Plan{})
-	return argv, notes, "", err
+	if err != nil {
+		return nil, nil, "", nil, errors.Join(err, l.abandon(ctx, d.Now()))
+	}
+	return argv, notes, "", l, nil
+}
+
+// launched is a launch that Create made: its binding and its launch folder.
+type launched struct {
+	b   bindings.Binding
+	dir string
+}
+
+// abandon ends the launch l, whose CLI did not start, at now and deletes its folder. It ends
+// no other launch of the pane. No agent ran, so the record ends as at an agent exit.
+func (l *launched) abandon(ctx context.Context, now time.Time) error {
+	gone := func(r store.Launch) bool { return paths.Launch(l.b.Store, r.ID) == l.dir }
+	if err := End(ctx, l.b.Store, l.b.Socket, gone, store.EndAgentExit, now); err != nil {
+		return fmt.Errorf("end the launch that did not start: %w", err)
+	}
+	return nil
+}
+
+// chainEnv is the env name of the launch chain: "<pid>:<depth>:<CLI file>...". syscall.Exec
+// keeps the process ID, so a Brain that starts with the pid of the chain was run again by a
+// CLI file that an earlier Brain of this process chose, such as a shell script that runs
+// `exec brain claude`. It skips those files. A nested `brain claude` in the session of the
+// real CLI is another process, so it finds the real CLI again. depth counts the Brain launches
+// above this one, also across processes, so a script that runs brain with no exec stops at
+// maxDepth.
+const chainEnv = "BRAIN_LAUNCH_CHAIN"
+
+// maxDepth is the most Brain launches in one chain: far above any nesting of sessions.
+const maxDepth = 8
+
+// chain is the launch chain of this process.
+type chain struct {
+	pid, depth int
+	paths      []string // the CLI files that earlier Brain launches of this process ran
+}
+
+// readChain reads the launch chain of environ for the process pid. A value that Brain did not
+// write is no chain: the env is only a hint, and the depth then starts again at 0.
+func readChain(environ []string, pid int) chain {
+	c := chain{pid: pid}
+	parts := strings.Split(lookup(environ, chainEnv), ":")
+	if len(parts) < 3 {
+		return c
+	}
+	p, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return c
+	}
+	n, err := strconv.Atoi(parts[1])
+	if err != nil || n < 0 {
+		return c
+	}
+	c.depth = n
+	if p == pid {
+		c.paths = parts[2:]
+	}
+	return c
+}
+
+// env returns environ with the chain of a launch that runs the CLI file bin.
+func (c chain) env(environ []string, bin string) []string {
+	v := fmt.Sprintf("%d:%d:%s", c.pid, c.depth+1, strings.Join(append(slices.Clone(c.paths), bin), ":"))
+	out := slices.DeleteFunc(slices.Clone(environ), func(kv string) bool { return strings.HasPrefix(kv, chainEnv+"=") })
+	return append(out, chainEnv+"="+v)
 }
 
 // resolve resolves the pane of the call with the resolver. plain is why the call gets no
@@ -156,6 +248,9 @@ func cliVersion(ctx context.Context, bin string, environ []string) (string, erro
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "--version")
 	cmd.Env = environ
+	// A child of the CLI can hold the output pipe open past the deadline: stop the wait soon
+	// after, so the whole check stays bounded.
+	cmd.WaitDelay = waitDelay
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("%s --version: %w", bin, err)
@@ -171,7 +266,8 @@ func cliVersion(ctx context.Context, bin string, environ []string) (string, erro
 // findCLI returns the first executable file named kind in an absolute folder of the PATH of
 // environ that is not the brain binary self: not self, not a link to it and not a copy of it.
 // So `brain claude` never runs itself, also with a brain link named claude earlier on PATH.
-func findCLI(environ []string, kind, self string) (string, error) {
+// It also skips the files of skip: the files of the launch chain that ran brain again.
+func findCLI(environ []string, kind, self string, skip []string) (string, error) {
 	me, err := os.Stat(self)
 	if err != nil {
 		return "", fmt.Errorf("brain binary: %w", err)
@@ -183,7 +279,7 @@ func findCLI(environ []string, kind, self string) (string, error) {
 		p := filepath.Join(dir, kind)
 		fi, err := os.Stat(p)
 		// As exec.LookPath, a PATH entry that is not an executable file is skipped.
-		if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm()&0o111 == 0 {
+		if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm()&0o111 == 0 || slices.Contains(skip, p) {
 			continue
 		}
 		if os.SameFile(me, fi) {

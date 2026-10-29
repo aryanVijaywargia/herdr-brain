@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
 
@@ -219,8 +220,31 @@ func hookHash(event, label string, matcher *string, h handler) (string, error) {
 	if err := enc.Encode(identity); err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(bytes.TrimSuffix(buf.Bytes(), []byte("\n")))
+	sum := sha256.Sum256(lineSeparators(bytes.TrimSuffix(buf.Bytes(), []byte("\n"))))
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+// lineSeparators returns the JSON text b with the JSON escape of each U+2028 and U+2029 as the
+// UTF-8 bytes of its character. encoding/json escapes these two characters, and the serde_json
+// of Codex does not. An escaped backslash before "u2028" stays: the scan reads each escape as one pair.
+func lineSeparators(b []byte) []byte {
+	out := make([]byte, 0, len(b))
+	for i := 0; i < len(b); i++ {
+		switch {
+		case b[i] != '\\' || i+1 == len(b):
+			out = append(out, b[i])
+		case bytes.HasPrefix(b[i+1:], []byte("u2028")):
+			out = utf8.AppendRune(out, 0x2028)
+			i += 5
+		case bytes.HasPrefix(b[i+1:], []byte("u2029")):
+			out = utf8.AppendRune(out, 0x2029)
+			i += 5
+		default:
+			out = append(out, b[i], b[i+1])
+			i++
+		}
+	}
+	return out
 }
 
 // matcherEvent reports whether Codex keeps the matcher of the event (matcher_pattern_for_event).
