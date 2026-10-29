@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 // DataHome returns ~/.local/share/brain. It reads only HOME. It ignores
@@ -142,6 +143,19 @@ func homeDir() (string, error) {
 // `brain` calls write it; the hook only reads it.
 func WorkspaceMap(store string) string {
 	return filepath.Join(store, "workspaces.json")
+}
+
+// Launches returns <store>/launches, the folder of the launch folders of the store folder store
+// (E24-S3).
+func Launches(store string) string {
+	return filepath.Join(store, "launches")
+}
+
+// Launch returns <store>/launches/<id>, the private folder of launch record id in the store
+// folder store (E24-S3). The folder name is the record id, not the launch ID: launch flags name
+// the folder, and other processes can read the flags.
+func Launch(store string, id int64) string {
+	return filepath.Join(Launches(store), strconv.FormatInt(id, 10))
 }
 
 // EvalResults returns <store>/eval-results.json, the results of the last eval run in the test

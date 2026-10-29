@@ -384,7 +384,7 @@ func newHarness(t *testing.T, kind bindings.Kind) *harness {
 	h.d = &daemon{
 		env:  env{session: "s1", socket: f.path, stateDir: t.TempDir(), pluginID: "brain"},
 		sock: herdr.Socket{Path: f.path}, bindingsFile: bf, handler: recorder{h.steps}, log: io.Discard,
-		tick: h.tick, tries: 1, queue: 64,
+		tick: h.tick, tries: 1, queue: 64, now: time.Now,
 	}
 	return h
 }

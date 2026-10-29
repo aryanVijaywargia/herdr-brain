@@ -259,5 +259,16 @@ func noItemTextFields() []Field {
 		{"history_scans", "turns"},
 		{"history_scans", "findings"},
 		{"history_scans", "progress"},
+		// A launch record holds a hash, a socket path, herdr ids, a CLI kind, the CLI's
+		// session id, times and a fixed reason (E24-S3).
+		{"launches", "id_hash"},
+		{"launches", "socket"},
+		{"launches", "workspace_id"},
+		{"launches", "pane_id"},
+		{"launches", "cli_kind"},
+		{"launches", "native_session_id"},
+		{"launches", "started"},
+		{"launches", "ended"},
+		{"launches", "end_reason"},
 	}
 }
