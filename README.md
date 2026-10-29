@@ -80,10 +80,19 @@ A review pane opens beside you with the draft. Approve it there. Now start a new
 
 If something doesn't work, run `brain doctor`. It checks the setup and prints a fix for each check that fails.
 
+## Start an agent with Brain
+
+In a herdr pane, type `brain claude` or `brain codex` where you would type `claude` or `codex`. Brain passes your args on to the CLI. That session gets the start brief, Brain's tools, and capture. Brain sets them up for that session only, and it changes no config file of the CLI. Outside herdr, the command starts the plain CLI.
+
+Plain `claude` and `codex` keep working as before.
+
+You can also use the herdr actions "Brain: new Claude pane" and "Brain: new Codex pane". Each one splits the focused pane, in the same folder, and runs `brain claude` or `brain codex` in the new pane. When the CLI exits, the pane keeps its shell, so you can still read the last lines.
+
 ## Everyday commands
 
 | Command | What it does |
 |---|---|
+| `brain claude`, `brain codex` | Starts Claude Code or Codex with Brain's brief, tools and capture for that session |
 | `brain status` | Shows what Brain holds, what waits for review, and whether extraction is on |
 | `brain doctor` | Checks the setup and tells you how to fix each problem. `--fix` repairs it for you |
 | `brain remember "<text>"` | Saves a draft for you to approve. Add `--global` for every workspace |
@@ -95,7 +104,7 @@ If something doesn't work, run `brain doctor`. It checks the setup and prints a 
 | `brain extract off` | Stops the calls to the learning CLI |
 | `brain update` | Updates Brain to the newest version |
 
-[`docs/commands.md`](docs/commands.md) lists every command and flag. Some of them are also herdr actions, such as "Brain: review" and "Brain: recall", so you can use them without a shell.
+[`docs/commands.md`](docs/commands.md) lists every command and flag. Some of them are also herdr actions, such as "Brain: review", "Brain: recall" and "Brain: new Claude pane", so you can use them without a shell.
 
 ## Privacy
 

@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -176,4 +179,90 @@ func TestManifestRetiredAction(t *testing.T) {
 			t.Errorf("%s pane = %v, want a popup that runs bin/brain pane %s", id, pane, id)
 		}
 	}
+}
+
+// E24-S7 AC 1: the actions "Brain: new Claude pane" and "Brain: new Codex pane" split the
+// focused pane in the cwd of that pane, then type `brain claude` or `brain codex` into the new
+// pane that herdr names in its JSON reply. The test runs each action's shell with a fake herdr
+// that logs its args. The paths have spaces. A cwd with a JSON escape gives no --cwd, so herdr
+// uses the cwd of the split pane. A failed split runs nothing.
+func TestManifestAgentPaneActions(t *testing.T) {
+	const split = "pane|split|--direction|right|--focus|"
+	cases := []struct {
+		name      string
+		cwd       string
+		failSplit bool
+		wantSplit string
+	}{
+		{"cwd", "/work/my proj", false, split + "--cwd|/work/my proj|"},
+		{"cwd with a quote", `/work/a"b`, false, split},
+		{"cwd with a backslash", `/work/a\b`, false, split},
+		{"failed split", "/work", true, split + "--cwd|/work|"},
+	}
+	for id, title := range map[string]string{"claude": "Brain: new Claude pane", "codex": "Brain: new Codex pane"} {
+		action := findTable(manifestTables(t, "actions"), id)
+		if action == nil {
+			t.Fatalf("no [[actions]] with id %s", id)
+		}
+		if action["title"] != `"`+title+`"` || action["contexts"] != `["workspace", "pane"]` {
+			t.Errorf("%s action = %v, want title %s in the workspace and pane contexts", id, action, title)
+		}
+		var argv []string
+		if err := json.Unmarshal([]byte(action["command"]), &argv); err != nil {
+			t.Fatalf("%s action command = %s: %v", id, action["command"], err)
+		}
+		for _, tc := range cases {
+			t.Run(id+"/"+tc.name, func(t *testing.T) {
+				root := filepath.Join(t.TempDir(), "plugin root")
+				calls, err := runPaneAction(t, argv, root, tc.cwd, tc.failSplit)
+				want := []string{tc.wantSplit}
+				if !tc.failSplit {
+					want = append(want, "pane|run|w1:p2|'"+root+"/bin/brain' "+id+"|")
+				}
+				if (err != nil) != tc.failSplit {
+					t.Errorf("action error = %v, want an error only for a failed split", err)
+				}
+				if strings.Join(calls, "\n") != strings.Join(want, "\n") {
+					t.Errorf("herdr calls = %q, want %q", calls, want)
+				}
+			})
+		}
+	}
+}
+
+// runPaneAction runs argv as herdr runs an action, with the focused pane w1:p1 in cwd and a fake
+// herdr. It returns the fake's calls, one line of |-ended args each. The fake answers a split
+// with the new pane w1:p2, or fails it with no output when failSplit is set.
+func runPaneAction(t *testing.T, argv []string, root, cwd string, failSplit bool) ([]string, error) {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "herdr bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	herdr, log := filepath.Join(dir, "herdr"), filepath.Join(dir, "calls")
+	script := `#!/bin/sh
+printf '%s|' "$@" >> "$LOG"; echo >> "$LOG"
+[ "$1 $2" = "pane split" ] || exit 0
+[ -z "$FAIL_SPLIT" ] || exit 1
+echo '{"id":"cli:pane:split","result":{"pane":{"cwd":"/w","pane_id":"w1:p2","scroll":{"viewport_rows":38},"workspace_id":"w1"},"type":"pane_info"}}'
+`
+	if err := os.WriteFile(herdr, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, err := json.Marshal(map[string]string{"workspace_id": "w1", "focused_pane_id": "w1:p1", "focused_pane_cwd": cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "LOG=" + log, "HERDR_BIN_PATH=" + herdr,
+		"HERDR_PLUGIN_ROOT=" + root, "HERDR_PANE_ID=w1:p1", "HERDR_PLUGIN_CONTEXT_JSON=" + string(ctx)}
+	if failSplit {
+		cmd.Env = append(cmd.Env, "FAIL_SPLIT=1")
+	}
+	runErr := cmd.Run()
+	b, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(strings.TrimSuffix(string(b), "\n"), "\n"), runErr
 }
