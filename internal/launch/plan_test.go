@@ -157,7 +157,8 @@ func TestBuildClaudeSettings(t *testing.T) {
 
 // The Codex flags (E24-S1 Q4, Q5 and its fact-check): each -c value is TOML, the hooks of one
 // event are one array in the order of the plan, and one hooks.state table holds the trusted
-// hash of each group under its key, with the hash rule of internal/harness.
+// hash of each group under its key, with the hash rule of internal/harness. Only a start hook
+// has additionalContextLimit 0 (E24-S4). Codex gets no brief file: its start hook prints it.
 func TestBuildCodex(t *testing.T) {
 	dir := t.TempDir()
 	p := testPlan()
@@ -181,8 +182,12 @@ func TestBuildCodex(t *testing.T) {
 		if h.Matcher != "" {
 			m = &h.Matcher
 		}
-		limit := uint64(0)
-		label, sum, err := harness.CodexHookHash(h.Event, m, h.Command, &limit)
+		var limit *uint64
+		var wantLimit any // the additionalContextLimit of the handler; nil for none
+		if h.Event == "SessionStart" {
+			limit, wantLimit = new(uint64), int64(0)
+		}
+		label, sum, err := harness.CodexHookHash(h.Event, m, h.Command, limit)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -194,7 +199,7 @@ func TestBuildCodex(t *testing.T) {
 		}
 		g, _ := item(t, hooks[h.Event], gi).(map[string]any)
 		handler, _ := item(t, g["hooks"], 0).(map[string]any)
-		if handler["command"] != h.Command || handler["type"] != "command" || handler["additionalContextLimit"] != int64(0) ||
+		if handler["command"] != h.Command || handler["type"] != "command" || handler["additionalContextLimit"] != wantLimit ||
 			h.Matcher != "" && g["matcher"] != h.Matcher {
 			t.Errorf("hooks.%s[%d] = %v, want %+v", h.Event, gi, g, h)
 		}
@@ -202,10 +207,7 @@ func TestBuildCodex(t *testing.T) {
 	if len(state) != len(p.Hooks) {
 		t.Errorf("hooks.state = %v, want one entry for each hook", state)
 	}
-	if b, err := os.ReadFile(filepath.Join(dir, "brief.md")); err != nil || string(b) != p.Brief {
-		t.Errorf("brief.md = %q, %v, want %q", b, err, p.Brief)
-	}
-	checkModes(t, dir, 1)
+	checkModes(t, dir, 0)
 }
 
 // decodeConfig decodes the pairs "-c", "<key>=<TOML value>" of flags into one table, as Codex

@@ -146,6 +146,30 @@ func (a *args) refused() error {
 	return nil
 }
 
+// session returns the Claude session that the user's args name with its ID: the value of the
+// last --session-id, else of the last --resume or -r, unless --fork-session gives the resumed
+// session a new ID. "" when they name none: a new session, --continue, or --resume with no ID,
+// which picks a session that Brain does not know before the start.
+func (a *args) session() string {
+	var id, resume string
+	fork := false
+	for _, f := range a.flags {
+		switch {
+		case !f.top:
+		case f.name == "--session-id":
+			id = f.value
+		case f.name == "--resume" || f.name == "-r":
+			resume = f.value
+		case f.name == "--fork-session":
+			fork = true
+		}
+	}
+	if id != "" || fork {
+		return id
+	}
+	return resume
+}
+
 // text is the flag f as the user gave it, for a message.
 func text(f flag) string {
 	if f.value == "" {

@@ -7,11 +7,11 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
 )
 
-// captureHooks returns Brain's prompt, tool and stop hooks of the CLI kind for the launch
-// folder dir (E24-S5): `<brain> hook --profile <kind> --event <event> --launch <dir>`, on the
-// CLI events and the tool matcher of the adapter profile. The folder path is safe in an
-// argument: the launch ID stays in its 0600 file. brain is the brain binary. E24-S4 adds the
-// start hook.
+// captureHooks returns Brain's start hook (E24-S4) and its prompt, tool and stop hooks
+// (E24-S5) of the CLI kind for the launch folder dir: `<brain> hook --profile <kind> --event
+// <event> --launch <dir>`, on the CLI events and the tool matcher of the adapter profile. The
+// folder path is safe in an argument: the launch ID stays in its 0600 file. brain is the brain
+// binary.
 func captureHooks(kind, brain, dir string) ([]Hook, error) {
 	p, err := adapter.Load(kind)
 	if err != nil {
@@ -19,9 +19,6 @@ func captureHooks(kind, brain, dir string) ([]Hook, error) {
 	}
 	var hs []Hook
 	for _, h := range p.Hooks() {
-		if h.Event == adapter.EventStart {
-			continue
-		}
 		hs = append(hs, Hook{Event: h.CLIEvent, Matcher: h.Matcher,
 			Command: shellQuote(brain) + " hook --profile " + kind + " --event " + h.Event + " --launch " + shellQuote(dir)})
 	}

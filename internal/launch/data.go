@@ -102,6 +102,9 @@ type cliData struct {
 	// servers returns the error of a launch whose Brain MCP server a config of the user would
 	// change, or nil.
 	servers func(a *args, d Deps) error
+	// briefFlag: the CLI takes the start brief with a flag, so the launch compiles it (Claude).
+	// Else the start hook of the launch gives it at each session start (Codex).
+	briefFlag bool
 }
 
 // versionRe is a version word of `<cli> --version`: "2.1.312 (Claude Code)", "codex-cli 0.165.0".
@@ -140,10 +143,21 @@ func load(kind string) (*cliData, error) {
 	return d, nil
 }
 
+// FlagBrief reports whether the CLI kind takes the start brief with a launch flag (Claude):
+// then the start hook of the launch writes the receipt of the launch's brief and prints
+// nothing. Else the start hook prints the brief (Codex).
+func FlagBrief(kind string) (bool, error) {
+	d, err := load(kind)
+	if err != nil {
+		return false, err
+	}
+	return d.briefFlag, nil
+}
+
 func (d *cliData) check() error {
 	switch d.kind {
 	case "claude":
-		d.build, d.servers = buildClaude, claudeServers
+		d.build, d.servers, d.briefFlag = buildClaude, claudeServers, true
 	case "codex":
 		d.build, d.servers = buildCodex, codexServers
 	default:

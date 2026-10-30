@@ -16,12 +16,14 @@ import (
 
 // Plan is what Brain gives one launch: its private hooks, its MCP server and its start brief.
 // A builder turns it into files in the launch folder and flags. E24-S2 launches with an empty
-// plan; E24-S4 adds the brief, E24-S5 the capture hooks and E24-S6 the MCP server.
+// plan; E24-S4 adds the brief and the start hook, E24-S5 the capture hooks and E24-S6 the MCP
+// server.
 type Plan struct {
 	Hooks []Hook
 	MCP   *Server // nil for none
-	// Brief is the start brief. Both builders write it to brief.md in the launch folder; Claude
-	// gets it with --append-system-prompt-file, and a Codex SessionStart hook prints it.
+	// Brief is the start brief of a CLI that takes it with a flag: Claude gets brief.md in the
+	// launch folder with --append-system-prompt-file. Codex gets no flag: its SessionStart hook
+	// prints the brief.
 	Brief string
 }
 
@@ -183,7 +185,7 @@ func object(s map[string]any, key string) (map[string]any, error) {
 // hooks in one hooks.state table, so Codex runs them with no trust prompt and writes nothing
 // to config.toml (E24-S1). A later hooks.state table would replace the whole table, so all
 // the trust entries go in one flag.
-func buildCodex(dir string, p Plan, _ map[string]string) ([]string, error) {
+func buildCodex(_ string, p Plan, _ map[string]string) ([]string, error) {
 	var flags []string
 	if p.MCP != nil {
 		prefix := "mcp_servers." + serverName + "."
@@ -196,22 +198,22 @@ func buildCodex(dir string, p Plan, _ map[string]string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	flags = append(flags, hooks...)
-	if p.Brief != "" {
-		if _, err := writeFile(dir, briefFile, []byte(p.Brief)); err != nil {
-			return nil, err
-		}
-	}
-	return flags, nil
+	return append(flags, hooks...), nil
 }
+
+// codexStart is the Codex event of the start hook, the one hook of a launch that prints.
+const codexStart = "SessionStart"
 
 // codexHooks returns the -c flags of the hooks hs: one hooks.<Event> array for each event, in
 // the order of hs, and one hooks.state table with the trusted hash of each group. Each hook
-// is its own group; additionalContextLimit 0 makes Codex send a brief inline.
+// is its own group. A start hook gets additionalContextLimit 0, so Codex sends the whole brief
+// inline: Codex 0.165 reads 0 as no limit, and moves a longer text to a file with only a
+// preview inline (hooks/src/output_spill.rs). The other hooks print nothing, and Codex warns
+// at each start about the field on a Stop hook, which can emit no additionalContext
+// (hooks/src/engine/discovery.rs).
 func codexHooks(hs []Hook) ([]string, error) {
 	var events, state []string
 	groups := map[string][]string{}
-	limit := uint64(0)
 	for _, h := range hs {
 		if _, ok := groups[h.Event]; !ok {
 			events = append(events, h.Event)
@@ -222,8 +224,14 @@ func codexHooks(hs []Hook) ([]string, error) {
 			matcher = &h.Matcher
 			g += "matcher=" + tomlString(h.Matcher) + ","
 		}
-		g += `hooks=[{type="command",command=` + tomlString(h.Command) + `,additionalContextLimit=0}]}`
-		label, sum, err := harness.CodexHookHash(h.Event, matcher, h.Command, &limit)
+		var limit *uint64
+		g += `hooks=[{type="command",command=` + tomlString(h.Command)
+		if h.Event == codexStart {
+			limit = new(uint64)
+			g += `,additionalContextLimit=0`
+		}
+		g += `}]}`
+		label, sum, err := harness.CodexHookHash(h.Event, matcher, h.Command, limit)
 		if err != nil {
 			return nil, err
 		}
