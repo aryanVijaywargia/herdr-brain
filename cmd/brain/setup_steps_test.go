@@ -132,9 +132,14 @@ func readBindings(t *testing.T, home string) []bindings.Binding {
 	return bs
 }
 
-// Setup twice gives the same files and one binding; the second run asks nothing.
+// Setup twice gives the same files and one binding; the second run asks nothing. E24-S8 AC: a
+// new install writes no hook entry to .claude or .codex, and shows the launch commands.
 func TestSetupTwice(t *testing.T) {
 	home := setupHome(t, "0.9.1")
+	cliFiles := map[string][]byte{}
+	for _, f := range []string{".claude/settings.json", ".codex/hooks.json"} {
+		cliFiles[f] = mustRead(t, filepath.Join(home, f))
+	}
 	code, out, errOut := runSetup(t, "\ny\ny\n")
 	if code != 0 {
 		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
@@ -145,16 +150,26 @@ func TestSetupTwice(t *testing.T) {
 		bs[0].Socket != filepath.Join(home, ".config", "herdr", "sessions", "default", "herdr.sock") {
 		t.Errorf("bindings = %+v", bs)
 	}
-	for _, f := range []string{".claude/settings.json", ".codex/hooks.json"} {
-		if b := mustRead(t, filepath.Join(home, f)); !bytes.Contains(b, []byte(" hook --profile ")) {
-			t.Errorf("%s has no Brain hook entry:\n%s", f, b)
+	for f, before := range cliFiles {
+		if b := mustRead(t, filepath.Join(home, f)); !bytes.Equal(b, before) {
+			t.Errorf("setup changed %s:\n%s", f, b)
 		}
 	}
+	if _, err := os.Stat(filepath.Join(home, ".local", "share", "brain", "install.json")); !os.IsNotExist(err) {
+		t.Errorf("setup wrote an install record with no hook entry: %v", err)
+	}
 	for _, want := range []string{"- Session \"default\" runs herdr 0.9.1.\n", "- Brain is tested with this version. OK.\n",
-		"brain uninstall --apply", "press t on the Brain hook", "\nFirst use\n", "brain status"} {
+		"  claude: Brain adds no global hook. In a herdr pane, start it with: brain claude\n" +
+			"    or with the herdr action \"Brain: new Claude pane\".\n",
+		"  codex: Brain adds no global hook. In a herdr pane, start it with: brain codex\n" +
+			"    or with the herdr action \"Brain: new Codex pane\".\n",
+		"\nFirst use\n", "brain status"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not contain %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "press t on the Brain hook") || strings.Contains(out, "brain uninstall --apply") {
+		t.Errorf("setup shows the steps of a hook entry that it did not add:\n%s", out)
 	}
 	first := snapshot(t, home)
 
@@ -173,16 +188,23 @@ func TestSetupTwice(t *testing.T) {
 	}
 }
 
-// AC 1: a fresh home with Claude and Codex: one question, and "y" writes the binding, the
-// link, both hook entries, the hook records of Claude and the extractor setting. AC 3: a
-// second setup asks nothing and changes nothing.
-func TestSetupOneYes(t *testing.T) {
-	home := setupHome(t, "0.9.1")
-	p, err := adapter.Load("claude")
-	if err != nil {
+// fakeAgy puts a fake agy CLI on the PATH of home: agy has no launch data, so setup adds its
+// global hook entry.
+func fakeAgy(t *testing.T, home string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(home, "path", "agy"), []byte("#!/bin/sh\n"), 0o755); err != nil { //nolint:gosec // a test CLI must be executable
 		t.Fatal(err)
 	}
-	fakeClaude(t, home, p.TestedVersion)
+}
+
+// AC 1: a fresh home with Claude, Codex and agy: one question, and "y" writes the binding, the
+// link, the agy hook entries and the extractor setting. Claude and Codex have launch data, so
+// they get no hook entry (E24-S8). AC 3: a second setup asks nothing and changes nothing.
+func TestSetupOneYes(t *testing.T) {
+	home := setupHome(t, "0.9.1")
+	fakeAgy(t, home)
+	settings := mustRead(t, filepath.Join(home, ".claude", "settings.json"))
+	hooks := mustRead(t, filepath.Join(home, ".codex", "hooks.json"))
 	code, out, errOut := runSetup(t, "claude\n\ny\ny\n")
 	if code != 0 {
 		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
@@ -196,15 +218,16 @@ func TestSetupOneYes(t *testing.T) {
 	if got, err := os.Readlink(filepath.Join(home, ".local", "bin", "brain")); err != nil || !filepath.IsAbs(got) {
 		t.Errorf("link = %q, %v", got, err)
 	}
-	if b := mustRead(t, filepath.Join(home, ".codex", "hooks.json")); !bytes.Contains(b, []byte(" hook --profile codex --event start")) {
-		t.Errorf("hooks.json has no Brain hook entry:\n%s", b)
+	agy := filepath.Join(home, ".gemini", "config", "hooks.json")
+	if b := mustRead(t, agy); !bytes.Contains(b, []byte(" hook --profile agy --event start")) || !bytes.Contains(b, []byte("--event tool")) {
+		t.Errorf("%s has no Brain hook entry or no hook record entry:\n%s", agy, b)
 	}
-	if b := mustRead(t, filepath.Join(home, ".claude", "settings.json")); !bytes.Contains(b, []byte(" hook --profile claude --event start")) ||
-		!bytes.Contains(b, []byte("--event tool")) {
-		t.Errorf("settings.json has no Brain hook entry or no hook record entry:\n%s", b)
+	if !bytes.Equal(mustRead(t, filepath.Join(home, ".claude", "settings.json")), settings) ||
+		!bytes.Equal(mustRead(t, filepath.Join(home, ".codex", "hooks.json")), hooks) {
+		t.Error("setup changed the hook file of Claude or Codex")
 	}
 	rec, err := install.Read(filepath.Join(home, ".local", "share", "brain", "install.json"))
-	if err != nil || rec.Entries["claude"].Target == "" || rec.Entries["codex"].Target == "" {
+	if err != nil || rec.Entries["agy"].Target != agy || len(rec.Entries) != 1 {
 		t.Errorf("install record = %+v, %v", rec, err)
 	}
 	if x := extractorOf(t, home); x.CLI != store.ExtractorClaude {
@@ -213,14 +236,17 @@ func TestSetupOneYes(t *testing.T) {
 	socket := filepath.Join(home, ".config", "herdr", "sessions", "default", "herdr.sock")
 	for _, want := range []string{"Step 4: plan\n", "- Binding: bind session \"default\" to the main store ",
 		"\n  Socket: " + socket + "\n", "Make the symlink ",
-		"- Hooks:\n", "  agy is not installed. Setup skips it.\n", "  claude: add this entry to the SessionStart array of ",
-		"  codex: add this entry to the SessionStart array of ", "    Add these entries to ", "brain uninstall --apply",
+		"- Hooks:\n", "  agy: add this entry to the PreInvocation array of " + agy, "  claude: Brain adds no global hook.",
+		"  codex: Brain adds no global hook.", "    Add these entries to ", "brain uninstall --apply",
 		"Setup lists each hook entry it adds in " + filepath.Join(home, ".local", "share", "brain", "install.json"),
-		"- Extractor: record claude", "Bound session", "Linked ", "Added the Brain hook for codex",
-		"Added the hook record entries for claude", "Step 5: trust the Codex hook\n", "every other new or changed hook"} {
+		"- Extractor: record claude", "Bound session", "Linked ", "Added the Brain hook for agy",
+		"Added the hook record entries for agy"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not contain %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "trust the Codex hook") {
+		t.Errorf("setup shows the Codex trust steps with no Codex hook entry:\n%s", out)
 	}
 
 	before := snapshot(t, home)
@@ -265,10 +291,11 @@ func TestSetupNo(t *testing.T) {
 // AC 4: a hook entry that you edited stays as it is, and the plan says so.
 func TestSetupKeepsEditedEntry(t *testing.T) {
 	home := setupHome(t, "0.9.1")
+	fakeAgy(t, home)
 	if code, out, errOut := runSetup(t, "\ny\ny\n"); code != 0 {
 		t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 	}
-	file := filepath.Join(home, ".codex", "hooks.json")
+	file := filepath.Join(home, ".gemini", "config", "hooks.json")
 	edited := bytes.Replace(mustRead(t, file), []byte("--event start"), []byte("--event start --mine"), 1)
 	if err := os.WriteFile(file, edited, 0o600); err != nil {
 		t.Fatal(err)
@@ -285,8 +312,8 @@ func TestSetupKeepsEditedEntry(t *testing.T) {
 	if _, err := os.Readlink(filepath.Join(home, ".local", "bin", "brain")); err != nil {
 		t.Errorf("setup did not apply its plan: no link: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, file+" holds a Brain hook entry for codex that you edited. Brain keeps it.") ||
-		strings.Contains(out, "add this entry to the SessionStart array of "+file) {
+	if !strings.Contains(out, file+" holds a Brain hook entry for agy that you edited. Brain keeps it.") ||
+		strings.Contains(out, "add this entry to the PreInvocation array of "+file) {
 		t.Errorf("the plan does not keep the edited entry:\n%s", out)
 	}
 	if now := mustRead(t, file); !bytes.Equal(now, edited) {
@@ -467,31 +494,34 @@ func TestSetupSkipsMissingCLI(t *testing.T) {
 }
 
 // A CLI on PATH that has no config folder yet gets the folder and the hook on yes, and
-// nothing on no.
+// nothing on no. A CLI with launch data gets no folder either way (E24-S8).
 func TestSetupMissingConfigFolder(t *testing.T) {
-	for _, c := range []struct{ kind, dir, file, answers string }{
-		{"claude", ".claude", "settings.json", "\ny\ny\n"},
-		{"codex", ".codex", "hooks.json", "\ny\ny\n"},
-		{"claude", ".claude", "settings.json", "\nn\nn\n"},
-		{"codex", ".codex", "hooks.json", "\nn\nn\n"},
-	} {
-		yes := !strings.Contains(c.answers, "n")
-		t.Run(fmt.Sprintf("%s yes=%t", c.kind, yes), func(t *testing.T) {
+	for _, answers := range []string{"\ny\ny\n", "\nn\nn\n"} {
+		yes := !strings.Contains(answers, "n")
+		t.Run(fmt.Sprintf("yes=%t", yes), func(t *testing.T) {
 			home := setupHome(t, "0.9.1")
-			if err := os.RemoveAll(filepath.Join(home, c.dir)); err != nil {
-				t.Fatal(err)
+			fakeAgy(t, home)
+			for _, dir := range []string{".claude", ".codex"} {
+				if err := os.RemoveAll(filepath.Join(home, dir)); err != nil {
+					t.Fatal(err)
+				}
 			}
-			code, out, errOut := runSetup(t, c.answers)
+			code, out, errOut := runSetup(t, answers)
 			if code != 0 {
 				t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 			}
-			b, err := os.ReadFile(filepath.Join(home, c.dir, c.file))
+			for _, dir := range []string{".claude", ".codex"} {
+				if _, err := os.Lstat(filepath.Join(home, dir)); !os.IsNotExist(err) {
+					t.Errorf("setup made %s: %v", dir, err)
+				}
+			}
+			b, err := os.ReadFile(filepath.Join(home, ".gemini", "config", "hooks.json"))
 			switch {
 			case yes && (err != nil || !bytes.Contains(b, []byte(" hook --profile "))):
-				t.Errorf("%s: %v\n%s", c.file, err, b)
+				t.Errorf("agy hooks.json: %v\n%s", err, b)
 			case !yes:
-				if _, err := os.Lstat(filepath.Join(home, c.dir)); !os.IsNotExist(err) {
-					t.Errorf("setup made %s after the answer no: %v", c.dir, err)
+				if _, err := os.Lstat(filepath.Join(home, ".gemini")); !os.IsNotExist(err) {
+					t.Errorf("setup made .gemini after the answer no: %v", err)
 				}
 			}
 		})
@@ -563,11 +593,9 @@ func TestSetupPlanBullets(t *testing.T) {
 	if n, text := bullets(out, "Step 4: plan\n", "Apply all of this?"); n > 5 {
 		t.Errorf("the plan has %d bullets, want 5 or fewer:\n%s", n, text)
 	}
-	for _, kind := range []string{"agy", "claude", "codex"} {
-		if want := " hook --profile " + kind + " --event start"; !strings.Contains(out, "  "+kind+": add this entry to the ") ||
-			!strings.Contains(out, want) {
-			t.Errorf("the plan does not show the %s hook entry %q:\n%s", kind, want, out)
-		}
+	if want := " hook --profile agy --event start"; !strings.Contains(out, "  agy: add this entry to the ") ||
+		!strings.Contains(out, want) {
+		t.Errorf("the plan does not show the agy hook entry %q:\n%s", want, out)
 	}
 }
 

@@ -21,6 +21,8 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/extract"
 	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
+	"github.com/aryanVijaywargia/herdr-brain/internal/install"
+	brainlaunch "github.com/aryanVijaywargia/herdr-brain/internal/launch"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/resolver"
@@ -134,6 +136,9 @@ type statusCall struct {
 	w *lineWriter
 	herdrState
 	kinds []string // the profile kinds, in the order that status shows them
+	// global is the capture source of a session of each kind whose global Brain start entry is
+	// in its hook file; nil when the adapter state is unavailable.
+	global map[string]store.CaptureSource
 }
 
 func (s *statusCall) run(ctx context.Context) {
@@ -155,6 +160,9 @@ func (s *statusCall) run(ctx context.Context) {
 	}
 	s.clis(ctx, ps)
 	s.fail(s.Store.Write(ctx, func(tx *sql.Tx) error {
+		if err := s.sessions(ctx, tx); err != nil {
+			return err
+		}
 		if err := s.delivery(ctx, tx); err != nil {
 			return err
 		}
@@ -387,7 +395,9 @@ func (s *statusCall) clis(ctx context.Context, ps []*adapter.Profile) {
 		s.w.printf("  unavailable: %v\n", err)
 		return
 	}
+	s.global = map[string]store.CaptureSource{}
 	for i, st := range sts {
+		records := s.globalHook(st, ps[i])
 		if !st.Installed {
 			s.w.printf("  %s: not installed\n", st.Kind)
 			continue
@@ -410,9 +420,7 @@ func (s *statusCall) clis(ctx context.Context, ps []*adapter.Profile) {
 				word = "unknown"
 			}
 		}
-		if st.Configured {
-			word += s.records(ps[i])
-		}
+		word += records
 		if n := st.VersionNote(); n != "" && st.VersionErr == nil {
 			word += "; " + n
 		}
@@ -434,26 +442,192 @@ func (s *statusCall) clis(ctx context.Context, ps []*adapter.Profile) {
 
 // records is the hook records part of the status line of the configured profile p (#315):
 // "on" when each hook record entry that it turns on is in place, else "off", with the missing
-// CLI events when some are in place. It is "" for a profile with no hook record event.
-func (s *statusCall) records(p *adapter.Profile) string {
+// CLI events when some are in place, and the fix for a CLI with no launch data. It is "" for a
+// profile with no hook record event. on reports whether every hook record entry is in place
+// and unchanged.
+func (s *statusCall) records(p *adapter.Profile) (word string, on bool) {
 	all := len(p.Hooks()) - 1
 	if all == 0 {
-		return ""
+		return "", false
 	}
 	inst, err := s.installer()
 	var missing []string
 	if err == nil {
 		missing, _, err = missingRecords(inst, p)
 	}
+	if err == nil && len(missing) == 0 {
+		on, err = recordsInPlace(inst, p)
+	}
+	// brain update adds no hook record entry for a CLI with launch data (E24-S8).
+	fix := " (brain update adds them)"
+	if slices.Contains(brainlaunch.Kinds(), p.Kind) {
+		fix = ""
+	}
 	switch {
 	case err != nil:
-		return fmt.Sprintf("; hook records unknown (%v)", err)
+		return fmt.Sprintf("; hook records unknown (%v)", err), false
+	case len(missing) == 0 && !on:
+		return "; hook records on, but you edited an entry", false
 	case len(missing) == 0:
-		return "; hook records on"
+		return "; hook records on", true
 	case len(missing) == all:
-		return "; hook records off (brain update adds them)"
+		return "; hook records off" + fix, false
 	}
-	return "; hook records off for " + strings.Join(missing, ", ") + " (brain update adds them)"
+	return "; hook records off for " + strings.Join(missing, ", ") + fix, false
+}
+
+// globalHook notes the capture source of a session of profile p, whose adapter state is st,
+// when its global Brain start entry is in place, and returns the hook records part of its
+// status line. The hook config, not the PATH of this process, gives the start of a live session.
+func (s *statusCall) globalHook(st harness.Status, p *adapter.Profile) string {
+	if !st.Configured {
+		return ""
+	}
+	records, on := s.records(p)
+	s.global[st.Kind] = globalCapture(on)
+	return records
+}
+
+// recordsInPlace reports whether each hook record entry of profile p is in its hook file as
+// Brain recorded it. An entry that you edited may not run, so it does not count (E24-S8).
+func recordsInPlace(inst *install.Installer, p *adapter.Profile) (bool, error) {
+	for _, h := range p.Hooks()[1:] {
+		_, st, err := inst.WouldInstallHook(p, h)
+		if err != nil || st != install.Present {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+// globalCapture is the capture source of a session of a CLI with its global Brain start entry:
+// hooks when every hook record entry is on, else pane-screen capture only.
+func globalCapture(records bool) store.CaptureSource {
+	if records {
+		return store.CaptureHooks
+	}
+	return store.CaptureScreen
+}
+
+// The starts of a live session in brain status (E24-S8).
+const (
+	startLaunch = "brain launch" // a running launch record of its CLI in its pane
+	startGlobal = "global hook"  // the global Brain start entry of its CLI is in its hook file
+	startNone   = "none"
+)
+
+// sessions prints the start, the capture source, the brief and the tools of each live agent
+// (E24-S8). An agent of a running launch record in its pane has the capture source of the
+// current native session of the launch, and pane-screen capture until a hook of the launch
+// names that session. An agent of a CLI with its global Brain start entry has hook capture when
+// each hook record entry is in place. Any other agent has pane-screen capture only. The brief
+// comes from the receipt of the session: of the launch for a launched agent (E24-S4), else of
+// its agent session. Brain gives its MCP server to each launch, and to no other session, so
+// the tools are on only for a launched agent (E24-S6).
+func (s *statusCall) sessions(ctx context.Context, tx *sql.Tx) error {
+	s.w.printf("\nlive sessions:\n")
+	if s.panesErr != nil {
+		s.w.printf("  unavailable: %v\n", s.panesErr)
+		return nil //nolint:nilerr // the line above reports the failed pane list
+	}
+	ls, err := store.RunningLaunches(ctx, tx, s.Binding.Socket)
+	if err != nil {
+		return err
+	}
+	n := 0
+	for _, p := range s.panes {
+		if p.Agent == nil {
+			continue
+		}
+		n++
+		l := runningLaunch(ls, p)
+		start, capture, err := s.start(ctx, tx, l, p)
+		if err != nil {
+			return err
+		}
+		brief, err := s.brief(ctx, tx, l, p)
+		if err != nil {
+			return err
+		}
+		tools := "off"
+		if l != nil {
+			tools = "on"
+		}
+		s.w.printf("  %s %s: start %s, capture %s, brief %s, tools %s\n", p.ID, *p.Agent, start, capture, brief, tools)
+	}
+	if n == 0 {
+		s.w.printf("  no live agent\n")
+	}
+	return nil
+}
+
+// runningLaunch returns the newest launch record of ls, the running launch records of the herdr
+// server, of the live agent in pane p; nil for none.
+func runningLaunch(ls []store.Launch, p herdr.Pane) *store.Launch {
+	var l *store.Launch
+	for i := range ls {
+		if ls[i].PaneID == p.ID && ls[i].CLI == *p.Agent {
+			l = &ls[i]
+		}
+	}
+	return l
+}
+
+// brief returns the brief part of the line of the live agent in pane p, of the running launch
+// l or nil: "delivered" for a receipt that emitted the brief, else "not delivered" and why. The
+// receipt of a launch is of the current native session of the launch, else of the agent session
+// that herdr shows, else of any session of the launch.
+func (s *statusCall) brief(ctx context.Context, tx *sql.Tx, l *store.Launch, p herdr.Pane) (string, error) {
+	session := ""
+	if p.AgentSession != nil {
+		session = p.AgentSession.Value
+	}
+	var d store.Delivery
+	var ok bool
+	var err error
+	switch {
+	case l != nil:
+		d, ok, err = store.LaunchReceipt(ctx, tx, l.ID, cmp.Or(l.NativeSessionID, session))
+	case session != "":
+		d, ok, err = store.LatestReceipt(ctx, tx, s.Binding.Session, *p.Agent, session)
+	}
+	switch {
+	case err != nil:
+		return "", err
+	case !ok:
+		return "not delivered (no receipt)", nil
+	case d.Result == store.ResultEmitted:
+		return "delivered", nil
+	case d.WithheldReason != nil:
+		return fmt.Sprintf("not delivered (%s: %s)", d.Result, *d.WithheldReason), nil
+	}
+	return fmt.Sprintf("not delivered (%s)", d.Result), nil
+}
+
+// start returns the start and the capture source of the live agent in pane p, of the running
+// launch l or nil.
+func (s *statusCall) start(ctx context.Context, tx *sql.Tx, l *store.Launch, p herdr.Pane) (start string, capture store.CaptureSource, err error) {
+	if l == nil {
+		c, ok := s.global[*p.Agent]
+		switch {
+		case s.global == nil:
+			return "unknown (agent CLIs unavailable)", store.CaptureScreen, nil
+		case ok:
+			return startGlobal, c, nil
+		}
+		return startNone, store.CaptureScreen, nil
+	}
+	ss, err := store.LaunchSessions(ctx, tx, l.ID)
+	if err != nil {
+		return "", "", err
+	}
+	capture = store.CaptureScreen
+	for _, x := range ss {
+		if x.ID == l.NativeSessionID {
+			capture = x.Source
+		}
+	}
+	return startLaunch, capture, nil
 }
 
 // delivery prints the delivery gaps of each profile: each live agent joins its newest receipt

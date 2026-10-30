@@ -25,6 +25,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
+	"github.com/aryanVijaywargia/herdr-brain/internal/launch"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
@@ -70,8 +71,8 @@ const firstUse = `First use
 - Ask a Claude or Codex agent in herdr to run:
   brain remember "<one lesson>" --global
 - Approve the draft in the review pane.
-- Start a new session of the other CLI in herdr. It gets the item.
-  Codex gets it at its first prompt.
+- Start a new session of the other CLI in herdr: brain claude or brain codex.
+  It gets the item. Codex gets it at its first prompt.
 - Check with: brain status
 `
 
@@ -169,7 +170,7 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 	if err := planLink(bin, link, &p, stdout); err != nil {
 		return err
 	}
-	trustNow, trustAdded, err := planHooks(d, bin, &p, stdout)
+	inst, ps, err := planHooks(d, bin, &p, stdout)
 	if err != nil {
 		return err
 	}
@@ -181,22 +182,47 @@ func setup(ctx context.Context, d setupDeps, args []string, in *bufio.Reader, st
 	if err := askScan(ctx, d, storeDir, test, st, &p, in, stdout); err != nil {
 		return err
 	}
-
-	applied, err := showPlan(st, &p, bin, in, stdout)
-	if err != nil {
+	if err := askGlobalHooks(inst, ps, st, &p, in, stdout); err != nil {
 		return err
 	}
-	if trustNow || applied && trustAdded {
-		st.next("trust the Codex hook")
-		fmt.Fprint(stdout, codexTrust)
+
+	if err := showPlan(st, &p, bin, in, stdout); err != nil {
+		return err
+	}
+	if err := showTrust(d, inst, ps, st, stdout); err != nil {
+		return err
 	}
 	fmt.Fprint(stdout, "\n"+firstUse)
 	return nil
 }
 
-// showPlan shows the plan p as the next step of st, then asks once and applies it on yes. It
-// reports whether it applied the plan. bin is the binary path to run Brain with after a "no".
-func showPlan(st *stepper, p *plan, bin string, in *bufio.Reader, stdout io.Writer) (bool, error) {
+// showTrust shows the Codex trust steps as the next step of st when a CLI on PATH whose
+// profile in ps has hook_trust "codex" has its Brain start entry in its hook file after the
+// plan.
+func showTrust(d setupDeps, inst *install.Installer, ps []*adapter.Profile, st *stepper, stdout io.Writer) error {
+	for _, p := range ps {
+		if p.HookTrust != adapter.TrustCodex {
+			continue
+		}
+		if _, err := d.lookPath(p.Kind); err != nil {
+			continue
+		}
+		_, s, err := inst.WouldInstall(p)
+		if err != nil {
+			return err
+		}
+		if s == install.Present {
+			st.next("trust the Codex hook")
+			fmt.Fprint(stdout, codexTrust)
+			return nil
+		}
+	}
+	return nil
+}
+
+// showPlan shows the plan p as the next step of st, then asks once and applies it on yes. bin
+// is the binary path to run Brain with after a "no".
+func showPlan(st *stepper, p *plan, bin string, in *bufio.Reader, stdout io.Writer) error {
 	st.next("plan")
 	fmt.Fprint(stdout, p.text.String())
 	if len(p.steps) == 0 {
@@ -236,26 +262,26 @@ func (p *plan) say(format string, a ...any) { fmt.Fprintf(&p.text, format, a...)
 
 func (p *plan) add(step func() error) { p.steps = append(p.steps, step) }
 
-// apply asks once and runs every step on yes. It reports whether it ran them. Any other answer
-// prints refused and writes nothing. With no step it asks nothing. A failed write stops the
-// command; a second run plans the rest again.
-func (p *plan) apply(in *bufio.Reader, stdout io.Writer, refused string) (bool, error) {
+// apply asks once and runs every step on yes. Any other answer prints refused and writes
+// nothing. With no step it asks nothing. A failed write stops the command; a second run plans
+// the rest again.
+func (p *plan) apply(in *bufio.Reader, stdout io.Writer, refused string) error {
 	if len(p.steps) == 0 {
-		return false, nil
+		return nil
 	}
 	ok, err := ask(in, stdout, "Apply all of this? [y/N] ")
 	if err != nil || !ok {
 		if err == nil {
 			fmt.Fprint(stdout, refused)
 		}
-		return false, err
+		return err
 	}
 	for _, step := range p.steps {
 		if err := step(); err != nil {
-			return false, err
+			return err
 		}
 	}
-	return true, nil
+	return nil
 }
 
 // chooseExtractor asks which CLI runs the extractor of the store in folder dir, and its model,
@@ -674,17 +700,17 @@ func rmdirs(made []string) error {
 }
 
 // planHooks plans the Brain hook entry for the CLI of each profile that is installed (E8-S2,
-// E16-S10), and its hook record entries. It shows each entry and the uninstall steps. It
-// reports whether the entry of a profile with hook_trust "codex" is in place now, and whether
-// the plan adds one, so that setup shows the trust steps.
-func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, trustAdded bool, err error) {
+// E16-S10), and its hook record entries. It shows each entry and the uninstall steps. A CLI
+// with launch data gets no global hook (E24-S8): setup shows how to start it with Brain. It
+// returns the installer of binary bin and the profiles.
+func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (*install.Installer, []*adapter.Profile, error) {
 	inst, err := installer(bin)
 	if err != nil {
-		return false, false, err
+		return nil, nil, err
 	}
 	ps, err := adapter.LoadAll(d.profiles)
 	if err != nil {
-		return false, false, err
+		return nil, nil, err
 	}
 	var hooked bool
 	// One bullet holds the hooks of every CLI, so the plan keeps few bullets.
@@ -695,9 +721,14 @@ func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, tr
 			p.say("  %s is not installed. Setup skips it.\n", kind)
 			continue
 		}
+		if slices.Contains(launch.Kinds(), kind) {
+			p.say("  %s: Brain adds no global hook. In a herdr pane, start it with: brain %s\n"+
+				"    or with the herdr action \"Brain: new %s pane\".\n", kind, kind, title(kind))
+			continue
+		}
 		e, st, err := inst.WouldInstall(pr)
 		if err != nil {
-			return false, false, err
+			return nil, nil, err
 		}
 		start := false
 		switch st {
@@ -712,11 +743,8 @@ func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, tr
 		}
 		records, err := planRecordsUnder(inst, pr, p)
 		if err != nil {
-			return false, false, err
+			return nil, nil, err
 		}
-		codex := pr.HookTrust == adapter.TrustCodex
-		trustNow = trustNow || codex && !start
-		trustAdded = trustAdded || codex && start
 		if start || len(records) > 0 {
 			hooked = true
 			p.add(func() error { return applyHooks(inst, pr, e.Target, start, records, d.now(), stdout) })
@@ -727,7 +755,7 @@ func planHooks(d setupDeps, bin string, p *plan, stdout io.Writer) (trustNow, tr
 		p.say("  To remove the hook entries later: brain uninstall, then brain uninstall --apply\n" +
 			"  The first command is a dry run. Brain removes only its own entries.\n")
 	}
-	return trustNow, trustAdded, nil
+	return inst, ps, nil
 }
 
 // planRecordsUnder plans the hook record entries of pr as planRecords does, with two more

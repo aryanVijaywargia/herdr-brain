@@ -8,6 +8,9 @@ agent CLIs:
   claude 2.1.283: none
   codex 0.155.0: none; newer than tested (0.154.0)
 
+live sessions:
+  no live agent
+
 delivery to live agents:
   claude: no live agent
   codex: no live agent

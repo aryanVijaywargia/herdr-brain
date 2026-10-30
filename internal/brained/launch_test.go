@@ -222,6 +222,7 @@ func TestLaunchSameMillisecond(t *testing.T) {
 			newer := h.launchIn(t, h.f.path, "w1:p1", "claude", base.Add(600*time.Microsecond))
 			g := NewGate(bindings.Binding{Session: "s1", Socket: h.f.path, Store: h.store, Kind: bindings.KindMain})
 			l := newLoop(h.d)
+			defer l.wg.Wait()
 			l.gate = &g
 			if kind == "agent exit" {
 				l.agentDetected(context.Background(), &pane{agent: true, detected: observed},
@@ -275,6 +276,7 @@ func TestLaunchFolderAfterCrash(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := newLoop(h.d)
+	defer l.wg.Wait()
 	if err := l.check(ctx); err != nil {
 		t.Fatal(err)
 	}

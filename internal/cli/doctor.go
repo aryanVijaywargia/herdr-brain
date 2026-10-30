@@ -19,6 +19,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/extract"
 	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/install"
+	brainlaunch "github.com/aryanVijaywargia/herdr-brain/internal/launch"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
@@ -108,7 +109,54 @@ func (d *doctorCall) run(ctx context.Context) {
 	if err := d.hooks(ctx, ps); err != nil {
 		d.fail("hooks: %v", err)
 	}
+	if err := d.launches(ctx); err != nil {
+		d.fail("launch: %v", err)
+	}
 	d.conflicts()
+}
+
+// launches checks the launch of each CLI with launch data that is on the PATH (E24-S8): Brain
+// finds the real CLI, not the brain binary, and its version is min_version or later, so
+// `brain <kind>` starts it with the Brain flags. For Codex it checks that the Codex hook hash
+// rule still gives the pinned hash, so Codex trusts the hooks of a launch. Then it lists the
+// old launch folders of the store.
+func (d *doctorCall) launches(ctx context.Context) error {
+	self, err := paths.BinaryPath()
+	if err != nil {
+		return err
+	}
+	for _, kind := range brainlaunch.Kinds() {
+		c, err := brainlaunch.CheckCLI(ctx, d.Environ, kind, self)
+		switch {
+		case errors.Is(err, brainlaunch.ErrNoCLI):
+			continue // not installed
+		case err != nil:
+			d.fail("%s: %v, so brain %s cannot start it; fix: put the real %s on PATH", kind, err, kind, kind)
+			continue
+		case c.Plain != "":
+			d.fail("%s: brain %s starts the plain %s with no Brain flags: %s; fix: update %s to %s or later",
+				kind, kind, c.Path, c.Plain, kind, c.MinVersion)
+		}
+		if kind != "codex" {
+			continue
+		}
+		if err := harness.CheckCodexHookHash(); err != nil {
+			d.fail("codex: the Codex hook hash rule of Brain does not match: %v, so Codex skips the hooks of brain codex; "+
+				"fix: brain update", err)
+		}
+	}
+	var old []string
+	err = d.Store.Write(ctx, func(tx *sql.Tx) (err error) {
+		old, err = brainlaunch.OldFolders(ctx, tx, d.Binding.Store)
+		return err
+	})
+	if err != nil || len(old) == 0 {
+		return err
+	}
+	d.w.printf("note: %d old launch folder(s), of a launch that ended or with no launch record: %s; "+
+		"brained deletes the folder of an ended launch at the next launch end, and you can delete the others\n",
+		len(old), strings.Join(old, ", "))
+	return nil
 }
 
 // historyScan reports each CLI whose session files the history scan could not parse. It is a
@@ -143,12 +191,14 @@ func (d *doctorCall) hooks(ctx context.Context, ps []*adapter.Profile) error {
 	}
 	for i, p := range ps {
 		st := sts[i]
+		launched := slices.Contains(brainlaunch.Kinds(), p.Kind)
 		if !st.Configured {
 			want, _, err := inst.WouldInstall(p)
 			if err != nil {
 				return err
 			}
-			if _, err := exec.LookPath(p.Kind); err == nil || st.Detected {
+			// A CLI with launch data needs no global hook: brain <kind> gives Brain to a session.
+			if _, err := exec.LookPath(p.Kind); !launched && (err == nil || st.Detected) {
 				d.fail("%s: no Brain hook in %s, so %s sessions get no Brain items; fix: brain setup",
 					p.Kind, want.Target, p.Kind)
 			}
@@ -157,7 +207,9 @@ func (d *doctorCall) hooks(ctx context.Context, ps []*adapter.Profile) error {
 		if err := d.entry(inst, p); err != nil {
 			return err
 		}
-		if st.Installed {
+		// brain update adds no hook record entry for a CLI with launch data, so a missing one
+		// is no fault there.
+		if st.Installed && !launched {
 			if err := d.records(inst, p); err != nil {
 				return err
 			}

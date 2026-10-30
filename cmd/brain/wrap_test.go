@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -57,7 +58,11 @@ func TestSetupWrap(t *testing.T) {
 		}
 		return out.String()
 	}
-	setupHome(t, "0.9.1")
+	home := setupHome(t, "0.9.1")
+	// agy has no launch data, so setup shows its hook entry.
+	if err := os.WriteFile(filepath.Join(home, "path", "agy"), []byte("#!/bin/sh\n"), 0o755); err != nil { //nolint:gosec // a test CLI must be executable
+		t.Fatal(err)
+	}
 	want := runSetup(plain)
 	if !strings.Contains(want, locality) {
 		t.Fatalf("setup does not show the extractor text:\n%s", want)

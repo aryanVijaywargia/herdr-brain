@@ -20,46 +20,31 @@ func fakeClaude(t *testing.T, home, version string) {
 	}
 }
 
-// Setup offers the hook record entries of Claude and Codex after their start entries, with
-// one question (E11-S5, #285). A CLI version newer than tested still gets them (#251).
+// Setup offers the hook record entries of a CLI with no launch data after its start entry, with
+// one question (E11-S5, #285). A CLI version newer than tested still gets them (#251). Claude
+// and Codex have launch data, so they get no global entry (E24-S8).
 func TestSetupHookRecords(t *testing.T) {
-	p, err := adapter.Load("claude")
-	if err != nil {
-		t.Fatal(err)
+	agy := func(home string) string {
+		return string(mustRead(t, filepath.Join(home, ".gemini", "config", "hooks.json")))
 	}
-	settings := func(home string) string { return string(mustRead(t, filepath.Join(home, ".claude", "settings.json"))) }
-	codex := func(home string) string { return string(mustRead(t, filepath.Join(home, ".codex", "hooks.json"))) }
 
 	t.Run("yes", func(t *testing.T) {
 		home := setupHome(t, "0.9.1")
-		fakeClaude(t, home, p.TestedVersion)
+		fakeAgy(t, home)
 		code, out, errOut := runSetup(t, "\ny\ny\n")
 		if code != 0 {
 			t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 		}
-		for _, want := range []string{"--event prompt", "--event tool", "--event stop", `"matcher": "Bash"`,
-			"PostToolUseFailure"} {
-			if !strings.Contains(settings(home), want) {
-				t.Errorf("settings.json does not contain %q:\n%s", want, settings(home))
+		for _, want := range []string{"--profile agy --event start", "--profile agy --event tool", `"matcher":"run_command"`} {
+			if !strings.Contains(agy(home), want) {
+				t.Errorf("agy hooks.json does not contain %q:\n%s", want, agy(home))
 			}
-		}
-		for _, want := range []string{"--profile codex --event prompt", "--profile codex --event tool",
-			"--profile codex --event stop", `{"matcher":"Bash","hooks":[`} {
-			if !strings.Contains(codex(home), want) {
-				t.Errorf("hooks.json does not contain %q:\n%s", want, codex(home))
-			}
-		}
-		if strings.Contains(codex(home), "PostToolUseFailure") {
-			t.Errorf("hooks.json holds a PostToolUseFailure entry, an event that Codex does not have:\n%s", codex(home))
 		}
 		// #249: setup records the install time of each start entry it adds.
-		for _, kind := range []string{"claude", "codex"} {
-			if _, err := os.Stat(filepath.Join(home, ".local", "share", "brain", "installed", kind+".json")); err != nil {
-				t.Errorf("install time of %s: %v", kind, err)
-			}
+		if _, err := os.Stat(filepath.Join(home, ".local", "share", "brain", "installed", "agy.json")); err != nil {
+			t.Errorf("install time of agy: %v", err)
 		}
-		for _, want := range []string{"Add these entries to ", "Added the hook record entries for claude",
-			"Added the hook record entries for codex", "needs trust again"} {
+		for _, want := range []string{"Add these entries to ", "Added the hook record entries for agy"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("output does not contain %q:\n%s", want, out)
 			}
@@ -76,15 +61,22 @@ func TestSetupHookRecords(t *testing.T) {
 			}
 		}
 	})
-	// AC 1 #251: the M2 case, claude 2.1.292 against tested 2.1.283.
+	// AC 1 #251: a CLI version newer than tested.
 	t.Run("newer than tested", func(t *testing.T) {
 		home := setupHome(t, "0.9.1")
-		fakeClaude(t, home, "2.1.292")
+		p, err := adapter.Load("agy")
+		if err != nil {
+			t.Fatal(err)
+		}
+		script := "#!/bin/sh\necho '" + p.TestedVersion + "9'\n"
+		if err := os.WriteFile(filepath.Join(home, "path", "agy"), []byte(script), 0o755); err != nil { //nolint:gosec // a test CLI must be executable
+			t.Fatal(err)
+		}
 		code, out, errOut := runSetup(t, "\ny\ny\n")
 		if code != 0 {
 			t.Fatalf("setup = %d: %s\n%s", code, errOut, out)
 		}
-		if s := settings(home); !strings.Contains(s, "--event tool") || !strings.Contains(out, "Added the hook record entries for claude") ||
+		if s := agy(home); !strings.Contains(s, "--event tool") || !strings.Contains(out, "Added the hook record entries for agy") ||
 			strings.Contains(out, "retest") {
 			t.Errorf("setup on a newer version did not add the hook records:\n%s\n%s", out, s)
 		}

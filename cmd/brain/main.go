@@ -48,9 +48,10 @@ commands:
   hook      --profile <name> --event start|prompt|tool|stop: the agent hooks (start prints the brief or nothing)
   brained   the herdr listener of one herdr session (herdr starts it)
   start     start brained for this herdr session, and open setup when it has no binding (the start action)
-  update    [--check | --records]: update the Brain plugin to the newest commit of its repo, add the missing
-            hook record entries (one question), then run brain doctor --fix; --check only compares;
-            --records only adds the hook record entries. The only Brain command that uses the network
+  update    [--check | --records]: update the Brain plugin to the newest commit of its repo, ask to remove
+            the old global hooks of claude and codex (one question for each), add the missing hook
+            record entries of the other CLIs (one question), then run brain doctor --fix; --check only
+            compares; --records only does the hook questions. The only Brain command that uses the network
   suggest   the live suggestion of one prompt (the hook or brained starts it)
   run       <tool> [--<input> <value>]...: run an approved tool in this workspace; exits with its exit code
   tools     list the approved tools that this workspace can run, with their inputs

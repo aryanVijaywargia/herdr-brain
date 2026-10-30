@@ -26,13 +26,16 @@ import (
 
 // Usage is the usage text of brain update.
 const Usage = `usage: brain update [--check | --records]
-  brain update            install the newest version of the Brain repo, add the missing hook
-                          record entries of its profiles (one question), then run brain doctor --fix;
+  brain update            install the newest version of the Brain repo, ask for each CLI with a
+                          Brain launch whether Brain may remove its old global hooks, add the missing
+                          hook record entries of the other CLIs (one question), then run brain doctor --fix;
                           an install with no --ref and a linked checkout follow the default branch,
                           an install at a release tag (--ref v<x.y.z>) follows the release tags, and
                           an install at any other --ref, such as main or a commit, is pinned
   brain update --check    compare the installed version with the newest version; change nothing
-  brain update --records  add the missing hook record entries (one question), with no network call`
+  brain update --records  only the hook step, with no network call: the removal question of the
+                          old global hooks of each CLI with a Brain launch, then the missing hook
+                          record entries of the other CLIs (one question)`
 
 // pluginID is the id in herdr-plugin.toml.
 const pluginID = "brain"

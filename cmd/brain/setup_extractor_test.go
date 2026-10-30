@@ -49,7 +49,7 @@ func TestSetupExtractor(t *testing.T) {
 		"to that CLI's provider or proxy", "signs in as it does in a herdr pane: its own login, or a key or proxy in the herdr env.",
 		"Brain passes that env on. It does not read it, and it filters the error text that it keeps.", "to the provider of claude, or its proxy.", "Extraction is on by default. An off switch that you set stays off.",
 		"brain extract off [--workspace <id>]\n  Capture and the signal rules keep running.", "Which model? [the default model of the CLI] ",
-		"Extractor: claude, sonnet.", "Step 5: trust the Codex hook\n"} {
+		"Extractor: claude, sonnet."} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not contain %q:\n%s", want, out)
 		}
