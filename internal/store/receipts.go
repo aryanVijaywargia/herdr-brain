@@ -26,6 +26,24 @@ func LatestReceipt(ctx context.Context, tx *sql.Tx, session, profile, agentSessi
 	return d, err == nil, err
 }
 
+// LaunchReceipt returns the newest receipt that the start hook of launch record launchID wrote
+// for agent session agentSession, or for any agent session when agentSession is "" (E24-S8). ok
+// is false when there is none.
+func LaunchReceipt(ctx context.Context, tx *sql.Tx, launchID int64, agentSession string) (d Delivery, ok bool, err error) {
+	var id int64
+	err = tx.QueryRowContext(ctx, `SELECT id FROM deliveries
+		WHERE launch_id = ? AND (? = '' OR agent_session_id = ?) ORDER BY id DESC LIMIT 1`,
+		launchID, agentSession, agentSession).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Delivery{}, false, nil
+	}
+	if err != nil {
+		return Delivery{}, false, fmt.Errorf("read receipts of launch %d: %w", launchID, err)
+	}
+	d, err = DeliveryByID(ctx, tx, id)
+	return d, err == nil, err
+}
+
 // WithheldCount is the count of the withheld receipts with one reason.
 type WithheldCount struct {
 	Reason string // "" for a receipt with no reason

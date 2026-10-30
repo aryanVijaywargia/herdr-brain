@@ -516,11 +516,14 @@ const (
 	startNone   = "none"
 )
 
-// sessions prints the start and the capture source of each live agent (E24-S8). An agent of a
-// running launch record in its pane has the capture source of the current native session of
-// the launch, and pane-screen capture until a hook of the launch names that session. An agent
-// of a CLI with its global Brain start entry has hook capture when each hook record entry is in
-// place. Any other agent has pane-screen capture only.
+// sessions prints the start, the capture source, the brief and the tools of each live agent
+// (E24-S8). An agent of a running launch record in its pane has the capture source of the
+// current native session of the launch, and pane-screen capture until a hook of the launch
+// names that session. An agent of a CLI with its global Brain start entry has hook capture when
+// each hook record entry is in place. Any other agent has pane-screen capture only. The brief
+// comes from the receipt of the session: of the launch for a launched agent (E24-S4), else of
+// its agent session. Brain gives its MCP server to each launch, and to no other session, so
+// the tools are on only for a launched agent (E24-S6).
 func (s *statusCall) sessions(ctx context.Context, tx *sql.Tx) error {
 	s.w.printf("\nlive sessions:\n")
 	if s.panesErr != nil {
@@ -537,11 +540,20 @@ func (s *statusCall) sessions(ctx context.Context, tx *sql.Tx) error {
 			continue
 		}
 		n++
-		start, capture, err := s.start(ctx, tx, ls, p)
+		l := runningLaunch(ls, p)
+		start, capture, err := s.start(ctx, tx, l, p)
 		if err != nil {
 			return err
 		}
-		s.w.printf("  %s %s: start %s, capture %s\n", p.ID, *p.Agent, start, capture)
+		brief, err := s.brief(ctx, tx, l, p)
+		if err != nil {
+			return err
+		}
+		tools := "off"
+		if l != nil {
+			tools = "on"
+		}
+		s.w.printf("  %s %s: start %s, capture %s, brief %s, tools %s\n", p.ID, *p.Agent, start, capture, brief, tools)
 	}
 	if n == 0 {
 		s.w.printf("  no live agent\n")
@@ -549,15 +561,52 @@ func (s *statusCall) sessions(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-// start returns the start and the capture source of the live agent in pane p, with ls the
-// running launch records of the herdr server. The newest launch of the pane counts.
-func (s *statusCall) start(ctx context.Context, tx *sql.Tx, ls []store.Launch, p herdr.Pane) (start string, capture store.CaptureSource, err error) {
+// runningLaunch returns the newest launch record of ls, the running launch records of the herdr
+// server, of the live agent in pane p; nil for none.
+func runningLaunch(ls []store.Launch, p herdr.Pane) *store.Launch {
 	var l *store.Launch
 	for i := range ls {
 		if ls[i].PaneID == p.ID && ls[i].CLI == *p.Agent {
 			l = &ls[i]
 		}
 	}
+	return l
+}
+
+// brief returns the brief part of the line of the live agent in pane p, of the running launch
+// l or nil: "delivered" for a receipt that emitted the brief, else "not delivered" and why. The
+// receipt of a launch is of the current native session of the launch, else of the agent session
+// that herdr shows, else of any session of the launch.
+func (s *statusCall) brief(ctx context.Context, tx *sql.Tx, l *store.Launch, p herdr.Pane) (string, error) {
+	session := ""
+	if p.AgentSession != nil {
+		session = p.AgentSession.Value
+	}
+	var d store.Delivery
+	var ok bool
+	var err error
+	switch {
+	case l != nil:
+		d, ok, err = store.LaunchReceipt(ctx, tx, l.ID, cmp.Or(l.NativeSessionID, session))
+	case session != "":
+		d, ok, err = store.LatestReceipt(ctx, tx, s.Binding.Session, *p.Agent, session)
+	}
+	switch {
+	case err != nil:
+		return "", err
+	case !ok:
+		return "not delivered (no receipt)", nil
+	case d.Result == store.ResultEmitted:
+		return "delivered", nil
+	case d.WithheldReason != nil:
+		return fmt.Sprintf("not delivered (%s: %s)", d.Result, *d.WithheldReason), nil
+	}
+	return fmt.Sprintf("not delivered (%s)", d.Result), nil
+}
+
+// start returns the start and the capture source of the live agent in pane p, of the running
+// launch l or nil.
+func (s *statusCall) start(ctx context.Context, tx *sql.Tx, l *store.Launch, p herdr.Pane) (start string, capture store.CaptureSource, err error) {
 	if l == nil {
 		c, ok := s.global[*p.Agent]
 		switch {

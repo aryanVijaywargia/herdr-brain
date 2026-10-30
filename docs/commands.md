@@ -5,7 +5,7 @@ Run these in a pane of a herdr session. `brain <command> --help` prints the usag
 | Command | What it does |
 |---|---|
 | `brain version` | Print the Brain version |
-| `brain status` | Show Brain status |
+| `brain status` | Show Brain status, with the start, capture, brief and tools of each live session |
 | `brain doctor [--fix]` | Check the Brain setup and print the fix of each failed check; `--fix` applies each offered repair with no question |
 | `brain setup [--session <name> [--test <folder>]] [--extractor]` | Bind a herdr session, add the hooks of an agent CLI with no Brain launch, ask to remove the old global hooks of Claude Code and Codex, choose the extractor CLI |
 | `brain remember "<text>" [--global \| --workspace <w>] [--kind <k>]` | Draft an item for your review; `<k>` is `fact`, `preference`, `decision` or `handoff` |

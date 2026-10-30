@@ -9,14 +9,14 @@ agent CLIs:
   opencode: no start-time delivery; live panes: 1
 
 live sessions:
-  w14:p1 claude: start none, capture screen
-  w14:p2 claude: start none, capture screen
-  w14:p3 claude: start none, capture screen
-  w14:p4 claude: start none, capture screen
-  w14:p5 claude: start none, capture screen
-  w14:p6 claude: start none, capture screen
-  w15:p1 codex: start none, capture screen
-  w15:p2 opencode: start none, capture screen
+  w14:p1 claude: start none, capture screen, brief delivered, tools off
+  w14:p2 claude: start none, capture screen, brief not delivered (unmapped), tools off
+  w14:p3 claude: start none, capture screen, brief not delivered (withheld: not a member), tools off
+  w14:p4 claude: start none, capture screen, brief not delivered (no receipt), tools off
+  w14:p5 claude: start none, capture screen, brief not delivered (no receipt), tools off
+  w14:p6 claude: start none, capture screen, brief not delivered (no receipt), tools off
+  w15:p1 codex: start none, capture screen, brief delivered, tools off
+  w15:p2 opencode: start none, capture screen, brief not delivered (no receipt), tools off
 
 delivery to live agents:
   claude: 6 live: 1 emitted, 1 unmapped, 1 withheld, 3 unknown

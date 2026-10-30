@@ -159,7 +159,7 @@ brain status
 Expected:
 
 - `brain doctor` ends with `all checks passed`.
-- `brain status` shows `binding: herdr session "<name>", ...`, the herdr version, the agent CLIs, and the start and capture of each live session (`start brain launch`, `start global hook` or `start none`).
+- `brain status` shows `binding: herdr session "<name>", ...`, the herdr version, the agent CLIs, and one line for each live session: its start (`start brain launch`, `start global hook` or `start none`), its capture (`capture hooks`, `transcript` or `screen`), its brief (`brief delivered` or `brief not delivered (<why>)`) and its tools (`tools on` for a `brain claude` or `brain codex` session, else `tools off`).
 
 If `brain doctor` fails, it prints one line for each failed check, with its fix after `fix:`. Do the fix, then run `brain doctor` again.
 `brain doctor` asks before a repair that writes a hook entry. `brain doctor --fix` applies each repair that `brain doctor` offers, with no question.
