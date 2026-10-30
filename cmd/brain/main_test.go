@@ -26,7 +26,7 @@ func TestRun(t *testing.T) {
 		{[]string{"help"}, 0, "update    [--check | --records]"},
 		// #318: -h and --help print the usage of the command and exit 0.
 		{[]string{"update", "--help"}, 0, "usage: brain update [--check | --records]\n  brain update  "},
-		{[]string{"update", "-h"}, 0, "brain update --records  add the missing hook record entries"},
+		{[]string{"update", "-h"}, 0, "brain update --records  only the hook step, with no network call"},
 		{[]string{"status", "--help"}, 0, "usage: brain status\n"},
 		{[]string{"doctor", "-h"}, 0, "usage: brain doctor [--fix]\n"},
 		{[]string{"setup", "--help"}, 0, "usage: brain setup [--session <name>"},

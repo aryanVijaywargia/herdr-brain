@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"errors"
 	"maps"
 	"os"
 	"path/filepath"
@@ -149,7 +151,8 @@ func TestSetupGlobalHooksEdited(t *testing.T) {
 	}
 	for _, want := range []string{
 		"- " + file + " holds a Brain hook entry for claude that you edited. Brain keeps it.\n" + question("claude"),
-		file + " holds Brain hook entries for claude that you edited (SessionStart). Brain keeps them: remove them by hand.\n"} {
+		file + " holds the Brain SessionStart entry for claude that you edited. Brain keeps it: remove it by hand.\n",
+		"Removed the global Brain hooks for claude from " + file + ".\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not contain %q:\n%s", want, out)
 		}
@@ -192,4 +195,106 @@ func TestUpdateGlobalHooks(t *testing.T) {
 		t.Errorf("update (yes):\n%s\nwant the removal", out)
 	}
 	wantRemoved(t, home, orig)
+}
+
+// Review of #448, finding 1: the question and the messages name the hook files of the install
+// record, the files that the removal changes, also when the CLI now reads another file.
+func TestGlobalHooksRecordedTarget(t *testing.T) {
+	home, orig := globalHome(t, updateHome(t))
+	inst := testInstaller(t)
+	inst.Home = t.TempDir() // the record comes from another home
+	p, err := adapter.Load("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := updateGlobalHooks(inst, []*adapter.Profile{p}, bufio.NewReader(strings.NewReader("y\n")), &out); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(home, ".claude", "settings.json")
+	if !bytes.Equal(mustRead(t, file), orig[".claude/settings.json"]) {
+		t.Errorf("%s still holds Brain entries:\n%s", file, mustRead(t, file))
+	}
+	for _, want := range []string{"- " + file + " holds the global Brain hooks for claude.",
+		"Removed the global Brain hooks for claude from " + file + ".\n"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output:\n%s\nwant %q", out.String(), want)
+		}
+	}
+	if strings.Contains(out.String(), inst.Home) {
+		t.Errorf("output names the hook file of the new home, which the removal does not change:\n%s", out.String())
+	}
+}
+
+// Review of #448, finding 2 (a known limit): when Brain cannot save the install record after it
+// removed entries from a hook file, the error says that the hook file changed and the install
+// record did not.
+func TestGlobalHooksRecordWriteFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file modes")
+	}
+	home, _ := globalHome(t, updateHome(t))
+	inst := testInstaller(t)
+	ledger := mustRead(t, inst.Record)
+	p, err := adapter.Load("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Dir(inst.Record)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Error(err)
+		}
+	})
+	var out bytes.Buffer
+	err = updateGlobalHooks(inst, []*adapter.Profile{p}, bufio.NewReader(strings.NewReader("y\n")), &out)
+	file := filepath.Join(home, ".claude", "settings.json")
+	want := "removed Brain entries from " + file + ", but " + inst.Record + " did not change and still lists them: "
+	if err == nil || !strings.Contains(err.Error(), want) || !errors.Is(err, os.ErrPermission) {
+		t.Errorf("updateGlobalHooks() = %v, want %q and a permission error", err, want)
+	}
+	if !bytes.Equal(ledger, mustRead(t, inst.Record)) {
+		t.Error("the install record changed")
+	}
+}
+
+// Review of #448, finding 3: an entry whose fixed arguments you edited is no Brain entry for
+// install, so the removal cannot find it. Brain keeps its record and says so; the other
+// entries go.
+func TestGlobalHooksEditedIdentity(t *testing.T) {
+	home, _ := globalHome(t, updateHome(t))
+	file := filepath.Join(home, ".claude", "settings.json")
+	b := bytes.ReplaceAll(mustRead(t, file), []byte("--profile claude --event start"), []byte("--profile renamed --event start"))
+	if err := os.WriteFile(file, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := runUpdate(t, "y\nn\n", "--records")
+	if code != 0 {
+		t.Fatalf("update = %d: %s\n%s", code, errOut, out)
+	}
+	want := "Brain could not find its SessionStart entry for claude in " + file +
+		". If you edited it, remove it by hand. Brain keeps it in its install record.\n"
+	if !strings.Contains(out, want) || !strings.Contains(out, "Removed the global Brain hooks for claude from "+file+".\n") {
+		t.Errorf("update:\n%s\nwant %q and the removal of the others", out, want)
+	}
+	got := string(mustRead(t, file))
+	if !strings.Contains(got, "--profile renamed --event start") || strings.Contains(got, "--profile claude") {
+		t.Errorf("%s:\n%s\nwant the renamed entry only", file, got)
+	}
+	rec, err := install.Read(testInstaller(t).Record)
+	if err != nil || rec.Entries["claude"].Target != file || len(rec.Records) != len(mustProfile(t, "codex").Hooks())-1 {
+		t.Errorf("install record = %+v, %v; want the claude start entry and the codex entries", rec, err)
+	}
+}
+
+func mustProfile(t *testing.T, kind string) *adapter.Profile {
+	t.Helper()
+	p, err := adapter.Load(kind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
 }

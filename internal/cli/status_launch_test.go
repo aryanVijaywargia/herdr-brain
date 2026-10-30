@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -103,5 +106,40 @@ func TestStatusLiveSessions(t *testing.T) {
 	f.herdr.panesErr = fmt.Errorf("timeout")
 	if got := liveSessions(f.mustStatus(t)); got != "  unavailable: timeout" {
 		t.Errorf("live sessions with no pane list = %q, want unavailable", got)
+	}
+}
+
+// Review of #448, finding 4: a hook record entry that you edited may not run, so the global
+// hook gives no hook capture.
+func TestStatusEditedRecordCapture(t *testing.T) {
+	f := newDoctorFixture(t)
+	file := filepath.Join(f.home, ".claude", "settings.json")
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, bytes.ReplaceAll(b, []byte("--event tool"), []byte("--event tool --bad")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.herdr.panes = []herdr.Pane{agent("w14:p1", "claude", "s-1")}
+	out := f.mustStatus(t)
+	if got := liveSessions(out); got != "  w14:p1 claude: start global hook, capture screen" {
+		t.Errorf("live sessions = %q, want the global hook with pane-screen capture", got)
+	}
+	if !strings.Contains(out, "  claude 2.1.283: configured, unverified; hook records on, but you edited an entry\n") {
+		t.Errorf("brain status:\n%s\nwant the edited hook records", out)
+	}
+}
+
+// Review of #448, finding 5: the global hook start comes from the hook config, also for a CLI
+// that is not on the PATH of brain status.
+func TestStatusGlobalHookWithoutPath(t *testing.T) {
+	f := newDoctorFixture(t)
+	if err := os.Remove(filepath.Join(filepath.Dir(f.store), "bin", "claude")); err != nil {
+		t.Fatal(err)
+	}
+	f.herdr.panes = []herdr.Pane{agent("w14:p1", "claude", "s-1")}
+	if got := liveSessions(f.mustStatus(t)); got != "  w14:p1 claude: start global hook, capture hooks" {
+		t.Errorf("live sessions = %q, want the global hook with hook capture", got)
 	}
 }

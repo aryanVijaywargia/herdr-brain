@@ -15,14 +15,20 @@ import (
 // globalHooks are the global Brain hook entries of one CLI with launch data (E24-S8): an
 // install of an older Brain added them, and `brain <kind>` now gives Brain to one session.
 type globalHooks struct {
-	p      *adapter.Profile
-	target string // the hook file
-	edited bool   // the file holds a Brain entry of the CLI that you edited
+	p *adapter.Profile
+	// targets are the hook files of the entries in the install record: the files that the
+	// removal changes, also when the CLI now reads another file.
+	targets []string
+	edited  bool // a target holds a Brain entry of the CLI that you edited
 }
 
 // oldGlobalHooks returns the global Brain hook entries of each CLI of ps with launch data that
 // the install record holds and that are still in their hook file, changed or not.
 func oldGlobalHooks(inst *install.Installer, ps []*adapter.Profile) ([]globalHooks, error) {
+	rec, err := install.Read(inst.Record)
+	if err != nil {
+		return nil, err
+	}
 	var out []globalHooks
 	for _, p := range ps {
 		if !slices.Contains(launch.Kinds(), p.Kind) {
@@ -35,11 +41,13 @@ func oldGlobalHooks(inst *install.Installer, ps []*adapter.Profile) ([]globalHoo
 		if st != install.Removed && st != install.Edited {
 			continue
 		}
-		e, _, err := inst.WouldInstall(p)
-		if err != nil {
-			return nil, err
+		var targets []string
+		for _, h := range rec.Hooks(p) {
+			if e, _ := rec.Entry(p.Kind, h); !slices.Contains(targets, e.Target) {
+				targets = append(targets, e.Target)
+			}
 		}
-		out = append(out, globalHooks{p: p, target: e.Target, edited: st == install.Edited})
+		out = append(out, globalHooks{p: p, targets: targets, edited: st == install.Edited})
 	}
 	return out, nil
 }
@@ -48,35 +56,61 @@ func oldGlobalHooks(inst *install.Installer, ps []*adapter.Profile) ([]globalHoo
 // or "yes" is yes, so a run with no answer, such as one with no terminal, removes nothing.
 func askRemove(h globalHooks, in *bufio.Reader, stdout io.Writer) (bool, error) {
 	kind := h.p.Kind
-	fmt.Fprintf(stdout, "- %s holds the global Brain hooks for %s. They run in each %s session, also outside herdr.\n",
-		h.target, kind, kind)
+	for _, t := range h.targets {
+		fmt.Fprintf(stdout, "- %s holds the global Brain hooks for %s. They run in each %s session, also outside herdr.\n",
+			t, kind, kind)
+	}
 	fmt.Fprintf(stdout, "- brain %s, or the herdr action \"Brain: new %s pane\", gives Brain to one session with no global hook.\n",
 		kind, title(kind))
 	if h.edited {
-		fmt.Fprintf(stdout, "- %s holds a Brain hook entry for %s that you edited. Brain keeps it.\n", h.target, kind)
+		fmt.Fprintf(stdout, "- %s holds a Brain hook entry for %s that you edited. Brain keeps it.\n", strings.Join(h.targets, ", "), kind)
 	}
 	return ask(in, stdout, fmt.Sprintf("Remove the global Brain hooks for %s? A plain %s session then gets pane-screen "+
 		"capture only. [y/N] ", kind, kind))
 }
 
-// removeGlobalHooks removes each unchanged Brain entry of h through the install record. An
-// entry that you edited stays, and Brain says so.
+// removeGlobalHooks removes each unchanged Brain entry of h through the install record, one
+// entry at a time: UninstallHook checks the hash of the entry again under the install lock.
+// An entry that you edited stays, and Brain says so. An entry that Brain cannot find, as after
+// an edit of its fixed arguments, stays in the record, and Brain says so too.
 func removeGlobalHooks(inst *install.Installer, h globalHooks, stdout io.Writer) error {
 	kind := h.p.Kind
-	if _, err := inst.Uninstall(h.p); err != nil {
-		return err
-	}
 	rec, err := install.Read(inst.Record)
 	if err != nil {
 		return err
 	}
-	kept := rec.Events(h.p)
-	if len(kept) == 0 {
-		fmt.Fprintf(stdout, "Removed the global Brain hooks for %s from %s.\n", kind, h.target)
-		return nil
+	var removed []string
+	for _, hk := range rec.Hooks(h.p) {
+		e, _ := rec.Entry(kind, hk)
+		st, err := inst.WouldUninstallHook(h.p, hk)
+		if err != nil {
+			return err
+		}
+		if st == install.NotFound {
+			fmt.Fprintf(stdout, "Brain could not find its %s entry for %s in %s. If you edited it, remove it by hand. "+
+				"Brain keeps it in its install record.\n", hk.CLIEvent, kind, e.Target)
+			continue
+		}
+		if st, err = inst.UninstallHook(h.p, hk); err != nil {
+			return err
+		}
+		switch st {
+		case install.Removed:
+			if !slices.Contains(removed, e.Target) {
+				removed = append(removed, e.Target)
+			}
+		case install.Edited:
+			fmt.Fprintf(stdout, "%s holds the Brain %s entry for %s that you edited. Brain keeps it: remove it by hand.\n",
+				e.Target, hk.CLIEvent, kind)
+		case install.NotFound:
+			// The entry went while Brain removed the others.
+			fmt.Fprintf(stdout, "Brain could not find its %s entry for %s in %s. If you edited it, remove it by hand.\n",
+				hk.CLIEvent, kind, e.Target)
+		}
 	}
-	fmt.Fprintf(stdout, "%s holds Brain hook entries for %s that you edited (%s). Brain keeps them: remove them by hand.\n",
-		h.target, kind, strings.Join(kept, ", "))
+	if len(removed) > 0 {
+		fmt.Fprintf(stdout, "Removed the global Brain hooks for %s from %s.\n", kind, strings.Join(removed, ", "))
+	}
 	return nil
 }
 
@@ -96,10 +130,12 @@ func askGlobalHooks(inst *install.Installer, ps []*adapter.Profile, st *stepper,
 			return err
 		}
 		if !yes {
-			p.say("- Global hooks: keep the Brain hooks for %s in %s. The next brain setup asks again.\n", h.p.Kind, h.target)
+			p.say("- Global hooks: keep the Brain hooks for %s in %s. The next brain setup asks again.\n", h.p.Kind,
+				strings.Join(h.targets, ", "))
 			continue
 		}
-		p.say("- Global hooks: remove the unchanged Brain hook entries for %s from %s.\n", h.p.Kind, h.target)
+		p.say("- Global hooks: remove the unchanged Brain hook entries for %s from %s.\n", h.p.Kind,
+			strings.Join(h.targets, ", "))
 		p.add(func() error { return removeGlobalHooks(inst, h, stdout) })
 	}
 	return nil

@@ -147,10 +147,15 @@ func (in *Installer) Uninstall(p *adapter.Profile) (Status, error) {
 		return "", err
 	}
 	st := NotInstalled
+	var changed []string
 	for _, h := range recorded(rec, p) {
+		e, _ := rec.Entry(p.Kind, h)
 		s, err := in.uninstall(&rec, p, h)
 		if err != nil {
-			return "", err
+			return "", in.unsaved(err, changed)
+		}
+		if s == Removed && !slices.Contains(changed, e.Target) {
+			changed = append(changed, e.Target)
 		}
 		st = worse(st, s)
 	}
@@ -158,9 +163,19 @@ func (in *Installer) Uninstall(p *adapter.Profile) (Status, error) {
 		return st, nil
 	}
 	if err := write(in.Record, rec); err != nil {
-		return "", err
+		return "", in.unsaved(err, changed)
 	}
 	return st, nil
+}
+
+// unsaved adds to err, an error after the removal of Brain entries from the hook files changed,
+// that the install record still lists them: the hook files changed, but the record did not.
+func (in *Installer) unsaved(err error, changed []string) error {
+	if len(changed) == 0 {
+		return err
+	}
+	return fmt.Errorf("removed Brain entries from %s, but %s did not change and still lists them: %w",
+		strings.Join(changed, ", "), in.Record, err)
 }
 
 // UninstallHook is Uninstall for the one entry of hook h of profile p. It returns the status
@@ -175,7 +190,8 @@ func (in *Installer) UninstallHook(p *adapter.Profile, h adapter.Hook) (Status, 
 	if err != nil {
 		return "", err
 	}
-	if !rec.Has(p.Kind, h) {
+	e, ok := rec.Entry(p.Kind, h)
+	if !ok {
 		return NotInstalled, nil
 	}
 	st, err := in.uninstall(&rec, p, h)
@@ -183,9 +199,29 @@ func (in *Installer) UninstallHook(p *adapter.Profile, h adapter.Hook) (Status, 
 		return "", err
 	}
 	if err := write(in.Record, rec); err != nil {
+		if st == Removed {
+			return "", in.unsaved(err, []string{e.Target})
+		}
 		return "", err
 	}
 	return st, nil
+}
+
+// WouldUninstallHook returns what UninstallHook would do for hook h of profile p now, and
+// changes nothing: NotFound when the hook file holds neither the recorded entry nor a Brain
+// entry that you edited. The migration of global hooks (E24-S8) keeps such an entry in the
+// record: an edit of its fixed arguments also hides it.
+func (in *Installer) WouldUninstallHook(p *adapter.Profile, h adapter.Hook) (Status, error) {
+	rec, err := Read(in.Record)
+	if err != nil {
+		return "", err
+	}
+	e, ok := rec.Entry(p.Kind, h)
+	if !ok {
+		return NotInstalled, nil
+	}
+	_, _, st, err := removal(h.CLIEvent, p, e)
+	return st, err
 }
 
 // uninstall removes the recorded entry of hook h from its hook file and from rec, unless you

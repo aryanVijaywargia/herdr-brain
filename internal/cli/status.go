@@ -21,6 +21,7 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/extract"
 	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
+	"github.com/aryanVijaywargia/herdr-brain/internal/install"
 	brainlaunch "github.com/aryanVijaywargia/herdr-brain/internal/launch"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
@@ -396,6 +397,7 @@ func (s *statusCall) clis(ctx context.Context, ps []*adapter.Profile) {
 	}
 	s.global = map[string]store.CaptureSource{}
 	for i, st := range sts {
+		records := s.globalHook(st, ps[i])
 		if !st.Installed {
 			s.w.printf("  %s: not installed\n", st.Kind)
 			continue
@@ -418,11 +420,7 @@ func (s *statusCall) clis(ctx context.Context, ps []*adapter.Profile) {
 				word = "unknown"
 			}
 		}
-		if st.Configured {
-			records, on := s.records(ps[i])
-			word += records
-			s.global[st.Kind] = globalCapture(on)
-		}
+		word += records
 		if n := st.VersionNote(); n != "" && st.VersionErr == nil {
 			word += "; " + n
 		}
@@ -445,7 +443,8 @@ func (s *statusCall) clis(ctx context.Context, ps []*adapter.Profile) {
 // records is the hook records part of the status line of the configured profile p (#315):
 // "on" when each hook record entry that it turns on is in place, else "off", with the missing
 // CLI events when some are in place, and the fix for a CLI with no launch data. It is "" for a
-// profile with no hook record event. on reports whether hook records are on.
+// profile with no hook record event. on reports whether every hook record entry is in place
+// and unchanged.
 func (s *statusCall) records(p *adapter.Profile) (word string, on bool) {
 	all := len(p.Hooks()) - 1
 	if all == 0 {
@@ -456,6 +455,9 @@ func (s *statusCall) records(p *adapter.Profile) (word string, on bool) {
 	if err == nil {
 		missing, _, err = missingRecords(inst, p)
 	}
+	if err == nil && len(missing) == 0 {
+		on, err = recordsInPlace(inst, p)
+	}
 	// brain update adds no hook record entry for a CLI with launch data (E24-S8).
 	fix := " (brain update adds them)"
 	if slices.Contains(brainlaunch.Kinds(), p.Kind) {
@@ -464,12 +466,38 @@ func (s *statusCall) records(p *adapter.Profile) (word string, on bool) {
 	switch {
 	case err != nil:
 		return fmt.Sprintf("; hook records unknown (%v)", err), false
+	case len(missing) == 0 && !on:
+		return "; hook records on, but you edited an entry", false
 	case len(missing) == 0:
 		return "; hook records on", true
 	case len(missing) == all:
 		return "; hook records off" + fix, false
 	}
 	return "; hook records off for " + strings.Join(missing, ", ") + fix, false
+}
+
+// globalHook notes the capture source of a session of profile p, whose adapter state is st,
+// when its global Brain start entry is in place, and returns the hook records part of its
+// status line. The hook config, not the PATH of this process, gives the start of a live session.
+func (s *statusCall) globalHook(st harness.Status, p *adapter.Profile) string {
+	if !st.Configured {
+		return ""
+	}
+	records, on := s.records(p)
+	s.global[st.Kind] = globalCapture(on)
+	return records
+}
+
+// recordsInPlace reports whether each hook record entry of profile p is in its hook file as
+// Brain recorded it. An entry that you edited may not run, so it does not count (E24-S8).
+func recordsInPlace(inst *install.Installer, p *adapter.Profile) (bool, error) {
+	for _, h := range p.Hooks()[1:] {
+		_, st, err := inst.WouldInstallHook(p, h)
+		if err != nil || st != install.Present {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 // globalCapture is the capture source of a session of a CLI with its global Brain start entry:
