@@ -47,9 +47,10 @@ type Deps struct {
 	// Codex (/etc/codex): a Codex launch reads the config files of both.
 	Dir, CodexSystem string
 	// Brief compiles the start brief of a new launch in pane paneID of workspace workspaceID on
-	// binding b, keeps its receipt in the launch folder dir, and returns the brief text
-	// (hook.LaunchBrief). Only a CLI that takes the brief with a flag calls it.
-	Brief func(ctx context.Context, b bindings.Binding, workspaceID, paneID, dir string, now func() time.Time) (string, error)
+	// binding b, with no last session line for agentSession, keeps its receipt in the launch
+	// folder dir, and returns the brief text (hook.LaunchBrief). Only a CLI that takes the
+	// brief with a flag calls it.
+	Brief func(ctx context.Context, b bindings.Binding, workspaceID, paneID, agentSession, dir string, now func() time.Time) (string, error)
 }
 
 // Main is `brain <kind> [args]`: it starts the CLI of kind in place of Brain. In a live pane of
@@ -217,13 +218,16 @@ func brainArgv(ctx context.Context, d Deps, data *cliData, bin string, args []st
 		return nil, nil, "", nil, err
 	}
 	l = &launched{b: r.Binding, dir: dir}
-	text, note := startBrief(ctx, d, data, r, dir)
+	text, note := startBrief(ctx, d, data, a, r, dir)
 	hooks, err := captureHooks(data.kind, d.Self, dir)
 	if err == nil {
 		argv, notes, err = a.argv(dir, Plan{Hooks: hooks, MCP: mcpServer(d.Self, dir), Brief: text})
 	}
 	if err == nil {
 		_, err = writeJSON(dir, argvFile, launchArgv{Argv: argv, Args: args})
+	}
+	if err == nil && text != "" {
+		err = cutForgotten(ctx, r.Binding.Store, dir)
 	}
 	if err != nil {
 		return nil, nil, "", nil, errors.Join(err, l.abandon(ctx, d.Now()))
@@ -234,14 +238,15 @@ func brainArgv(ctx context.Context, d Deps, data *cliData, bin string, args []st
 	return argv, notes, "", l, nil
 }
 
-// startBrief returns the start brief of the launch in folder dir for the pane of r, when the
-// CLI of data takes it with a flag (E24-S4). note is the line to print when Brain cannot
-// compile it: as for the start hook, that is a missed brief, not a failed start.
-func startBrief(ctx context.Context, d Deps, data *cliData, r *resolver.Resolved, dir string) (text, note string) {
+// startBrief returns the start brief of the launch in folder dir for the pane of r and the
+// user's args a, when the CLI of data takes it with a flag (E24-S4). note is the line to print
+// when Brain cannot compile it: as for the start hook, that is a missed brief, not a failed
+// start.
+func startBrief(ctx context.Context, d Deps, data *cliData, a *args, r *resolver.Resolved, dir string) (text, note string) {
 	if !data.briefFlag {
 		return "", ""
 	}
-	text, err := d.Brief(ctx, r.Binding, r.WorkspaceID, r.PaneID, dir, d.Now)
+	text, err := d.Brief(ctx, r.Binding, r.WorkspaceID, r.PaneID, a.session(), dir, d.Now)
 	if err != nil {
 		// One line: an error can hold line breaks.
 		return "", "starting with no Brain brief: " + strings.Join(strings.Fields(err.Error()), " ")

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
+	"github.com/aryanVijaywargia/herdr-brain/internal/launch"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
@@ -81,7 +82,7 @@ func TestLaunchStartBrief(t *testing.T) {
 			before := deliveries(t, f.b.Store)
 			dir := f.launch(pane, kind)
 			if kind == "claude" {
-				got, err := LaunchBrief(ctx, f.b, ws, pane, dir, func() time.Time { return testNow })
+				got, err := LaunchBrief(ctx, f.b, ws, pane, "", dir, func() time.Time { return testNow })
 				if err != nil || got != want {
 					t.Errorf("LaunchBrief(%s) = %q, %v, want the brief of the start hook %q", pane, got, err, want)
 				}
@@ -135,7 +136,7 @@ func TestLaunchStartRefused(t *testing.T) {
 			}
 			dir := f.launch("w1:p1", tt.kind)
 			if tt.brief {
-				if _, err := LaunchBrief(ctx, f.b, "w1", "w1:p1", dir, time.Now); err != nil {
+				if _, err := LaunchBrief(ctx, f.b, "w1", "w1:p1", "", dir, time.Now); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -158,11 +159,50 @@ func TestLaunchStartRefused(t *testing.T) {
 func TestLaunchBriefNoGeneration(t *testing.T) {
 	f := newLaunchFixture(t)
 	dir := f.launch("w1:p1", "claude")
-	text, err := LaunchBrief(context.Background(), f.b, "w1", "w1:p1", dir, time.Now)
+	text, err := LaunchBrief(context.Background(), f.b, "w1", "w1:p1", "", dir, time.Now)
 	if err != nil || text != "" {
 		t.Errorf("LaunchBrief() = %q, %v, want no brief and no error", text, err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, startFile)); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("%s: %v, want none", startFile, err)
+	if _, err := os.Stat(filepath.Join(dir, launch.StartFile)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("%s: %v, want none", launch.StartFile, err)
+	}
+}
+
+// Review of #444: a launch that resumes a session by its ID (brain claude --resume <id>) gets
+// the brief that the current start hook gives that session: the last session line leaves the
+// resumed session out. A launch that names no session (--continue, or --resume with no ID)
+// does not know the session before its start, so its brief can name the resumed session as the
+// last session: a known limit.
+func TestLaunchBriefResume(t *testing.T) {
+	f := newLaunchFixture(t)
+	f.mapBriefs()
+	ctx := context.Background()
+	p := claude(t)
+	raw := startInput("resume-me", "/tmp/resume-me.jsonl")
+	first := f.launch("w1:p1", "claude")
+	if _, err := LaunchBrief(ctx, f.b, "w1", "w1:p1", "", first, time.Now); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.run(f.hook(p, adapter.EventStart, first, noHerdrEnv), raw); err != nil {
+		t.Fatal(err)
+	}
+	var normal bytes.Buffer
+	env := environ(f.sock.path, "default", "w1:p1", "w1")
+	if err := f.hook(p, adapter.EventStart, "", env).Run(ctx, strings.NewReader(raw), &normal); err != nil {
+		t.Fatal(err)
+	}
+	want := briefOf(t, normal.String())
+	for _, tt := range []struct {
+		session string
+		same    bool
+	}{{"resume-me", true}, {"", false}} {
+		dir := f.launch("w1:p1", "claude")
+		got, err := LaunchBrief(ctx, f.b, "w1", "w1:p1", tt.session, dir, time.Now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (got == want) != tt.same || tt.same == strings.Contains(got, "/tmp/resume-me.jsonl") {
+			t.Errorf("LaunchBrief(session %q) = %q, want the start hook brief %q: %t", tt.session, got, want, tt.same)
+		}
 	}
 }

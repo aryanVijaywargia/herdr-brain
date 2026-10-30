@@ -90,8 +90,8 @@ func (e *cmdEnv) run(t *testing.T, environ []string, kind string, args ...string
 			e.env = env
 			return e.execErr
 		},
-		Brief: func(_ context.Context, b bindings.Binding, workspaceID, paneID, dir string, _ func() time.Time) (string, error) {
-			e.briefs = append(e.briefs, b.Session+" "+workspaceID+" "+paneID+" "+dir)
+		Brief: func(_ context.Context, b bindings.Binding, workspaceID, paneID, agentSession, dir string, _ func() time.Time) (string, error) {
+			e.briefs = append(e.briefs, fmt.Sprintf("%s %s %s session=%q %s", b.Session, workspaceID, paneID, agentSession, dir))
 			return e.brief, e.briefErr
 		},
 	}
@@ -161,12 +161,15 @@ func TestLaunchMain(t *testing.T) {
 		launched bool
 		paneErr  error // the error of herdr pane get
 		brief    string
-		briefErr error // the error of the start brief
+		briefErr error  // the error of the start brief
+		session  string // the agent session that the args name for the brief
 	}{
 		{name: "brain codex", version: "2.1.312", herdr: true, kind: "codex", args: []string{"--x", "y"},
 			want: []string{"--no-daemon", "--x", "y"}, static: 1, launched: true, brief: "B"},
 		{name: "brain claude", version: "2.1.312", herdr: true, kind: "claude", args: []string{"--x", "y"},
 			want: []string{"--x", "y"}, launched: true, brief: "B"},
+		{name: "brain claude --resume <id>", version: "2.1.312", herdr: true, kind: "claude", args: []string{"--resume", "abc"},
+			want: []string{"--resume", "abc"}, launched: true, brief: "B", session: "abc"},
 		{name: "brain claude, brief withheld", version: "2.1.312", herdr: true, kind: "claude", args: []string{"--x", "y"},
 			want: []string{"--x", "y"}, launched: true},
 		{name: "brain claude, brief error", version: "2.1.312", herdr: true, kind: "claude", args: []string{"--x", "y"},
@@ -219,7 +222,7 @@ func TestLaunchMain(t *testing.T) {
 			// Only a Claude launch compiles the brief, once, for its own pane and folder.
 			var briefs []string
 			if tt.launched && tt.kind == "claude" {
-				briefs = []string{"s1 w1 w1:p1 " + paths.Launch(e.store, 1)}
+				briefs = []string{fmt.Sprintf("s1 w1 w1:p1 session=%q %s", tt.session, paths.Launch(e.store, 1))}
 			}
 			if !slices.Equal(e.briefs, briefs) {
 				t.Errorf("Brief calls = %q, want %q", e.briefs, briefs)

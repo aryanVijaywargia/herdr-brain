@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	launches "github.com/aryanVijaywargia/herdr-brain/internal/launch"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
@@ -320,6 +321,10 @@ func (cl caller) forget(ctx context.Context, id int64) error {
 			return err
 		}
 	}
+	// Also on a second call: a launch that wrote its brief after the first sweep cuts it itself.
+	if err := launches.ForgetBriefs(cl.Binding.Store, id); err != nil {
+		return err
+	}
 	return cl.report(ctx, out, id)
 }
 
@@ -370,9 +375,9 @@ func (cl caller) clean(ctx context.Context, out string, id int64) error {
 	return err
 }
 
-// report prints "done" when no store field and no output folder holds the text of item id,
-// and "pending" with what still holds it otherwise. A copy in another scope does not
-// count.
+// report prints "done" when no store field, no output folder and no launch brief file holds
+// the text of item id, and "pending" with what still holds it otherwise. A copy in another
+// scope does not count.
 func (cl caller) report(ctx context.Context, out string, id int64) error {
 	var left []store.Field
 	err := cl.Store.Write(ctx, func(tx *sql.Tx) (err error) {
@@ -392,6 +397,13 @@ func (cl caller) report(ctx context.Context, out string, id int64) error {
 	}
 	if holds {
 		why = append(why, "old output generations")
+	}
+	briefs, err := launches.BriefsHold(cl.Binding.Store, id)
+	if err != nil {
+		return err
+	}
+	if briefs {
+		why = append(why, "launch brief files")
 	}
 	if len(why) == 0 {
 		_, err := fmt.Fprintf(cl.Stdout, "forget item %d: done\n", id)

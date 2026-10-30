@@ -19,22 +19,20 @@ import (
 	"github.com/aryanVijaywargia/herdr-brain/internal/store"
 )
 
-const (
-	// startFile is the file in the launch folder that holds the receipt of the brief that a
-	// launch gave with a flag (E24-S4).
-	startFile = "start.json"
-	// launchBusyTimeout is how long the brief of a launch waits for the store lock: 5 s, as the
-	// launch command's other store writes.
-	launchBusyTimeout = 5 * time.Second
-)
+// launchBusyTimeout is how long the brief of a launch waits for the store lock: 5 s, as the
+// launch command's other store writes.
+const launchBusyTimeout = 5 * time.Second
 
 // LaunchBrief compiles the start brief of a new launch in pane paneID of workspace workspaceID
 // on the herdr server of binding b, as the start hook gives it to a new agent session, for a
-// CLI that takes the brief with a flag (E24-S4). It keeps the receipt of the brief in the
-// launch folder dir, and the start hook of the launch writes it with the agent session of its
-// input. It returns the brief text, "" when the receipt withholds the brief. A store with no
-// built brief yet gives no brief and keeps no receipt, as the start hook writes none then.
-func LaunchBrief(ctx context.Context, b bindings.Binding, workspaceID, paneID, dir string, now func() time.Time) (text string, err error) {
+// CLI that takes the brief with a flag (E24-S4). agentSession is the agent session that the
+// user's args name, such as the session of a resume; "" when they name none. The last session
+// line leaves it out, as the start hook leaves out its own session. LaunchBrief keeps the
+// receipt of the brief in the launch folder dir (launch.StartFile), and the start hook of the
+// launch writes it with the agent session of its input. It returns the brief text, "" when the
+// receipt withholds the brief. A store with no built brief yet gives no brief and keeps no
+// receipt, as the start hook writes none then.
+func LaunchBrief(ctx context.Context, b bindings.Binding, workspaceID, paneID, agentSession, dir string, now func() time.Time) (text string, err error) {
 	d, key, err := delivery(&resolver.Resolved{Binding: b, PaneID: paneID, WorkspaceID: workspaceID})
 	if err != nil {
 		return "", err
@@ -45,10 +43,8 @@ func LaunchBrief(ctx context.Context, b bindings.Binding, workspaceID, paneID, d
 	}
 	defer func() { err = errors.Join(err, s.Close()) }()
 	h := Hook{Now: now}
-	// A new agent session has no receipt yet, so no agent session is left out of the last
-	// session line.
 	err = s.Write(ctx, func(tx *sql.Tx) (err error) {
-		d, text, err = h.compile(ctx, tx, b.Store, d, key, "")
+		d, text, err = h.compile(ctx, tx, b.Store, d, key, agentSession)
 		return err
 	})
 	// The out folder has no current generation before the first approved item.
@@ -63,7 +59,7 @@ func LaunchBrief(ctx context.Context, b bindings.Binding, workspaceID, paneID, d
 		return "", err
 	}
 	// 0600: the launch files are only yours.
-	if err := os.WriteFile(filepath.Join(dir, startFile), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, launch.StartFile), data, 0o600); err != nil {
 		return "", err
 	}
 	return text, nil
@@ -96,13 +92,13 @@ func (h Hook) launched(ctx context.Context, in adapter.Input, stdout io.Writer) 
 		return h.deliver(ctx, rc, r, stdout)
 	}
 	// A launch that could not compile its brief wrote no start file: no brief, so no receipt.
-	data, err := os.ReadFile(filepath.Join(h.Launch, startFile))
+	data, err := os.ReadFile(filepath.Join(h.Launch, launch.StartFile))
 	if err != nil {
 		return err
 	}
 	var d store.Delivery
 	if err := json.Unmarshal(data, &d); err != nil {
-		return fmt.Errorf("read %s: %w", startFile, err)
+		return fmt.Errorf("read %s: %w", launch.StartFile, err)
 	}
 	return s.Write(ctx, func(tx *sql.Tx) error {
 		if err := launchRunning(ctx, tx, l.ID); err != nil {
