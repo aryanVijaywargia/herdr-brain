@@ -453,6 +453,21 @@ func TestShowNotification(t *testing.T) {
 	wantShape(t, c.ShowNotification(deadline(t), "t", "b"), "shown")
 }
 
+// #460: brain doctor --fix invokes brain.start in the session of the binding.
+func TestInvokeAction(t *testing.T) {
+	invoked := `{"id":"cli:plugin","result":{"type":"plugin_action_invoked","log":{"status":"running"}}}`
+	c, dir := fakeClient(t, map[string]reply{"plugin action invoke brain.start": {Stdout: invoked}})
+	if err := c.InvokeAction(deadline(t), "brain.start"); err != nil {
+		t.Errorf("InvokeAction() = %v, want nil", err)
+	}
+	want := call{Args: []string{"plugin", "action", "invoke", "brain.start"}, Session: testSession, Socket: testSocket}
+	if cs := calls(t, dir); len(cs) != 1 || !reflect.DeepEqual(cs[0], want) {
+		t.Errorf("herdr calls = %+v, want [%+v]", cs, want)
+	}
+	c, _ = fakeClient(t, map[string]reply{"plugin action invoke brain.start": {Stdout: `{"result":{"type":"plugin_list"}}`}})
+	wantShape(t, c.InvokeAction(deadline(t), "brain.start"), "result.type")
+}
+
 // TestTarget shows that the client's target wins over inherited HERDR_SESSION and
 // HERDR_SOCKET_PATH of another session: the child gets no --session flag and both variables
 // set to the one target, so they never disagree. TestLiveTarget shows herdr's own order.

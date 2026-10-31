@@ -5,11 +5,14 @@
 package brained
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -126,7 +129,8 @@ func serve(ctx context.Context, environ []string, log io.Writer, text ScanText, 
 		merge: func(ctx context.Context, g Gate) error {
 			return mergePass(ctx, g, config, log, extract.ExecRunner{}, time.Now)
 		},
-		scan: newHistoryScan(environ, config, text).run,
+		scan:  newHistoryScan(environ, config, text).run,
+		setup: func(ctx context.Context) error { return OpenSetup(ctx, environ) },
 	}
 	return d.run(ctx)
 }
@@ -210,7 +214,7 @@ func lock(dir, session string) (unlock func(), err error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil { // 0o700, as the data home
 		return nil, err
 	}
-	path := filepath.Join(dir, "brained-"+session+".lock")
+	path := lockPath(dir, session)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) // 0o600, as the data home files
 	if err != nil {
 		return nil, err
@@ -223,6 +227,11 @@ func lock(dir, session string) (unlock func(), err error) {
 		return nil, fmt.Errorf("lock %s: %w", path, err)
 	}
 	return func() { _ = f.Close() }, nil // the close drops the lock
+}
+
+// lockPath is the brained lock of session in the state folder dir.
+func lockPath(dir, session string) string {
+	return filepath.Join(dir, "brained-"+session+".lock")
 }
 
 // lookup returns the value of key in environ; the last entry wins, as in os/exec.
@@ -244,7 +253,11 @@ func Running(environ []string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	unlock, err := lock(e.stateDir, e.session)
+	return running(e.stateDir, e.session)
+}
+
+func running(dir, session string) (bool, error) {
+	unlock, err := lock(dir, session)
 	if errors.Is(err, ErrRunning) {
 		return true, nil
 	}
@@ -253,4 +266,93 @@ func Running(environ []string) (bool, error) {
 	}
 	unlock()
 	return false, nil
+}
+
+// RunningSession reports whether a brained holds the lock of herdr session, from a pane of that
+// session (brain doctor and brain status, #460). As Running, it takes the lock for a moment. A
+// missing lock file means that no brained ever ran there, and the check makes no file.
+func RunningSession(environ []string, session string) (bool, error) {
+	dir, err := StateDir(environ)
+	if err != nil {
+		return false, err
+	}
+	_, err = os.Stat(lockPath(dir, session))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return running(dir, session)
+}
+
+// StateDir is the plugin state folder of Brain, where the brained lock is. A herdr action or
+// [[startup]] process gets it in HERDR_PLUGIN_STATE_DIR. A pane has no HERDR_PLUGIN_ variables,
+// so there it is the folder that herdr 0.9.5 gives: $XDG_STATE_HOME/herdr/plugins/brain, or
+// $HOME/.local/state/herdr/plugins/brain when XDG_STATE_HOME is not an absolute path.
+func StateDir(environ []string) (string, error) {
+	if dir := lookup(environ, "HERDR_PLUGIN_STATE_DIR"); dir != "" {
+		if !filepath.IsAbs(dir) {
+			return "", fmt.Errorf("HERDR_PLUGIN_STATE_DIR %q is not an absolute path", dir)
+		}
+		return dir, nil
+	}
+	base := lookup(environ, "XDG_STATE_HOME")
+	if !filepath.IsAbs(base) {
+		home := lookup(environ, "HOME")
+		if !filepath.IsAbs(home) {
+			return "", fmt.Errorf("HOME %q is not an absolute path", home)
+		}
+		base = filepath.Join(home, ".local", "state")
+	}
+	return filepath.Join(base, "herdr", "plugins", pluginID), nil
+}
+
+// pluginID is the id of the Brain plugin in herdr-plugin.toml.
+const pluginID = "brain"
+
+// SetupPending records that brain start found no workspace for the setup popup of the herdr
+// session of environ (#462), so that brained opens the popup once a pane exists. pending false
+// removes the record.
+func SetupPending(environ []string, pending bool) error {
+	e, err := parseEnv(environ)
+	if err != nil {
+		return err
+	}
+	path := pendingPath(e.stateDir, e.session)
+	if !pending {
+		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(e.stateDir, 0o700); err != nil { // 0o700, as the lock
+		return err
+	}
+	return os.WriteFile(path, nil, 0o600)
+}
+
+// pendingPath is the file of SetupPending for session in the state folder dir.
+func pendingPath(dir, session string) string {
+	return filepath.Join(dir, "setup-"+session+".pending")
+}
+
+// setupDeadline is the deadline of the herdr call that opens the setup popup. 5 s, as the
+// other herdr calls of brained.
+const setupDeadline = 5 * time.Second
+
+// OpenSetup opens the setup popup in the herdr session of environ, as the setup action does.
+func OpenSetup(ctx context.Context, environ []string) error {
+	bin := lookup(environ, "HERDR_BIN_PATH")
+	if bin == "" {
+		return errors.New("HERDR_BIN_PATH is not set")
+	}
+	ctx, cancel := context.WithTimeout(ctx, setupDeadline)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "plugin", "pane", "open", "--plugin", pluginID, "--entrypoint", "setup")
+	cmd.Env = environ
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("herdr plugin pane open: %s: %w", bytes.TrimSpace(out), err)
+	}
+	return nil
 }

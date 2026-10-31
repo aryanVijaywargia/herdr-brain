@@ -429,6 +429,15 @@ func (c *Client) ShowNotification(ctx context.Context, title, body string) error
 	return nil
 }
 
+// InvokeAction invokes the plugin action id, such as "brain.start", with `herdr plugin action
+// invoke`. herdr starts the action and does not wait for its end.
+func (c *Client) InvokeAction(ctx context.Context, id string) error {
+	if err := c.result(ctx, "plugin_action_invoked", &struct{}{}, "plugin", "action", "invoke", id); err != nil {
+		return fmt.Errorf("herdr plugin action invoke: %w", err)
+	}
+	return nil
+}
+
 // Process is a foreground process of a pane.
 type Process struct {
 	Name string

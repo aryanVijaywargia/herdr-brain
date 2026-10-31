@@ -44,6 +44,9 @@ type StatusHerdr interface {
 	CheckServer(ctx context.Context) (version string, untested bool, err error)
 	// PaneProcesses gives the agent processes of a pane with no receipt, for their start (#249).
 	PaneProcesses(ctx context.Context, id string) ([]herdr.Process, error)
+	// InvokeAction invokes a plugin action: brain doctor --fix starts brained with brain.start
+	// (#460).
+	InvokeAction(ctx context.Context, id string) error
 }
 
 // adapterFiles are the files of the data home data that harness.Check reads.
@@ -368,7 +371,7 @@ func (s *statusCall) fail(err error) {
 }
 
 // herdr prints the herdr version with the untested version warning, and lists the panes of the
-// session once.
+// session once. Then it prints one line when no brained runs for the session (#460).
 func (s *statusCall) herdr(ctx context.Context) {
 	s.herdrState = readHerdr(ctx, s.Env, s.Binding)
 	switch {
@@ -378,6 +381,17 @@ func (s *statusCall) herdr(ctx context.Context) {
 		s.w.printf("herdr %s: not tested with Brain yet; Brain keeps working\n", s.version)
 	default:
 		s.w.printf("herdr %s\n", s.version)
+	}
+	// brained needs herdr: with herdr down, the line above says why.
+	if s.versionErr != nil {
+		return
+	}
+	switch running, err := s.Brained(s.Binding.Session); {
+	case err != nil:
+		s.w.printf("brained: %v\n", err)
+	case !running:
+		s.w.printf("brained: not running for herdr session %q, so Brain captures nothing; fix: herdr plugin action invoke brain.start\n",
+			s.Binding.Session)
 	}
 }
 

@@ -32,7 +32,13 @@ type fakeStatusHerdr struct {
 	checkErr error // the CheckServer error, such as a herdr that is too old
 	lists    int   // the pane list calls
 	// procs are the agent processes of each pane; a pane with none has no known start.
-	procs map[string][]herdr.Process
+	procs   map[string][]herdr.Process
+	actions []string // the invoked plugin actions
+}
+
+func (h *fakeStatusHerdr) InvokeAction(_ context.Context, id string) error {
+	h.actions = append(h.actions, id)
+	return nil
 }
 
 func (h *fakeStatusHerdr) PaneProcesses(_ context.Context, id string) ([]herdr.Process, error) {
@@ -53,6 +59,8 @@ type statusFixture struct {
 	*fixture
 	data  string
 	herdr *fakeStatusHerdr
+	// brained is the brained check of each call; nil keeps the fixture's, which sees a brained.
+	brained func(session string) (bool, error)
 }
 
 func newStatusFixture(t *testing.T) *statusFixture {
@@ -89,6 +97,9 @@ func (f *statusFixture) statusAt(t *testing.T, socket string, now time.Time) (st
 	e.Adapters = harness.Files{Install: filepath.Join(f.data, "install.json"),
 		Conformance: filepath.Join(f.data, "conformance.json"), Retest: filepath.Join(f.data, retestDir), Installed: filepath.Join(f.data, installedDir)}
 	e.StatusHerdr = func(herdr.Target) (StatusHerdr, error) { return f.herdr, nil }
+	if f.brained != nil {
+		e.Brained = f.brained
+	}
 	e.Now = func() time.Time { return now }
 	err := Status(context.Background(), e, nil)
 	return out.String(), err

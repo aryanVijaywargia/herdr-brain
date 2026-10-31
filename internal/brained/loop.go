@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"sync"
 	"time"
 
@@ -46,6 +48,9 @@ type daemon struct {
 	// that this brained has nothing more to scan.
 	scan  func(ctx context.Context, g Gate) (done bool, err error)
 	moved func() bool // reports a new brained binary at its path; nil for none
+	// setup opens the setup popup (OpenSetup) that brain start could not open (#462); nil for
+	// none.
+	setup func(ctx context.Context) error
 }
 
 // item is one event, or the end of a stream, from a reader.
@@ -79,7 +84,9 @@ type loop struct {
 	main   *herdr.Stream
 	panes  map[string]*pane
 	gate   *Gate // nil while the session is not bound
-	redo   *Gap  // the gap of a reconcile that failed; the next tick tries it again
+	// bindingsRead says that the last check read the bindings file, so a nil gate means no binding.
+	bindingsRead bool
+	redo         *Gap // the gap of a reconcile that failed; the next tick tries it again
 
 	extracting  bool       // an extraction pass runs
 	lastExtract time.Time  // the start of the last extraction pass
@@ -144,6 +151,7 @@ func (d *daemon) run(ctx context.Context) error {
 			if err := l.check(ctx); err != nil {
 				return err
 			}
+			l.pendingSetup(ctx)
 			if l.redo != nil {
 				l.retry(ctx, *l.redo)
 			} else {
@@ -480,12 +488,13 @@ func (l *loop) check(ctx context.Context) error {
 			return err
 		}
 	}
-	l.gate = nil
+	l.gate, l.bindingsRead = nil, false
 	bs, _, err := bindings.Read(l.d.bindingsFile)
 	if err != nil {
 		l.report(err)
 		return nil
 	}
+	l.bindingsRead = true
 	b, ok, err := bindings.BySocket(bs, l.d.env.socket)
 	switch {
 	case err != nil:
@@ -495,6 +504,40 @@ func (l *loop) check(ctx context.Context) error {
 		l.gate = &g
 	}
 	return nil
+}
+
+// pendingSetup opens the setup popup that brain start could not open, because the session had
+// no workspace (SetupPending, #462): once, at the first check that finds a pane while the session
+// still has no binding. It removes the record before the popup, so a failed open is not repeated,
+// and a session that got its binding meanwhile drops the record with no popup. check ran just
+// before, so the gate is current; a bindings file that check could not read opens no popup.
+func (l *loop) pendingSetup(ctx context.Context) {
+	if l.d.setup == nil || !l.bindingsRead {
+		return
+	}
+	path := pendingPath(l.d.env.stateDir, l.d.env.session)
+	if _, err := os.Stat(path); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			l.report(err)
+		}
+		return
+	}
+	if l.gate == nil {
+		cctx, cancel := context.WithTimeout(ctx, callTimeout)
+		live, err := l.d.sock.Panes(cctx)
+		cancel()
+		if err != nil || len(live) == 0 {
+			l.report(err) // the next check looks again
+			return
+		}
+	}
+	if err := os.Remove(path); err != nil {
+		l.report(err)
+		return
+	}
+	if l.gate == nil {
+		l.report(l.d.setup(ctx))
+	}
 }
 
 // pluginState returns ErrStop when plugin id is not linked or is disabled.

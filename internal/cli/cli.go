@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
+	"github.com/aryanVijaywargia/herdr-brain/internal/brained"
 	"github.com/aryanVijaywargia/herdr-brain/internal/harness"
 	"github.com/aryanVijaywargia/herdr-brain/internal/herdr"
 	"github.com/aryanVijaywargia/herdr-brain/internal/output"
@@ -102,6 +103,12 @@ type Env struct {
 	// Command returns the command line of process pid, or "" when there is no such process
 	// (brain automation cancel checks it before Kill); tests replace it.
 	Command func(ctx context.Context, pid int) (string, error)
+	// Brained reports whether a brained holds the brained lock of herdr session session
+	// (brained.RunningSession, #460); tests replace it.
+	Brained func(session string) (bool, error)
+	// Link is the ~/.local/bin/brain link that brain setup offers (paths.LinkPath), which
+	// brain doctor checks (#459); "" for no check.
+	Link string
 	// Config is the Brain config file (paths.ConfigFile).
 	Config string
 	// Data is the data home; Adapters are its files that the adapter states come from.
@@ -130,6 +137,10 @@ func NewEnv(environ []string, stdout, stderr io.Writer) (Env, error) {
 		return Env{}, err
 	}
 	adapters, err := adapterFiles(data)
+	if err != nil {
+		return Env{}, err
+	}
+	link, err := paths.LinkPath()
 	if err != nil {
 		return Env{}, err
 	}
@@ -163,6 +174,8 @@ func NewEnv(environ []string, stdout, stderr io.Writer) (Env, error) {
 		},
 		Kill:     func(pid int) error { return syscall.Kill(pid, syscall.SIGTERM) },
 		Command:  processCommand,
+		Brained:  func(session string) (bool, error) { return brained.RunningSession(environ, session) },
+		Link:     link,
 		Config:   config,
 		Data:     data,
 		Adapters: adapters,
