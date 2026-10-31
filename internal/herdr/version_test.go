@@ -15,7 +15,9 @@ func TestCheckVersion(t *testing.T) {
 		{v: "0.9.1"},
 		{v: "0.9.2", wantUntested: true}, // no test ran on 0.9.2
 		{v: "0.9.3"},
-		{v: "0.9.4", wantUntested: true},
+		{v: "0.9.4", wantUntested: true}, // no test ran on 0.9.4
+		{v: "0.9.5"},
+		{v: "0.9.6", wantUntested: true},
 		{v: "0.10.0", wantUntested: true},
 		{v: "1.0.0", wantUntested: true},
 		{v: "0.9.2-preview.1", wantUntested: true},

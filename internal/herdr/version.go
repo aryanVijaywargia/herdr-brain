@@ -17,6 +17,7 @@ func TestedVersions() []string {
 	return []string{
 		"0.9.1",
 		"0.9.3", // #256, PR #297
+		"0.9.5", // #471
 	}
 }
 
