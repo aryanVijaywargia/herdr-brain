@@ -33,6 +33,8 @@ type startDeps struct {
 	relink func() error
 	// workspaces returns the number of workspaces of this session.
 	workspaces func(ctx context.Context, environ []string) (int, error)
+	// lockSetup runs fn with the setup lock of this session (brained.SetupLocked).
+	lockSetup func(environ []string, fn func() error) error
 	// pending records, or with false removes, the setup popup for brained (brained.SetupPending).
 	pending func(environ []string, pending bool) error
 	// openSetup opens the setup popup in this session (brained.OpenSetup).
@@ -47,8 +49,19 @@ func osStartDeps(environ []string) startDeps {
 		}
 		return spawnBrained(bin, environ)
 	}
-	return startDeps{environ: environ, running: brained.Running, spawn: spawn, relink: relinkStale,
-		workspaces: workspaces, pending: brained.SetupPending, openSetup: brained.OpenSetup}
+	relink := func() error {
+		link, err := paths.LinkPath()
+		if err != nil {
+			return err
+		}
+		bin, err := paths.BinaryPath()
+		if err != nil {
+			return err
+		}
+		return relinkStale(link, bin)
+	}
+	return startDeps{environ: environ, running: brained.Running, spawn: spawn, relink: relink, workspaces: workspaces,
+		lockSetup: brained.SetupLocked, pending: brained.SetupPending, openSetup: brained.OpenSetup}
 }
 
 // start is `brain start`, the plugin `start` action (E19-S3). The build of `herdr plugin
@@ -73,41 +86,43 @@ func start(ctx context.Context, d startDeps) error {
 	if err := d.relink(); err != nil {
 		linkErr = fmt.Errorf("relink: %w", err)
 	}
-	ok, err := bound(d.environ)
-	if err != nil || ok {
-		return errors.Join(linkErr, err)
-	}
 	return errors.Join(linkErr, d.setup(ctx))
 }
 
-// setup opens the setup popup. herdr opens a popup only in a workspace, so in a session with
-// none it leaves the popup to brained, which opens it once a pane exists (#462). When it opens
-// the popup itself, it first removes such a record, so brained does not open a second one.
+// setup opens the setup popup when the session has no binding, with the setup lock held. herdr
+// opens a popup only in a workspace, so in a session with none it leaves the popup to brained,
+// which opens it once a pane exists (#462). When it opens the popup itself, it first removes
+// such a record, so brained does not open a second one. A bound session drops the record. The
+// binding is read again after the workspace call: setup can bind the session during it.
 func (d startDeps) setup(ctx context.Context) error {
-	n, err := d.workspaces(ctx, d.environ)
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return d.pending(d.environ, true)
-	}
-	if err := d.pending(d.environ, false); err != nil {
-		return err
-	}
-	return d.openSetup(ctx, d.environ)
+	return d.lockSetup(d.environ, func() error {
+		ok, err := bound(d.environ)
+		if err != nil {
+			return err
+		}
+		if ok {
+			return d.pending(d.environ, false)
+		}
+		n, err := d.workspaces(ctx, d.environ)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return d.pending(d.environ, true)
+		}
+		if err := d.pending(d.environ, false); err != nil {
+			return err
+		}
+		if ok, err := bound(d.environ); err != nil || ok {
+			return err
+		}
+		return d.openSetup(ctx, d.environ)
+	})
 }
 
-// relinkStale points ~/.local/bin/brain to this binary when it is a stale link of setup
+// relinkStale points the link at link to the brain binary bin when it is a stale link of setup
 // (install.LinkStale), and changes nothing in every other case.
-func relinkStale() error {
-	link, err := paths.LinkPath()
-	if err != nil {
-		return err
-	}
-	bin, err := paths.BinaryPath()
-	if err != nil {
-		return err
-	}
+func relinkStale(link, bin string) error {
 	l, err := install.CheckLink(link, bin)
 	if err != nil || l.State != install.LinkStale {
 		return err

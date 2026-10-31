@@ -7,8 +7,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/aryanVijaywargia/herdr-brain/internal/paths"
 )
 
 // noBrained is a brained check that sees no brained, and records the sessions it checks.
@@ -75,25 +73,40 @@ func TestStatusBrained(t *testing.T) {
 	}
 }
 
-// staleTarget is a brain binary in a removed GitHub checkout of the plugin under home.
-func staleTarget(home string) string {
-	return filepath.Join(home, ".config", "herdr", "plugins", "github-installations", "brain-bbbf7a6412d6", "1-0", "checkout", "bin", "brain")
+// checkout is the brain binary of GitHub install n of the plugin under home.
+func checkout(home, n string) string {
+	return filepath.Join(home, ".config", "herdr", "plugins", "github-installations", "brain-bbbf7a6412d6", n, "checkout", "bin", "brain")
+}
+
+// linkFixture is a doctor fixture whose brain binary is GitHub install 2-0 of the plugin, with
+// the link path ~/.local/bin/brain.
+func linkFixture(t *testing.T) *doctorFixture {
+	t.Helper()
+	f := newDoctorFixture(t)
+	f.link, f.binary = filepath.Join(f.home, ".local", "bin", "brain"), checkout(f.home, "2-0")
+	if err := os.MkdirAll(filepath.Dir(f.binary), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.binary, []byte("#!/bin/sh\n"), 0o755); err != nil { //nolint:gosec // a test binary must be executable
+		t.Fatal(err)
+	}
+	bin, err := filepath.EvalSymlinks(f.binary) // as paths.BinaryPath gives it
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.binary = bin
+	return f
 }
 
 // #459: doctor reports a link of setup to an old checkout, and a yes or --fix points it to this
 // binary.
 func TestDoctorLinkStale(t *testing.T) {
-	bin, err := paths.BinaryPath()
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, c := range []struct {
 		stdin string
 		args  []string
 	}{{"y\n", nil}, {"", []string{"--fix"}}} {
-		f := newDoctorFixture(t)
-		f.link = filepath.Join(f.home, ".local", "bin", "brain")
-		old := staleTarget(f.home)
+		f := linkFixture(t)
+		bin, old := f.binary, filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(f.binary)))), "1-0", "checkout", "bin", "brain")
 		mustSymlink(t, old, f.link)
 		f.failed(t, "", "link: "+f.link+" points to "+old+" (a missing binary), not "+bin,
 			"link: "+f.link+" points to "+old+"; fix: run brain doctor again and answer y, or brain setup")
@@ -113,12 +126,12 @@ func TestDoctorLinkStale(t *testing.T) {
 // #459: a link that Brain did not make, broken or not, and no link at all are no failure, and
 // --fix leaves them.
 func TestDoctorLinkNotOurs(t *testing.T) {
-	f := newDoctorFixture(t)
-	f.link = filepath.Join(f.home, ".local", "bin", "brain")
+	f := linkFixture(t)
 	if out, err := f.doctorArgs(t, f.sock, "", []string{"--fix"}); err != nil || out != "all checks passed\n" {
 		t.Errorf("Doctor() with no link = %v\n%s\nwant all checks passed", err, out)
 	}
-	for _, target := range []string{filepath.Join(f.home, "src", "brain"), filepath.Join(f.home, "bin", "brain-old")} {
+	for _, target := range []string{filepath.Join(f.home, "src", "brain"), filepath.Join(f.home, "bin", "brain-old"),
+		filepath.Join(f.home, "other", "herdr", "plugins", "github-installations", "brain-bbbf7a6412d6", "1-0", "checkout", "bin", "brain")} {
 		if err := os.RemoveAll(f.link); err != nil {
 			t.Fatal(err)
 		}

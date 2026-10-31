@@ -3,6 +3,7 @@ package install
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -55,8 +56,14 @@ func TestCheckLink(t *testing.T) {
 			symlink(t, filepath.Join(herdr, "plugins", "github", "brain-bbbf7a6412d6", "bin", "brain"), link)
 		}, LinkStale},
 		{"relative link to a checkout", func(t *testing.T, link, _, _ string) {
-			symlink(t, "../../../config/herdr/plugins/github-installations/brain-0a1b/1-0/checkout/bin/brain", link)
+			symlink(t, "../../../config/herdr/plugins/github-installations/brain-bbbf7a6412d6/1-0/checkout/bin/brain", link)
 		}, LinkStale},
+		{"another herdr folder", func(t *testing.T, link, _, herdr string) {
+			symlink(t, filepath.Join(filepath.Dir(herdr), "unrelated", "herdr", "plugins", "github-installations", "brain-bbbf7a6412d6", "1-0", "checkout", "bin", "brain"), link)
+		}, LinkBroken},
+		{"another plugin hash", func(t *testing.T, link, _, herdr string) {
+			symlink(t, filepath.Join(herdr, "plugins", "github-installations", "brain-deadbeef", "1-0", "checkout", "bin", "brain"), link)
+		}, LinkBroken},
 		{"your own binary", func(t *testing.T, link, _, herdr string) {
 			symlink(t, writeBinary(t, filepath.Join(filepath.Dir(herdr), "src", "brain")), link)
 		}, LinkOther},
@@ -102,6 +109,48 @@ func TestRelink(t *testing.T) {
 	}
 	if got, err := os.Readlink(link); err != nil || got != mine {
 		t.Errorf("link after a refused Relink = %q, %v; want %q", got, err, mine)
+	}
+}
+
+// #459 review: Relink changes no link to a binary outside the plugin folder of bin, absolute or
+// relative, no regular file, and no link in a folder that others can write; the last one gets
+// the command to run.
+func TestRelinkPreservesForeignLinks(t *testing.T) {
+	for _, name := range []string{"unrelated binary", "another herdr folder", "relative link to another herdr folder", "regular file", "writable by others"} {
+		t.Run(name, func(t *testing.T) {
+			link, bin, herdr := linkDirs(t)
+			target := filepath.Join(filepath.Dir(herdr), "unrelated", "herdr", "plugins", "github-installations", "brain-deadbeef", "7-0", "checkout", "bin", "brain")
+			switch name {
+			case "unrelated binary":
+				target = filepath.Join(filepath.Dir(herdr), "other-program")
+			case "regular file":
+				writeBinary(t, link)
+				if err := Relink(link, bin); err == nil {
+					t.Fatal("Relink(regular file) = nil, want an error")
+				}
+				return
+			case "writable by others":
+				target = filepath.Join(herdr, "plugins", "github-installations", "brain-bbbf7a6412d6", "1-0", "checkout", "bin", "brain")
+				if err := os.Chmod(filepath.Dir(link), 0o777); err != nil { //nolint:gosec // the test needs a folder that others can write
+					t.Fatal(err)
+				}
+			}
+			writeBinary(t, target)
+			if name == "relative link to another herdr folder" {
+				var err error
+				if target, err = filepath.Rel(filepath.Dir(link), target); err != nil {
+					t.Fatal(err)
+				}
+			}
+			symlink(t, target, link)
+			err := Relink(link, bin)
+			if name == "writable by others" && (err == nil || !strings.Contains(err.Error(), "run: ln -sfn '"+bin+"' '"+link+"'")) {
+				t.Errorf("Relink in a folder that others can write = %v, want the ln command", err)
+			}
+			if got, readErr := os.Readlink(link); readErr != nil || got != target {
+				t.Errorf("Relink() = %v; link = %q, %v; want it kept on %q", err, got, readErr, target)
+			}
+		})
 	}
 }
 

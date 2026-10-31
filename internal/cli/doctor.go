@@ -163,10 +163,7 @@ func (d *doctorCall) link() error {
 	if d.Link == "" {
 		return nil
 	}
-	bin, err := paths.BinaryPath()
-	if err != nil {
-		return err
-	}
+	bin := d.Binary
 	l, err := install.CheckLink(d.Link, bin)
 	if err != nil || l.State != install.LinkStale {
 		return err

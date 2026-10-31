@@ -113,12 +113,13 @@ func TestPlanLinkKeepsExistingFiles(t *testing.T) {
 // #459: a link that setup made to a removed plugin checkout gets this binary on yes, and stays
 // on no.
 func TestPlanLinkStale(t *testing.T) {
-	bin, link := linkFixture(t)
+	_, link := linkFixture(t)
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	old := filepath.Join(filepath.Dir(filepath.Dir(link)), "config", "herdr", "plugins", "github-installations",
-		"brain-bbbf7a6412d6", "100-0", "checkout", "bin", "brain")
+	install := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(link))), "config", "herdr", "plugins", "github-installations",
+		"brain-bbbf7a6412d6")
+	bin, old := filepath.Join(install, "200-0", "checkout", "bin", "brain"), filepath.Join(install, "100-0", "checkout", "bin", "brain")
 	if err := os.Symlink(old, link); err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -79,8 +80,8 @@ func TestSetupPending(t *testing.T) {
 	if err := SetupPending(environ, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("record after SetupPending(true): %v", err)
+	if b, err := os.ReadFile(path); err != nil || string(b) != "/tmp/none" {
+		t.Fatalf("record after SetupPending(true) = %q, %v; want the socket", b, err)
 	}
 	if err := SetupPending(environ, false); err != nil {
 		t.Fatal(err)
@@ -109,7 +110,7 @@ func pendingHarness(t *testing.T) (h *harness, popups chan struct{}) {
 func markPending(t *testing.T, h *harness) string {
 	t.Helper()
 	path := pendingPath(h.d.env.stateDir, h.d.env.session)
-	if err := os.WriteFile(path, nil, 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(h.d.env.socket), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -184,5 +185,104 @@ func TestPendingSetupBadBindings(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Errorf("record with a bad bindings file: %v, want it kept", err)
+	}
+}
+
+// #462 review: the binding is read again right before the popup, so a session that setup bound
+// after the check gets no popup.
+func TestPendingRechecksBinding(t *testing.T) {
+	h, popups := pendingHarness(t)
+	h.f.addPane("w1:p1", "")
+	path := markPending(t, h)
+	l := newLoop(h.d)
+	if err := l.check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	b := bindings.Binding{Session: "s1", Socket: h.f.path, Store: h.store, Kind: bindings.KindMain, Created: time.Now()}
+	if err := bindings.Write(h.d.bindingsFile, []bindings.Binding{b}); err != nil {
+		t.Fatal(err)
+	}
+	l.pendingSetup(context.Background())
+	if len(popups) != 0 {
+		t.Errorf("pendingSetup after the binding = %d popups, want 0", len(popups))
+	}
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("record after the binding: %v, want none", err)
+	}
+}
+
+// #462 review: the record of another socket, or one older than pendingLife, is of an old
+// session: brained drops it with no popup.
+func TestPendingFromPreviousSession(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		socket string // "" for the socket of the brained
+		age    time.Duration
+	}{
+		{"another socket", "old.sock", 0},
+		{"old record", "", pendingLife + time.Hour},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h, popups := pendingHarness(t)
+			h.f.addPane("w1:p1", "")
+			socket := h.d.env.socket
+			if c.socket != "" {
+				socket = filepath.Join(t.TempDir(), c.socket)
+			}
+			environ := []string{"HERDR_SESSION=" + h.d.env.session, "HERDR_SOCKET_PATH=" + socket,
+				"HERDR_PLUGIN_STATE_DIR=" + h.d.env.stateDir, "HERDR_PLUGIN_ID=brain"}
+			if err := SetupPending(environ, true); err != nil {
+				t.Fatal(err)
+			}
+			path := pendingPath(h.d.env.stateDir, h.d.env.session)
+			at := time.Now().Add(-c.age)
+			if err := os.Chtimes(path, at, at); err != nil {
+				t.Fatal(err)
+			}
+			l := newLoop(h.d)
+			if err := l.check(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			l.pendingSetup(context.Background())
+			if len(popups) != 0 {
+				t.Errorf("popups = %d, want 0", len(popups))
+			}
+			if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+				t.Errorf("record of an old session: %v, want none", err)
+			}
+		})
+	}
+}
+
+// #462 review: brained opens the popup with the setup lock held, and opens none while brain
+// start holds it.
+func TestPendingSetupLock(t *testing.T) {
+	h, popups := pendingHarness(t)
+	h.f.addPane("w1:p1", "")
+	path := markPending(t, h)
+	lockFile := setupLockPath(h.d.env.stateDir, h.d.env.session)
+	var heldAtOpen bool
+	h.d.setup = func(context.Context) error {
+		u, err := flock(lockFile, false)
+		if err == nil {
+			u()
+		}
+		heldAtOpen = errors.Is(err, syscall.EWOULDBLOCK)
+		popups <- struct{}{}
+		return nil
+	}
+	l := newLoop(h.d)
+	unlock, err := flock(lockFile, false) // brain start holds it
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.pendingSetup(context.Background())
+	if _, err := os.Stat(path); len(popups) != 0 || err != nil {
+		t.Fatalf("while start holds the lock: %d popups, record %v; want 0 and the record", len(popups), err)
+	}
+	unlock()
+	l.pendingSetup(context.Background())
+	if len(popups) != 1 || !heldAtOpen {
+		t.Errorf("popups = %d, lock held at the open = %v; want 1 and true", len(popups), heldAtOpen)
 	}
 }

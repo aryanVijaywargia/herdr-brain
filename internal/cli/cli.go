@@ -107,8 +107,9 @@ type Env struct {
 	// (brained.RunningSession, #460); tests replace it.
 	Brained func(session string) (bool, error)
 	// Link is the ~/.local/bin/brain link that brain setup offers (paths.LinkPath), which
-	// brain doctor checks (#459); "" for no check.
-	Link string
+	// brain doctor checks (#459); "" for no check. Binary is this brain binary
+	// (paths.BinaryPath), which a stale link gets; tests replace both.
+	Link, Binary string
 	// Config is the Brain config file (paths.ConfigFile).
 	Config string
 	// Data is the data home; Adapters are its files that the adapter states come from.
@@ -144,6 +145,10 @@ func NewEnv(environ []string, stdout, stderr io.Writer) (Env, error) {
 	if err != nil {
 		return Env{}, err
 	}
+	bin, err := paths.BinaryPath()
+	if err != nil {
+		return Env{}, err
+	}
 	return Env{
 		Environ:  environ,
 		Bindings: file,
@@ -176,6 +181,7 @@ func NewEnv(environ []string, stdout, stderr io.Writer) (Env, error) {
 		Command:  processCommand,
 		Brained:  func(session string) (bool, error) { return brained.RunningSession(environ, session) },
 		Link:     link,
+		Binary:   bin,
 		Config:   config,
 		Data:     data,
 		Adapters: adapters,
