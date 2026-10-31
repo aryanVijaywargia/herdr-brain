@@ -10,7 +10,7 @@ import (
 )
 
 func testLaunch(hash, socket, pane string) Launch {
-	return Launch{IDHash: strings.Repeat(hash, 64), Socket: socket, WorkspaceID: "w1", PaneID: pane, CLI: "claude", Started: testNow, PID: 4242}
+	return Launch{IDHash: strings.Repeat(hash, 64), Socket: socket, WorkspaceID: "w1", PaneID: pane, CLI: "claude", Started: testNow, PID: 4242, Server: "1:2:3"}
 }
 
 // E24-S3: a launch record reads back by its ID hash; the running records of a herdr server

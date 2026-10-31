@@ -44,23 +44,26 @@ type Launch struct {
 	// PID is the process id of the launch: the process of `brain <kind>`, which runs the CLI
 	// in its place (exec). 0 for a record from before the pid column.
 	PID int
+	// Server is the identity of the herdr API socket file when the launch started: herdr makes
+	// a new one at each server start. "" for a record from before the server column.
+	Server string
 }
 
 const launchColumns = `id, id_hash, socket, workspace_id, pane_id, cli_kind, native_session_id, started, ended,
-	COALESCE(end_reason, ''), codex_home, captured, pid`
+	COALESCE(end_reason, ''), codex_home, captured, pid, server`
 
 func scanLaunch(row interface{ Scan(...any) error }) (Launch, error) {
 	var l Launch
 	err := row.Scan(&l.ID, &l.IDHash, &l.Socket, &l.WorkspaceID, &l.PaneID, &l.CLI, &l.NativeSessionID,
-		timeDest{&l.Started}, timeDest{&l.Ended}, &l.EndReason, &l.CodexHome, timeDest{&l.Captured}, &l.PID)
+		timeDest{&l.Started}, timeDest{&l.Ended}, &l.EndReason, &l.CodexHome, timeDest{&l.Captured}, &l.PID, &l.Server)
 	return l, err
 }
 
 // InsertLaunch adds the running launch l and returns its new id. Its ID, Ended, EndReason and
 // Captured are not used.
 func InsertLaunch(ctx context.Context, tx *sql.Tx, l Launch) (int64, error) {
-	return insertRow(ctx, tx, "launch", `INSERT INTO launches (id_hash, socket, workspace_id, pane_id, cli_kind, started, codex_home, pid)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, l.IDHash, l.Socket, l.WorkspaceID, l.PaneID, l.CLI, timeArg(l.Started), l.CodexHome, l.PID)
+	return insertRow(ctx, tx, "launch", `INSERT INTO launches (id_hash, socket, workspace_id, pane_id, cli_kind, started, codex_home, pid, server)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, l.IDHash, l.Socket, l.WorkspaceID, l.PaneID, l.CLI, timeArg(l.Started), l.CodexHome, l.PID, l.Server)
 }
 
 // LaunchByHash reads the launch record with the ID hash hash. ok is false when there is none.

@@ -41,6 +41,10 @@ func newLaunchFix(t *testing.T) *launchFix {
 	t.Helper()
 	b := bindings.Binding{Session: "s1", Socket: filepath.Join(t.TempDir(), "s"), Store: t.TempDir(), Kind: bindings.KindMain,
 		Created: launchStart}
+	// Create reads the identity of the herdr socket file; a plain file stands in for it.
+	if err := os.WriteFile(b.Socket, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return &launchFix{t: t, g: NewGate(b), codex: t.TempDir()}
 }
 

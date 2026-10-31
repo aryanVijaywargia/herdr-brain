@@ -48,7 +48,8 @@ var idRe = regexp.MustCompile(`^[0-9a-f]{32}$`)
 // launch ID in a 0600 file. It returns the folder: the launch command writes its other launch
 // files there. codexHome is the absolute Codex home of a Codex launch, where brained finds its
 // rollouts; "" for none. pid is the process id of the launch: the process that runs the CLI
-// in its place. now is the start time of the launch.
+// in its place. The record also keeps the identity of the herdr socket file, so that a record
+// of an older herdr server counts as gone (Gone). now is the start time of the launch.
 func Create(ctx context.Context, b bindings.Binding, workspaceID, paneID, cli, codexHome string, pid int, now time.Time) (dir string, err error) {
 	if workspaceID == "" || paneID == "" || cli == "" {
 		return "", errors.New("create launch: want a workspace, a pane and a CLI kind")
@@ -56,6 +57,10 @@ func Create(ctx context.Context, b bindings.Binding, workspaceID, paneID, cli, c
 	raw := make([]byte, idBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return "", fmt.Errorf("make launch ID: %w", err)
+	}
+	server, err := serverID(b.Socket)
+	if err != nil {
+		return "", err
 	}
 	st, err := store.Open(ctx, b.Store, busyTimeout)
 	if err != nil {
@@ -65,7 +70,7 @@ func Create(ctx context.Context, b bindings.Binding, workspaceID, paneID, cli, c
 	made := false
 	err = st.Write(ctx, func(tx *sql.Tx) error {
 		id, err := store.InsertLaunch(ctx, tx, store.Launch{IDHash: hash(raw), Socket: b.Socket,
-			WorkspaceID: workspaceID, PaneID: paneID, CLI: cli, Started: now, CodexHome: codexHome, PID: pid})
+			WorkspaceID: workspaceID, PaneID: paneID, CLI: cli, Started: now, CodexHome: codexHome, PID: pid, Server: server})
 		if err != nil {
 			return err
 		}
@@ -124,8 +129,9 @@ const (
 	// another user owns counts as unknown too (#463).
 	Unknown Reason = "unknown launch ID"
 	Ended   Reason = "launch ended"
-	// ProcessGone: the record has no end, but its launch process is gone, as after a herdr
-	// restart that restores the pane with its old id while brained has not ended it yet (#458).
+	// ProcessGone: the record has no end, but its launch process is gone (Gone), as after a
+	// herdr restart that restores the pane with its old id while brained has not ended it yet
+	// (#458).
 	ProcessGone Reason = "launch process gone"
 	// Unbound: the folder is in no bound store, or the herdr server of the record is not
 	// bound to that store.
@@ -172,18 +178,16 @@ func Check(ctx context.Context, bindingsFile, dir string, environ []string) (Lau
 	if pane := lookup(environ, "HERDR_PANE_ID"); pane != "" && pane != l.PaneID {
 		return Launch{}, refuse(OtherPane)
 	}
-	if Gone(l.Launch) {
-		return Launch{}, refuse(ProcessGone)
-	}
 	if err := live(ctx, l.Launch); err != nil {
 		return Launch{}, err
 	}
-	// The record can end, or the binding go, while herdr answers.
+	// The record can end, the binding go, or the CLI exit while herdr answers.
 	return running(ctx, bindingsFile, dir, rowID, raw)
 }
 
 // running reads the record of the raw launch ID of the launch folder dir, whose name is the
-// record id rowID, and the binding of its herdr server. The record must have no end.
+// record id rowID, and the binding of its herdr server. The record must have no end, and its
+// launch process must run.
 func running(ctx context.Context, bindingsFile, dir string, rowID int64, raw []byte) (Launch, error) {
 	b, l, err := record(ctx, bindingsFile, filepath.Dir(filepath.Dir(dir)), raw)
 	switch {
@@ -193,6 +197,8 @@ func running(ctx context.Context, bindingsFile, dir string, rowID int64, raw []b
 		return Launch{}, refuse(Unknown) // the ID of another launch folder
 	case !l.Ended.IsZero():
 		return Launch{}, refuse(Ended)
+	case Gone(l):
+		return Launch{}, refuse(ProcessGone)
 	}
 	return Launch{Launch: l, Binding: b, Dir: dir}, nil
 }
@@ -209,21 +215,27 @@ func folderID(dir string) (int64, error) {
 	return id, nil
 }
 
-// readID reads the raw launch ID in the launch folder dir. The folder and the ID file must be
-// yours and only yours: Create makes them 0700 and 0600 (#463).
+// readID reads the raw launch ID in the launch folder dir. The launches folder, the launch
+// folder and the ID file must be yours and only yours: Create makes them 0700, 0700 and 0600
+// (#463). A swap of the launch folder needs write access to the launches folder, so a private
+// launches folder keeps the folder that readID checks the folder that it reads.
 func readID(dir string) ([]byte, error) {
-	fi, err := os.Lstat(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, refuse(Unknown)
+	for _, d := range []string{filepath.Dir(dir), dir} {
+		fi, err := os.Lstat(d)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, refuse(Unknown)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !fi.IsDir() || !private(fi) {
+			return nil, refuse(Unknown)
+		}
 	}
-	if err != nil {
-		return nil, err
-	}
-	if !fi.IsDir() || !private(fi) {
-		return nil, refuse(Unknown)
-	}
-	f, err := os.Open(filepath.Join(dir, idFile))
-	if errors.Is(err, fs.ErrNotExist) {
+	// O_NOFOLLOW: a link is no ID file (ELOOP). O_NONBLOCK: the open of a FIFO does not wait
+	// for a writer; the type check below refuses it.
+	f, err := os.OpenFile(filepath.Join(dir, idFile), os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ELOOP) {
 		return nil, refuse(Unknown)
 	}
 	if err != nil {
@@ -231,7 +243,7 @@ func readID(dir string) ([]byte, error) {
 	}
 	defer f.Close() //nolint:errcheck // read-only: Close cannot lose data
 	// The stat of the open file: a rename between a path check and the read cannot swap it.
-	fi, err = f.Stat()
+	fi, err := f.Stat()
 	if err != nil {
 		return nil, err
 	}
@@ -257,12 +269,36 @@ func private(fi fs.FileInfo) bool {
 	return ok && int(st.Uid) == os.Getuid() && fi.Mode().Perm()&0o077 == 0
 }
 
-// Gone reports whether the launch process of l is gone. The process of `brain <kind>` runs the
-// CLI in its place, so it lives as long as the CLI. A record with no pid, from before the pid
-// column, is never gone by this check. A process of another user (EPERM) is not gone: the pid
-// is in use.
+// Gone reports whether the launch process of l is gone: the herdr server of l is not the one
+// that it started on, or no process has its pid. The process of `brain <kind>` runs the CLI in
+// its place, so it lives as long as the CLI. A herdr restart ends the processes of its panes,
+// so a new server also covers a pid that another process got since the restart. A record from
+// before the pid and server columns has no sign of life, and counts as gone. A process of
+// another user (EPERM) still has the pid.
 func Gone(l store.Launch) bool {
-	return l.PID > 0 && errors.Is(syscall.Kill(l.PID, 0), syscall.ESRCH)
+	if l.PID <= 0 || l.Server == "" {
+		return true
+	}
+	// A socket that Brain cannot stat is no server that runs the launch.
+	if id, err := serverID(l.Socket); err != nil || id != l.Server {
+		return true
+	}
+	return errors.Is(syscall.Kill(l.PID, 0), syscall.ESRCH)
+}
+
+// serverID returns the identity of the herdr API socket file socket: its device, inode and
+// change time. herdr makes a new socket file at each server start and keeps it while it runs,
+// so a new identity is a new herdr server.
+func serverID(socket string) (string, error) {
+	fi, err := os.Stat(socket)
+	if err != nil {
+		return "", err
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "", fmt.Errorf("stat %s: no device and inode", socket)
+	}
+	return fmt.Sprintf("%d:%d:%d", st.Dev, st.Ino, fi.ModTime().UnixNano()), nil
 }
 
 // record reads the record of the raw launch ID in the store folder storeDir and the binding of

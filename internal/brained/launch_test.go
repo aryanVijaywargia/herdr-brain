@@ -184,7 +184,11 @@ func TestLaunchRestart(t *testing.T) {
 	before := time.Now().Add(-time.Second)
 	live := h.launchIn(t, h.f.path, "w1:p1", "claude", before)
 	gone := h.launchIn(t, h.f.path, "w1:p9", "codex", before)
-	other := h.launchIn(t, filepath.Join(t.TempDir(), "other.sock"), "w1:p9", "claude", before)
+	otherSock := filepath.Join(t.TempDir(), "other.sock") // Create reads the identity of its file
+	if err := os.WriteFile(otherSock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	other := h.launchIn(t, otherSock, "w1:p9", "claude", before)
 	late := h.launchIn(t, h.f.path, "w1:p8", "claude", time.Now().Add(time.Hour))
 	h.start(t)
 	h.f.statusSubs(t, 1)
@@ -288,16 +292,23 @@ func TestLaunchFolderAfterCrash(t *testing.T) {
 }
 
 // #458: after a herdr restart, herdr restores each pane with its old id and no agent, and the
-// old CLI is gone. The start reconcile ends the launch whose process is gone, as an agent exit,
-// and deletes its folder. A launch whose CLI still starts, before herdr detects its agent,
-// keeps running. A later agent exit in the restored pane ends only the new launch there.
+// old CLI is gone. The start reconcile ends, as an agent exit, the launch whose process is gone,
+// the launch of an older herdr server whose pid another process got since, and a record from
+// before the pid column, and deletes their folders. A launch whose CLI still starts, before
+// herdr detects its agent, keeps running. A later agent exit in the restored pane ends only the
+// new launch there.
 func TestLaunchHerdrRestart(t *testing.T) {
 	h := newHarness(t, bindings.KindMain)
-	h.f.addPane("w1:p1", "")
-	h.f.addPane("w1:p2", "")
+	for _, p := range []string{"w1:p1", "w1:p2", "w1:p3", "w1:p4"} {
+		h.f.addPane(p, "")
+	}
 	before := time.Now().Add(-time.Second)
 	restored := h.launchIn(t, h.f.path, "w1:p1", "claude", before)
-	h.setPID(t, restored, deadPID(t))
+	h.set(t, restored, "pid", deadPID(t))
+	reused := h.launchIn(t, h.f.path, "w1:p3", "claude", before) // the live pid of this test
+	h.set(t, reused, "server", "1:2:3")
+	legacy := h.launchIn(t, h.f.path, "w1:p4", "codex", before)
+	h.set(t, legacy, "pid", 0)
 	starting := h.launchIn(t, h.f.path, "w1:p2", "codex", before)
 	ctx, cancel := context.WithCancel(context.Background())
 	l := newLoop(h.d)
@@ -311,7 +322,9 @@ func TestLaunchHerdrRestart(t *testing.T) {
 	if err := l.reconcile(ctx, GapStart); err != nil {
 		t.Fatal(err)
 	}
-	h.wantEnded(t, restored, store.EndAgentExit)
+	for _, l := range []testLaunch{restored, reused, legacy} {
+		h.wantEnded(t, l, store.EndAgentExit)
+	}
 	h.wantRunning(t, starting)
 	var r *launch.RefusedError
 	if err := checkLaunch(h, restored); !errors.As(err, &r) || r.Reason != launch.Unknown {
@@ -333,8 +346,8 @@ func TestLaunchHerdrRestart(t *testing.T) {
 	}
 }
 
-// setPID sets the pid of the launch record of l.
-func (h *harness) setPID(t *testing.T, l testLaunch, pid int) {
+// set sets column of the launch record of l to v.
+func (h *harness) set(t *testing.T, l testLaunch, column string, v any) {
 	t.Helper()
 	ctx := context.Background()
 	st, err := store.Open(ctx, h.store, busyTimeout)
@@ -342,7 +355,7 @@ func (h *harness) setPID(t *testing.T, l testLaunch, pid int) {
 		t.Fatal(err)
 	}
 	err = st.Write(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `UPDATE launches SET pid = ? WHERE id_hash = ?`, pid, l.hash)
+		_, err := tx.ExecContext(ctx, `UPDATE launches SET `+column+` = ? WHERE id_hash = ?`, v, l.hash)
 		return err
 	})
 	if err := errors.Join(err, st.Close()); err != nil {
