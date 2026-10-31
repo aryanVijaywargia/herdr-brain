@@ -28,6 +28,6 @@ Run these in a pane of a herdr session. `brain <command> --help` prints the usag
 
 ## herdr actions
 
-In herdr, the actions "Brain: setup", "Brain: status", "Brain: review", "Brain: recall", "Brain: retired items", "Brain: links to review" and "Brain: start" open the setup popup, show the status, open the queue of proposals, open the recall popup, list the retired items, list the links to review and start `brained`.
+In herdr, the actions "Brain: setup", "Brain: status", "Brain: review", "Brain: recall", "Brain: retired items", "Brain: links to review" and "Brain: start" open the setup popup, show the status, open the queue of proposals, open the recall popup, list the retired items, list the links to review and start `brained`. "Brain: start" also points a stale `~/.local/bin/brain` link of setup, left by a reinstall, to the current binary.
 "Brain: new Claude pane" and "Brain: new Codex pane" split the focused pane, in the cwd of that pane, and run `brain claude` or `brain codex` in the new pane. The pane keeps its shell when the CLI exits.
 They work without `brain` on your `PATH`.
