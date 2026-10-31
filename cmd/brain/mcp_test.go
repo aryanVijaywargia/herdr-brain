@@ -155,7 +155,7 @@ func (h *mcpHome) write(t *testing.T, fn func(context.Context, *sql.Tx) error) {
 func (h *mcpHome) launch(t *testing.T, kind, id string) string {
 	t.Helper()
 	ws, _, _ := strings.Cut(id, ":")
-	dir, err := launch.Create(context.Background(), h.b, ws, id, kind, "", time.Now())
+	dir, err := launch.Create(context.Background(), h.b, ws, id, kind, "", os.Getpid(), time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

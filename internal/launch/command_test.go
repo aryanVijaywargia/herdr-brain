@@ -297,7 +297,7 @@ func TestFindCLI(t *testing.T) {
 func TestLaunchExecFailure(t *testing.T) {
 	e := newCmdEnv(t, "2.1.312")
 	b := bindings.Binding{Session: "s1", Socket: e.sock, Store: e.store, Kind: bindings.KindMain}
-	older, err := Create(context.Background(), b, "w1", "w1:p1", "codex", "", time.Now())
+	older, err := Create(context.Background(), b, "w1", "w1:p1", "codex", "", testPID, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -639,6 +639,10 @@ func (l *loop) reconcile(ctx context.Context, gap Gap) error {
 	// A launch that started after the list began can be in a pane that the list does not
 	// show yet.
 	l.endLaunches(ctx, func(r store.Launch) bool { return !seen[r.PaneID] && startedBefore(r, listed) }, store.EndPaneGone)
+	// After a herdr restart, herdr restores each pane with its old id, but the CLI of the
+	// launch is gone (#458). Its process is a better sign than the agent of the pane: herdr
+	// may not have detected the agent of a CLI that is still starting.
+	l.endLaunches(ctx, launch.Gone, store.EndAgentExit)
 	var open []string
 	for id, p := range l.panes {
 		if !seen[id] {

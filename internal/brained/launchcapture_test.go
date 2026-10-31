@@ -41,6 +41,10 @@ func newLaunchFix(t *testing.T) *launchFix {
 	t.Helper()
 	b := bindings.Binding{Session: "s1", Socket: filepath.Join(t.TempDir(), "s"), Store: t.TempDir(), Kind: bindings.KindMain,
 		Created: launchStart}
+	// Create reads the identity of the herdr socket file; a plain file stands in for it.
+	if err := os.WriteFile(b.Socket, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return &launchFix{t: t, g: NewGate(b), codex: t.TempDir()}
 }
 
@@ -60,7 +64,7 @@ func (f *launchFix) write(fn func(ctx context.Context, tx *sql.Tx) error) {
 // launch makes the launch record of cli in pane, started at launchStart.
 func (f *launchFix) launch(pane, cli string) store.Launch {
 	f.t.Helper()
-	dir, err := launch.Create(context.Background(), f.g.Binding, "w1", pane, cli, f.codex, launchStart)
+	dir, err := launch.Create(context.Background(), f.g.Binding, "w1", pane, cli, f.codex, os.Getpid(), launchStart)
 	if err != nil {
 		f.t.Fatal(err)
 	}

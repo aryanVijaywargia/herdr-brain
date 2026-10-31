@@ -14,9 +14,11 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -137,7 +139,7 @@ func newEnv(t *testing.T) env {
 
 func (e env) create(t *testing.T, pane, cli string) string {
 	t.Helper()
-	dir, err := Create(context.Background(), e.b, "w1", pane, cli, "", time.Now())
+	dir, err := Create(context.Background(), e.b, "w1", pane, cli, "", os.Getpid(), time.Now())
 	if err != nil {
 		t.Fatalf("Create() = %v", err)
 	}
@@ -164,14 +166,14 @@ func (e env) records(t *testing.T) []store.Launch {
 	var ls []store.Launch
 	err = st.Write(ctx, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, `SELECT id, id_hash, socket, workspace_id, pane_id, cli_kind, native_session_id,
-			COALESCE(end_reason, '') FROM launches ORDER BY id`)
+			COALESCE(end_reason, ''), pid FROM launches ORDER BY id`)
 		if err != nil {
 			return err
 		}
 		defer rows.Close() //nolint:errcheck // test
 		for rows.Next() {
 			var l store.Launch
-			if err := rows.Scan(&l.ID, &l.IDHash, &l.Socket, &l.WorkspaceID, &l.PaneID, &l.CLI, &l.NativeSessionID, &l.EndReason); err != nil {
+			if err := rows.Scan(&l.ID, &l.IDHash, &l.Socket, &l.WorkspaceID, &l.PaneID, &l.CLI, &l.NativeSessionID, &l.EndReason, &l.PID); err != nil {
 				return err
 			}
 			ls = append(ls, l)
@@ -215,8 +217,12 @@ func TestCreate(t *testing.T) {
 	sum := sha256.Sum256(raw)
 	ls := e.records(t)
 	if len(ls) != 1 || ls[0].IDHash != hex.EncodeToString(sum[:]) || ls[0].Socket != e.b.Socket ||
-		ls[0].WorkspaceID != "w1" || ls[0].PaneID != "w1:p1" || ls[0].CLI != "claude" || ls[0].NativeSessionID != "" {
-		t.Errorf("records = %+v, want one claude launch of w1:p1 with the hash of the ID", ls)
+		ls[0].WorkspaceID != "w1" || ls[0].PaneID != "w1:p1" || ls[0].CLI != "claude" || ls[0].NativeSessionID != "" || ls[0].PID != os.Getpid() {
+		t.Errorf("records = %+v, want one claude launch of w1:p1 by pid %d with the hash of the ID", ls, os.Getpid())
+	}
+	want, err := serverID(e.b.Socket)
+	if got := e.record(t, dir).Server; err != nil || got != want {
+		t.Errorf("server of the record = %q, want %q (%v)", got, want, err)
 	}
 	files, err := filepath.Glob(filepath.Join(e.b.Store, store.FileName+"*"))
 	if err != nil || len(files) == 0 {
@@ -239,7 +245,7 @@ func TestCreate(t *testing.T) {
 // A launch needs its pane, workspace and CLI kind.
 func TestCreateRefusesEmpty(t *testing.T) {
 	e := newEnv(t)
-	if _, err := Create(context.Background(), e.b, "w1", "", "claude", "", time.Now()); err == nil {
+	if _, err := Create(context.Background(), e.b, "w1", "", "claude", "", os.Getpid(), time.Now()); err == nil {
 		t.Error("Create() with no pane = nil, want an error")
 	}
 	if ls := e.records(t); len(ls) != 0 {
@@ -305,6 +311,54 @@ func TestCheck(t *testing.T) {
 				t.Fatal(err)
 			}
 		}, want: Unbound},
+		// #458: after a herdr restart the pane is back with its old id and no agent, but the CLI
+		// is gone, and brained may not run to end the record.
+		{name: "process gone", setup: func(t *testing.T, e env, dir string) {
+			e.f.set("w1:p1", "")
+			e.set(t, dir, "pid", deadPID(t))
+		}, want: ProcessGone},
+		// A pid that another process got since a restart: the herdr socket file is new.
+		{name: "herdr server restarted", setup: func(t *testing.T, e env, dir string) {
+			e.f.set("w1:p1", "")
+			e.set(t, dir, "server", "1:2:3")
+		}, want: ProcessGone},
+		// A record from before the pid column has no sign of life.
+		{name: "record with no pid", setup: func(t *testing.T, e env, dir string) { e.set(t, dir, "pid", 0) }, want: ProcessGone},
+		{name: "record with no server", setup: func(t *testing.T, e env, dir string) { e.set(t, dir, "server", "") }, want: ProcessGone},
+		// #463: only you may open the folder and its ID file.
+		{name: "launches folder for all", setup: chmod("..", 0o777), want: Unknown},
+		{name: "folder for all", setup: chmod(".", 0o777), want: Unknown},
+		{name: "folder for the group", setup: chmod(".", 0o750), want: Unknown},
+		{name: "folder others can enter", setup: chmod(".", 0o701), want: Unknown},
+		{name: "ID file for all", setup: chmod(idFile, 0o644), want: Unknown},
+		{name: "ID file the group can write", setup: chmod(idFile, 0o620), want: Unknown},
+		{name: "ID file is a link", setup: func(t *testing.T, _ env, dir string) {
+			id := filepath.Join(dir, idFile)
+			if err := os.Rename(id, id+"-real"); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(id+"-real", id); err != nil {
+				t.Fatal(err)
+			}
+		}, want: Unknown},
+		// A FIFO with no writer must not block the check.
+		{name: "ID file is a FIFO", setup: func(t *testing.T, _ env, dir string) {
+			id := filepath.Join(dir, idFile)
+			if err := os.Remove(id); err != nil {
+				t.Fatal(err)
+			}
+			if err := syscall.Mkfifo(id, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, want: Unknown},
+		{name: "folder is a link", setup: func(t *testing.T, _ env, dir string) {
+			if err := os.Rename(dir, dir+"-real"); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(dir+"-real", dir); err != nil {
+				t.Fatal(err)
+			}
+		}, want: Unknown},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e := newEnv(t)
@@ -329,6 +383,101 @@ func TestCheck(t *testing.T) {
 	}
 }
 
+// #458: Gone reports a launch whose process is gone, or whose herdr server is not the one that
+// it started on, and a record from before the pid and server columns.
+func TestGone(t *testing.T) {
+	e := newEnv(t)
+	l := e.record(t, e.create(t, "w1:p1", "claude"))
+	gone := l
+	gone.PID = deadPID(t)
+	noPID, noServer, restarted, noSocket := l, l, l, l
+	noPID.PID = 0
+	noServer.Server = ""
+	restarted.Server = "1:2:3"
+	noSocket.Socket = filepath.Join(t.TempDir(), "gone.sock")
+	for _, c := range []struct {
+		name string
+		l    store.Launch
+		want bool
+	}{
+		{name: "running", l: l},
+		{name: "process gone", l: gone, want: true},
+		{name: "no pid", l: noPID, want: true},
+		{name: "no server", l: noServer, want: true},
+		{name: "herdr server restarted", l: restarted, want: true},
+		{name: "herdr socket gone", l: noSocket, want: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := Gone(c.l); got != c.want {
+				t.Errorf("Gone(%+v) = %v, want %v", c.l, got, c.want)
+			}
+		})
+	}
+}
+
+// record reads the launch record of the launch folder dir.
+func (e env) record(t *testing.T, dir string) store.Launch {
+	t.Helper()
+	id, err := folderID(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	st, err := store.Open(ctx, e.b.Store, busyTimeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var l store.Launch
+	err = st.Write(ctx, func(tx *sql.Tx) error {
+		var ok bool
+		l, ok, err = store.LaunchByID(ctx, tx, id)
+		if err == nil && !ok {
+			err = errors.New("no launch record")
+		}
+		return err
+	})
+	if err := errors.Join(err, st.Close()); err != nil {
+		t.Fatal(err)
+	}
+	return l
+}
+
+// #458: a CLI that exits while herdr answers the check is refused: the check looks at the
+// process again after the herdr request.
+func TestCheckProcessExitDuringHerdr(t *testing.T) {
+	e := newEnv(t)
+	e.f.set("w1:p1", "")
+	dir := e.create(t, "w1:p1", "claude")
+	cmd := exec.Command("/bin/sh", "-c", "read -r _ || exit 0")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	e.set(t, dir, "pid", cmd.Process.Pid)
+	e.f.mu.Lock()
+	e.f.during = func() error {
+		if err := stdin.Close(); err != nil {
+			return err
+		}
+		return cmd.Wait()
+	}
+	e.f.mu.Unlock()
+	_, err = e.check(t, dir, nil)
+	e.f.mu.Lock()
+	errs := errors.Join(e.f.errs...)
+	e.f.mu.Unlock()
+	if errs != nil {
+		t.Fatal(errs)
+	}
+	var r *RefusedError
+	if !errors.As(err, &r) || r.Reason != ProcessGone {
+		t.Errorf("Check() of a CLI that exits during pane.get = %v, want refused: %s", err, ProcessGone)
+	}
+}
+
 // A path that is not a launch folder is an error before any read.
 func TestCheckNotAFolder(t *testing.T) {
 	e := newEnv(t)
@@ -347,8 +496,11 @@ func TestEnd(t *testing.T) {
 	p1 := e.create(t, "w1:p1", "claude")
 	p2 := e.create(t, "w1:p2", "codex")
 	other := e.b
-	other.Socket = "/tmp/other.sock"
-	p3, err := Create(context.Background(), other, "w1", "w1:p1", "claude", "", time.Now())
+	other.Socket = filepath.Join(t.TempDir(), "other.sock") // Create reads the identity of its file
+	if err := os.WriteFile(other.Socket, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p3, err := Create(context.Background(), other, "w1", "w1:p1", "claude", "", os.Getpid(), time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,6 +523,48 @@ func TestEnd(t *testing.T) {
 			t.Errorf("folder %s: %v, want it kept", dir, err)
 		}
 	}
+}
+
+// chmod returns a setup that changes the mode of the file name in the launch folder ("." for
+// the folder) to mode.
+func chmod(name string, mode fs.FileMode) func(t *testing.T, e env, dir string) {
+	return func(t *testing.T, _ env, dir string) {
+		t.Helper()
+		if err := os.Chmod(filepath.Join(dir, name), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// set sets column of the launch record of the launch folder dir to v.
+func (e env) set(t *testing.T, dir, column string, v any) {
+	t.Helper()
+	id, err := folderID(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	st, err := store.Open(ctx, e.b.Store, busyTimeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = st.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE launches SET `+column+` = ? WHERE id = ?`, v, id)
+		return err
+	})
+	if err := errors.Join(err, st.Close()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// deadPID returns the pid of a process that ran and is gone.
+func deadPID(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	return cmd.Process.Pid
 }
 
 func idText(t *testing.T, dir string) string {

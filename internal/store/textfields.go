@@ -277,6 +277,8 @@ func noItemTextFields() []Field {
 		// The Codex home path and the capture time of a launch (E24-S5).
 		{"launches", "codex_home"},
 		{"launches", "captured"},
+		// The identity of the herdr socket file at a launch: numbers only (#458).
+		{"launches", "server"},
 		// A launch session holds the CLI's session id, a fixed source and a time (E24-S5).
 		{"launch_sessions", "native_session_id"},
 		{"launch_sessions", "source"},
