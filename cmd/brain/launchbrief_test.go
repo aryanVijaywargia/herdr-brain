@@ -267,6 +267,12 @@ func TestLaunchBrief(t *testing.T) {
 				t.Errorf("brain %s in %s: stderr %q, want none", kind, pane, stderr)
 			}
 			launches++
+			// The fake CLI ended already, but a real CLI runs while it runs its start hook: the
+			// launch check refuses a launch whose process is gone.
+			h.write(t, func(ctx context.Context, tx *sql.Tx) error {
+				_, err := tx.ExecContext(ctx, `UPDATE launches SET pid = ? WHERE id = ?`, os.Getpid(), launches)
+				return err
+			})
 			if got := h.launchedBrief(t, kind, launches, h.logged(t, kind), appServer, input); got != want {
 				t.Errorf("brain %s in %s: the CLI got the brief %q, want the brief of the start hook %q", kind, pane, got, want)
 			}

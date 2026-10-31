@@ -14,12 +14,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
@@ -45,8 +47,9 @@ var idRe = regexp.MustCompile(`^[0-9a-f]{32}$`)
 // workspaceID, on the herdr server of binding b, and its private launch folder (0700) with the
 // launch ID in a 0600 file. It returns the folder: the launch command writes its other launch
 // files there. codexHome is the absolute Codex home of a Codex launch, where brained finds its
-// rollouts; "" for none. now is the start time of the launch.
-func Create(ctx context.Context, b bindings.Binding, workspaceID, paneID, cli, codexHome string, now time.Time) (dir string, err error) {
+// rollouts; "" for none. pid is the process id of the launch: the process that runs the CLI
+// in its place. now is the start time of the launch.
+func Create(ctx context.Context, b bindings.Binding, workspaceID, paneID, cli, codexHome string, pid int, now time.Time) (dir string, err error) {
 	if workspaceID == "" || paneID == "" || cli == "" {
 		return "", errors.New("create launch: want a workspace, a pane and a CLI kind")
 	}
@@ -62,7 +65,7 @@ func Create(ctx context.Context, b bindings.Binding, workspaceID, paneID, cli, c
 	made := false
 	err = st.Write(ctx, func(tx *sql.Tx) error {
 		id, err := store.InsertLaunch(ctx, tx, store.Launch{IDHash: hash(raw), Socket: b.Socket,
-			WorkspaceID: workspaceID, PaneID: paneID, CLI: cli, Started: now, CodexHome: codexHome})
+			WorkspaceID: workspaceID, PaneID: paneID, CLI: cli, Started: now, CodexHome: codexHome, PID: pid})
 		if err != nil {
 			return err
 		}
@@ -117,9 +120,13 @@ type Reason string
 // The reasons of a refusal.
 const (
 	// Unknown: no record has the ID of the folder, or the folder or its ID file is gone, as
-	// after the end of the launch.
+	// after the end of the launch. A folder or ID file that another user can open or that
+	// another user owns counts as unknown too (#463).
 	Unknown Reason = "unknown launch ID"
 	Ended   Reason = "launch ended"
+	// ProcessGone: the record has no end, but its launch process is gone, as after a herdr
+	// restart that restores the pane with its old id while brained has not ended it yet (#458).
+	ProcessGone Reason = "launch process gone"
 	// Unbound: the folder is in no bound store, or the herdr server of the record is not
 	// bound to that store.
 	Unbound    Reason = "herdr server not bound"
@@ -143,8 +150,9 @@ func refuse(r Reason) error {
 }
 
 // Check reads the launch ID in the launch folder dir and checks it on each use: the record
-// exists and has no end, herdr shows its pane live in the same workspace, and an agent that
-// herdr names in the pane is of the record's CLI kind. environ is the environment of the call:
+// exists and has no end, its launch process runs, herdr shows its pane live in the same
+// workspace, and an agent that herdr names in the pane is of the record's CLI kind. Only you
+// may open the folder and its ID file. environ is the environment of the call:
 // HERDR_PANE_ID is only a hint, but when it is set, it must name the pane of the record.
 // bindingsFile is the bindings file. A refusal is a *RefusedError. The herdr request ends at
 // the deadline of ctx.
@@ -163,6 +171,9 @@ func Check(ctx context.Context, bindingsFile, dir string, environ []string) (Lau
 	}
 	if pane := lookup(environ, "HERDR_PANE_ID"); pane != "" && pane != l.PaneID {
 		return Launch{}, refuse(OtherPane)
+	}
+	if Gone(l.Launch) {
+		return Launch{}, refuse(ProcessGone)
 	}
 	if err := live(ctx, l.Launch); err != nil {
 		return Launch{}, err
@@ -198,12 +209,37 @@ func folderID(dir string) (int64, error) {
 	return id, nil
 }
 
-// readID reads the raw launch ID in the launch folder dir.
+// readID reads the raw launch ID in the launch folder dir. The folder and the ID file must be
+// yours and only yours: Create makes them 0700 and 0600 (#463).
 func readID(dir string) ([]byte, error) {
-	text, err := os.ReadFile(filepath.Join(dir, idFile))
+	fi, err := os.Lstat(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, refuse(Unknown)
 	}
+	if err != nil {
+		return nil, err
+	}
+	if !fi.IsDir() || !private(fi) {
+		return nil, refuse(Unknown)
+	}
+	f, err := os.Open(filepath.Join(dir, idFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, refuse(Unknown)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close() //nolint:errcheck // read-only: Close cannot lose data
+	// The stat of the open file: a rename between a path check and the read cannot swap it.
+	fi, err = f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() || !private(fi) {
+		return nil, refuse(Unknown)
+	}
+	// One byte more than an ID, so a longer file fails the match.
+	text, err := io.ReadAll(io.LimitReader(f, 2*idBytes+1))
 	if err != nil {
 		return nil, err
 	}
@@ -211,6 +247,22 @@ func readID(dir string) ([]byte, error) {
 		return nil, refuse(Unknown)
 	}
 	return hex.DecodeString(string(text))
+}
+
+// private reports whether the file of fi is yours and has no permission bits for the group or
+// others. An execute bit on the folder counts too: it lets another user open the ID file, whose
+// name is known.
+func private(fi fs.FileInfo) bool {
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	return ok && int(st.Uid) == os.Getuid() && fi.Mode().Perm()&0o077 == 0
+}
+
+// Gone reports whether the launch process of l is gone. The process of `brain <kind>` runs the
+// CLI in its place, so it lives as long as the CLI. A record with no pid, from before the pid
+// column, is never gone by this check. A process of another user (EPERM) is not gone: the pid
+// is in use.
+func Gone(l store.Launch) bool {
+	return l.PID > 0 && errors.Is(syscall.Kill(l.PID, 0), syscall.ESRCH)
 }
 
 // record reads the record of the raw launch ID in the store folder storeDir and the binding of

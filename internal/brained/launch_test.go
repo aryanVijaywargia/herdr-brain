@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -31,7 +32,7 @@ func (h *harness) launchIn(t *testing.T, socket, pane, cli string, at time.Time)
 	t.Helper()
 	ws, _, _ := strings.Cut(pane, ":")
 	b := bindings.Binding{Session: "s1", Socket: socket, Store: h.store, Kind: bindings.KindMain, Created: at}
-	dir, err := launch.Create(context.Background(), b, ws, pane, cli, h.codexHome, at)
+	dir, err := launch.Create(context.Background(), b, ws, pane, cli, h.codexHome, os.Getpid(), at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,4 +285,77 @@ func TestLaunchFolderAfterCrash(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.wantEnded(t, ended, store.EndPaneClosed)
+}
+
+// #458: after a herdr restart, herdr restores each pane with its old id and no agent, and the
+// old CLI is gone. The start reconcile ends the launch whose process is gone, as an agent exit,
+// and deletes its folder. A launch whose CLI still starts, before herdr detects its agent,
+// keeps running. A later agent exit in the restored pane ends only the new launch there.
+func TestLaunchHerdrRestart(t *testing.T) {
+	h := newHarness(t, bindings.KindMain)
+	h.f.addPane("w1:p1", "")
+	h.f.addPane("w1:p2", "")
+	before := time.Now().Add(-time.Second)
+	restored := h.launchIn(t, h.f.path, "w1:p1", "claude", before)
+	h.setPID(t, restored, deadPID(t))
+	starting := h.launchIn(t, h.f.path, "w1:p2", "codex", before)
+	ctx, cancel := context.WithCancel(context.Background())
+	l := newLoop(h.d)
+	defer func() {
+		cancel()
+		l.stop() // the reconcile follows the live panes: their readers end when their streams close
+	}()
+	if err := l.check(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.reconcile(ctx, GapStart); err != nil {
+		t.Fatal(err)
+	}
+	h.wantEnded(t, restored, store.EndAgentExit)
+	h.wantRunning(t, starting)
+	var r *launch.RefusedError
+	if err := checkLaunch(h, restored); !errors.As(err, &r) || r.Reason != launch.Unknown {
+		t.Errorf("Check() of the ended launch = %v, want refused: %s (its folder is gone)", err, launch.Unknown)
+	}
+	if err := checkLaunch(h, starting); err != nil {
+		t.Errorf("Check() of the starting launch = %v, want nil", err)
+	}
+
+	ended := h.record(t, restored).Ended
+	detected := time.Now().Add(time.Minute)
+	next := h.launchIn(t, h.f.path, "w1:p1", "claude", detected.Add(-time.Second))
+	l.agentDetected(ctx, &pane{agent: true, detected: detected},
+		herdr.Event{Kind: herdr.PaneAgentDetected, PaneID: "w1:p1", Agent: "claude", Released: true})
+	h.wantEnded(t, next, store.EndAgentExit)
+	if got := h.record(t, restored); !got.Ended.Equal(ended) || got.EndReason != store.EndAgentExit {
+		t.Errorf("old launch after the next agent exit = ended %v by %q, want its end %v by %q kept",
+			got.Ended, got.EndReason, ended, store.EndAgentExit)
+	}
+}
+
+// setPID sets the pid of the launch record of l.
+func (h *harness) setPID(t *testing.T, l testLaunch, pid int) {
+	t.Helper()
+	ctx := context.Background()
+	st, err := store.Open(ctx, h.store, busyTimeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = st.Write(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE launches SET pid = ? WHERE id_hash = ?`, pid, l.hash)
+		return err
+	})
+	if err := errors.Join(err, st.Close()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// deadPID returns the pid of a process that ran and is gone.
+func deadPID(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	return cmd.Process.Pid
 }

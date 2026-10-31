@@ -60,7 +60,7 @@ func (f *launchFix) write(fn func(ctx context.Context, tx *sql.Tx) error) {
 // launch makes the launch record of cli in pane, started at launchStart.
 func (f *launchFix) launch(pane, cli string) store.Launch {
 	f.t.Helper()
-	dir, err := launch.Create(context.Background(), f.g.Binding, "w1", pane, cli, f.codex, launchStart)
+	dir, err := launch.Create(context.Background(), f.g.Binding, "w1", pane, cli, f.codex, os.Getpid(), launchStart)
 	if err != nil {
 		f.t.Fatal(err)
 	}

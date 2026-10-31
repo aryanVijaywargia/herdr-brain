@@ -134,7 +134,7 @@ func (f *launchFixture) launch(pane, cli string) string {
 	f.t.Helper()
 	f.sock.set(pane, cli)
 	ws, _, _ := strings.Cut(pane, ":")
-	dir, err := launch.Create(context.Background(), f.b, ws, pane, cli, "", testNow)
+	dir, err := launch.Create(context.Background(), f.b, ws, pane, cli, "", os.Getpid(), testNow)
 	if err != nil {
 		f.t.Fatal(err)
 	}

@@ -213,7 +213,7 @@ func brainArgv(ctx context.Context, d Deps, data *cliData, bin string, args []st
 	if err != nil {
 		return nil, nil, "", nil, err
 	}
-	dir, err := Create(ctx, r.Binding, r.WorkspaceID, r.PaneID, data.kind, home, d.Now())
+	dir, err := Create(ctx, r.Binding, r.WorkspaceID, r.PaneID, data.kind, home, d.PID, d.Now())
 	if err != nil {
 		return nil, nil, "", nil, err
 	}
