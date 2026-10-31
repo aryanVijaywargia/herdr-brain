@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -142,15 +143,19 @@ func TestSubscribeRefused(t *testing.T) {
 	}
 }
 
+// A plugin root is optional: a herdr that gives none lists the plugin with Root "".
 func TestPlugins(t *testing.T) {
 	path := serveOne(t, "plugin.list",
-		`{"id":"brain","result":{"type":"plugin_list","plugins":[{"plugin_id":"brain","enabled":false,"name":"brain"}]}}`)
+		`{"id":"brain","result":{"type":"plugin_list","plugins":[{"plugin_id":"brain","enabled":false,"name":"brain",`+
+			`"plugin_root":"/h/plugins/github-installations/brain-bbbf7a6412d6/2-0/checkout"},{"plugin_id":"other","enabled":true}]}}`)
 	got, err := Socket{Path: path}.Plugins(testCtx(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0] != (Plugin{ID: "brain", Enabled: false}) {
-		t.Errorf("Plugins = %+v, want brain, disabled", got)
+	want := []Plugin{{ID: "brain", Enabled: false, Root: "/h/plugins/github-installations/brain-bbbf7a6412d6/2-0/checkout"},
+		{ID: "other", Enabled: true}}
+	if !slices.Equal(got, want) {
+		t.Errorf("Plugins = %+v, want %+v", got, want)
 	}
 }
 

@@ -96,6 +96,7 @@ func (s Socket) Panes(ctx context.Context) ([]Pane, error) {
 type Plugin struct {
 	ID      string
 	Enabled bool
+	Root    string // the folder of its checkout, as herdr gives it in HERDR_PLUGIN_ROOT; "" when herdr gives none
 }
 
 // Plugins returns the linked plugins, from plugin.list. An unlinked plugin is not in it.
@@ -104,6 +105,7 @@ func (s Socket) Plugins(ctx context.Context) ([]Plugin, error) {
 		Plugins *[]struct {
 			PluginID *string `json:"plugin_id"`
 			Enabled  *bool   `json:"enabled"`
+			Root     string  `json:"plugin_root"`
 		} `json:"plugins"`
 	}
 	if err := s.call(ctx, "plugin.list", map[string]any{}, "plugin_list", &r); err != nil {
@@ -114,7 +116,7 @@ func (s Socket) Plugins(ctx context.Context) ([]Plugin, error) {
 	ps := make([]Plugin, len(raw))
 	for i, p := range raw {
 		f := fmt.Sprintf("plugins[%d]", i)
-		ps[i] = Plugin{ID: req(&ck, p.PluginID, f+".plugin_id"), Enabled: req(&ck, p.Enabled, f+".enabled")}
+		ps[i] = Plugin{ID: req(&ck, p.PluginID, f+".plugin_id"), Enabled: req(&ck, p.Enabled, f+".enabled"), Root: p.Root}
 	}
 	if ck.err != nil {
 		return nil, fmt.Errorf("herdr plugin.list: %w", ck.err)

@@ -49,6 +49,9 @@ type daemon struct {
 	// that this brained has nothing more to scan.
 	scan  func(ctx context.Context, g Gate) (done bool, err error)
 	moved func() bool // reports a new brained binary at its path; nil for none
+	// installed reports a brained binary in the plugin root root that is not the one that
+	// runs (#468); nil for none.
+	installed func(root string) bool
 	// setup opens the setup popup (OpenSetup) that brain start could not open (#462); nil for
 	// none.
 	setup func(ctx context.Context) error
@@ -473,7 +476,8 @@ func (l *loop) drain(ctx context.Context) error {
 	}
 }
 
-// check stops brained when Brain is unlinked or disabled, and reads the binding of the
+// check stops brained when Brain is unlinked or disabled, ends it with a reinstallError when
+// herdr lists Brain in a plugin root with another brained binary, and reads the binding of the
 // session. An unbound session gets no gate, so learning is off for all its panes.
 func (l *loop) check(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -483,8 +487,12 @@ func (l *loop) check(ctx context.Context) error {
 		l.report(err)
 	}
 	if err == nil {
-		if err := pluginState(ps, l.d.env.pluginID); err != nil {
+		p, err := pluginState(ps, l.d.env.pluginID)
+		if err != nil {
 			return err
+		}
+		if p.Root != "" && l.d.installed != nil && l.d.installed(p.Root) {
+			return &reinstallError{root: p.Root}
 		}
 	}
 	l.gate = nil
@@ -587,18 +595,18 @@ func (l *loop) bound() (bool, error) {
 	return ok && b.Session == l.d.env.session, err
 }
 
-// pluginState returns ErrStop when plugin id is not linked or is disabled.
-func pluginState(ps []herdr.Plugin, id string) error {
+// pluginState returns the plugin id of ps, and ErrStop when it is not linked or is disabled.
+func pluginState(ps []herdr.Plugin, id string) (herdr.Plugin, error) {
 	for _, p := range ps {
 		if p.ID != id {
 			continue
 		}
 		if !p.Enabled {
-			return fmt.Errorf("%w: plugin %s is disabled", ErrStop, id)
+			return herdr.Plugin{}, fmt.Errorf("%w: plugin %s is disabled", ErrStop, id)
 		}
-		return nil
+		return p, nil
 	}
-	return fmt.Errorf("%w: plugin %s is unlinked", ErrStop, id)
+	return herdr.Plugin{}, fmt.Errorf("%w: plugin %s is unlinked", ErrStop, id)
 }
 
 // retry reconciles with gap. When the reconcile fails, the next tick tries it again.

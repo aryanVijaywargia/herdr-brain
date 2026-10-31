@@ -146,6 +146,8 @@ command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" event workspace-cl
 
 # E11-S2: herdr starts brained once for each herdr session, after its socket is ready.
 # herdr does not supervise it: brained exits on the end of the event socket, and when Brain
-# is disabled or unlinked. A lock in HERDR_PLUGIN_STATE_DIR keeps one brained per session.
+# is disabled or unlinked. A lock in HERDR_PLUGIN_STATE_DIR keeps one brained per session. herdr
+# does not run this again after a reinstall: brained itself runs the binary of the plugin root
+# that herdr lists (#468).
 [[startup]]
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" brained"]

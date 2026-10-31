@@ -237,7 +237,7 @@ herdr plugin uninstall brain
 ```
 
 1. `brain uninstall` is a dry run. It lists what would change. Show the list to the user.
-2. `brain uninstall --apply` removes the Brain hook entries, the install record, the `~/.local/bin/brain` link and the session bindings file. It keeps the stores in `~/.local/share/brain`.
+2. `brain uninstall --apply` removes the Brain hook entries, the install record, the `~/.local/bin/brain` link and the session bindings file. It removes the link when setup made it: a link to the Brain binary of any install of this plugin, also an old or removed one. It keeps a link to a `brain` of your own. It keeps the stores in `~/.local/share/brain`.
    Add `--data` only when the user wants their stores removed too. It also removes `~/.local/share/brain`, `~/.config/herdr/plugins/config/brain` and `~/.local/state/herdr/plugins/brain`.
 3. `herdr plugin uninstall brain` removes the plugin.
 
@@ -245,5 +245,5 @@ If it fails:
 
 - `brain uninstall --apply` keeps a hook entry that the user edited, and tells them to remove it by hand.
 - If `herdr plugin uninstall brain` ran first, the hook entries point to a missing binary. Do one of these:
-  - Install the plugin again. Get the new binary path as in step 3B: herdr 0.9.5 puts each install in a new folder. Run `"$BRAIN" uninstall --apply`, which also removes the hook entries of the old binary. After the install, `brain start` points a stale `~/.local/bin/brain` link of setup to the new binary, so uninstall removes it too. If the link still points to a missing Brain binary, remove it by hand. Then uninstall the plugin.
+  - Install the plugin again. Get the new binary path as in step 3B: herdr 0.9.5 puts each install in a new folder. Run `"$BRAIN" uninstall --apply`, which also removes the hook entries of the old binary. Uninstall also removes a `~/.local/bin/brain` link of setup to an old or removed install. Then uninstall the plugin.
   - Or edit the files by hand. In `~/.claude/settings.json` and `~/.codex/hooks.json`, remove each hook group whose command contains `hook --profile claude --event` or `hook --profile codex --event`. In `~/.gemini/config/hooks.json`, remove the `brain` key. Then remove `~/.local/share/brain/install.json`, `~/.local/share/brain/bindings.json` and the `~/.local/bin/brain` link.

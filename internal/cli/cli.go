@@ -107,8 +107,8 @@ type Env struct {
 	// (brained.RunningSession, #460); tests replace it.
 	Brained func(session string) (bool, error)
 	// Link is the ~/.local/bin/brain link that brain setup offers (paths.LinkPath), which
-	// brain doctor checks (#459); "" for no check. Binary is this brain binary
-	// (paths.BinaryPath), which a stale link gets; tests replace both.
+	// brain doctor checks (#459) and brain uninstall removes (#469); "" for no check. Binary is
+	// this brain binary (paths.BinaryPath), which a stale link gets; tests replace both.
 	Link, Binary string
 	// Config is the Brain config file (paths.ConfigFile).
 	Config string

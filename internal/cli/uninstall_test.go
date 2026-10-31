@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
@@ -163,10 +164,25 @@ func diffTrees(t *testing.T, got, want map[string]string) {
 	}
 }
 
-// runUninstall runs `brain uninstall args` from a pane on the herdr socket socket.
+// runUninstall runs `brain uninstall args` of this binary from a pane on the herdr socket socket.
 func runUninstall(t *testing.T, socket string, args ...string) string {
 	t.Helper()
+	bin, err := paths.BinaryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return uninstallBinary(t, socket, bin, args...)
+}
+
+// uninstallBinary runs `brain uninstall args` of the brain binary bin from a pane on the herdr
+// socket socket.
+func uninstallBinary(t *testing.T, socket, bin string, args ...string) string {
+	t.Helper()
 	file, err := paths.BindingsFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	link, err := paths.LinkPath()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,6 +190,8 @@ func runUninstall(t *testing.T, socket string, args ...string) string {
 	e := Env{
 		Environ:  []string{"HERDR_ENV=1", "HERDR_SOCKET_PATH=" + socket, "HERDR_PANE_ID=w1:p1"},
 		Bindings: file,
+		Link:     link,
+		Binary:   bin,
 		Stdout:   &out,
 		Stderr:   &bytes.Buffer{},
 	}
@@ -207,6 +225,69 @@ func TestUninstallApplyData(t *testing.T) {
 	if out := runUninstall(t, "/tmp/main.sock", "--apply", "--data"); out != "Brain has nothing to remove.\n" {
 		t.Errorf("second uninstall = %q, want nothing to remove", out)
 	}
+}
+
+// #469: uninstall removes the link of setup to any GitHub install of this plugin, also to a
+// removed checkout, and keeps a link or a file that Brain did not make.
+func TestUninstallLink(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		target func(t *testing.T, home string) string // the link target; "" puts a file at the link path
+		remove bool
+	}{
+		{"this binary", func(_ *testing.T, home string) string { return checkout(home, "2-0") }, true},
+		{"old checkout", func(t *testing.T, home string) string { return writeExe(t, checkout(home, "1-0")) }, true},
+		{"removed checkout", func(_ *testing.T, home string) string { return checkout(home, "1-0") }, true},
+		{"old fixed path", func(_ *testing.T, home string) string {
+			return filepath.Join(home, ".config", "herdr", "plugins", "github", "brain-bbbf7a6412d6", "bin", "brain")
+		}, true},
+		{"your own binary", func(t *testing.T, home string) string { return writeExe(t, filepath.Join(home, "src", "brain")) }, false},
+		{"your own removed binary", func(_ *testing.T, home string) string { return filepath.Join(home, "bin", "brain-old") }, false},
+		{"another herdr folder", func(_ *testing.T, home string) string {
+			return filepath.Join(home, "other", "herdr", "plugins", "github-installations", "brain-bbbf7a6412d6", "1-0", "checkout", "bin", "brain")
+		}, false},
+		{"another plugin hash", func(_ *testing.T, home string) string {
+			return filepath.Join(home, ".config", "herdr", "plugins", "github-installations", "brain-deadbeef", "1-0", "checkout", "bin", "brain")
+		}, false},
+		{"a file", func(*testing.T, string) string { return "" }, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			home := userHome(t)
+			bin, err := filepath.EvalSymlinks(writeExe(t, checkout(home, "2-0"))) // as paths.BinaryPath gives it
+			if err != nil {
+				t.Fatal(err)
+			}
+			link := filepath.Join(home, ".local", "bin", "brain")
+			target := c.target(t, home)
+			if target == "" {
+				writeExe(t, link)
+			} else {
+				mustSymlink(t, target, link)
+			}
+
+			out := uninstallBinary(t, "/tmp/main.sock", bin, "--apply")
+			_, err = os.Lstat(link)
+			if gone := errors.Is(err, fs.ErrNotExist); gone != c.remove {
+				t.Errorf("link removed = %t (Lstat: %v), want %t\n%s", gone, err, c.remove, out)
+			}
+			if said := strings.Contains(out, "removed "+link+"\n"); said != c.remove {
+				t.Errorf("output says the link is removed = %t, want %t:\n%s", said, c.remove, out)
+			}
+			if got, _ := os.Readlink(link); !c.remove && got != target {
+				t.Errorf("link after uninstall = %q, want %q", got, target)
+			}
+		})
+	}
+}
+
+// writeExe writes an executable file at path and returns path.
+func writeExe(t *testing.T, path string) string {
+	t.Helper()
+	putFile(t, path, "#!/bin/sh\n")
+	if err := os.Chmod(path, 0o755); err != nil { //nolint:gosec // a test binary must be executable
+		t.Fatal(err)
+	}
+	return path
 }
 
 // Without --data the stores stay, and only the files outside them go.

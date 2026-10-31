@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"maps"
 	"os"
-	"path/filepath"
 	"slices"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/adapter"
@@ -22,8 +21,8 @@ const uninstallUsage = `usage: brain uninstall [--apply] [--data]`
 // Uninstall runs `brain uninstall` with args after "uninstall" (E8-S5). It is a dry run
 // by default: it lists what would change. With --apply it removes each Brain hook entry whose
 // hash is unchanged, then the install record, the ~/.local/bin/brain link when it points to
-// this binary, and the bindings file. --data also removes the data home with the stores, and
-// the plugin's herdr config and state folders. Uninstall needs no binding: every path comes
+// this binary or to another install of this plugin (ownLink), and the bindings file. --data
+// also removes the data home with the stores, and the plugin's herdr config and state folders. Uninstall needs no binding: every path comes
 // from HOME, so a test session and a real session find the same install record.
 func Uninstall(_ context.Context, e Env, args []string) error {
 	flags := flag.NewFlagSet("uninstall", flag.ContinueOnError)
@@ -52,7 +51,7 @@ func Uninstall(_ context.Context, e Env, args []string) error {
 	if err := u.record(record, edited); err != nil {
 		return err
 	}
-	link, err := ownLink()
+	link, err := ownLink(e.Link, e.Binary)
 	if err != nil {
 		return err
 	}
@@ -192,25 +191,17 @@ func (u *uninstaller) printf(format string, a ...any) error {
 	return err
 }
 
-// ownLink returns ~/.local/bin/brain when it points to this binary (E1-S2), and "" when it
-// points elsewhere, is broken or does not exist.
-func ownLink() (string, error) {
-	link, err := paths.LinkPath()
-	if err != nil {
-		return "", err
-	}
-	bin, err := paths.BinaryPath()
-	if err != nil {
-		return "", err
-	}
-	target, err := filepath.EvalSymlinks(link)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
+// ownLink returns link, the ~/.local/bin/brain link of brain setup (E1-S2), when it points to
+// the brain binary bin, or to another install of this plugin, also a removed one
+// (install.LinkStale, #469). It returns "" for a file, a link to another binary, no link, and an
+// empty link, which is no check.
+func ownLink(link, bin string) (string, error) {
+	if link == "" {
 		return "", nil
-	case err != nil:
-		return "", fmt.Errorf("check link %s: %w", link, err)
-	case target != bin:
-		return "", nil
+	}
+	l, err := install.CheckLink(link, bin)
+	if err != nil || (l.State != install.LinkOK && l.State != install.LinkStale) {
+		return "", err
 	}
 	return link, nil
 }

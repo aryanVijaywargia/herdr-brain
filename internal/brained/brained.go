@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -58,10 +59,20 @@ var ErrRunning = errors.New("brained already runs")
 // build, put a new binary at its path (E19-S4).
 var errRestart = errors.New("the brained binary changed")
 
+// reinstallError means that herdr lists Brain in the plugin root root, and the brain binary
+// there is not the one that runs. herdr 0.9.5 puts each install in a new checkout folder and
+// keeps the old one, so the file of the old binary does not change (#468).
+type reinstallError struct{ root string }
+
+func (e *reinstallError) Error() string {
+	return "herdr lists Brain in " + e.root
+}
+
 // Main runs brained for the herdr session of environ, the environment that herdr gives a
 // [[startup]] process. It reads the panes with Capture and writes its errors to log. text is
 // the notification text of the history scan. When its binary file changes, it drops the lock
-// and runs the new binary in its place (E19-S4).
+// and runs the new binary in its place (E19-S4). When herdr lists Brain in a plugin root with
+// another binary, it runs that binary in its place, with that root in HERDR_PLUGIN_ROOT (#468).
 func Main(ctx context.Context, environ []string, log io.Writer, text ScanText) error {
 	// The path comes from the start: on Linux, os.Executable of a replaced file ends in
 	// " (deleted)".
@@ -73,14 +84,36 @@ func Main(ctx context.Context, environ []string, log io.Writer, text ScanText) e
 	if err != nil {
 		return err
 	}
-	err = serve(ctx, environ, log, text, func() bool { return changed(bin, fi) })
-	if !errors.Is(err, errRestart) {
+	err = serve(ctx, environ, log, text, func() bool { return changed(bin, fi) },
+		func(root string) bool { return installed(root, fi) })
+	var re *reinstallError
+	switch {
+	case errors.As(err, &re):
+		bin = rootBinary(re.root)
+		environ = append(slices.DeleteFunc(slices.Clone(environ), func(kv string) bool {
+			return strings.HasPrefix(kv, "HERDR_PLUGIN_ROOT=")
+		}), "HERDR_PLUGIN_ROOT="+re.root)
+		_, _ = fmt.Fprintf(log, "brained: herdr lists Brain in %s; brained runs %s\n", re.root, bin) // a failed log write has no other place to go
+	case errors.Is(err, errRestart):
+		_, _ = fmt.Fprintf(log, "brained: %s changed; brained runs it again\n", bin) // a failed log write has no other place to go
+	default:
 		return err
 	}
-	_, _ = fmt.Fprintf(log, "brained: %s changed; brained runs it again\n", bin) // a failed log write has no other place to go
 	// The method: exec in place keeps the pid and the environment. The lock file closes
 	// on exec (O_CLOEXEC), and the new binary takes the brained lock again at its start.
 	return syscall.Exec(bin, []string{bin, "brained"}, environ)
+}
+
+// rootBinary is the brain binary of the plugin root root, the binary of the [[startup]] command.
+func rootBinary(root string) string {
+	return filepath.Join(root, "bin", "brain")
+}
+
+// installed reports whether the plugin root root holds a brain binary that is not the file fi.
+// A missing binary is no new install yet: the next check looks again.
+func installed(root string, fi os.FileInfo) bool {
+	now, err := os.Stat(rootBinary(root))
+	return err == nil && !os.SameFile(fi, now)
 }
 
 // changed reports whether the file at bin is no longer the file fi: a new file (inode), or
@@ -95,8 +128,10 @@ func changed(bin string, fi os.FileInfo) bool {
 }
 
 // serve runs brained with the brained lock until it stops. text is the notification text of the
-// history scan, and moved reports a change of the binary.
-func serve(ctx context.Context, environ []string, log io.Writer, text ScanText, moved func() bool) error {
+// history scan, moved reports a change of the binary, and newRoot another binary in a plugin
+// root.
+func serve(ctx context.Context, environ []string, log io.Writer, text ScanText, moved func() bool,
+	newRoot func(root string) bool) error {
 	e, err := parseEnv(environ)
 	if err != nil {
 		return err
@@ -120,7 +155,7 @@ func serve(ctx context.Context, environ []string, log io.Writer, text ScanText, 
 	d := &daemon{
 		env: e, sock: herdr.Socket{Path: e.socket}, bindingsFile: bf,
 		handler: NewCapture(herdr.Socket{Path: e.socket}, environ), log: log, tick: t.C,
-		environ: environ, launch: StartLaunch, now: time.Now, moved: moved,
+		environ: environ, launch: StartLaunch, now: time.Now, moved: moved, installed: newRoot,
 		tries: connectTries, pause: connectPause, queue: queueSize,
 		extract: func(ctx context.Context, g Gate) error {
 			return extractPass(ctx, g, config, environ, reverts, log, Start)
