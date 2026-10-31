@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -59,20 +58,11 @@ var ErrRunning = errors.New("brained already runs")
 // build, put a new binary at its path (E19-S4).
 var errRestart = errors.New("the brained binary changed")
 
-// reinstallError means that herdr lists Brain in the plugin root root, and the brain binary
-// there is not the one that runs. herdr 0.9.5 puts each install in a new checkout folder and
-// keeps the old one, so the file of the old binary does not change (#468).
-type reinstallError struct{ root string }
-
-func (e *reinstallError) Error() string {
-	return "herdr lists Brain in " + e.root
-}
-
 // Main runs brained for the herdr session of environ, the environment that herdr gives a
 // [[startup]] process. It reads the panes with Capture and writes its errors to log. text is
-// the notification text of the history scan. When its binary file changes, it drops the lock
-// and runs the new binary in its place (E19-S4). When herdr lists Brain in a plugin root with
-// another binary, it runs that binary in its place, with that root in HERDR_PLUGIN_ROOT (#468).
+// the notification text of the history scan. When its binary file changes (E19-S4), or herdr
+// lists Brain in a new plugin root with a binary that brained can run (#468), it runs the new
+// binary in its place and gives it the brained lock (handoff).
 func Main(ctx context.Context, environ []string, log io.Writer, text ScanText) error {
 	// The path comes from the start: on Linux, os.Executable of a replaced file ends in
 	// " (deleted)".
@@ -84,36 +74,21 @@ func Main(ctx context.Context, environ []string, log io.Writer, text ScanText) e
 	if err != nil {
 		return err
 	}
-	err = serve(ctx, environ, log, text, func() bool { return changed(bin, fi) },
-		func(root string) bool { return installed(root, fi) })
-	var re *reinstallError
-	switch {
-	case errors.As(err, &re):
-		bin = rootBinary(re.root)
-		environ = append(slices.DeleteFunc(slices.Clone(environ), func(kv string) bool {
-			return strings.HasPrefix(kv, "HERDR_PLUGIN_ROOT=")
-		}), "HERDR_PLUGIN_ROOT="+re.root)
-		_, _ = fmt.Fprintf(log, "brained: herdr lists Brain in %s; brained runs %s\n", re.root, bin) // a failed log write has no other place to go
-	case errors.Is(err, errRestart):
-		_, _ = fmt.Fprintf(log, "brained: %s changed; brained runs it again\n", bin) // a failed log write has no other place to go
-	default:
+	e, err := parseEnv(environ)
+	if err != nil {
 		return err
 	}
-	// The method: exec in place keeps the pid and the environment. The lock file closes
-	// on exec (O_CLOEXEC), and the new binary takes the brained lock again at its start.
-	return syscall.Exec(bin, []string{bin, "brained"}, environ)
-}
-
-// rootBinary is the brain binary of the plugin root root, the binary of the [[startup]] command.
-func rootBinary(root string) string {
-	return filepath.Join(root, "bin", "brain")
-}
-
-// installed reports whether the plugin root root holds a brain binary that is not the file fi.
-// A missing binary is no new install yet: the next check looks again.
-func installed(root string, fi os.FileInfo) bool {
-	now, err := os.Stat(rootBinary(root))
-	return err == nil && !os.SameFile(fi, now)
+	f, err := holdLock(environ, e, log)
+	if err != nil {
+		return err
+	}
+	defer f.Close() //nolint:errcheck // the close drops the lock; nothing is written
+	h := &handoff{bin: bin, fi: fi, environ: withoutEnv(environ, lockFDEnv), log: log, exec: syscall.Exec}
+	for {
+		if err := h.next(f, serve(ctx, e, h, text)); err != nil {
+			return err
+		}
+	}
 }
 
 // changed reports whether the file at bin is no longer the file fi: a new file (inode), or
@@ -127,15 +102,10 @@ func changed(bin string, fi os.FileInfo) bool {
 	return !os.SameFile(fi, now) || !now.ModTime().Equal(fi.ModTime())
 }
 
-// serve runs brained with the brained lock until it stops. text is the notification text of the
-// history scan, moved reports a change of the binary, and newRoot another binary in a plugin
-// root.
-func serve(ctx context.Context, environ []string, log io.Writer, text ScanText, moved func() bool,
-	newRoot func(root string) bool) error {
-	e, err := parseEnv(environ)
-	if err != nil {
-		return err
-	}
+// serve runs brained for the session of e until it stops; the caller holds the brained lock.
+// text is the notification text of the history scan, and h checks for a new binary.
+func serve(ctx context.Context, e env, h *handoff, text ScanText) error {
+	environ, log := h.environ, h.log
 	bf, err := paths.BindingsFile()
 	if err != nil {
 		return err
@@ -144,18 +114,13 @@ func serve(ctx context.Context, environ []string, log io.Writer, text ScanText, 
 	if err != nil {
 		return err
 	}
-	unlock, err := lock(e.stateDir, e.session)
-	if err != nil {
-		return err
-	}
-	defer unlock()
 	t := time.NewTicker(checkEvery)
 	defer t.Stop()
 	reverts := NewReverts(time.Now())
 	d := &daemon{
 		env: e, sock: herdr.Socket{Path: e.socket}, bindingsFile: bf,
 		handler: NewCapture(herdr.Socket{Path: e.socket}, environ), log: log, tick: t.C,
-		environ: environ, launch: StartLaunch, now: time.Now, moved: moved, installed: newRoot,
+		environ: environ, launch: StartLaunch, now: time.Now, moved: h.changed, reinstalled: h.reinstalled,
 		tries: connectTries, pause: connectPause, queue: queueSize,
 		extract: func(ctx context.Context, g Gate) error {
 			return extractPass(ctx, g, config, environ, reverts, log, Start)
@@ -246,18 +211,36 @@ func parseEnv(environ []string) (env, error) {
 // lock takes the brained lock of session in dir, so one brained runs for each herdr session.
 // The lock stays until unlock, or until the process ends.
 func lock(dir, session string) (unlock func(), err error) {
+	f, err := lockSession(dir, session)
+	if err != nil {
+		return nil, err
+	}
+	return func() { _ = f.Close() }, nil // the close drops the lock
+}
+
+// lockSession takes the brained lock of session in dir, and returns its open file.
+func lockSession(dir, session string) (*os.File, error) {
 	path := lockPath(dir, session)
-	unlock, err = flock(path, false)
+	f, err := lockFile(path, false)
 	if errors.Is(err, syscall.EWOULDBLOCK) {
 		return nil, fmt.Errorf("%w for herdr session %q (lock %s)", ErrRunning, session, path)
 	}
-	return unlock, err
+	return f, err
 }
 
 // flock takes the exclusive flock of the file at path, and makes the file and its folder when
 // they are missing. With wait false, a lock that another process holds gives
 // syscall.EWOULDBLOCK at once. The lock stays until unlock, or until the process ends.
 func flock(path string, wait bool) (unlock func(), err error) {
+	f, err := lockFile(path, wait)
+	if err != nil {
+		return nil, err
+	}
+	return func() { _ = f.Close() }, nil // the close drops the lock
+}
+
+// lockFile is flock, and returns the open file that holds the lock.
+func lockFile(path string, wait bool) (*os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil { // 0o700, as the data home
 		return nil, err
 	}
@@ -273,7 +256,7 @@ func flock(path string, wait bool) (unlock func(), err error) {
 		_ = f.Close() // the lock error is the one to report
 		return nil, fmt.Errorf("lock %s: %w", path, err)
 	}
-	return func() { _ = f.Close() }, nil // the close drops the lock
+	return f, nil
 }
 
 // lockPath is the brained lock of session in the state folder dir.

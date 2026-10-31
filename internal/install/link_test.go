@@ -160,3 +160,105 @@ func symlink(t *testing.T, target, link string) {
 		t.Fatal(err)
 	}
 }
+
+// installRoot is the checkout of GitHub install n of the plugin in the herdr folder herdr.
+func installRoot(herdr, n string) string {
+	return filepath.Join(herdr, "plugins", "github-installations", "brain-bbbf7a6412d6", n, "checkout")
+}
+
+// newInstall writes the brain binary of GitHub install n in the herdr folder herdr, and returns
+// its plugin root.
+func newInstall(t *testing.T, herdr, n string) string {
+	t.Helper()
+	writeBinary(t, filepath.Join(installRoot(herdr, n), "bin", "brain"))
+	return installRoot(herdr, n)
+}
+
+// linkInstall makes GitHub install n in the herdr folder herdr, with a bin/brain link to target.
+func linkInstall(t *testing.T, herdr, n, target string) string {
+	t.Helper()
+	dir := filepath.Join(installRoot(herdr, n), "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	symlink(t, target, filepath.Join(dir, "brain"))
+	return installRoot(herdr, n)
+}
+
+func chmod(t *testing.T, path string, mode os.FileMode) {
+	t.Helper()
+	if err := os.Chmod(path, mode); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// #468: Sibling gives only the binary of another GitHub install of this plugin that only you can
+// change.
+func TestSibling(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		make func(t *testing.T, herdr string) string // returns the plugin root
+		ok   bool
+	}{
+		{"new install", func(t *testing.T, herdr string) string { return newInstall(t, herdr, "300-0") }, true},
+		{"link to another install", func(t *testing.T, herdr string) string {
+			return linkInstall(t, herdr, "400-0", filepath.Join(newInstall(t, herdr, "300-0"), "bin", "brain"))
+		}, true},
+		{"old fixed path", func(t *testing.T, herdr string) string {
+			root := filepath.Join(herdr, "plugins", "github", "brain-bbbf7a6412d6")
+			writeBinary(t, filepath.Join(root, "bin", "brain"))
+			return root
+		}, true},
+		{"relative root", func(*testing.T, string) string {
+			return "config/herdr/plugins/github-installations/brain-bbbf7a6412d6/300-0/checkout"
+		}, false},
+		{"no binary", func(_ *testing.T, herdr string) string { return installRoot(herdr, "300-0") }, false},
+		{"another plugin hash", func(t *testing.T, herdr string) string {
+			root := filepath.Join(herdr, "plugins", "github-installations", "brain-deadbeef", "1-0", "checkout")
+			writeBinary(t, filepath.Join(root, "bin", "brain"))
+			return root
+		}, false},
+		{"link to another plugin", func(t *testing.T, herdr string) string {
+			other := writeBinary(t, filepath.Join(herdr, "plugins", "github-installations", "other-0a1b", "1-0", "checkout", "bin", "brain"))
+			return linkInstall(t, herdr, "300-0", other)
+		}, false},
+		{"a folder", func(t *testing.T, herdr string) string {
+			if err := os.MkdirAll(filepath.Join(installRoot(herdr, "300-0"), "bin", "brain"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			return installRoot(herdr, "300-0")
+		}, false},
+		{"not executable", func(t *testing.T, herdr string) string {
+			root := newInstall(t, herdr, "300-0")
+			chmod(t, filepath.Join(root, "bin", "brain"), 0o644)
+			return root
+		}, false},
+		{"others can write it", func(t *testing.T, herdr string) string {
+			root := newInstall(t, herdr, "300-0")
+			chmod(t, filepath.Join(root, "bin", "brain"), 0o757)
+			return root
+		}, false},
+		{"the group can write a folder", func(t *testing.T, herdr string) string {
+			root := newInstall(t, herdr, "300-0")
+			chmod(t, filepath.Dir(root), 0o775)
+			return root
+		}, false},
+		{"others can write the plugin folder", func(t *testing.T, herdr string) string {
+			root := newInstall(t, herdr, "300-0")
+			chmod(t, filepath.Join(herdr, "plugins"), 0o777)
+			return root
+		}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, bin, herdr := linkDirs(t)
+			root := c.make(t, herdr)
+			got, err := Sibling(root, bin)
+			if (err == nil) != c.ok {
+				t.Fatalf("Sibling(%s) = %q, %v; want ok %t", root, got, err, c.ok)
+			}
+			if c.ok && !strings.HasSuffix(got, "/bin/brain") {
+				t.Errorf("Sibling(%s) = %q, want a brain binary", root, got)
+			}
+		})
+	}
+}

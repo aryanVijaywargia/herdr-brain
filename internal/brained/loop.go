@@ -49,9 +49,9 @@ type daemon struct {
 	// that this brained has nothing more to scan.
 	scan  func(ctx context.Context, g Gate) (done bool, err error)
 	moved func() bool // reports a new brained binary at its path; nil for none
-	// installed reports a brained binary in the plugin root root that is not the one that
-	// runs (#468); nil for none.
-	installed func(root string) bool
+	// reinstalled returns a reinstallError when the plugin root root holds a brain binary that
+	// brained can run in its place (#468); nil for none.
+	reinstalled func(ctx context.Context, root string) error
 	// setup opens the setup popup (OpenSetup) that brain start could not open (#462); nil for
 	// none.
 	setup func(ctx context.Context) error
@@ -477,8 +477,8 @@ func (l *loop) drain(ctx context.Context) error {
 }
 
 // check stops brained when Brain is unlinked or disabled, ends it with a reinstallError when
-// herdr lists Brain in a plugin root with another brained binary, and reads the binding of the
-// session. An unbound session gets no gate, so learning is off for all its panes.
+// herdr lists Brain in a plugin root with a new binary to run (reinstalled), and reads the
+// binding of the session. An unbound session gets no gate, so learning is off for all its panes.
 func (l *loop) check(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
@@ -491,8 +491,10 @@ func (l *loop) check(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if p.Root != "" && l.d.installed != nil && l.d.installed(p.Root) {
-			return &reinstallError{root: p.Root}
+		if p.Root != "" && l.d.reinstalled != nil {
+			if err := l.d.reinstalled(ctx, p.Root); err != nil {
+				return err
+			}
 		}
 	}
 	l.gate = nil

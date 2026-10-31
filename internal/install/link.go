@@ -123,8 +123,7 @@ func Relink(link, bin string) error {
 	if err != nil {
 		return fmt.Errorf("check link: %w", err)
 	}
-	st, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok || int(st.Uid) != os.Getuid() || fi.Mode().Perm()&0o022 != 0 {
+	if !private(fi) {
 		return fmt.Errorf("%s is not yours or others can write it, so Brain does not change %s; run: ln -sfn '%s' '%s'",
 			dir, link, bin, link)
 	}
@@ -137,4 +136,49 @@ func Relink(link, bin string) error {
 		return fmt.Errorf("replace link: %w", err)
 	}
 	return nil
+}
+
+// private reports whether fi is yours and no other user can write it.
+func private(fi os.FileInfo) bool {
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	return ok && int(st.Uid) == os.Getuid() && fi.Mode().Perm()&0o022 == 0
+}
+
+// Sibling returns the brain binary of the plugin root root, with its symlinks resolved, when it is
+// the binary of a GitHub install of the same plugin as the brain binary bin (the same herdr plugin
+// folder and brain-<hash>), and only you can change it: a regular executable file of yours, in
+// folders of yours up to the herdr plugin folder, and no other user can write any of them (#468).
+// bin is a path with no symlink (paths.BinaryPath).
+func Sibling(root, bin string) (string, error) {
+	if !filepath.IsAbs(root) {
+		return "", fmt.Errorf("plugin root %q is not an absolute path", root)
+	}
+	target, err := filepath.EvalSymlinks(filepath.Join(root, "bin", "brain"))
+	if err != nil {
+		return "", err
+	}
+	if !own(target, bin) {
+		return "", fmt.Errorf("%s is not the brain binary of a GitHub install of this plugin", target)
+	}
+	fi, err := os.Stat(target)
+	if err != nil {
+		return "", err
+	}
+	if !fi.Mode().IsRegular() || fi.Mode().Perm()&0o100 == 0 || !private(fi) {
+		return "", fmt.Errorf("%s is not an executable file that only you can change", target)
+	}
+	// target is in the plugin folder top (own), so the walk ends there.
+	top := filepath.Clean(pluginBinary.FindStringSubmatch(target)[1])
+	for dir := filepath.Dir(target); ; dir = filepath.Dir(dir) {
+		fi, err := os.Stat(dir)
+		if err != nil {
+			return "", err
+		}
+		if !private(fi) {
+			return "", fmt.Errorf("%s is not yours or others can write it", dir)
+		}
+		if dir == top {
+			return target, nil
+		}
+	}
 }
