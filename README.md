@@ -54,7 +54,7 @@ Install the plugin from herdr:
 herdr plugin install aryanVijaywargia/herdr-brain
 ```
 
-herdr shows you what the plugin will run and asks for a yes. Then Brain's setup popup opens by itself. Setup collects every change into one plan and asks you once, so a "no" leaves your machine as it was. Along the way it asks two questions.
+herdr shows you what the plugin will run and asks for a yes. Then Brain's setup popup opens by itself. If the herdr session has no workspace yet, the popup opens when you make one. Setup collects every change into one plan and asks you once, so a "no" leaves your machine as it was. Along the way it asks two questions.
 
 The first is which CLI Brain may use to learn from your sessions, `claude`, `codex` or `none`. If you pick one, Brain calls it in the background with short excerpts of your finished sessions, and those excerpts go to that CLI's model provider. Your agents already send your sessions there the same way. With `none`, Brain makes no such call, so it learns much less by itself, but `brain remember` still works.
 
@@ -80,7 +80,7 @@ brain remember "never edit an applied migration; add a new one"
 
 A review pane opens beside you with the draft. Approve it there. Now start a new Claude Code or Codex session in the same workspace and ask it to add a nickname column to the users table. It writes a new migration and leaves the old ones alone.
 
-If something doesn't work, run `brain doctor`. It checks the setup and prints a fix for each check that fails.
+If something doesn't work, run `brain doctor`. It checks the setup and prints a fix for each check that fails. It also checks that Brain's `brained` process runs for this herdr session, and that the `~/.local/bin/brain` link runs the installed Brain.
 
 ## Start an agent with Brain
 

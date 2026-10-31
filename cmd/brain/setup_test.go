@@ -110,6 +110,34 @@ func TestPlanLinkKeepsExistingFiles(t *testing.T) {
 	}
 }
 
+// #459: a link that setup made to a removed plugin checkout gets this binary on yes, and stays
+// on no.
+func TestPlanLinkStale(t *testing.T) {
+	_, link := linkFixture(t)
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	install := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(link))), "config", "herdr", "plugins", "github-installations",
+		"brain-bbbf7a6412d6")
+	bin, old := filepath.Join(install, "200-0", "checkout", "bin", "brain"), filepath.Join(install, "100-0", "checkout", "bin", "brain")
+	if err := os.Symlink(old, link); err != nil {
+		t.Fatal(err)
+	}
+	out, n, err := offer(t, bin, link, false)
+	if err != nil || n != 1 || !strings.Contains(out, link+" points to an old Brain binary, "+old+". Point it to this binary.") {
+		t.Fatalf("plan: %v, %d steps, %q", err, n, out)
+	}
+	if got, _ := os.Readlink(link); got != old {
+		t.Errorf("link after no = %q, want %q", got, old)
+	}
+	if out, _, err := offer(t, bin, link, true); err != nil || !strings.Contains(out, "Linked "+link+".") {
+		t.Fatalf("apply: %v, %q", err, out)
+	}
+	if got, err := os.Readlink(link); err != nil || got != bin {
+		t.Errorf("link after yes = %q, %v; want %q", got, err, bin)
+	}
+}
+
 // `brain setup` through run(): it shows the absolute binary path and makes no link on "no".
 func TestSetupCommand(t *testing.T) {
 	home := setupHome(t, "0.9.1")
@@ -145,7 +173,7 @@ func TestPlanLinkErrors(t *testing.T) {
 		},
 		"lookup": {
 			prep:   func(t *testing.T, link string) { mustMkdir(t, filepath.Dir(link), 0o000) },
-			prefix: "check link ",
+			prefix: "check link: ",
 		},
 	}
 	for name, c := range cases {

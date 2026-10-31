@@ -52,7 +52,7 @@ Expected:
 
 - The build prints `brain build: bin/brain <version> (built from source)`, or `(release asset <asset>, checksum OK)` for the release tag.
 - `herdr plugin list --plugin brain` lists the plugin.
-- Within about a minute, the setup popup "Brain setup" opens in each running herdr session that has no Brain binding.
+- Within about a minute, the setup popup "Brain setup" opens in each running herdr session that has no Brain binding. A session with no workspace gets the popup a few seconds after its first workspace opens.
 
 If it fails:
 
@@ -126,6 +126,7 @@ If it fails:
 - `<cli> is not on PATH`: each extractor call fails until that CLI is on `PATH`. `brain doctor` says why.
 - The extractor CLI fails to sign in: `brain status` and `brain doctor` show its error and say how to sign in again. The call inherits the herdr server env, so the CLI signs in as it does in a herdr pane: its own login, an API key or token, a proxy or gateway, or a cloud provider. Brain removes only `HERDR_*`, `BRAIN_*`, and the variables that Claude Code and codex set inside their own sessions, such as `CLAUDECODE` and `CODEX_SANDBOX`. Brain passes the env on and does not read it. Brain keeps the error text of a failed call after a filter that hides long tokens, URLs, keys and their encoded forms; a short or all-letter value may not be hidden. The claude call loads no Claude settings file and turns off hooks, so a variable that is set only in the `env` block of `~/.claude/settings.json` does not reach it: set it in the herdr server env. codex still reads its `config.toml`, which is how a codex provider or proxy works.
 - The plan says `~/.local/bin/brain` exists and points elsewhere, or is broken: Brain does not change it. Use the binary path that setup prints.
+- The plan says `~/.local/bin/brain` points to an old Brain binary: a reinstall put the plugin in a new folder. Setup points the link to the current binary. `brain start` and `brain doctor --fix` do the same. Brain changes only a link to its own plugin folder. When others can write `~/.local/bin`, Brain changes nothing and prints the `ln -sfn` command to run.
 
 Brain needs `~/.local/bin` on `PATH` to run as `brain`. Setup never edits the shell config. If the folder is not on `PATH`, tell the user and use the full binary path.
 
@@ -162,7 +163,7 @@ Expected:
 - `brain status` shows `binding: herdr session "<name>", ...`, the herdr version, the agent CLIs, and one line for each live session: its start (`start brain launch`, `start global hook` or `start none`), its capture (`capture hooks`, `transcript` or `screen`), its brief (`brief delivered` or `brief not delivered (<why>)`) and its tools (`tools on` for a `brain claude` or `brain codex` session, else `tools off`).
 
 If `brain doctor` fails, it prints one line for each failed check, with its fix after `fix:`. Do the fix, then run `brain doctor` again.
-`brain doctor` asks before a repair that writes a hook entry. `brain doctor --fix` applies each repair that `brain doctor` offers, with no question.
+`brain doctor` asks before each repair: a hook entry, the `~/.local/bin/brain` link, or a start of `brained`. `brain doctor --fix` applies each repair that `brain doctor` offers, with no question.
 
 ## 6. Try it
 
@@ -186,6 +187,8 @@ The next session in that workspace that starts with `brain claude` or `brain cod
 | `herdr session "<name>" has no Brain binding, so Brain gives its agents nothing.` | Setup did not run in this session | `brain setup --session <name>` |
 | The shell cannot find `brain` | `~/.local/bin` is not on `PATH`, or setup made no link | Use the full binary path that setup prints |
 | `herdr pane list: ...` | The herdr server of the session does not answer | Check that the herdr server of that session runs, then run `brain doctor` again |
+| `brained: no brained runs for herdr session "<name>"` | The `brained` process of the session stopped, so Brain captures nothing | `brain doctor --fix`, or the herdr action `brain.start` (`herdr plugin action invoke brain.start`) |
+| `link: ~/.local/bin/brain points to <path>` | A reinstall put the plugin in a new folder, and the link of setup still points to the old one | `brain doctor --fix`, or `brain setup` |
 | `<cli>: no Brain hook in <file>, so <cli> sessions get no Brain items` | The hook entry of a CLI with no Brain launch, such as agy, is missing | `brain setup` |
 | `<cli>: brain <cli> starts the plain <file> with no Brain flags: ...` | The CLI is older than the version that Brain needs, or Brain cannot read its version | Update the CLI to the version that the line names |
 | `<cli>: <cli> not found on PATH (Brain skips its own binary and its copies)` | Each file named `claude` or `codex` on `PATH` is the brain binary | Put the real CLI on `PATH` |

@@ -31,6 +31,8 @@ type doctorFixture struct {
 	*statusFixture
 	home, codexHome string
 	environ         []string // more env entries of each doctor call
+	link            string   // the ~/.local/bin/brain link that doctor checks; "" for none
+	binary          string   // the brain binary that a stale link gets
 }
 
 func newDoctorFixture(t *testing.T) *doctorFixture {
@@ -168,6 +170,10 @@ func (f *doctorFixture) doctorArgs(t *testing.T, socket, stdin string, args []st
 	e.Adapters = harness.Files{Install: filepath.Join(f.data, "install.json"),
 		Conformance: filepath.Join(f.data, "conformance.json"), Retest: filepath.Join(f.data, retestDir), Installed: filepath.Join(f.data, installedDir)}
 	e.StatusHerdr = func(herdr.Target) (StatusHerdr, error) { return f.herdr, nil }
+	if f.brained != nil {
+		e.Brained = f.brained
+	}
+	e.Link, e.Binary = f.link, f.binary
 	e.Now = func() time.Time { return testNow.Add(3 * time.Hour) }
 	e.Stdin = strings.NewReader(stdin)
 	err := Doctor(context.Background(), e, args)

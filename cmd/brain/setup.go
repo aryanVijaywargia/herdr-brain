@@ -856,25 +856,34 @@ func applyHooks(inst *install.Installer, p *adapter.Profile, target string, star
 }
 
 // planLink shows the binary path and plans the link -> bin, as lines under the binding bullet.
-// It never replaces a file that it did not make.
+// It never replaces a file that it did not make. A link that it made to an old or missing
+// plugin checkout gets the new target (#459).
 func planLink(bin, link string, p *plan, stdout io.Writer) error {
 	p.say("  Brain binary: %s\n", bin)
-	target, err := filepath.EvalSymlinks(link)
-	switch {
-	case err == nil && target == bin:
+	l, err := install.CheckLink(link, bin)
+	if err != nil {
+		return err
+	}
+	switch l.State {
+	case install.LinkOK:
 		p.say("  %s already points to it. Already done.\n", link)
 		return nil
-	case err == nil:
+	case install.LinkOther:
 		p.say("  %s exists and points elsewhere. Brain does not change it.\n  Run Brain with: %s\n", link, bin)
 		return nil
-	case !errors.Is(err, os.ErrNotExist):
-		return fmt.Errorf("check link %s: %w", link, err)
-	}
-	if _, err := os.Lstat(link); err == nil {
+	case install.LinkBroken:
 		p.say("  %s exists but is broken. Brain does not change it.\n  Run Brain with: %s\n", link, bin)
 		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("check link %s: %w", link, err)
+	case install.LinkStale:
+		p.say("  %s points to an old Brain binary, %s. Point it to this binary.\n", link, l.Target)
+		p.add(func() error {
+			if err := install.Relink(link, bin); err != nil {
+				return err
+			}
+			fmt.Fprintf(stdout, "Linked %s.\n", link)
+			return nil
+		})
+		return nil
 	}
 
 	p.say("  Make the symlink %s -> %s.\n", link, bin)

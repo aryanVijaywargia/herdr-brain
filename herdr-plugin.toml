@@ -32,9 +32,11 @@ title = "Brain setup"
 placement = "popup"
 command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/brain\" setup"]
 
-# E19-S3: starts brained for this herdr session when none holds the brained lock, then opens the
-# setup popup when the session has no binding. herdr runs [[startup]] only after a session
-# restore, so scripts/build.sh invokes this action after `herdr plugin install`.
+# E19-S3: starts brained for this herdr session when none holds the brained lock, points a stale
+# ~/.local/bin/brain link of setup to this binary (#459), then opens the setup popup when the
+# session has no binding; with no workspace, brained opens it once one exists (#462). herdr runs
+# [[startup]] only after a session restore, so scripts/build.sh invokes this action after
+# `herdr plugin install`.
 # Also: `herdr plugin action invoke brain.start`.
 [[actions]]
 id = "start"

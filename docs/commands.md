@@ -5,8 +5,8 @@ Run these in a pane of a herdr session. `brain <command> --help` prints the usag
 | Command | What it does |
 |---|---|
 | `brain version` | Print the Brain version |
-| `brain status` | Show Brain status, with the start, capture, brief and tools of each live session |
-| `brain doctor [--fix]` | Check the Brain setup and print the fix of each failed check; `--fix` applies each offered repair with no question |
+| `brain status` | Show Brain status, with the start, capture, brief and tools of each live session; one line says when `brained` does not run for the session |
+| `brain doctor [--fix]` | Check the Brain setup and print the fix of each failed check; `--fix` applies each offered repair with no question. It also checks that `brained` runs for the session, and that a `~/.local/bin/brain` link of setup runs this binary |
 | `brain setup [--session <name> [--test <folder>]] [--extractor]` | Bind a herdr session, add the hooks of an agent CLI with no Brain launch, ask to remove the old global hooks of Claude Code and Codex, choose the extractor CLI |
 | `brain remember "<text>" [--global \| --workspace <w>] [--kind <k>]` | Draft an item for your review; `<k>` is `fact`, `preference`, `decision` or `handoff` |
 | `brain recall <words>` | Print the approved items of this pane's brief that match the words, best match first |

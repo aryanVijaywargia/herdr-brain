@@ -33,9 +33,11 @@ const noReceipt = "unknown: no receipt for its agent session"
 // Doctor runs `brain doctor` (E9-S3): every check, and one line with the fix for each failed
 // check. A clean setup prints "all checks passed"; any failed check returns an error, so the
 // command exits 1. It opens the store as every store command does, so it runs the repair and the
-// deferred session-id check. The one fix that writes, a new hook entry, asks first and goes
-// through install with its guard. With --fix it applies that fix with no question (E19-S4: brain
-// update runs it); an entry that you edited still stays. In a session with no binding it
+// deferred session-id check. Each fix that changes something asks first: a new hook entry,
+// which goes through install with its guard; a stale ~/.local/bin/brain link of setup, which
+// gets this binary (#459); and a session with no brained, which gets the herdr action
+// brain.start (#460). With --fix it applies those fixes with no question (E19-S4: brain update
+// runs it); an entry that you edited still stays. In a session with no binding it
 // explains, prints the setup command, and reads and writes nothing.
 func Doctor(ctx context.Context, e Env, args []string) (err error) {
 	fix := len(args) == 1 && args[0] == "--fix"
@@ -95,6 +97,15 @@ func (d *doctorCall) run(ctx context.Context) {
 		d.fail("herdr pane list: %v; fix: check that the herdr server of session %q runs, then run brain doctor again",
 			d.panesErr, d.Binding.Session)
 	}
+	// brained needs herdr, and so does its fix: with herdr down, the check above says why.
+	if d.versionErr == nil {
+		if err := d.brained(ctx); err != nil {
+			d.fail("brained: %v", err)
+		}
+	}
+	if err := d.link(); err != nil {
+		d.fail("link: %v", err)
+	}
 	if err := d.extraction(ctx); err != nil {
 		d.fail("extraction: %v", err)
 	}
@@ -113,6 +124,68 @@ func (d *doctorCall) run(ctx context.Context) {
 		d.fail("launch: %v", err)
 	}
 	d.conflicts()
+}
+
+// brained checks that a brained holds the brained lock of the herdr session of the binding
+// (#460). Without one, Brain captures nothing and no launch ends. The fix invokes the herdr
+// action brain.start, which starts brained as brain start does; a brained that runs already
+// makes it a no-op.
+func (d *doctorCall) brained(ctx context.Context) error {
+	session := d.Binding.Session
+	running, err := d.Brained(session)
+	if err != nil || running {
+		return err
+	}
+	d.w.printf("brained: no brained runs for herdr session %q, so Brain captures nothing and no launch ends\n", session)
+	ok, err := d.ask("Start it with the herdr action brain.start? [y/N] ")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		d.fail("brained: no brained runs for herdr session %q; fix: run brain doctor again and answer y, "+
+			"or run the herdr action brain.start (herdr plugin action invoke brain.start)", session)
+		return nil
+	}
+	hctx, cancel := context.WithTimeout(ctx, herdrDeadline)
+	defer cancel()
+	if err := d.client.InvokeAction(hctx, "brain.start"); err != nil {
+		return err
+	}
+	d.w.printf("Invoked the herdr action brain.start, which starts brained.\n")
+	return nil
+}
+
+// link checks the ~/.local/bin/brain link of brain setup (#459). herdr 0.9.5 puts each GitHub
+// install in a new folder, so after a reinstall the link that setup made runs an old brain
+// binary, and none once herdr removes the old folder. The fix points it to this binary. A link
+// or file that Brain did not make is no fault here: Brain never changes it.
+func (d *doctorCall) link() error {
+	if d.Link == "" {
+		return nil
+	}
+	bin := d.Binary
+	l, err := install.CheckLink(d.Link, bin)
+	if err != nil || l.State != install.LinkStale {
+		return err
+	}
+	why := "another brain binary"
+	if _, err := os.Stat(d.Link); err != nil {
+		why = "a missing binary"
+	}
+	d.w.printf("link: %s points to %s (%s), not %s\n", d.Link, l.Target, why, bin)
+	ok, err := d.ask("Point it to this binary? [y/N] ")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		d.fail("link: %s points to %s; fix: run brain doctor again and answer y, or brain setup", d.Link, l.Target)
+		return nil
+	}
+	if err := install.Relink(d.Link, bin); err != nil {
+		return err
+	}
+	d.w.printf("Pointed %s to %s.\n", d.Link, bin)
+	return nil
 }
 
 // launches checks the launch of each CLI with launch data that is on the PATH (E24-S8): Brain

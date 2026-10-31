@@ -123,9 +123,11 @@ func (f *fixture) env(socket, paneID, workspaceID string, stdout *bytes.Buffer) 
 			h.targets = append(h.targets, t)
 			return h, nil
 		},
-		Now:    now,
-		Stdout: stdout,
-		Stderr: &bytes.Buffer{},
+		// A brained runs in each session; a brained test replaces it.
+		Brained: func(string) (bool, error) { return true, nil },
+		Now:     now,
+		Stdout:  stdout,
+		Stderr:  &bytes.Buffer{},
 	}
 }
 

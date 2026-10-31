@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/aryanVijaywargia/herdr-brain/internal/bindings"
@@ -46,6 +49,9 @@ type daemon struct {
 	// that this brained has nothing more to scan.
 	scan  func(ctx context.Context, g Gate) (done bool, err error)
 	moved func() bool // reports a new brained binary at its path; nil for none
+	// setup opens the setup popup (OpenSetup) that brain start could not open (#462); nil for
+	// none.
+	setup func(ctx context.Context) error
 }
 
 // item is one event, or the end of a stream, from a reader.
@@ -144,6 +150,7 @@ func (d *daemon) run(ctx context.Context) error {
 			if err := l.check(ctx); err != nil {
 				return err
 			}
+			l.pendingSetup(ctx)
 			if l.redo != nil {
 				l.retry(ctx, *l.redo)
 			} else {
@@ -495,6 +502,89 @@ func (l *loop) check(ctx context.Context) error {
 		l.gate = &g
 	}
 	return nil
+}
+
+// pendingSetup opens the setup popup that brain start could not open, because the session had
+// no workspace (SetupPending, #462): once, at the first check that finds a pane while the session
+// still has no binding. It takes the setup lock with no wait: while brain start holds it, the
+// next check looks again.
+func (l *loop) pendingSetup(ctx context.Context) {
+	if l.d.setup == nil {
+		return
+	}
+	dir, session := l.d.env.stateDir, l.d.env.session
+	if _, err := os.Stat(pendingPath(dir, session)); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			l.report(err)
+		}
+		return
+	}
+	unlock, err := flock(setupLockPath(dir, session), false)
+	if errors.Is(err, syscall.EWOULDBLOCK) {
+		return
+	}
+	if err != nil {
+		l.report(err)
+		return
+	}
+	defer unlock()
+	l.report(l.claimSetup(ctx))
+}
+
+// claimSetup opens the pending popup, with the setup lock held. It removes the record before
+// the popup, so a failed open is not repeated, and a session that got its binding drops the
+// record with no popup. The binding is read right before the popup, after the pane call: setup
+// can bind the session during that call. A bindings file that it cannot read opens no popup.
+func (l *loop) claimSetup(ctx context.Context) error {
+	path := pendingPath(l.d.env.stateDir, l.d.env.session)
+	ok, err := l.ownPending(path)
+	if err != nil || !ok {
+		return err
+	}
+	cctx, cancel := context.WithTimeout(ctx, callTimeout)
+	live, err := l.d.sock.Panes(cctx)
+	cancel()
+	if err != nil || len(live) == 0 {
+		return err // the next check looks again
+	}
+	bound, err := l.bound()
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil || bound {
+		return err
+	}
+	return l.d.setup(ctx)
+}
+
+// ownPending reports whether the record at path is a request of this session: of its socket,
+// and newer than pendingLife. It removes the record of an older session.
+func (l *loop) ownPending(path string) (bool, error) {
+	fi, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil // a start took it back before this brained got the lock
+	}
+	if err != nil {
+		return false, err
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	if string(b) == l.d.env.socket && l.d.now().Sub(fi.ModTime()) < pendingLife {
+		return true, nil
+	}
+	return false, os.Remove(path)
+}
+
+// bound reports whether the bindings file binds this session, as check finds it.
+func (l *loop) bound() (bool, error) {
+	bs, _, err := bindings.Read(l.d.bindingsFile)
+	if err != nil {
+		return false, err
+	}
+	b, ok, err := bindings.BySocket(bs, l.d.env.socket)
+	return ok && b.Session == l.d.env.session, err
 }
 
 // pluginState returns ErrStop when plugin id is not linked or is disabled.

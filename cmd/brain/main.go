@@ -47,7 +47,8 @@ commands:
   uninstall [--apply] [--data]: list what uninstall removes; --apply removes it, --data the stores too
   hook      --profile <name> --event start|prompt|tool|stop: the agent hooks (start prints the brief or nothing)
   brained   the herdr listener of one herdr session (herdr starts it)
-  start     start brained for this herdr session, and open setup when it has no binding (the start action)
+  start     start brained for this herdr session, point a stale ~/.local/bin/brain link of setup to this
+            binary, and open setup when the session has no binding (the start action)
   update    [--check | --records]: update the Brain plugin to the newest commit of its repo, ask to remove
             the old global hooks of claude and codex (one question for each), add the missing hook
             record entries of the other CLIs (one question), then run brain doctor --fix; --check only
