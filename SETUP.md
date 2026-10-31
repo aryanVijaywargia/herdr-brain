@@ -28,7 +28,7 @@ If a check fails:
 - Wrong OS: stop and tell the user that Brain runs on macOS and Linux only.
 - herdr is missing or older than 0.9.1: tell the user to install or update herdr. Brain setup stops on an older herdr.
 - No `claude` and no `codex`: Brain installs, but no session gets items. Tell the user.
-- No Go 1.23 or later: install the release tag in step 2 with `--ref v0.1.1`. It uses the release binary. Any other ref needs Go.
+- No Go 1.23 or later: install the release tag in step 2 with `--ref v0.2.0`. It uses the release binary. Any other ref needs Go.
 
 ## 2. Install the plugin
 
@@ -50,7 +50,7 @@ herdr plugin install --yes aryanVijaywargia/herdr-brain
 
 Expected:
 
-- The build prints `brain build: bin/brain <version> (built from source)`, or `(release asset <asset>, checksum OK)` for the release tag.
+- herdr prints "Installed brain from aryanVijaywargia/herdr-brain." herdr 0.9.5 shows no output of a good build. Other herdr versions can also show the build line `brain build: bin/brain <version> (built from source)`, or `(release asset <asset>, checksum OK)` for the release tag.
 - `herdr plugin list --plugin brain` lists the plugin.
 - Within about a minute, the setup popup "Brain setup" opens in each running herdr session that has no Brain binding. A session with no workspace gets the popup a few seconds after its first workspace opens.
 
@@ -78,12 +78,16 @@ herdr plugin action invoke brain.setup
 The user reads the plan and answers in the popup.
 
 **B. You run setup and relay the questions.** `brain` is not on `PATH` before setup.
-The binary of a GitHub install is at `~/.config/herdr/plugins/github/brain-bbbf7a6412d6/bin/brain`.
+The binary is `bin/brain` in the plugin folder that herdr lists as `plugin_root`.
+Do not type a fixed path: the folder differs between herdr versions, and herdr 0.9.5 makes a new one at each install.
 
 ```sh
-BRAIN=~/.config/herdr/plugins/github/brain-bbbf7a6412d6/bin/brain
+ROOT=$(herdr plugin list --plugin brain --json | sed -n 's/.*"plugin_root": *"\([^"]*\)".*/\1/p')
+BRAIN="$ROOT/bin/brain"
 "$BRAIN" setup < /dev/null
 ```
+
+When `$ROOT` is empty, herdr has no plugin `brain`. Do step 2 again.
 
 With no input, setup takes no extractor and answers no, so it writes nothing.
 It prints the steps "herdr version", "extractor CLI" and "past sessions", then the plan under the step "plan".
@@ -219,7 +223,7 @@ Ask the user before you answer each question. For Codex, each new entry needs tr
 The newest version depends on the install:
 
 - No `--ref`, or a linked checkout: the newest commit of the default branch.
-- A release tag, such as `--ref v0.1.1`: the newest release tag. It needs no Go.
+- A release tag, such as `--ref v0.2.0`: the newest release tag. It needs no Go.
 - Any other `--ref`: none. `brain update` changes nothing and prints the command to leave the ref. Run it after the user agrees. The default branch needs Go.
 
 ## Uninstall
@@ -241,5 +245,5 @@ If it fails:
 
 - `brain uninstall --apply` keeps a hook entry that the user edited, and tells them to remove it by hand.
 - If `herdr plugin uninstall brain` ran first, the hook entries point to a missing binary. Do one of these:
-  - Install the plugin again, which gets the same path. Run `brain uninstall --apply`, then uninstall the plugin.
+  - Install the plugin again. Get the new binary path as in step 3B: herdr 0.9.5 puts each install in a new folder. Run `"$BRAIN" uninstall --apply`, which also removes the hook entries of the old binary. After the install, `brain start` points a stale `~/.local/bin/brain` link of setup to the new binary, so uninstall removes it too. If the link still points to a missing Brain binary, remove it by hand. Then uninstall the plugin.
   - Or edit the files by hand. In `~/.claude/settings.json` and `~/.codex/hooks.json`, remove each hook group whose command contains `hook --profile claude --event` or `hook --profile codex --event`. In `~/.gemini/config/hooks.json`, remove the `brain` key. Then remove `~/.local/share/brain/install.json`, `~/.local/share/brain/bindings.json` and the `~/.local/bin/brain` link.
