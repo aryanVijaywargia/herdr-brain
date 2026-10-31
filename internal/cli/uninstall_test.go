@@ -24,6 +24,8 @@ func userHome(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CODEX_HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_STATE_HOME", "")
 	files := map[string]string{
 		".claude/settings.json":                     string(readFile(t, "../install/testdata/claude-settings.json")),
 		".codex/hooks.json":                         string(readFile(t, "../install/testdata/codex-hooks.json")),
@@ -206,6 +208,41 @@ func TestUninstallApplyData(t *testing.T) {
 
 	if out := runUninstall(t, "/tmp/main.sock", "--apply", "--data"); out != "Brain has nothing to remove.\n" {
 		t.Errorf("second uninstall = %q, want nothing to remove", out)
+	}
+}
+
+// With XDG_CONFIG_HOME and XDG_STATE_HOME set, herdr 0.9.5 puts the plugin folders under them,
+// and `uninstall --apply --data` removes them there (#470). The folders of other plugins and
+// herdr's own config stay.
+func TestUninstallApplyDataXDG(t *testing.T) {
+	home := userHome(t)
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(xdg, "config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(xdg, "state"))
+	for rel, data := range map[string]string{
+		"config/herdr/config.toml":                 "theme = \"dark\"\n",
+		"config/herdr/plugins/config/other/a.toml": "x = 1\n",
+		"state/herdr/plugins/other/log":            "other state",
+	} {
+		putFile(t, filepath.Join(xdg, rel), data)
+	}
+	before, beforeHome := tree(t, xdg), tree(t, home)
+	installBrain(t, home)
+	config := filepath.Join(xdg, "config", "herdr", "plugins", "config", "brain")
+	state := filepath.Join(xdg, "state", "herdr", "plugins", "brain")
+	for _, f := range []string{filepath.Join(config, "config.toml"), filepath.Join(state, "state.json")} {
+		if _, err := os.Stat(f); err != nil {
+			t.Fatalf("installBrain did not put %s under XDG: %v", f, err)
+		}
+	}
+
+	out := runUninstall(t, "/tmp/main.sock", "--apply", "--data")
+	diffTrees(t, tree(t, xdg), before)
+	diffTrees(t, tree(t, home), beforeHome)
+	for _, want := range []string{"removed " + config, "removed " + state} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
 	}
 }
 

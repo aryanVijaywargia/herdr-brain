@@ -154,29 +154,56 @@ func TestEvalResults(t *testing.T) {
 	}
 }
 
+// The plugin folders are where herdr 0.9.5 puts them: under XDG_CONFIG_HOME and XDG_STATE_HOME
+// when they are set, else under HOME (#470). Brain cannot know the working folder of herdr, so
+// a relative value counts as not set.
 func TestPluginDirs(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	config, state, err := PluginDirs()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := filepath.Join(home, ".config", "herdr", "plugins", "config", "brain"); config != want {
-		t.Errorf("config = %q, want %q", config, want)
-	}
-	if want := filepath.Join(home, ".local", "state", "herdr", "plugins", "brain"); state != want {
-		t.Errorf("state = %q, want %q", state, want)
+	xdg := t.TempDir()
+	homeConfig := filepath.Join(home, ".config", "herdr", "plugins", "config", "brain")
+	homeState := filepath.Join(home, ".local", "state", "herdr", "plugins", "brain")
+	for _, tt := range []struct {
+		name                  string
+		configHome, stateHome string
+		wantConfig, wantState string
+	}{
+		{"no XDG", "", "", homeConfig, homeState},
+		{"XDG", filepath.Join(xdg, "c"), filepath.Join(xdg, "s"),
+			filepath.Join(xdg, "c", "herdr", "plugins", "config", "brain"), filepath.Join(xdg, "s", "herdr", "plugins", "brain")},
+		{"XDG config only", filepath.Join(xdg, "c"), "", filepath.Join(xdg, "c", "herdr", "plugins", "config", "brain"), homeState},
+		{"XDG state only", "", filepath.Join(xdg, "s"), homeConfig, filepath.Join(xdg, "s", "herdr", "plugins", "brain")},
+		{"relative XDG", "rel/c", "rel/s", homeConfig, homeState},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_CONFIG_HOME", tt.configHome)
+			t.Setenv("XDG_STATE_HOME", tt.stateHome)
+			config, state, err := PluginDirs()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if config != tt.wantConfig || state != tt.wantState {
+				t.Errorf("PluginDirs() = %q, %q, want %q, %q", config, state, tt.wantConfig, tt.wantState)
+			}
+			file, err := ConfigFile()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := filepath.Join(tt.wantConfig, "config.toml"); file != want {
+				t.Errorf("ConfigFile() = %q, want %q", file, want)
+			}
+		})
 	}
 }
 
-func TestConfigFile(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	got, err := ConfigFile()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := filepath.Join(home, ".config", "herdr", "plugins", "config", "brain", "config.toml"); got != want {
-		t.Errorf("ConfigFile() = %q, want %q", got, want)
+// A relative HOME is refused also when the XDG variables are set: the fallback of the other
+// folder needs it.
+func TestPluginDirsRelativeHome(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("HOME", "rel/home")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(xdg, "c"))
+	t.Setenv("XDG_STATE_HOME", "")
+	if _, _, err := PluginDirs(); err == nil {
+		t.Error("PluginDirs() with a relative HOME = nil error, want an error")
 	}
 }

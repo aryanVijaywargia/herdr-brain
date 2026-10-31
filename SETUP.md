@@ -238,7 +238,7 @@ herdr plugin uninstall brain
 
 1. `brain uninstall` is a dry run. It lists what would change. Show the list to the user.
 2. `brain uninstall --apply` removes the Brain hook entries, the install record, the `~/.local/bin/brain` link and the session bindings file. It keeps the stores in `~/.local/share/brain`.
-   Add `--data` only when the user wants their stores removed too. It also removes `~/.local/share/brain`, `~/.config/herdr/plugins/config/brain` and `~/.local/state/herdr/plugins/brain`.
+   Add `--data` only when the user wants their stores removed too. It also removes `~/.local/share/brain`, `~/.config/herdr/plugins/config/brain` and `~/.local/state/herdr/plugins/brain`. When `XDG_CONFIG_HOME` or `XDG_STATE_HOME` is set, the two herdr folders are under it, as herdr makes them: `$XDG_CONFIG_HOME/herdr/plugins/config/brain` and `$XDG_STATE_HOME/herdr/plugins/brain`.
 3. `herdr plugin uninstall brain` removes the plugin.
 
 If it fails:

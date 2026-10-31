@@ -87,20 +87,40 @@ func Home() (string, error) {
 	return homeDir()
 }
 
-// PluginDirs returns ~/.config/herdr/plugins/config/brain and ~/.local/state/herdr/plugins/brain,
-// the config and state folders that herdr gives the plugin. `herdr plugin uninstall` leaves
-// them on disk (E8 epic), so `brain uninstall --data` removes them (E8-S5).
+// PluginDirs returns the config and state folders that herdr gives the plugin, as herdr 0.9.1 to
+// 0.9.5 make them (#470): $XDG_CONFIG_HOME/herdr/plugins/config/brain and
+// $XDG_STATE_HOME/herdr/plugins/brain, else ~/.config/herdr/plugins/config/brain and
+// ~/.local/state/herdr/plugins/brain. `herdr plugin uninstall` leaves them on disk (E8 epic),
+// so `brain uninstall --data` removes them (E8-S5).
 func PluginDirs() (config, state string, err error) {
-	home, err := homeDir()
+	configHome, err := xdgDir("XDG_CONFIG_HOME", ".config")
 	if err != nil {
 		return "", "", err
 	}
-	return filepath.Join(home, ".config", "herdr", "plugins", "config", "brain"),
-		filepath.Join(home, ".local", "state", "herdr", "plugins", "brain"), nil
+	stateHome, err := xdgDir("XDG_STATE_HOME", filepath.Join(".local", "state"))
+	if err != nil {
+		return "", "", err
+	}
+	return filepath.Join(configHome, "herdr", "plugins", "config", "brain"),
+		filepath.Join(stateHome, "herdr", "plugins", "brain"), nil
 }
 
-// ConfigFile returns ~/.config/herdr/plugins/config/brain/config.toml, the Brain config file
-// in the plugin config folder. It holds the live_suggestions switch.
+// xdgDir returns the folder of the XDG variable key, else ~/<fallback>. herdr takes a relative
+// value relative to its own working folder, which Brain cannot know; so Brain takes only an
+// absolute value, as brained.StateDir does, and the XDG spec says.
+func xdgDir(key, fallback string) (string, error) {
+	if dir := os.Getenv(key); filepath.IsAbs(dir) {
+		return dir, nil
+	}
+	home, err := homeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, fallback), nil
+}
+
+// ConfigFile returns config.toml in the plugin config folder (PluginDirs), the Brain config
+// file. It holds the live_suggestions switch.
 func ConfigFile() (string, error) {
 	config, _, err := PluginDirs()
 	if err != nil {
